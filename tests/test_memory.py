@@ -1,0 +1,183 @@
+"""Tests de agent/memory.py — persistance, format API, fenêtre glissante."""
+
+import json
+import os
+import pytest
+from pathlib import Path
+
+from agent.memory import ConversationMemory
+
+
+@pytest.fixture
+def mem(tmp_path, monkeypatch):
+    """ConversationMemory avec MEMORY_DIR pointant sur tmp_path."""
+    monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+    m = ConversationMemory(session_id="testmem")
+    m.memory_file = tmp_path / "memory_testmem.json"
+    return m
+
+
+# ------------------------------------------------------------------ #
+# Ajout de messages                                                    #
+# ------------------------------------------------------------------ #
+
+class TestAddMessage:
+    def test_ajout_message_user(self, mem):
+        mem.add_message("user", "Bonjour Klody")
+        assert any(
+            m["role"] == "user" and m["content"] == "Bonjour Klody"
+            for m in mem.messages
+        )
+
+    def test_ajout_message_assistant(self, mem):
+        mem.add_message("assistant", "Bonjour !")
+        assert any(m["role"] == "assistant" for m in mem.messages)
+
+    def test_timestamp_present(self, mem):
+        mem.add_message("user", "msg")
+        assert mem.messages[-1]["timestamp"] is not None
+
+    def test_fenetre_glissante_limite(self, mem, monkeypatch):
+        """Fenêtre glissante : ne dépasse pas MAX_MESSAGES messages non-system."""
+        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 5)
+        mem.messages.append({"role": "system", "content": "sys", "timestamp": None})
+        for i in range(10):
+            mem.add_message("user", f"Message {i}")
+        non_system = [m for m in mem.messages if m["role"] != "system"]
+        assert len(non_system) <= 5
+
+    def test_fenetre_glissante_conserve_system(self, mem, monkeypatch):
+        """Le system prompt n'est jamais supprimé par la fenêtre glissante."""
+        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 3)
+        mem.messages.insert(0, {"role": "system", "content": "sys", "timestamp": None})
+        for i in range(10):
+            mem.add_message("user", f"msg {i}")
+        assert any(m["role"] == "system" for m in mem.messages)
+
+
+# ------------------------------------------------------------------ #
+# Messages tool calls                                                  #
+# ------------------------------------------------------------------ #
+
+class TestToolCallMessages:
+    def test_ajout_tool_call_message(self, mem):
+        tool_calls = [{
+            "id": "call_abc",
+            "type": "function",
+            "function": {"name": "read_file", "arguments": '{"path": "test.txt"}'},
+        }]
+        mem.add_tool_call_message(tool_calls)
+        assert any(m.get("tool_calls") for m in mem.messages)
+
+    def test_ajout_tool_result(self, mem):
+        mem.add_tool_result("call_abc", "read_file", "contenu du fichier")
+        tool_msg = next((m for m in mem.messages if m["role"] == "tool"), None)
+        assert tool_msg is not None
+        assert tool_msg["tool_call_id"] == "call_abc"
+        assert tool_msg["name"] == "read_file"
+        assert tool_msg["content"] == "contenu du fichier"
+
+
+# ------------------------------------------------------------------ #
+# Format API                                                           #
+# ------------------------------------------------------------------ #
+
+class TestGetMessagesForApi:
+    def test_format_messages_simples(self, mem):
+        mem.add_message("user", "Question")
+        mem.add_message("assistant", "Réponse")
+        api = mem.get_messages_for_api()
+        roles = [m["role"] for m in api]
+        assert "user" in roles
+        assert "assistant" in roles
+
+    def test_pas_de_timestamp_dans_api(self, mem):
+        mem.add_message("user", "msg")
+        for m in mem.get_messages_for_api():
+            assert "timestamp" not in m
+
+    def test_format_tool_message_api(self, mem):
+        tool_calls = [{"id": "c1", "type": "function",
+                       "function": {"name": "list_files", "arguments": "{}"}}]
+        mem.add_tool_call_message(tool_calls)
+        mem.add_tool_result("c1", "list_files", "📄 main.py")
+        api = mem.get_messages_for_api()
+        tool_msg = next((m for m in api if m["role"] == "tool"), None)
+        assert tool_msg is not None
+        assert tool_msg["tool_call_id"] == "c1"
+        assert tool_msg["content"] == "📄 main.py"
+
+    def test_assistant_avec_tool_calls_dans_api(self, mem):
+        tool_calls = [{"id": "c2", "type": "function",
+                       "function": {"name": "read_file", "arguments": '{"path":"f.py"}'}}]
+        mem.add_tool_call_message(tool_calls)
+        api = mem.get_messages_for_api()
+        asst = next((m for m in api if m["role"] == "assistant"), None)
+        assert asst is not None
+        assert "tool_calls" in asst
+
+
+# ------------------------------------------------------------------ #
+# Persistance JSON                                                     #
+# ------------------------------------------------------------------ #
+
+class TestSaveLoad:
+    def test_sauvegarde_cree_fichier_json(self, mem, tmp_path):
+        mem.add_message("user", "test persistance")
+        assert mem.memory_file.exists()
+
+    def test_contenu_json_valide(self, mem, tmp_path):
+        mem.add_message("user", "test JSON")
+        data = json.loads(mem.memory_file.read_text(encoding="utf-8"))
+        assert data["session_id"] == "testmem"
+        assert any(m["content"] == "test JSON" for m in data["messages"])
+
+    def test_chargement_depuis_fichier(self, mem, tmp_path):
+        mem.add_message("user", "Message persisté")
+        loaded = ConversationMemory.load_from_file(mem.memory_file)
+        assert loaded.session_id == "testmem"
+        assert any(m["content"] == "Message persisté" for m in loaded.messages)
+
+    def test_load_latest_retourne_none_si_vide(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        result = ConversationMemory.load_latest()
+        assert result is None
+
+    def test_load_latest_retourne_plus_recent(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        m1 = ConversationMemory(session_id="older")
+        m1.memory_file = tmp_path / "memory_older.json"
+        m1.add_message("user", "ancien")
+        import time; time.sleep(0.01)
+        m2 = ConversationMemory(session_id="newer")
+        m2.memory_file = tmp_path / "memory_newer.json"
+        m2.add_message("user", "récent")
+        latest = ConversationMemory.load_latest()
+        assert latest.session_id == "newer"
+
+
+# ------------------------------------------------------------------ #
+# Clear et stats                                                       #
+# ------------------------------------------------------------------ #
+
+class TestClearAndStats:
+    def test_clear_supprime_messages_non_system(self, mem):
+        mem.messages.append({"role": "system", "content": "System", "timestamp": None})
+        mem.add_message("user", "à effacer")
+        mem.clear()
+        assert not any(m["role"] == "user" for m in mem.messages)
+
+    def test_clear_preserve_system(self, mem):
+        mem.messages.append({"role": "system", "content": "System", "timestamp": None})
+        mem.add_message("user", "msg")
+        mem.clear()
+        assert any(m["role"] == "system" for m in mem.messages)
+
+    def test_stats_retourne_dict_complet(self, mem):
+        mem.add_message("user", "u1")
+        mem.add_message("assistant", "a1")
+        stats = mem.stats()
+        assert stats["session_id"] == "testmem"
+        assert stats["messages_user"] == 1
+        assert stats["messages_assistant"] == 1
+        assert "fichier" in stats
