@@ -1,0 +1,139 @@
+"""Registre central des outils — schémas JSON Schema compatibles OpenAI function calling."""
+
+TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": (
+                "Lit le contenu d'un fichier dans le répertoire projet. "
+                "À appeler avant toute modification."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin relatif depuis la racine du projet (ex: src/main.py)",
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": (
+                "Écrit ou remplace le contenu complet d'un fichier. "
+                "Toujours lire le fichier avant d'écrire pour ne rien perdre."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin relatif depuis la racine du projet",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu complet à écrire dans le fichier",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "Liste les fichiers et dossiers dans un répertoire du projet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin relatif du répertoire à lister (défaut: racine)",
+                        "default": ".",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Si true, liste récursivement tous les sous-dossiers",
+                        "default": False,
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_command",
+            "description": (
+                "Exécute une commande shell dans le répertoire projet. "
+                "Requiert une confirmation humaine explicite avant exécution. "
+                "Toujours renseigner 'reason' pour expliquer le besoin."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Commande shell à exécuter",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Explication claire de pourquoi cette commande est nécessaire",
+                    },
+                },
+                "required": ["command", "reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_in_files",
+            "description": (
+                "Recherche un pattern (texte ou regex) dans les fichiers du projet. "
+                "Utilise ripgrep si disponible, sinon grep."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Pattern de recherche, supporte les expressions régulières",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Répertoire où chercher (défaut: racine du projet)",
+                        "default": ".",
+                    },
+                    "file_pattern": {
+                        "type": "string",
+                        "description": "Filtre glob sur les noms de fichiers (ex: '*.py')",
+                        "default": "",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Recherche sensible à la casse",
+                        "default": True,
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+]
+
+
+def get_tools() -> list[dict]:
+    return TOOLS
+
+
+def get_tool_names() -> list[str]:
+    return [t["function"]["name"] for t in TOOLS]
