@@ -1,0 +1,37 @@
+# Environnement
+.env
+.env.local
+.env.production
+.env.staging
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.Python
+env/
+venv/
+.venv/
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs et mémoire de session (garder le dossier)
+logs/*.log
+logs/memory_*.json
+!logs/.gitkeep
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.vscode/
+.idea/
+*.swp
