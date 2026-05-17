@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
-"""Point d'entrée CLI — Klody Code Ai."""
+"""Klody Code Ai — Interface CLI next-level."""
 
 import argparse
 import logging
 import sys
+from pathlib import Path
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
 
 from rich import box
+from rich.align import Align
+from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -18,69 +29,127 @@ from agent.orchestrator import Orchestrator
 logger = logging.getLogger(__name__)
 console = Console()
 
-BANNER = Text.from_markup(
-    "\n"
-    "[bold blue]╔══════════════════════════════════════════╗[/bold blue]\n"
-    "[bold blue]║[/bold blue]  [bold white]🤖  Klody Code Ai[/bold white]                    [bold blue]║[/bold blue]\n"
-    "[bold blue]║[/bold blue]  [dim]Powered by Ollama · 100% local · privé[/dim]   [bold blue]║[/bold blue]\n"
-    "[bold blue]╚══════════════════════════════════════════╝[/bold blue]\n"
-)
+# ------------------------------------------------------------------ #
+# Styles prompt_toolkit                                               #
+# ------------------------------------------------------------------ #
+
+_PT_STYLE = Style.from_dict({
+    "prompt":        "bold ansibrightgreen",
+    "bottom-toolbar": "bg:#1a1a2e #6272a4",
+    "auto-suggestion": "#555555",
+})
+
+_HISTORY_FILE = Path.home() / ".klody_history"
+
+# ------------------------------------------------------------------ #
+# Bannière                                                             #
+# ------------------------------------------------------------------ #
+
+def print_banner(memory: ConversationMemory) -> None:
+    console.print()
+
+    title = Text()
+    title.append("  ◆  ", style="bold blue")
+    title.append("KLODY", style="bold white")
+    title.append(" CODE AI", style="bold cyan")
+    title.append("  ◆", style="bold blue")
+
+    subtitle = Text("  Powered by Ollama · 100% local · privé  ", style="dim")
+
+    console.print(Panel(
+        Align.center(title + Text("\n") + subtitle),
+        border_style="bold blue",
+        padding=(0, 4),
+        box=box.DOUBLE_EDGE,
+    ))
+    console.print()
+
+    # Tableau d'état compact
+    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2), expand=False)
+    table.add_column(style="dim", no_wrap=True)
+    table.add_column(style="bold")
+
+    non_system = sum(1 for m in memory.messages if m["role"] != "system")
+    table.add_row("⚙  Modèle",  f"[green]{MODEL_NAME}[/green]")
+    table.add_row("📁 Projet",  f"[white]{PROJECT_ROOT}[/white]")
+    table.add_row("🔑 Session", f"[cyan]{memory.session_id}[/cyan]")
+    table.add_row("💬 Messages", str(non_system))
+
+    console.print(Align.center(table))
+    console.print()
+    console.print(
+        Align.center(Text("/help  /clear  /memory  /model  /exit", style="dim"))
+    )
+    console.print(Rule(style="dim blue"))
+    console.print()
+
+
+# ------------------------------------------------------------------ #
+# Toolbar prompt_toolkit (bas de l'écran)                             #
+# ------------------------------------------------------------------ #
+
+def make_toolbar(orchestrator: Orchestrator):
+    """Retourne une fonction qui génère la toolbar dynamique."""
+    def get_toolbar():
+        mem = orchestrator.memory
+        n = sum(1 for m in mem.messages if m["role"] != "system")
+        tokens = orchestrator.llm.total_tokens
+        model = orchestrator.llm.model
+        return HTML(
+            f"  <b>◆ Klody</b>  │  "
+            f"<ansicyan>{model}</ansicyan>  │  "
+            f"session <b>{mem.session_id}</b>  │  "
+            f"{n} messages  │  "
+            f"~{tokens:,} tokens"
+        )
+    return get_toolbar
+
+
+# ------------------------------------------------------------------ #
+# Commandes spéciales                                                  #
+# ------------------------------------------------------------------ #
 
 HELP_TEXT = """
-[bold]Commandes spéciales :[/bold]
+[bold]Commandes :[/bold]
 
-  [cyan]/help[/cyan]            Afficher cette aide
-  [cyan]/clear[/cyan]           Effacer l'historique de la session courante
-  [cyan]/memory[/cyan]          Afficher les statistiques de mémoire
-  [cyan]/model[/cyan]           Afficher le modèle actif
-  [cyan]/model <nom>[/cyan]     Changer de modèle (ex: /model qwen2.5-coder:7b)
-  [cyan]/exit[/cyan]            Quitter l'agent
-  [cyan]Ctrl+C[/cyan]           Quitter l'agent
+  [cyan]/help[/cyan]              Cette aide
+  [cyan]/clear[/cyan]             Effacer l'historique de la session
+  [cyan]/memory[/cyan]            Statistiques de la session
+  [cyan]/model[/cyan]             Afficher le modèle actif
+  [cyan]/model <nom>[/cyan]       Changer de modèle  [dim]ex: /model qwen2.5-coder:7b[/dim]
+  [cyan]/tokens[/cyan]            Afficher le compteur de tokens
+  [cyan]/exit[/cyan]              Quitter
+
+[dim]Saisie multi-ligne : terminer une ligne par  \\  puis Entrée[/dim]
+[dim]Historique : flèches ↑ ↓[/dim]
 """
 
 
-def print_banner(memory: ConversationMemory) -> None:
-    console.print(BANNER)
-
-    table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-    table.add_column("clé", style="dim", width=12)
-    table.add_column("valeur", style="bold")
-
-    non_system = sum(1 for m in memory.messages if m["role"] != "system")
-    table.add_row("Modèle", f"[green]{MODEL_NAME}[/green]")
-    table.add_row("Projet", str(PROJECT_ROOT))
-    table.add_row("Session", memory.session_id)
-    table.add_row("Messages", str(non_system))
-
-    console.print(table)
-    console.print("[dim]Tapez /help pour l'aide · /exit pour quitter[/dim]\n")
-
-
 def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
-    """
-    Gère les commandes spéciales /xxx.
-    Retourne True si traitée, False si inconnue.
-    """
     token = cmd.strip().lower()
 
     if token == "/help":
-        console.print(HELP_TEXT)
+        console.print(Panel(HELP_TEXT, title="[bold]Klody Code Ai[/bold]", border_style="blue"))
         return True
 
     if token == "/clear":
         orchestrator.memory.clear()
-        # clear() préserve le system prompt, pas besoin de ré-injecter
-        console.print("[green]✓ Historique effacé.[/green]")
+        console.print("\n  [green]✓[/green] Historique effacé.\n")
         return True
 
     if token == "/memory":
         stats = orchestrator.memory.stats()
-        table = Table(title="Mémoire de session", box=box.ROUNDED, border_style="blue")
-        table.add_column("Clé", style="cyan", no_wrap=True)
-        table.add_column("Valeur")
+        table = Table(title="Session", box=box.ROUNDED, border_style="cyan")
+        table.add_column("Clé", style="dim", no_wrap=True)
+        table.add_column("Valeur", style="bold")
         for k, v in stats.items():
             table.add_row(k, str(v))
         console.print(table)
+        return True
+
+    if token == "/tokens":
+        t = orchestrator.llm.total_tokens
+        console.print(f"\n  [cyan]~{t:,} tokens[/cyan] estimés cette session.\n")
         return True
 
     if token.startswith("/model"):
@@ -88,97 +157,110 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         if len(parts) == 2:
             new_model = parts[1].strip()
             orchestrator.llm.model = new_model
-            console.print(f"[green]✓ Modèle changé:[/green] [bold]{new_model}[/bold]")
+            console.print(f"\n  [green]✓[/green] Modèle → [bold]{new_model}[/bold]\n")
         else:
-            console.print(
-                f"[cyan]Modèle actif:[/cyan] [bold]{orchestrator.llm.model}[/bold]"
-            )
+            console.print(f"\n  Modèle actif : [bold green]{orchestrator.llm.model}[/bold green]\n")
         return True
 
     if token in ("/exit", "/quit", "/q"):
-        console.print("\n[bold blue]À bientôt ! 👋[/bold blue]\n")
+        console.print("\n[bold blue]  ◆  À bientôt ![/bold blue]\n")
         sys.exit(0)
 
     return False
 
 
+# ------------------------------------------------------------------ #
+# REPL principal                                                       #
+# ------------------------------------------------------------------ #
+
 def repl(orchestrator: Orchestrator) -> None:
-    """Boucle REPL interactive."""
+    """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions)."""
+
+    session: PromptSession = PromptSession(
+        history=FileHistory(str(_HISTORY_FILE)),
+        auto_suggest=AutoSuggestFromHistory(),
+        style=_PT_STYLE,
+        bottom_toolbar=make_toolbar(orchestrator),
+        refresh_interval=1.0,   # met à jour la toolbar chaque seconde
+        mouse_support=False,
+    )
+
     while True:
         try:
             console.print()
-            user_input = console.input("[bold green]Vous >[/bold green] ").strip()
+            user_input = session.prompt(
+                HTML("<prompt>  ❯  </prompt>"),
+            ).strip()
 
             if not user_input:
                 continue
 
+            # Continuation multi-ligne : "phrase \\" → on concatène
+            while user_input.endswith("\\"):
+                user_input = user_input[:-1] + " "
+                continuation = session.prompt(HTML("<prompt>  …  </prompt>")).strip()
+                user_input += continuation
+
             if user_input.startswith("/"):
                 if not handle_special_command(user_input, orchestrator):
-                    console.print(
-                        f"[red]Commande inconnue:[/red] {user_input} — tapez /help"
-                    )
+                    console.print(f"\n  [red]Commande inconnue :[/red] {user_input}  [dim]→ /help[/dim]\n")
                 continue
 
-            console.print("\n[bold blue]Klody >[/bold blue]")
+            # Réponse de l'agent
+            console.print()
+            console.print(Rule(title="[dim]Klody[/dim]", style="dim blue", align="left"))
+            console.print()
             orchestrator.run(user_input)
+            console.print()
 
         except KeyboardInterrupt:
-            console.print("\n\n[bold blue]À bientôt ! 👋[/bold blue]\n")
-            sys.exit(0)
+            # Ctrl+C : vider la ligne en cours sans quitter
+            console.print()
+            continue
         except EOFError:
+            console.print("\n[bold blue]  ◆  À bientôt ![/bold blue]\n")
             sys.exit(0)
         except Exception as e:
             logger.error("Erreur REPL: %s", e, exc_info=True)
-            console.print(f"\n[bold red]Erreur:[/bold red] {e}")
-            console.print("[dim]Consultez logs/agent.log pour les détails.[/dim]")
+            console.print(f"\n  [bold red]Erreur :[/bold red] {e}")
+            console.print("  [dim]→ logs/agent.log pour les détails[/dim]\n")
 
+
+# ------------------------------------------------------------------ #
+# Entrée                                                               #
+# ------------------------------------------------------------------ #
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Klody Code Ai — Agent de coding local basé sur Ollama",
+        description="Klody Code Ai — Agent de coding local (Ollama)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Exemples:\n"
             "  python main.py                     # nouvelle session\n"
             "  python main.py --resume            # reprendre la dernière session\n"
-            "  python main.py --session abc12345  # reprendre une session précise\n"
+            "  python main.py --session abc12345  # session précise\n"
         ),
     )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Reprendre la dernière session",
-    )
-    parser.add_argument(
-        "--session",
-        type=str,
-        default=None,
-        metavar="ID",
-        help="ID de session à charger (ex: abc12345)",
-    )
+    parser.add_argument("--resume", action="store_true", help="Reprendre la dernière session")
+    parser.add_argument("--session", type=str, default=None, metavar="ID")
     args = parser.parse_args()
 
-    # --- Chargement ou création de la mémoire ---
     memory: ConversationMemory | None = None
 
     if args.session:
-        session_file = MEMORY_DIR / f"memory_{args.session}.json"
-        if session_file.exists():
-            memory = ConversationMemory.load_from_file(session_file)
-            console.print(f"[green]✓ Session[/green] [bold]{args.session}[/bold] chargée.")
+        f = MEMORY_DIR / f"memory_{args.session}.json"
+        if f.exists():
+            memory = ConversationMemory.load_from_file(f)
+            console.print(f"\n  [green]✓[/green] Session [bold]{args.session}[/bold] chargée.")
         else:
-            console.print(
-                f"[yellow]Session '{args.session}' introuvable — nouvelle session.[/yellow]"
-            )
+            console.print(f"\n  [yellow]Session '{args.session}' introuvable.[/yellow]")
 
     elif args.resume:
         memory = ConversationMemory.load_latest()
         if memory:
-            console.print(
-                f"[green]✓ Session[/green] [bold]{memory.session_id}[/bold] reprise."
-            )
+            console.print(f"\n  [green]✓[/green] Session [bold]{memory.session_id}[/bold] reprise.")
         else:
-            console.print("[yellow]Aucune session précédente — nouvelle session.[/yellow]")
+            console.print("\n  [yellow]Aucune session précédente.[/yellow]")
 
     if memory is None:
         memory = ConversationMemory()

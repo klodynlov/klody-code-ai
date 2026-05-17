@@ -7,6 +7,10 @@ from typing import Optional
 from openai import OpenAI, APIConnectionError, APITimeoutError
 from rich.console import Console
 from rich.live import Live
+from rich.markdown import Markdown
+from rich.padding import Padding
+from rich.rule import Rule
+from rich.spinner import Spinner
 from rich.text import Text
 
 from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME
@@ -30,6 +34,12 @@ Avant toute commande bash, explique pourquoi tu en as besoin.\
 """
 
 
+def _has_markdown(text: str) -> bool:
+    """Détecte si le texte contient du Markdown significatif."""
+    markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
+    return any(m in text for m in markers)
+
+
 class LLMClient:
     def __init__(self, model: str = MODEL_NAME):
         self.model = model
@@ -37,6 +47,8 @@ class LLMClient:
             base_url=OLLAMA_BASE_URL,
             api_key=OLLAMA_API_KEY,
         )
+        # Compteur de tokens approximatif (session courante)
+        self.total_tokens: int = 0
 
     def stream_chat(
         self,
@@ -44,11 +56,10 @@ class LLMClient:
         tools: Optional[list[dict]] = None,
     ) -> tuple[str, Optional[list[dict]]]:
         """
-        Envoie les messages au LLM et streame la réponse token par token.
-        Retourne (texte_complet, tool_calls_ou_None).
-
-        Fallback automatique : si le modèle retourne un tool call en JSON texte
-        (comportement de qwen2.5-coder via Ollama), il est parsé et converti.
+        Envoie les messages et streame la réponse avec :
+        - Spinner "Klody réfléchit..." avant le premier token
+        - Rendu Markdown progressif pendant le streaming
+        - Fallback : parse les tool calls émis en JSON texte
         """
         params: dict = {
             "model": self.model,
@@ -61,14 +72,17 @@ class LLMClient:
             params["tool_choice"] = "auto"
 
         full_content = ""
-        # Dictionnaire indexé par position pour reconstruire les tool calls fragmentés
         raw_tool_calls: dict[int, dict] = {}
 
         try:
             stream = self.client.chat.completions.create(**params)
 
-            live_text = Text()
-            with Live(live_text, console=console, refresh_per_second=15) as live:
+            first_token = False
+
+            # Phase 1 : spinner pendant que le modèle charge
+            spinner = Spinner("dots2", text=Text(" Klody réfléchit…", style="dim cyan"))
+
+            with Live(spinner, console=console, refresh_per_second=12, transient=True):
                 for chunk in stream:
                     if not chunk.choices:
                         continue
@@ -76,39 +90,72 @@ class LLMClient:
 
                     if delta.content:
                         full_content += delta.content
-                        live_text.append(delta.content)
-                        live.update(live_text)
+                        first_token = True
+                        # On sort du spinner dès le 1er token
+                        break
 
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
-                            idx = tc_chunk.index
-                            if idx not in raw_tool_calls:
-                                raw_tool_calls[idx] = {
-                                    "id": "",
-                                    "type": "function",
-                                    "function": {"name": "", "arguments": ""},
-                                }
-                            if tc_chunk.id:
-                                raw_tool_calls[idx]["id"] += tc_chunk.id
-                            if tc_chunk.function:
-                                if tc_chunk.function.name:
-                                    raw_tool_calls[idx]["function"]["name"] += tc_chunk.function.name
-                                if tc_chunk.function.arguments:
-                                    raw_tool_calls[idx]["function"]["arguments"] += tc_chunk.function.arguments
+                            self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+                        first_token = True
+                        break
+
+            # Phase 2 : streaming Markdown progressif (si on a du contenu texte)
+            if full_content:
+                with Live(
+                    Markdown(full_content),
+                    console=console,
+                    refresh_per_second=12,
+                    vertical_overflow="visible",
+                ) as live:
+                    for chunk in stream:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+
+                        if delta.content:
+                            full_content += delta.content
+                            # Re-render Markdown à chaque token
+                            live.update(Markdown(full_content))
+
+                        if delta.tool_calls:
+                            for tc_chunk in delta.tool_calls:
+                                self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+
+            else:
+                # Pas de contenu texte — continuer à collecter les tool calls
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        full_content += delta.content
+                    if delta.tool_calls:
+                        for tc_chunk in delta.tool_calls:
+                            self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+
+            # Ligne de séparation discrète après la réponse
+            if full_content:
+                console.print(Rule(style="dim blue"))
+
+            # Estimation tokens
+            self.total_tokens += len(full_content) // 4
+            for m in messages:
+                c = m.get("content") or ""
+                self.total_tokens += len(c) // 4
 
             tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
-            # Fallback : certains modèles (qwen2.5-coder via Ollama) retournent
-            # les tool calls comme texte JSON au lieu du format natif OpenAI
+            # Fallback : tool call émis en JSON texte (qwen2.5-coder via Ollama)
             if not tool_calls and full_content and tools:
                 valid_names = {t["function"]["name"] for t in tools}
                 parsed = self._parse_text_tool_calls(full_content, valid_names)
                 if parsed:
                     tool_calls = parsed
-                    full_content = ""  # ce n'est pas du texte à afficher
+                    full_content = ""
 
             if full_content:
-                logger.info("Réponse LLM: %d caractères", len(full_content))
+                logger.info("Réponse LLM: %d chars", len(full_content))
             if tool_calls:
                 logger.info("Tool calls: %s", [tc["function"]["name"] for tc in tool_calls])
 
@@ -117,27 +164,42 @@ class LLMClient:
         except APIConnectionError as e:
             logger.error("Ollama inaccessible: %s", e)
             console.print(
-                "\n[bold red]Erreur: Impossible de joindre Ollama.[/bold red]\n"
-                "[dim]Vérifiez que le serveur tourne : ollama serve[/dim]"
+                "\n[bold red]✗ Impossible de joindre Ollama.[/bold red]\n"
+                "[dim]  → ollama serve[/dim]\n"
             )
             raise
         except APITimeoutError as e:
             logger.error("Timeout LLM: %s", e)
-            console.print("\n[bold red]Erreur: Timeout du modèle.[/bold red]")
+            console.print("\n[bold red]✗ Timeout du modèle.[/bold red]\n")
             raise
         except Exception as e:
-            logger.error("Erreur LLM inattendue: %s", e)
+            logger.error("Erreur LLM: %s", e)
             raise
+
+    # ------------------------------------------------------------------ #
+    # Helpers                                                              #
+    # ------------------------------------------------------------------ #
+
+    def _accumulate_tool_call(self, raw: dict, tc_chunk) -> None:
+        idx = tc_chunk.index
+        if idx not in raw:
+            raw[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+        if tc_chunk.id:
+            raw[idx]["id"] += tc_chunk.id
+        if tc_chunk.function:
+            if tc_chunk.function.name:
+                raw[idx]["function"]["name"] += tc_chunk.function.name
+            if tc_chunk.function.arguments:
+                raw[idx]["function"]["arguments"] += tc_chunk.function.arguments
 
     def _parse_text_tool_calls(
         self, content: str, valid_tool_names: set[str]
     ) -> Optional[list[dict]]:
         """
-        Détecte et parse les tool calls émis comme texte JSON.
-        Gère : objet unique, liste d'objets, blocs markdown ```json```.
+        Fallback : parse les tool calls émis comme JSON texte.
+        Gère objet unique, liste, blocs ```json```.
         """
         text = content.strip()
-        # Retirer les blocs de code markdown éventuels
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
         text = re.sub(r"\s*```\s*$", "", text, flags=re.MULTILINE)
         text = text.strip()
