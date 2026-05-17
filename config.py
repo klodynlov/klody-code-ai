@@ -1,0 +1,38 @@
+import os
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- LLM ---
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_API_KEY: str = os.getenv("OLLAMA_API_KEY", "ollama")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
+
+# --- Sandbox ---
+PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
+
+# --- Limites ---
+MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", 1024 * 1024))  # 1 MB
+MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 10))
+MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
+SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
+
+# --- Chemins ---
+LOG_DIR: Path = Path(__file__).parent / "logs"
+LOG_FILE: Path = LOG_DIR / "agent.log"
+MEMORY_DIR: Path = LOG_DIR
+
+LOG_DIR.mkdir(exist_ok=True)
+
+# --- Logging : fichier uniquement, ne pas polluer le terminal Rich ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+    ],
+)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
