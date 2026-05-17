@@ -1,4 +1,7 @@
+import json
 import logging
+import re
+import uuid
 from typing import Optional
 
 from openai import OpenAI, APIConnectionError, APITimeoutError
@@ -43,6 +46,9 @@ class LLMClient:
         """
         Envoie les messages au LLM et streame la réponse token par token.
         Retourne (texte_complet, tool_calls_ou_None).
+
+        Fallback automatique : si le modèle retourne un tool call en JSON texte
+        (comportement de qwen2.5-coder via Ollama), il est parsé et converti.
         """
         params: dict = {
             "model": self.model,
@@ -92,6 +98,15 @@ class LLMClient:
 
             tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
+            # Fallback : certains modèles (qwen2.5-coder via Ollama) retournent
+            # les tool calls comme texte JSON au lieu du format natif OpenAI
+            if not tool_calls and full_content and tools:
+                valid_names = {t["function"]["name"] for t in tools}
+                parsed = self._parse_text_tool_calls(full_content, valid_names)
+                if parsed:
+                    tool_calls = parsed
+                    full_content = ""  # ce n'est pas du texte à afficher
+
             if full_content:
                 logger.info("Réponse LLM: %d caractères", len(full_content))
             if tool_calls:
@@ -113,3 +128,48 @@ class LLMClient:
         except Exception as e:
             logger.error("Erreur LLM inattendue: %s", e)
             raise
+
+    def _parse_text_tool_calls(
+        self, content: str, valid_tool_names: set[str]
+    ) -> Optional[list[dict]]:
+        """
+        Détecte et parse les tool calls émis comme texte JSON.
+        Gère : objet unique, liste d'objets, blocs markdown ```json```.
+        """
+        text = content.strip()
+        # Retirer les blocs de code markdown éventuels
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\s*```\s*$", "", text, flags=re.MULTILINE)
+        text = text.strip()
+
+        if not text.startswith(("{", "[")):
+            return None
+
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+
+        def make_call(item: dict) -> Optional[dict]:
+            name = item.get("name", "")
+            if name not in valid_tool_names:
+                return None
+            args = item.get("arguments", item.get("parameters", {}))
+            return {
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                },
+            }
+
+        if isinstance(data, dict):
+            call = make_call(data)
+            return [call] if call else None
+
+        if isinstance(data, list):
+            calls = [c for item in data if isinstance(item, dict) for c in [make_call(item)] if c]
+            return calls if calls else None
+
+        return None
