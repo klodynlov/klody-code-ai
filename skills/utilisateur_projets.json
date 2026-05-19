@@ -1,0 +1,8 @@
+{
+  "name": "Projets actifs (export Claude)",
+  "slug": "utilisateur_projets",
+  "description": "Liste des projets Claude de l'utilisateur : SampleBrain, LibraryBrain, KlodyAI, VocalBrain, karaibart, etc.",
+  "content": "## Projets Claude actifs\n\n### SampleBrain\nMCP custom avec index sémantique\non indexe les samples avec embeddings pour permettre une recherche par feeling plutôt que par nom de fichier.\n\n### SampleBrainV2\nil s'agit du projeet SampleBrain étendu à REAPER et orienté  A I local (Le projet consiste à construire un studio IA local autour de REAPER.\nLe système permettra de piloter par langage naturel des tâches\ncomme l’export de voix, la séparation de stems, le nettoyage vocal, la\nconversion RVC et le réimport automatique dans le projet.\nLa solution recommandée repose sur :\nCette approche est plus technique que Kits AI, mais elle offre davan‐\ntage de contrôle, de confidentialité, de personnalisation et de\npuissance créative à long terme.\nLe but final est de créer un assistant studio local adapté à l’identité\nmusicale de l’artiste, capable d’accompagner la création zouk, R&B,\nAfro et caribéenne sans dépendre d’une plateforme cloud.)\n\n### Musical setup\nOrganisation et optimisation du flux de travail en production musicale\n\n### library brain\n\n### VocalBrain\n\n### KlodVoicesHarmonics\n\n### Kuno\nSuno clone\n\n### Klody AI\nUn assistant intelligent de codage en local\n\n### RetroEcho\n\n### klodyai",
+  "updated": "2026-05-19T14:31:33.350981",
+  "source": "claude-export"
+}
