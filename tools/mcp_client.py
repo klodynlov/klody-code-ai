@@ -9,13 +9,13 @@ from pathlib import Path
 
 import httpx
 
+from config import LIBRARYBRAIN_URL, SKILLS_DIR
+
 logger = logging.getLogger(__name__)
 
-_BASE_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
+_BASE_URL = LIBRARYBRAIN_URL
 # Base sans le path (pour construire /api/ask/job)
 _SERVER_BASE = _BASE_URL.rsplit("/api/", 1)[0]
-
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 # Polling : 2s entre chaque sonde, max 90 tentatives = 3 min
 _POLL_INTERVAL = 2.0

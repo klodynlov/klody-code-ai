@@ -19,13 +19,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 
+# Ajouter la racine du projet au path pour importer config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import LIBRARYBRAIN_URL, SKILLS_DIR  # noqa: E402
+
 # — Configuration ——————————————————————————————————————————————————————————————
 
-LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 MLX_URL = os.getenv("MLX_URL", "http://127.0.0.1:8080")
 PROXY_PORT = int(os.getenv("PROXY_PORT", "8081"))
 MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "symfony": ["symfony", "doctrine", "twig", "bundle", "entity", "repository", "php"],

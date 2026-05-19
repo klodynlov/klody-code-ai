@@ -9,8 +9,8 @@ import httpx
 from fastmcp import FastMCP
 from loguru import logger
 
-LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
+from config import LIBRARYBRAIN_URL, SKILLS_DIR
+
 MCP_HOST = os.getenv("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.getenv("MCP_PORT", "8082"))
 
