@@ -22,9 +22,10 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT
+from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
+from services import ensure_librarybrain
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -298,6 +299,8 @@ def main() -> None:
 
     orchestrator = Orchestrator(memory)
     print_banner(memory)
+    ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
+    console.print()
     repl(orchestrator)
 
 
