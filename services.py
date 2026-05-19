@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import atexit
 import subprocess
+import threading
 import time
 import logging
 from pathlib import Path
@@ -14,42 +15,124 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 _librarybrain_proc: subprocess.Popen | None = None
+_librarybrain_dir: str = ""
+_librarybrain_base_url: str = ""
+_librarybrain_status: dict = {"up": False, "pid": None, "restarts": 0}
+_watchdog_thread: threading.Thread | None = None
+_watchdog_stop = threading.Event()
+
+_MAX_RESTARTS = 3
 
 
 def _is_up(base_url: str, timeout: float = 2.0) -> bool:
-    """Vérifie si LibraryBrain répond."""
     try:
-        httpx.get(f"{base_url}/api/stats", timeout=timeout)
-        return True
+        r = httpx.get(f"{base_url}/api/stats", timeout=timeout)
+        return r.status_code < 500
     except Exception:
         return False
 
 
+def get_librarybrain_status() -> dict:
+    """Retourne l'état courant de LibraryBrain (thread-safe)."""
+    global _librarybrain_proc
+    pid = _librarybrain_proc.pid if _librarybrain_proc else None
+    alive = _librarybrain_proc.poll() is None if _librarybrain_proc else False
+    return {
+        "up": _librarybrain_status["up"],
+        "pid": pid if alive else None,
+        "restarts": _librarybrain_status["restarts"],
+    }
+
+
+def _start_process(lb_path: Path) -> subprocess.Popen | None:
+    """Lance le processus uvicorn LibraryBrain. Retourne le Popen ou None."""
+    try:
+        proc = subprocess.Popen(
+            [
+                "python3", "-m", "uvicorn", "search.api:app",
+                "--host", "127.0.0.1", "--port", "8765",
+                "--log-level", "warning",
+            ],
+            cwd=str(lb_path),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("[LibraryBrain] Démarré (PID %d)", proc.pid)
+        return proc
+    except Exception as e:
+        logger.error("[LibraryBrain] Impossible de démarrer : %s", e)
+        return None
+
+
+def _watchdog() -> None:
+    """Surveille LibraryBrain toutes les 15s et le redémarre si nécessaire."""
+    global _librarybrain_proc
+
+    lb_path = Path(_librarybrain_dir)
+
+    while not _watchdog_stop.is_set():
+        _watchdog_stop.wait(15)
+        if _watchdog_stop.is_set():
+            break
+
+        alive = _librarybrain_proc and _librarybrain_proc.poll() is None
+        reachable = _is_up(_librarybrain_base_url)
+        _librarybrain_status["up"] = reachable
+
+        if not reachable and _librarybrain_status["restarts"] < _MAX_RESTARTS:
+            # Processus mort ou injoignable — tenter un redémarrage
+            if _librarybrain_proc and not alive:
+                logger.warning("[LibraryBrain] Processus mort (code=%s) — redémarrage…",
+                               _librarybrain_proc.returncode)
+            else:
+                logger.warning("[LibraryBrain] Injoignable — redémarrage…")
+
+            _librarybrain_proc = _start_process(lb_path)
+            if _librarybrain_proc:
+                _librarybrain_status["restarts"] += 1
+                # Attendre jusqu'à 15s que le service réponde
+                for _ in range(15):
+                    time.sleep(1)
+                    if _is_up(_librarybrain_base_url):
+                        _librarybrain_status["up"] = True
+                        logger.info("[LibraryBrain] Redémarrage réussi (tentative %d)",
+                                    _librarybrain_status["restarts"])
+                        break
+        elif not reachable and _librarybrain_status["restarts"] >= _MAX_RESTARTS:
+            logger.error("[LibraryBrain] %d redémarrages échoués — abandon.", _MAX_RESTARTS)
+
+
 def _stop_librarybrain() -> None:
     global _librarybrain_proc
+    _watchdog_stop.set()
     if _librarybrain_proc and _librarybrain_proc.poll() is None:
-        logger.info("Arrêt de LibraryBrain (PID %d)", _librarybrain_proc.pid)
+        logger.info("[LibraryBrain] Arrêt (PID %d)", _librarybrain_proc.pid)
         _librarybrain_proc.terminate()
         try:
             _librarybrain_proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             _librarybrain_proc.kill()
     _librarybrain_proc = None
+    _librarybrain_status["up"] = False
 
 
 def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
     """
-    Démarre LibraryBrain s'il n'est pas déjà actif.
-    Retourne True si le service est disponible après l'opération.
+    Démarre LibraryBrain si nécessaire, puis lance un watchdog de surveillance.
+    Retourne True si le service est disponible.
     """
-    global _librarybrain_proc
+    global _librarybrain_proc, _librarybrain_dir, _librarybrain_base_url
+    global _watchdog_thread
 
-    # Extraire la base URL (sans /api/ask)
     base_url = librarybrain_url.rsplit("/api/", 1)[0]
+    _librarybrain_dir = librarybrain_dir
+    _librarybrain_base_url = base_url
 
-    # Déjà up — rien à faire
+    # Déjà up
     if _is_up(base_url):
+        _librarybrain_status["up"] = True
         console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif[/dim]")
+        _launch_watchdog()
         return True
 
     if not librarybrain_dir:
@@ -68,38 +151,36 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
 
     console.print("  [dim]◎  Démarrage de LibraryBrain…[/dim]", end="")
 
-    try:
-        _librarybrain_proc = subprocess.Popen(
-            [
-                "python3", "-m", "uvicorn", "search.api:app",
-                "--host", "127.0.0.1", "--port", "8765",
-                "--log-level", "warning",
-            ],
-            cwd=str(lb_path),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        atexit.register(_stop_librarybrain)
-        logger.info("LibraryBrain démarré (PID %d)", _librarybrain_proc.pid)
-    except FileNotFoundError:
-        console.print(" [red]python3 introuvable[/red]")
-        return False
-    except Exception as e:
-        console.print(f" [red]Erreur : {e}[/red]")
-        logger.error("Impossible de démarrer LibraryBrain: %s", e)
+    _librarybrain_proc = _start_process(lb_path)
+    if _librarybrain_proc is None:
+        console.print(" [red]échec[/red]")
         return False
 
-    # Attendre jusqu'à 20 s que le service réponde
+    atexit.register(_stop_librarybrain)
+
+    # Attendre jusqu'à 20s
     for _ in range(20):
         time.sleep(1)
         if _librarybrain_proc.poll() is not None:
             console.print(" [red]processus terminé prématurément[/red]")
-            logger.error("LibraryBrain s'est arrêté immédiatement")
             return False
         if _is_up(base_url):
+            _librarybrain_status["up"] = True
             console.print(" [green]✓[/green]")
+            _launch_watchdog()
             return True
 
     console.print(" [yellow]timeout[/yellow]")
-    logger.warning("LibraryBrain n'a pas répondu dans les 20s")
+    logger.warning("[LibraryBrain] N'a pas répondu dans les 20s")
+    _launch_watchdog()  # Watchdog surveille quand même
     return False
+
+
+def _launch_watchdog() -> None:
+    global _watchdog_thread
+    if _watchdog_thread and _watchdog_thread.is_alive():
+        return
+    _watchdog_stop.clear()
+    _watchdog_thread = threading.Thread(target=_watchdog, daemon=True, name="lb-watchdog")
+    _watchdog_thread.start()
+    logger.debug("[LibraryBrain] Watchdog démarré")

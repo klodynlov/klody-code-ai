@@ -18,13 +18,19 @@ from fastapi.middleware.cors import CORSMiddleware
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import MEMORY_DIR, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT
+from config import MEMORY_DIR, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
+from services import ensure_librarybrain, get_librarybrain_status
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="KlodyAI API", version="1.0.0")
+
+
+@app.on_event("startup")
+async def startup():
+    ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -72,6 +78,7 @@ async def get_status():
         "model": model_name,
         "models": models,
         "project": str(PROJECT_ROOT),
+        "librarybrain": get_librarybrain_status(),
     }
 
 

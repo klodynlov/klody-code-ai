@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create .env for tests
+        run: |
+          cat > .env << 'EOF'
+          OLLAMA_BASE_URL=http://localhost:11434/v1
+          OLLAMA_API_KEY=ollama
+          MODEL_NAME=qwen2.5-coder:32b
+          MODEL_FALLBACK=qwen2.5-coder:7b
+          PROJECT_ROOT=/tmp/klody-test
+          MAX_FILE_SIZE=1048576
+          MAX_ITERATIONS=10
+          MAX_MESSAGES=50
+          SUBPROCESS_TIMEOUT=30
+          LIBRARYBRAIN_DIR=
+          LIBRARYBRAIN_URL=http://127.0.0.1:8765/api/ask
+          MCP_SERVER_URL=http://127.0.0.1:8082/mcp
+          EOF
+          mkdir -p /tmp/klody-test
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Check syntax (all Python files)
+        run: |
+          python -m py_compile api/server.py
+          python -m py_compile agent/memory.py
+          python -m py_compile agent/llm.py
+          python -m py_compile agent/orchestrator.py
+          python -m py_compile services.py
+          python -m py_compile tools/skills.py
+          echo "Syntax OK"
