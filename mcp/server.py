@@ -64,8 +64,11 @@ async def search_books(query: str, limit: int = 3) -> list[dict]:
     except httpx.ConnectError:
         logger.warning("LibraryBrain unreachable at {}", LIBRARYBRAIN_URL)
         return []
+    except httpx.HTTPStatusError as exc:
+        logger.warning("LibraryBrain returned {}: {}", exc.response.status_code, LIBRARYBRAIN_URL)
+        return []
     except Exception as exc:
-        logger.error("search_books failed: {}", exc)
+        logger.error("search_books unexpected error: {}", exc)
         return []
 
 
