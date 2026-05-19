@@ -120,6 +120,27 @@ async def delete_memory(key: str):
     return {"ok": "Oublié" in result, "message": result}
 
 
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str):
+    from fastapi.responses import PlainTextResponse
+    f = MEMORY_DIR / f"memory_{session_id}.json"
+    if not f.exists():
+        return PlainTextResponse("Session introuvable", status_code=404)
+    data = json.loads(f.read_text())
+    title = data.get("title") or session_id
+    msgs = [m for m in data.get("messages", []) if m.get("role") in ("user", "assistant") and m.get("content")]
+    lines = [f"# {title}", f"", f"> Session {session_id} · {len(msgs)} messages", f"", "---", ""]
+    for m in msgs:
+        if m["role"] == "user":
+            lines += [f"**Vous :** {m['content']}", ""]
+        else:
+            lines += [f"**Klody :**", "", m["content"], "", "---", ""]
+    md = "\n".join(lines)
+    filename = title[:40].replace("/", "-").replace(" ", "_").replace("—", "-") + ".md"
+    return PlainTextResponse(md, media_type="text/markdown",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 @app.post("/api/stop")
 async def stop_generation():
     _stop_flag[0] = True
