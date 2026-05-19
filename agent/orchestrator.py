@@ -14,6 +14,7 @@ from agent.memory import ConversationMemory
 from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
+from tools.skills import save_skill, load_skills, format_skills_for_prompt
 from tools.terminal import CommandBlocked, Terminal
 from config import MAX_ITERATIONS, PROJECT_ROOT
 
@@ -97,7 +98,9 @@ class Orchestrator:
             self._inject_system_prompt()
 
     def _inject_system_prompt(self) -> None:
-        content = f"{SYSTEM_PROMPT}\n\nDossier projet actif: {PROJECT_ROOT}"
+        skills = load_skills()
+        skills_section = format_skills_for_prompt(skills) if skills else ""
+        content = f"{SYSTEM_PROMPT}\n\nDossier projet actif: {PROJECT_ROOT}{skills_section}"
         self.memory.messages.insert(0, {
             "role": "system",
             "content": content,
@@ -135,6 +138,12 @@ class Orchestrator:
                     tool_args.get("path", "."),
                     tool_args.get("file_pattern", ""),
                     tool_args.get("case_sensitive", True),
+                )
+            if tool_name == "save_skill":
+                return save_skill(
+                    tool_args["name"],
+                    tool_args["description"],
+                    tool_args["content"],
                 )
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
