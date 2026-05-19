@@ -1,0 +1,30 @@
+[
+  {
+    "id": "symfony-migrations",
+    "domain": "symfony",
+    "title": "Gestion des migrations Doctrine",
+    "content": "Toujours créer des migrations via `php bin/console make:migration` après modification d'une entité. Ne jamais modifier une migration déjà exécutée en production. Utiliser `doctrine:migrations:diff` pour vérifier les changements. Préférer des migrations réversibles avec méthodes `up()` et `down()`. Nommer les migrations de façon descriptive via `--formatted`.",
+    "tags": ["doctrine", "database", "migration", "orm"]
+  },
+  {
+    "id": "symfony-services",
+    "domain": "symfony",
+    "title": "Injection de dépendances et services",
+    "content": "Déclarer les services en autowiring (défaut Symfony 4+). Utiliser les interfaces pour le binding : `App\\Interface\\MyService $myService`. Éviter `$container->get()` dans le code métier. Les services doivent être stateless. Utiliser `#[Autowire]` pour les paramètres non-services. Tagger les services avec `#[AsTaggedItem]` pour les collections.",
+    "tags": ["di", "services", "autowiring", "container"]
+  },
+  {
+    "id": "symfony-messenger",
+    "domain": "symfony",
+    "title": "Messenger — Messages asynchrones",
+    "content": "Créer des classes Message immutables (readonly). Handler dans `App\\MessageHandler\\`. Utiliser `#[AsMessageHandler]`. Transports: `doctrine://default` pour persistance locale, `redis://` pour haute fréquence. Configurer le retry: `max_retries: 3, delay: 1000, multiplier: 2`. Toujours implémenter la gestion des erreurs avec `FailedMessageLoggingMiddleware`.",
+    "tags": ["messenger", "queue", "async", "handler"]
+  },
+  {
+    "id": "symfony-tests",
+    "domain": "symfony",
+    "title": "Tests PHPUnit — conventions",
+    "content": "Étendre `WebTestCase` pour les tests fonctionnels HTTP, `KernelTestCase` pour les services. Utiliser les fixtures Doctrine (DoctrineFixturesBundle) pour l'état DB. Isoler chaque test avec des transactions rollback. Mocks avec `$this->createMock()`. Tester les routes via `$client->request('GET', '/path')`. Coverage minimum 80%.",
+    "tags": ["phpunit", "testing", "fixtures", "webtest"]
+  }
+]

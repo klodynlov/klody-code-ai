@@ -1,0 +1,30 @@
+[
+  {
+    "id": "mlx-arrays",
+    "domain": "mlx",
+    "title": "MLX Arrays — manipulation",
+    "content": "Les MLX arrays sont lazy-evaluated — utiliser `mx.eval()` pour forcer le calcul. Préférer les opérations vectorisées aux boucles Python. `mx.array()` depuis numpy/list. Utiliser `mx.float16` ou `mx.bfloat16` pour réduire la RAM sur M-series. Les arrays MLX vivent en mémoire unifiée CPU/GPU — pas de `.to(device)` nécessaire. `mx.grad()` et `mx.value_and_grad()` pour l'autodiff.",
+    "tags": ["mlx", "arrays", "lazy-eval", "autodiff", "apple-silicon"]
+  },
+  {
+    "id": "mlx-quantization",
+    "domain": "mlx",
+    "title": "Quantization — 4-bit et 8-bit",
+    "content": "Quantizer avec `mlx_lm.convert`: `python -m mlx_lm.convert --hf-path model --mlx-path out -q`. Options: `--q-bits 4` (défaut), `--q-bits 8`. Les modèles 4-bit divisent la RAM par ~4. Vérifier la qualité avec `mlx_lm.generate --model out --prompt test`. Pour LoRA: adaptateurs en float16, base quantizée. Ne pas requantizer un modèle déjà quantizé.",
+    "tags": ["quantization", "4bit", "8bit", "qlora", "mlx-lm"]
+  },
+  {
+    "id": "mlx-lm-serving",
+    "domain": "mlx",
+    "title": "mlx-lm — serveur OpenAI-compatible",
+    "content": "Lancer le serveur: `python -m mlx_lm.server --model path/to/model --port 8080`. Compatible OpenAI SDK avec `base_url=http://localhost:8080/v1`. Paramètres: `--max-tokens 4096`, `--temp 0.1` pour le code. Le streaming est supporté. Limite: un seul modèle par instance. Surveiller la RAM unifiée: `sudo powermetrics --samplers gpu_power -i 1000`.",
+    "tags": ["mlx-lm", "serving", "openai-compatible", "streaming", "m-series"]
+  },
+  {
+    "id": "mlx-lora",
+    "domain": "mlx",
+    "title": "LoRA fine-tuning — workflow",
+    "content": "Fine-tuning: `python -m mlx_lm.lora --model base --train --data data/ --iters 1000 --batch-size 4 --lora-layers 16`. Format données: JSONL avec `{\"text\": \"<s>[INST]...\\n[/INST]...</s>\"}`. Fusionner après training: `python -m mlx_lm.fuse --model base --adapter-file adapters.npz --save-path fused`. Learning rate: 1e-5 à 1e-4 selon la tâche.",
+    "tags": ["lora", "fine-tuning", "training", "adapters", "fuse"]
+  }
+]

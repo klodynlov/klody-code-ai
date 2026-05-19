@@ -88,6 +88,12 @@ class FileManager:
         resolved = self._validate_path(path)
         self._check_extension(resolved)
 
+        content_size = len(content.encode("utf-8"))
+        if content_size > MAX_FILE_SIZE:
+            raise ValueError(
+                f"Contenu trop volumineux: {content_size:,} o (max: {MAX_FILE_SIZE:,} o)"
+            )
+
         resolved.parent.mkdir(parents=True, exist_ok=True)
 
         existed = resolved.exists()
@@ -105,16 +111,17 @@ class FileManager:
         if not resolved.is_dir():
             raise NotADirectoryError(f"'{path}' n'est pas un répertoire")
 
-        _SKIP_DIRS = {
-            ".git", ".venv", "__pycache__", "node_modules",
+        # Noms masqués qu'ils soient fichiers ou dossiers
+        _SKIP_NAMES = {
+            ".git", ".claude", ".venv", "__pycache__", "node_modules",
             ".pytest_cache", ".mypy_cache", "target", "dist", ".next",
-            "build", ".cache",
+            "build", ".cache", ".env", ".env.local", ".env.production",
         }
         MAX_ENTRIES = 150
 
         def _iter(base: Path, recurse: bool):
             for entry in sorted(base.iterdir()):
-                if entry.is_dir() and entry.name in _SKIP_DIRS:
+                if entry.name in _SKIP_NAMES:
                     continue
                 yield entry
                 if recurse and entry.is_dir():

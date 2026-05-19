@@ -1,0 +1,30 @@
+[
+  {
+    "id": "nextjs-app-router",
+    "domain": "nextjs",
+    "title": "App Router — conventions",
+    "content": "Utiliser le App Router (app/) pour tout nouveau projet Next.js 13+. Les layouts sont automatiquement imbriqués via layout.tsx. Préférer les Server Components par défaut — n'ajouter 'use client' que si nécessaire (interactivité, hooks, événements). Colocate les composants proches de leurs routes. Fichiers spéciaux: page.tsx, layout.tsx, loading.tsx, error.tsx, not-found.tsx.",
+    "tags": ["app-router", "server-components", "layout", "routing"]
+  },
+  {
+    "id": "nextjs-data-fetching",
+    "domain": "nextjs",
+    "title": "Data fetching — Server Components",
+    "content": "Fetch directement dans les Server Components avec `async/await`. Utiliser `cache: 'force-cache'` pour les données statiques, `cache: 'no-store'` pour le dynamique. Revalidation via `next: { revalidate: 3600 }`. Préférer React `cache()` pour dédupliquer les requêtes dans le même rendu. Éviter `useEffect` pour le fetching — c'est un antipattern en App Router.",
+    "tags": ["data-fetching", "server-components", "cache", "revalidate"]
+  },
+  {
+    "id": "nextjs-typescript",
+    "domain": "nextjs",
+    "title": "TypeScript — patterns Next.js",
+    "content": "Typer les props de page avec `PageProps`: `{ params: { slug: string }, searchParams: { q?: string } }`. Utiliser `generateMetadata()` typé pour le SEO. Route handlers: `NextRequest`/`NextResponse`. Server Actions: marquées `'use server'`, retournent des types sérialisables. Zod pour valider les entrées dans les Server Actions et API routes.",
+    "tags": ["typescript", "types", "props", "server-actions"]
+  },
+  {
+    "id": "nextjs-performance",
+    "domain": "nextjs",
+    "title": "Performance — optimisations",
+    "content": "Utiliser `next/image` systématiquement (lazy loading, formats modernes). `next/font` pour les polices (évite le layout shift). Analyser avec `@next/bundle-analyzer`. Préférer `dynamic()` avec `{ ssr: false }` pour les composants lourds côté client uniquement. Activer Turbopack en dev: `next dev --turbo`. Utiliser Partial Prerendering (PPR) pour les routes hybrides.",
+    "tags": ["performance", "image", "font", "bundle", "turbopack"]
+  }
+]

@@ -19,10 +19,16 @@ MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 10))
 MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 
+# --- LibraryBrain / MCP ---
+LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
+MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
+
 # --- Chemins ---
-LOG_DIR: Path = Path(__file__).parent / "logs"
+_ROOT: Path = Path(__file__).parent
+LOG_DIR: Path = _ROOT / "logs"
 LOG_FILE: Path = LOG_DIR / "agent.log"
 MEMORY_DIR: Path = LOG_DIR
+SKILLS_DIR: Path = _ROOT / "skills"
 
 LOG_DIR.mkdir(exist_ok=True)
 

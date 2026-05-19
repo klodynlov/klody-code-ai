@@ -9,7 +9,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
+from config import SKILLS_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +43,9 @@ def load_skills() -> list[dict]:
     skills = []
     for f in sorted(SKILLS_DIR.glob("*.json")):
         try:
-            skills.append(json.loads(f.read_text()))
+            data = json.loads(f.read_text())
+            if isinstance(data, dict):  # ignorer les fichiers de domaine (tableaux)
+                skills.append(data)
         except Exception:
             continue
     return skills

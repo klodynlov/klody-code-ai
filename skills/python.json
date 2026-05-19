@@ -1,0 +1,30 @@
+[
+  {
+    "id": "python-type-hints",
+    "domain": "python",
+    "title": "Type hints — bonnes pratiques",
+    "content": "Utiliser les type hints sur toutes les fonctions publiques. Préférer `X | None` à `Optional[X]` (Python 3.10+). Utiliser `from __future__ import annotations` pour les forward references. `TypeAlias` pour les alias complexes. `TypeVar` pour les génériques. `Protocol` pour le duck typing structurel. Éviter `Any` sauf aux boundaries. `mypy --strict` comme cible.",
+    "tags": ["typing", "mypy", "annotations", "generics"]
+  },
+  {
+    "id": "python-dataclasses",
+    "domain": "python",
+    "title": "Dataclasses et Pydantic",
+    "content": "Préférer `@dataclass(frozen=True)` pour les Value Objects immuables. Utiliser `__slots__` pour les dataclasses à haute fréquence d'instanciation. Pydantic v2 pour la validation des entrées externes (API, config). `model_validator` pour les validations cross-champs. Ne pas utiliser Pydantic en interne — réserver aux boundaries (API, config, fichiers de config).",
+    "tags": ["dataclass", "pydantic", "validation", "immutable"]
+  },
+  {
+    "id": "python-async",
+    "domain": "python",
+    "title": "Async/await — patterns",
+    "content": "Utiliser `asyncio.gather()` pour paralléliser des coroutines indépendantes. `asyncio.TaskGroup` (3.11+) pour la gestion d'erreurs structurée. Préférer `httpx.AsyncClient` à `aiohttp`. `asynccontextmanager` pour les ressources async. Éviter de mixer sync/async — utiliser `run_in_executor` pour les appels bloquants. Toujours `await` les coroutines.",
+    "tags": ["asyncio", "coroutines", "gather", "taskgroup"]
+  },
+  {
+    "id": "python-pytest",
+    "domain": "python",
+    "title": "Pytest — conventions",
+    "content": "Organiser les tests en miroir de la structure source: `tests/unit/`, `tests/integration/`. Fixtures dans `conftest.py` au bon niveau. Utiliser `pytest.mark.parametrize` pour les cas multiples. `tmp_path` pour les fichiers temporaires. Mocker avec `pytest-mock` (`mocker.patch`). Tests async avec `pytest-asyncio` et `@pytest.mark.asyncio`. Coverage: `pytest --cov=src --cov-report=term-missing`.",
+    "tags": ["pytest", "fixtures", "parametrize", "coverage", "async"]
+  }
+]

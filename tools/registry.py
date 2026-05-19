@@ -206,7 +206,61 @@ IMPORT_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, SKILL_TOOL, *IMPORT_TOOLS]
+MCP_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_books",
+            "description": (
+                "Recherche des extraits pertinents dans la bibliothèque locale LibraryBrain "
+                "(livres techniques indexés via RAG). Utilise cet outil quand la question "
+                "porte sur un sujet où un livre de référence peut aider : architecture, "
+                "patterns, algorithmes, frameworks. "
+                "Retourne les passages les plus pertinents avec leur source."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Question ou sujet à rechercher dans les livres indexés",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre max de passages à retourner (1-5, défaut: 3)",
+                        "default": 3,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_skills",
+            "description": (
+                "Récupère les conventions et patterns techniques d'un domaine spécifique. "
+                "Utilise cet outil avant de générer du code pour respecter les conventions "
+                "du projet dans ce domaine. "
+                "Domaines disponibles : symfony, nextjs, python, mlx."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "domain": {
+                        "type": "string",
+                        "description": "Domaine technique cible",
+                        "enum": ["symfony", "nextjs", "python", "mlx"],
+                    },
+                },
+                "required": ["domain"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS]
 
 
 def get_tools() -> list[dict]:
