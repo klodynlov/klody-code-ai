@@ -42,6 +42,13 @@ app.add_middleware(
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
 
+# Stop flag partagé — interrompt le streaming en cours
+_stop_flag: list[bool] = [False]
+
+
+class StopGeneration(Exception):
+    pass
+
 
 # ── Status ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +91,7 @@ async def list_sessions():
             msgs = [m for m in data.get("messages", []) if m.get("role") not in ("system", "tool")]
             sessions.append({
                 "id": data.get("session_id", f.stem.replace("memory_", "")),
+                "title": data.get("title", ""),
                 "messages": len(msgs),
                 "modified": f.stat().st_mtime,
                 "preview": msgs[0]["content"][:60] if msgs else "",
@@ -91,6 +99,12 @@ async def list_sessions():
         except Exception:
             continue
     return sessions
+
+
+@app.post("/api/stop")
+async def stop_generation():
+    _stop_flag[0] = True
+    return {"ok": True}
 
 
 # ── WebSocket ────────────────────────────────────────────────────────────────
@@ -137,11 +151,17 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 # Créer l'orchestrateur avec callbacks via queue
-                orch = _build_streaming_orchestrator(memory, current_model, queue, loop)
+                _stop_flag[0] = False
+                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag)
 
                 def run_agent():
                     try:
                         orch.run(user_text)
+                        asyncio.run_coroutine_threadsafe(
+                            queue.put({"type": "done", "session_id": memory.session_id}),
+                            loop,
+                        )
+                    except StopGeneration:
                         asyncio.run_coroutine_threadsafe(
                             queue.put({"type": "done", "session_id": memory.session_id}),
                             loop,
@@ -212,6 +232,7 @@ def _build_streaming_orchestrator(
     model: str,
     queue: asyncio.Queue,
     loop: asyncio.AbstractEventLoop,
+    stop_flag: list[bool] | None = None,
 ) -> Orchestrator:
     """Crée un Orchestrator patché pour envoyer des événements dans la queue."""
     orch = Orchestrator(memory)
@@ -240,6 +261,9 @@ def _build_streaming_orchestrator(
         try:
             stream = orch.llm.client.chat.completions.create(**params)
             for chunk in stream:
+                if stop_flag and stop_flag[0]:
+                    _put({"type": "stream_end"})
+                    raise StopGeneration()
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -249,6 +273,8 @@ def _build_streaming_orchestrator(
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         orch.llm._accumulate_tool_call(raw_tool_calls, tc)
+        except StopGeneration:
+            raise
         except Exception as e:
             _put({"type": "error", "content": str(e)})
             raise

@@ -16,6 +16,7 @@ class ConversationMemory:
         self.memory_file: Path = MEMORY_DIR / f"memory_{self.session_id}.json"
         self.messages: list[dict] = []
         self._created_at: str = datetime.now().isoformat()
+        self.title: str = ""
 
     # ------------------------------------------------------------------ #
     # Ajout de messages                                                    #
@@ -26,6 +27,11 @@ class ConversationMemory:
         msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
         msg.update(extra)
         self.messages.append(msg)
+        # Auto-title from first user message
+        if role == "user" and not self.title:
+            prefix = datetime.now().strftime("%d/%m %H:%M")
+            excerpt = (content[:50] + "…") if len(content) > 53 else content
+            self.title = f"{prefix} — {excerpt}"
         self._apply_sliding_window()
         self.save()
 
@@ -88,6 +94,7 @@ class ConversationMemory:
     def save(self) -> None:
         data = {
             "session_id": self.session_id,
+            "title": self.title,
             "created_at": self._created_at,
             "updated_at": datetime.now().isoformat(),
             "messages": self.messages,
@@ -118,6 +125,7 @@ class ConversationMemory:
         instance = cls(session_id=data["session_id"])
         instance.messages = data["messages"]
         instance._created_at = data["created_at"]
+        instance.title = data.get("title", "")
         logger.info("Session chargée: %s (%d messages)", instance.session_id, len(instance.messages))
         return instance
 
