@@ -131,6 +131,40 @@ TOOLS: list[dict] = [
 ]
 
 
+SKILL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "save_skill",
+        "description": (
+            "Sauvegarde une compétence, un pattern ou un snippet utile pour les "
+            "prochaines sessions. Utilise cet outil quand tu produis quelque chose "
+            "de réutilisable : un pattern de code, une solution à un problème récurrent, "
+            "une configuration type, une bonne pratique identifiée."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Nom court de la compétence (ex: 'Jeu Python devinette')",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Ce que fait cette compétence et quand l'utiliser",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Le code, pattern ou connaissance à mémoriser",
+                },
+            },
+            "required": ["name", "description", "content"],
+        },
+    },
+}
+
+TOOLS = [*TOOLS, SKILL_TOOL]
+
+
 def get_tools() -> list[dict]:
     return TOOLS
 
