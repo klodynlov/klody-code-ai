@@ -9,8 +9,11 @@ Agent de coding IA autonome, 100% local, propulsé par Ollama + qwen2.5-coder:32
 | Composant | Technologie |
 |-----------|------------|
 | Runtime | Python 3.11+ |
-| LLM | Ollama — `qwen2.5-coder:32b` |
-| API Client | `openai` SDK (compatible Ollama) |
+| LLM local | mlx-lm — `Qwen2.5-Coder-14B-4bit` (port 8080) |
+| RAG / Livres | LibraryBrain — sqlite-vec + LlamaIndex (port 8765) |
+| MCP Bridge | FastMCP — serveur MCP LibraryBrain (port 8082) |
+| RAG Proxy | FastAPI — middleware Aider→mlx-lm (port 8081) |
+| API Client | `openai` SDK (compatible Ollama / mlx-lm) |
 | UI Terminal | `rich` — couleurs, panels, streaming |
 | Config | `python-dotenv` — `.env` local |
 | Tests | `pytest` — 77 tests, 100% pass |
@@ -242,6 +245,139 @@ cat .env | grep PROJECT_ROOT
 
 # Mettre un chemin absolu existant, ex :
 PROJECT_ROOT=/Users/ton-nom/mon-projet
+```
+
+---
+
+---
+
+## Architecture Phase 4 — RAG Bridge (MCP + Proxy)
+
+```
+Aider (client)
+    │
+    ▼  OpenAI-compatible — port 8081
+scripts/rag-proxy.py          ←── injecte contexte RAG (≤ 2000 tokens)
+    │                                     │
+    │  POST /ask                           │  skills/*.json
+    ▼  port 8765                           ▼  filesystem
+LibraryBrain (FastAPI)          skills/ (4 domaines JSON)
+sqlite-vec + LlamaIndex
+    │
+    ▼  OpenAI-compatible — port 8080
+mlx-lm (Qwen2.5-Coder-14B-4bit)
+
+─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+MCP clients (Claude Desktop, etc.)
+    │
+    ▼  MCP streamable-http — port 8082
+mcp/server.py (FastMCP)
+    ├── search_books(query, limit)
+    ├── get_skills(domain)
+    └── get_conventions(project)
+```
+
+### Ports
+
+| Port | Service | Rôle |
+|------|---------|------|
+| 8080 | mlx-lm | Backend LLM — Qwen2.5-Coder |
+| 8081 | rag-proxy | Middleware Aider (RAG injecté) |
+| 8082 | FastMCP | Interface MCP pour clients externes |
+| 8765 | LibraryBrain | Source de vérité — livres indexés |
+
+### Lancer le RAG Proxy
+
+```bash
+source .venv/bin/activate
+
+# Variables optionnelles (toutes ont des valeurs par défaut)
+export LIBRARYBRAIN_URL=http://127.0.0.1:8765/ask
+export MLX_URL=http://127.0.0.1:8080
+export MAX_CONTEXT_TOKENS=2000
+
+# Démarre MCP server (port 8082) + RAG proxy (port 8081)
+./scripts/start-rag-proxy.sh
+```
+
+Configurer Aider pour utiliser le proxy :
+
+```bash
+aider --openai-api-base http://127.0.0.1:8081/v1 \
+      --openai-api-key local \
+      --model qwen2.5-coder
+```
+
+### Domaines de skills disponibles
+
+| Fichier | Domaine | Contenu |
+|---------|---------|---------|
+| `skills/symfony.json` | symfony | Migrations Doctrine, DI, Messenger, PHPUnit |
+| `skills/nextjs.json` | nextjs | App Router, Data fetching, TypeScript, Performance |
+| `skills/python.json` | python | Type hints, Dataclasses, Async, Pytest |
+| `skills/mlx.json` | mlx | Arrays, Quantization, mlx-lm serving, LoRA |
+
+### Tests curl — validation MCP
+
+```bash
+# 1. Vérifier que le proxy est vivant
+curl http://127.0.0.1:8081/health
+
+# 2. Test search_books via MCP (nécessite LibraryBrain actif)
+curl -s -X POST http://127.0.0.1:8082/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": {"name": "search_books", "arguments": {"query": "machine learning python", "limit": 2}}
+  }' | python3 -m json.tool
+
+# 3. Test get_skills via MCP
+curl -s -X POST http://127.0.0.1:8082/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 2,
+    "method": "tools/call",
+    "params": {"name": "get_skills", "arguments": {"domain": "mlx"}}
+  }' | python3 -m json.tool
+
+# 4. Test get_conventions via MCP
+curl -s -X POST http://127.0.0.1:8082/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0", "id": 3,
+    "method": "tools/call",
+    "params": {"name": "get_conventions", "arguments": {"project": "/Users/klodynlov/Projets/klody-code-ai"}}
+  }' | python3 -m json.tool
+
+# 5. Test proxy end-to-end (nécessite mlx-lm actif)
+curl -s -X POST http://127.0.0.1:8081/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "qwen2.5-coder",
+    "messages": [{"role": "user", "content": "Comment faire une migration Doctrine dans Symfony ?"}],
+    "stream": false
+  }' | python3 -m json.tool
+```
+
+### Structure Phase 4
+
+```
+mcp/
+├── __init__.py
+└── server.py               # FastMCP — 3 outils exposés (port 8082)
+
+skills/
+├── symfony.json            # Conventions PHP/Symfony (4 entries)
+├── nextjs.json             # Conventions Next.js/React (4 entries)
+├── python.json             # Conventions Python (4 entries)
+└── mlx.json                # Conventions MLX/Apple Silicon (4 entries)
+
+scripts/
+├── start-aider.sh          # (existant)
+├── start-ui.sh             # (existant)
+├── start-rag-proxy.sh      # Lance MCP server + RAG proxy
+└── rag-proxy.py            # Middleware FastAPI (port 8081)
 ```
 
 ---
