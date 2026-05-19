@@ -22,6 +22,7 @@ from config import MEMORY_DIR, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRAR
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
+from agent.long_term_memory import get_long_term_memory
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,17 @@ async def list_sessions():
         except Exception:
             continue
     return sessions
+
+
+@app.get("/api/memories")
+async def list_memories():
+    return get_long_term_memory().list_all()
+
+
+@app.delete("/api/memories/{key}")
+async def delete_memory(key: str):
+    result = get_long_term_memory().forget(key)
+    return {"ok": "Oublié" in result, "message": result}
 
 
 @app.post("/api/stop")

@@ -298,7 +298,65 @@ MCP_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS]
+MEMORY_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "remember_fact",
+            "description": (
+                "Mémorise un fait important entre les sessions. "
+                "Utilise cet outil pour retenir une préférence, un projet en cours, "
+                "ou une information sur l'utilisateur qui sera utile dans les futures sessions. "
+                "Si la clé existe déjà, elle est mise à jour."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": (
+                            "Identifiant court en snake_case "
+                            "(ex: 'style_code', 'projet_principal', 'langage_prefere')"
+                        ),
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu à mémoriser — une phrase claire et concise",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Catégorie du fait",
+                        "enum": ["user", "project", "preference", "context"],
+                        "default": "context",
+                    },
+                },
+                "required": ["key", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget_fact",
+            "description": (
+                "Supprime un fait mémorisé par sa clé. "
+                "Utilise cet outil quand une information est obsolète ou incorrecte."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Clé du fait à oublier (snake_case)",
+                    },
+                },
+                "required": ["key"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS]
 
 
 def get_tools() -> list[dict]:

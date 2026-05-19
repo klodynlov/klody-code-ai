@@ -11,6 +11,7 @@ from rich.tree import Tree
 
 from agent.llm import LLMClient, SYSTEM_PROMPT
 from agent.memory import ConversationMemory
+from agent.long_term_memory import get_long_term_memory
 from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
@@ -95,6 +96,7 @@ class Orchestrator:
         self.terminal = Terminal()
         self.search = Search()
         self.tools = get_tools()
+        self.lt_memory = get_long_term_memory()
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -102,7 +104,13 @@ class Orchestrator:
     def _inject_system_prompt(self) -> None:
         skills = load_skills()
         skills_section = format_skills_for_prompt(skills) if skills else ""
-        content = f"{SYSTEM_PROMPT}\n\nDossier projet actif: {PROJECT_ROOT}{skills_section}"
+        lt_section = self.lt_memory.format_for_prompt()
+        content = (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"Dossier projet actif: {PROJECT_ROOT}"
+            f"{skills_section}"
+            f"{lt_section}"
+        )
         self.memory.messages.insert(0, {
             "role": "system",
             "content": content,
@@ -161,6 +169,14 @@ class Orchestrator:
                 )
             if tool_name == "get_skills":
                 return mcp_get_skills(tool_args["domain"])
+            if tool_name == "remember_fact":
+                return self.lt_memory.remember(
+                    tool_args["key"],
+                    tool_args["content"],
+                    tool_args.get("category", "context"),
+                )
+            if tool_name == "forget_fact":
+                return self.lt_memory.forget(tool_args["key"])
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:
