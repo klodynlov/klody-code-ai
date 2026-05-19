@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Optional
+from typing import Callable, Optional
 
 from openai import OpenAI, APIConnectionError, APITimeoutError
 from rich.console import Console
@@ -19,18 +19,22 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 SYSTEM_PROMPT = """\
-Tu es un agent de coding expert nommé Klody. Tu travailles UNIQUEMENT dans \
-le dossier projet qui t'est assigné. Pour chaque tâche :
-1. Analyse le contexte (lis les fichiers pertinents d'abord)
-2. Planifie les étapes avant d'agir
-3. Exécute étape par étape
-4. Vérifie le résultat de chaque action
-5. Rends compte clairement de ce que tu as fait
+Tu es Klody, un agent de coding expert. Réponds en français.
 
-Tu as accès aux outils : read_file, write_file, list_files, \
-execute_command, search_in_files.
-Ne modifie jamais un fichier sans l'avoir lu avant.
-Avant toute commande bash, explique pourquoi tu en as besoin.\
+RÈGLE CRITIQUE : N'utilise les outils (read_file, write_file, list_files, \
+execute_command, search_in_files) QUE si la tâche l'exige explicitement \
+(modifier du code, lire un fichier, exécuter une commande).
+Pour les questions générales, la conversation, ou les explications : \
+réponds DIRECTEMENT sans outil.
+
+Quand tu dois agir sur le code :
+1. Lis les fichiers concernés avant de les modifier
+2. Exécute étape par étape
+3. Vérifie chaque action
+4. Rends compte clairement
+
+Ne modifie jamais un fichier sans l'avoir lu. \
+Avant toute commande bash, explique pourquoi.\
 """
 
 
@@ -54,6 +58,7 @@ class LLMClient:
         self,
         messages: list[dict],
         tools: Optional[list[dict]] = None,
+        token_callback: Optional[Callable[[str], None]] = None,
     ) -> tuple[str, Optional[list[dict]]]:
         """
         Envoie les messages et streame la réponse avec :
@@ -90,8 +95,9 @@ class LLMClient:
 
                     if delta.content:
                         full_content += delta.content
+                        if token_callback:
+                            token_callback(delta.content)
                         first_token = True
-                        # On sort du spinner dès le 1er token
                         break
 
                     if delta.tool_calls:
@@ -115,7 +121,8 @@ class LLMClient:
 
                         if delta.content:
                             full_content += delta.content
-                            # Re-render Markdown à chaque token
+                            if token_callback:
+                                token_callback(delta.content)
                             live.update(Markdown(full_content))
 
                         if delta.tool_calls:
@@ -130,6 +137,8 @@ class LLMClient:
                     delta = chunk.choices[0].delta
                     if delta.content:
                         full_content += delta.content
+                        if token_callback:
+                            token_callback(delta.content)
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)

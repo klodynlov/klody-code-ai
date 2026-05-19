@@ -105,16 +105,36 @@ class FileManager:
         if not resolved.is_dir():
             raise NotADirectoryError(f"'{path}' n'est pas un répertoire")
 
-        entries = sorted(resolved.rglob("*") if recursive else resolved.iterdir())
+        _SKIP_DIRS = {
+            ".git", ".venv", "__pycache__", "node_modules",
+            ".pytest_cache", ".mypy_cache", "target", "dist", ".next",
+            "build", ".cache",
+        }
+        MAX_ENTRIES = 150
+
+        def _iter(base: Path, recurse: bool):
+            for entry in sorted(base.iterdir()):
+                if entry.is_dir() and entry.name in _SKIP_DIRS:
+                    continue
+                yield entry
+                if recurse and entry.is_dir():
+                    yield from _iter(entry, recurse)
 
         lines = []
-        for entry in entries:
+        truncated = 0
+        for entry in _iter(resolved, recursive):
+            if len(lines) >= MAX_ENTRIES:
+                truncated += 1
+                continue
             rel = entry.relative_to(self.root)
             if entry.is_dir():
                 lines.append(f"📁 {rel}/")
             else:
                 size = entry.stat().st_size
                 lines.append(f"📄 {rel}  ({size:,} o)")
+
+        if truncated:
+            lines.append(f"… ({truncated} entrées supplémentaires non affichées)")
 
         return "\n".join(lines) if lines else f"Répertoire vide: {path}"
 

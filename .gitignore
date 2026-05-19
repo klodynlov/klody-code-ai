@@ -35,3 +35,10 @@ logs/memory_*.json
 .vscode/
 .idea/
 *.swp
+.aider*
+
+# Claude Code
+.claude/
+
+# Mémoire agent
+memory/
