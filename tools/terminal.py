@@ -15,6 +15,7 @@ console = Console()
 
 # Sous-chaînes dont la présence (insensible à la casse) suffit à bloquer
 _BLOCKED_SUBSTRINGS: list[str] = [
+    # Destruction disque / filesystem
     "rm -rf /",
     "chmod 777",
     ":(){ :|:& };:",
@@ -23,6 +24,7 @@ _BLOCKED_SUBSTRINGS: list[str] = [
     "> /dev/sdb",
     "mkfs",
     "dd if=",
+    # Download + exec
     "curl|bash",
     "curl | bash",
     "wget|sh",
@@ -31,6 +33,41 @@ _BLOCKED_SUBSTRINGS: list[str] = [
     "| bash",
     "|sh",
     "| sh",
+    # Shell inception (exécution de sous-shell arbitraire)
+    "bash -c ",
+    "sh -c ",
+    "zsh -c ",
+    "fish -c ",
+    "dash -c ",
+    # Interpréteurs one-liner (injection de code)
+    "python -c ",
+    "python3 -c ",
+    "python2 -c ",
+    "ruby -e ",
+    "perl -e ",
+    "node -e ",
+    "node --eval ",
+    "php -r ",
+    # Fuite de variables d'environnement (tokens, clés API)
+    "printenv",
+    # Outils réseau offensifs
+    "nc -",
+    "ncat -",
+    "netcat -",
+    # Téléchargement + exécution chaîné
+    "&& bash",
+    "&& sh",
+    "; bash ",
+    "; sh ",
+    # Lecture de fichiers sensibles hors sandbox
+    "/etc/passwd",
+    "/etc/shadow",
+    "/etc/sudoers",
+    "~/.ssh/",
+    "~/.aws/",
+    "~/.gnupg/",
+    "id_rsa",
+    "id_ed25519",
 ]
 
 # Regex complémentaires
@@ -39,7 +76,24 @@ _BLOCKED_PATTERNS: list[re.Pattern] = [
     re.compile(r">\s*/dev/hd[a-z]"),
     re.compile(r"dd\s+if=/dev"),
     re.compile(r"mkfs\.\w+"),
+    # Commande `env` seule ou avec args (fuite secrets)
+    re.compile(r"^\s*env\b"),
+    re.compile(r";\s*env\b"),
+    re.compile(r"&&\s*env\b"),
+    # Écriture dans /tmp puis exécution
+    re.compile(r">\s*/tmp/.*&&"),
+    re.compile(r">\s*/tmp/.*;\s*(bash|sh|python|node)"),
+    # Lecture de répertoires sensibles système
+    re.compile(r"\bcat\s+/etc/\w"),
+    re.compile(r"\bcat\s+~/?\.(ssh|aws|gnupg|config)/"),
+    re.compile(r"\bless\s+/etc/(passwd|shadow|sudoers)"),
+    re.compile(r"\bmore\s+/etc/(passwd|shadow|sudoers)"),
+    # Download + exec chaîné sans pipe
+    re.compile(r"\b(curl|wget)\b.*&&\s*(bash|sh|python|node|exec)"),
 ]
+
+# Taille maximale de la sortie d'une commande (caractères)
+MAX_OUTPUT_SIZE = 50_000
 
 
 class CommandBlocked(Exception):
@@ -124,7 +178,10 @@ class Terminal:
             else:
                 logger.info("Succès (code 0): %s", command)
 
-            return "\n".join(parts).strip() or "(aucune sortie)"
+            output = "\n".join(parts).strip() or "(aucune sortie)"
+            if len(output) > MAX_OUTPUT_SIZE:
+                output = output[:MAX_OUTPUT_SIZE] + f"\n… [sortie tronquée — {len(output) - MAX_OUTPUT_SIZE} chars supplémentaires]"
+            return output
 
         except subprocess.TimeoutExpired:
             logger.error("Timeout (%ds): %s", SUBPROCESS_TIMEOUT, command)

@@ -165,6 +165,69 @@ class TestListFiles:
 # Diff                                                                 #
 # ------------------------------------------------------------------ #
 
+# ------------------------------------------------------------------ #
+# Nouvelles règles de sécurité                                         #
+# ------------------------------------------------------------------ #
+
+class TestSecuriteAvancee:
+    def test_claude_masque_dans_listing(self, tmp_path):
+        """.claude/ ne doit pas apparaître dans list_files."""
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "secret.txt").write_text("interne")
+        (tmp_path / "visible.py").write_text("ok")
+        fm = FileManager(root=tmp_path)
+        result = fm.list_files(".")
+        assert ".claude" not in result
+        assert "visible.py" in result
+
+    def test_git_fichier_masque_dans_listing(self, tmp_path):
+        """.git peut être un fichier (worktree) — doit aussi être masqué."""
+        (tmp_path / ".git").write_text("gitdir: ../../.git/worktrees/x")
+        (tmp_path / "code.py").write_text("ok")
+        fm = FileManager(root=tmp_path)
+        result = fm.list_files(".")
+        assert ".git" not in result
+        assert "code.py" in result
+
+    def test_write_file_depasse_1mb_bloque(self, tmp_path):
+        """write_file doit rejeter un contenu > MAX_FILE_SIZE."""
+        import tools.file_manager as fm_mod
+        from tools.file_manager import FileManager as FM
+        original = fm_mod.MAX_FILE_SIZE
+        try:
+            # Fixer la limite à 10 octets pour le test
+            fm_mod.MAX_FILE_SIZE = 10
+            fm = FM(root=tmp_path)
+            with pytest.raises(ValueError, match="volumineux"):
+                fm.write_file("big.txt", "A" * 100)
+        finally:
+            fm_mod.MAX_FILE_SIZE = original
+
+    def test_write_file_exactement_limite_ok(self, tmp_path, monkeypatch):
+        """Un contenu de exactement MAX_FILE_SIZE octets passe."""
+        import tools.file_manager as fm_mod
+        monkeypatch.setattr(fm_mod, "MAX_FILE_SIZE", 10)
+        fm = FileManager(root=tmp_path)
+        fm.write_file("exact.txt", "A" * 10)   # 10 octets == limite → ok
+        assert (tmp_path / "exact.txt").exists()
+
+    def test_venv_masque_dans_listing(self, tmp_path):
+        """.venv ne doit pas apparaître dans list_files."""
+        (tmp_path / ".venv").mkdir()
+        (tmp_path / ".venv" / "lib").mkdir()
+        fm = FileManager(root=tmp_path)
+        result = fm.list_files(".")
+        assert ".venv" not in result
+
+    def test_pycache_masque_dans_listing(self, tmp_path):
+        """__pycache__ ne doit pas apparaître dans list_files."""
+        (tmp_path / "__pycache__").mkdir()
+        (tmp_path / "__pycache__" / "mod.cpython-311.pyc").write_bytes(b"PYC")
+        fm = FileManager(root=tmp_path)
+        result = fm.list_files(".")
+        assert "__pycache__" not in result
+
+
 class TestDiffFiles:
     def test_fichiers_identiques(self, sandbox, tmp_path):
         (tmp_path / "f1.txt").write_text("same")

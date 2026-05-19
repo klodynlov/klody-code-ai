@@ -20,7 +20,7 @@ MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 
 # --- LibraryBrain / MCP ---
-LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/ask")
+LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
 # --- Chemins ---
