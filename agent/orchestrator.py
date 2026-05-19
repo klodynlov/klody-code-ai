@@ -14,7 +14,7 @@ from agent.memory import ConversationMemory
 from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
-from tools.skills import save_skill, load_skills, format_skills_for_prompt
+from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills
 from tools.terminal import CommandBlocked, Terminal
@@ -141,6 +141,10 @@ class Orchestrator:
                     tool_args.get("file_pattern", ""),
                     tool_args.get("case_sensitive", True),
                 )
+            if tool_name == "list_skills":
+                return list_skills()
+            if tool_name == "delete_skill":
+                return delete_skill(tool_args["slug"])
             if tool_name == "save_skill":
                 return save_skill(
                     tool_args["name"],

@@ -78,7 +78,7 @@ def print_banner(memory: ConversationMemory) -> None:
     console.print(Align.center(table))
     console.print()
     console.print(
-        Align.center(Text("/help  /clear  /memory  /model  /exit", style="dim"))
+        Align.center(Text("/help  /clear  /memory  /model  /skills  /exit", style="dim"))
     )
     console.print(Rule(style="dim blue"))
     console.print()
@@ -117,6 +117,7 @@ HELP_TEXT = """
   [cyan]/memory[/cyan]            Statistiques de la session
   [cyan]/model[/cyan]             Afficher le modèle actif
   [cyan]/model <nom>[/cyan]       Changer de modèle  [dim]ex: /model qwen2.5-coder:7b[/dim]
+  [cyan]/skills[/cyan]            Lister les compétences mémorisées
   [cyan]/tokens[/cyan]            Afficher le compteur de tokens
   [cyan]/exit[/cyan]              Quitter
 
@@ -145,6 +146,36 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         for k, v in stats.items():
             table.add_row(k, str(v))
         console.print(table)
+        return True
+
+    if token == "/skills":
+        from tools.skills import load_skills
+        skills = load_skills()
+        if not skills:
+            console.print("\n  [dim]Aucune compétence mémorisée.[/dim]  [dim]Utilisez save_skill pour en créer.[/dim]\n")
+        else:
+            tbl = Table(
+                title=f"[bold]{len(skills)} Compétence(s) mémorisée(s)[/bold]",
+                box=box.ROUNDED,
+                border_style="blue",
+                show_lines=True,
+            )
+            tbl.add_column("Nom", style="bold white", no_wrap=True)
+            tbl.add_column("Slug", style="dim cyan", no_wrap=True)
+            tbl.add_column("Description", style="white")
+            tbl.add_column("Mis à jour", style="dim", no_wrap=True)
+            for s in skills:
+                tbl.add_row(
+                    s.get("name", "?"),
+                    s.get("slug", "?"),
+                    s.get("description", "")[:70],
+                    s.get("updated", "")[:10],
+                )
+            console.print()
+            console.print(tbl)
+            console.print(
+                "  [dim]Pour supprimer : demandez à Klody « supprime la compétence <slug> »[/dim]\n"
+            )
         return True
 
     if token == "/tokens":

@@ -131,6 +131,44 @@ TOOLS: list[dict] = [
 ]
 
 
+LIST_SKILLS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "list_skills",
+        "description": (
+            "Liste toutes les compétences mémorisées (user skills). "
+            "Appelle cet outil pour savoir ce qui a déjà été appris avant de sauvegarder un doublon, "
+            "ou pour répondre à 'quelles compétences as-tu ?'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+}
+
+DELETE_SKILL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "delete_skill",
+        "description": (
+            "Supprime une compétence mémorisée par son slug. "
+            "Utilise list_skills d'abord pour obtenir le slug exact."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "slug": {
+                    "type": "string",
+                    "description": "Slug de la compétence à supprimer (ex: 'commit_convention')",
+                },
+            },
+            "required": ["slug"],
+        },
+    },
+}
+
 SKILL_TOOL = {
     "type": "function",
     "function": {
@@ -260,7 +298,7 @@ MCP_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS]
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS]
 
 
 def get_tools() -> list[dict]:

@@ -9,6 +9,7 @@ load_dotenv()
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_API_KEY: str = os.getenv("OLLAMA_API_KEY", "ollama")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
+MODEL_FALLBACK: str = os.getenv("MODEL_FALLBACK", "qwen2.5-coder:7b")
 
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()

@@ -6,14 +6,12 @@ from typing import Callable, Optional
 
 from openai import OpenAI, APIConnectionError, APITimeoutError
 from rich.console import Console
-from rich.live import Live
-from rich.markdown import Markdown
-from rich.padding import Padding
 from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
+from rich.live import Live
 
-from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME
+from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME, MODEL_FALLBACK
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -111,45 +109,29 @@ class LLMClient:
                         first_token = True
                         break
 
-            # Phase 2 : streaming Markdown progressif (si on a du contenu texte)
+            # Phase 2 : streaming token par token — texte brut affiché au fil de l'eau
             if full_content:
-                with Live(
-                    Markdown(full_content),
-                    console=console,
-                    refresh_per_second=12,
-                    vertical_overflow="visible",
-                ) as live:
-                    for chunk in stream:
-                        if not chunk.choices:
-                            continue
-                        delta = chunk.choices[0].delta
+                # Premier token déjà dans full_content — l'afficher sans markup
+                console.print(full_content, end="", markup=False, highlight=False)
 
-                        if delta.content:
-                            full_content += delta.content
-                            if token_callback:
-                                token_callback(delta.content)
-                            live.update(Markdown(full_content))
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
 
-                        if delta.tool_calls:
-                            for tc_chunk in delta.tool_calls:
-                                self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+                if delta.content:
+                    full_content += delta.content
+                    console.print(delta.content, end="", markup=False, highlight=False)
+                    if token_callback:
+                        token_callback(delta.content)
 
-            else:
-                # Pas de contenu texte — continuer à collecter les tool calls
-                for chunk in stream:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        full_content += delta.content
-                        if token_callback:
-                            token_callback(delta.content)
-                    if delta.tool_calls:
-                        for tc_chunk in delta.tool_calls:
-                            self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+                if delta.tool_calls:
+                    for tc_chunk in delta.tool_calls:
+                        self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
-            # Ligne de séparation discrète après la réponse
+            # Saut de ligne + séparateur discret après la réponse texte
             if full_content:
+                console.print()
                 console.print(Rule(style="dim blue"))
 
             # Estimation tokens
@@ -184,9 +166,27 @@ class LLMClient:
             raise
         except APITimeoutError as e:
             logger.error("Timeout LLM: %s", e)
+            # Bascule automatique sur le modèle de secours si disponible
+            if self.model != MODEL_FALLBACK:
+                logger.warning("Timeout — bascule sur '%s'", MODEL_FALLBACK)
+                console.print(
+                    f"\n[yellow]⚠  Timeout — bascule automatique sur [bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
+                )
+                self.model = MODEL_FALLBACK
+                return self.stream_chat(messages, tools, token_callback)
             console.print("\n[bold red]✗ Timeout du modèle.[/bold red]\n")
             raise
         except Exception as e:
+            err_str = str(e).lower()
+            # Modèle introuvable → bascule sur le modèle de secours
+            if ("not found" in err_str or "does not exist" in err_str) and self.model != MODEL_FALLBACK:
+                logger.warning("Modèle '%s' introuvable — bascule sur '%s'", self.model, MODEL_FALLBACK)
+                console.print(
+                    f"\n[yellow]⚠  Modèle [bold]{self.model}[/bold] introuvable — "
+                    f"bascule sur [bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
+                )
+                self.model = MODEL_FALLBACK
+                return self.stream_chat(messages, tools, token_callback)
             logger.error("Erreur LLM: %s", e)
             raise
 
