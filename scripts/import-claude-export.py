@@ -20,7 +20,10 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
+# Ajouter la racine du projet au path pour importer config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from config import SKILLS_DIR  # noqa: E402
+
 EXPORT_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 
 # Technologies à détecter dans les conversations

@@ -9,7 +9,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
+from config import SKILLS_DIR
+
 logger = logging.getLogger(__name__)
 
 

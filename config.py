@@ -24,9 +24,11 @@ LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
 # --- Chemins ---
-LOG_DIR: Path = Path(__file__).parent / "logs"
+_ROOT: Path = Path(__file__).parent
+LOG_DIR: Path = _ROOT / "logs"
 LOG_FILE: Path = LOG_DIR / "agent.log"
 MEMORY_DIR: Path = LOG_DIR
+SKILLS_DIR: Path = _ROOT / "skills"
 
 LOG_DIR.mkdir(exist_ok=True)
 
