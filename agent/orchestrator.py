@@ -16,6 +16,7 @@ from tools.registry import get_tools
 from tools.search import Search
 from tools.skills import save_skill, load_skills, format_skills_for_prompt
 from tools.llm_import import import_llm_export, list_imports
+from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills
 from tools.terminal import CommandBlocked, Terminal
 from config import MAX_ITERATIONS, PROJECT_ROOT
 
@@ -150,6 +151,12 @@ class Orchestrator:
                 return import_llm_export(tool_args["path"])
             if tool_name == "list_imports":
                 return list_imports()
+            if tool_name == "search_books":
+                return mcp_search_books(
+                    tool_args["query"], tool_args.get("limit", 3)
+                )
+            if tool_name == "get_skills":
+                return mcp_get_skills(tool_args["domain"])
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:
@@ -198,6 +205,36 @@ class Orchestrator:
         elif tool_name == "search_in_files":
             pattern = tool_args.get("pattern", "")
             console.print(_format_search_results(result, pattern))
+
+        elif tool_name == "search_books":
+            query = tool_args.get("query", "")
+            if result.startswith("LibraryBrain") or result.startswith("Aucun") or result.startswith("Erreur"):
+                console.print(Panel(
+                    f"[yellow]{result}[/yellow]",
+                    title=f"[yellow]📚 search_books: {query[:50]}[/yellow]",
+                    border_style="yellow",
+                ))
+            else:
+                chunks = result.split("\n\n---\n\n")
+                console.print(Panel(
+                    "\n[dim]─────[/dim]\n".join(
+                        f"[cyan]{c.splitlines()[0]}[/cyan]\n"
+                        + "\n".join(c.splitlines()[1:])
+                        for c in chunks
+                    ),
+                    title=f"[magenta]📚 LibraryBrain — {len(chunks)} passage(s) pour: {query[:40]}[/magenta]",
+                    border_style="magenta",
+                    padding=(0, 1),
+                ))
+
+        elif tool_name == "get_skills":
+            domain = tool_args.get("domain", "")
+            console.print(Panel(
+                result[:800] + ("…" if len(result) > 800 else ""),
+                title=f"[blue]🎓 Conventions {domain}[/blue]",
+                border_style="blue",
+                padding=(0, 1),
+            ))
 
         else:
             # Fallback générique
