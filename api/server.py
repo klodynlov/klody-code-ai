@@ -27,9 +27,16 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="KlodyAI API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[
+        "http://localhost",
+        "http://localhost:1420",  # Tauri dev
+        "http://localhost:3000",  # Next.js dev
+        "http://127.0.0.1",
+        "http://127.0.0.1:1420",
+        "tauri://localhost",       # Tauri production
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Sessions actives par WebSocket
@@ -289,6 +296,11 @@ def _build_streaming_orchestrator(
     return orch
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "klody-api", "version": "1.0.0"}
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")

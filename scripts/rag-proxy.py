@@ -21,7 +21,7 @@ from loguru import logger
 
 # — Configuration ——————————————————————————————————————————————————————————————
 
-LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/ask")
+LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 MLX_URL = os.getenv("MLX_URL", "http://127.0.0.1:8080")
 PROXY_PORT = int(os.getenv("PROXY_PORT", "8081"))
 MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
@@ -64,8 +64,10 @@ async def _search_books(query: str, limit: int = 3) -> list[dict]:
             resp = await client.post(LIBRARYBRAIN_URL, json={"query": query, "limit": limit})
             resp.raise_for_status()
             data = resp.json()
-        raw = data if isinstance(data, list) else data.get("results", data.get("chunks", []))
-        return raw[:limit]
+        # Format LibraryBrain : {answer, sources:[{title,author,page,score}], found}
+        if not data.get("found", False):
+            return []
+        return [{"content": data.get("answer", ""), "sources": data.get("sources", [])}]
     except httpx.ConnectError:
         logger.warning("LibraryBrain unreachable — skipping book search")
         return []
@@ -104,9 +106,13 @@ async def _build_context(user_text: str) -> str:
     if chunks:
         parts.append("## Extraits de livres pertinents")
         for c in chunks:
-            source = c.get("source", c.get("metadata", {}).get("source", "?"))
-            content = c.get("content", c.get("text", ""))
-            parts.append(f"[{source}]\n{content}")
+            content = c.get("content", "")
+            srcs = c.get("sources", [])
+            ref = " | ".join(
+                f"{s.get('title','?')} — {s.get('author','?')}, p.{s.get('page','?')}"
+                for s in srcs
+            ) if srcs else "source inconnue"
+            parts.append(f"[{ref}]\n{content}")
 
     if skills:
         parts.append(f"## Conventions {domain}")

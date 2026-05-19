@@ -9,7 +9,7 @@ import httpx
 from fastmcp import FastMCP
 from loguru import logger
 
-LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/ask")
+LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
 MCP_HOST = os.getenv("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.getenv("MCP_PORT", "8082"))
@@ -49,16 +49,24 @@ async def search_books(query: str, limit: int = 3) -> list[dict]:
             resp.raise_for_status()
             data = resp.json()
 
-        raw = data if isinstance(data, list) else data.get("results", data.get("chunks", []))
+        # Format LibraryBrain : {answer, sources:[{title,author,page,score}], found}
+        if not data.get("found", False):
+            logger.info("search_books('{}') → not found", query)
+            return []
+
+        answer = data.get("answer", "")
+        sources = data.get("sources", [])
         chunks = [
             Chunk(
-                content=c.get("content", c.get("text", "")),
-                source=c.get("source", c.get("metadata", {}).get("source", "?")),
-                score=float(c.get("score", c.get("similarity", 0.0))),
+                content=answer,
+                source=" | ".join(
+                    f"{s.get('title','?')} — {s.get('author','?')}, p.{s.get('page','?')}"
+                    for s in sources[:limit]
+                ),
+                score=float(sources[0].get("score", 0.0)) if sources else 0.0,
             )
-            for c in raw[:limit]
         ]
-        logger.info("search_books('{}') → {} chunks", query, len(chunks))
+        logger.info("search_books('{}') → 1 chunk, {} sources", query, len(sources))
         return [asdict(c) for c in chunks]
 
     except httpx.ConnectError:
@@ -72,16 +80,25 @@ async def search_books(query: str, limit: int = 3) -> list[dict]:
         return []
 
 
+def _is_domain_file(path: Path) -> bool:
+    """Vérifie qu'un fichier est un domaine valide (liste de {title, content, tags})."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return isinstance(data, list) and bool(data) and isinstance(data[0], dict) and "title" in data[0]
+    except Exception:
+        return False
+
+
 @mcp.tool()
 def get_skills(domain: str) -> list[dict]:
     """Retourne les conventions et patterns du domaine demandé.
 
     Domaines disponibles : symfony, nextjs, python, mlx.
-    Retourne une liste vide si le domaine est inconnu.
+    Retourne une liste vide si le domaine est inconnu ou invalide.
     """
     path = SKILLS_DIR / f"{domain}.json"
-    if not path.exists():
-        logger.warning("Skills file not found: {}", path)
+    if not path.exists() or not _is_domain_file(path):
+        logger.warning("Skills domain not found or invalid: {}", domain)
         return []
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
