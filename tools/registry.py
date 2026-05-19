@@ -162,7 +162,51 @@ SKILL_TOOL = {
     },
 }
 
-TOOLS = [*TOOLS, SKILL_TOOL]
+IMPORT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "import_llm_export",
+            "description": (
+                "Lit et analyse un export JSON d'un autre LLM (ChatGPT, Claude, Gemini…). "
+                "Détecte automatiquement le format, extrait les messages utilisateur, "
+                "identifie les technologies et pratiques récurrentes. "
+                "Utilise cet outil pour enrichir ta connaissance des habitudes de l'utilisateur. "
+                "Les fichiers doivent être déposés dans le dossier imports/ du projet."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Nom du fichier JSON à analyser (ex: 'conversations.json'). "
+                            "Chemin relatif depuis imports/ ou chemin absolu."
+                        ),
+                    }
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_imports",
+            "description": (
+                "Liste les fichiers d'export LLM disponibles dans le dossier imports/. "
+                "Appelle cet outil avant import_llm_export pour voir ce qui est disponible."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, SKILL_TOOL, *IMPORT_TOOLS]
 
 
 def get_tools() -> list[dict]:

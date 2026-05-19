@@ -21,9 +21,7 @@ console = Console()
 SYSTEM_PROMPT = """\
 Tu es Klody, un agent de coding expert. Réponds en français.
 
-RÈGLE CRITIQUE : N'utilise les outils (read_file, write_file, list_files, \
-execute_command, search_in_files) QUE si la tâche l'exige explicitement \
-(modifier du code, lire un fichier, exécuter une commande).
+RÈGLE CRITIQUE : N'utilise les outils QUE si la tâche l'exige explicitement. \
 Pour les questions générales, la conversation, ou les explications : \
 réponds DIRECTEMENT sans outil.
 
@@ -32,6 +30,13 @@ Quand tu dois agir sur le code :
 2. Exécute étape par étape
 3. Vérifie chaque action
 4. Rends compte clairement
+
+Apprentissage des pratiques utilisateur :
+- Si l'utilisateur te demande d'analyser ses exports LLM, utilise list_imports \
+puis import_llm_export pour lire et analyser chaque fichier.
+- Après analyse, utilise save_skill pour mémoriser les patterns importants \
+(langages préférés, frameworks, habitudes de code, questions récurrentes).
+- Enrichis ta compréhension de l'utilisateur à chaque import.
 
 Ne modifie jamais un fichier sans l'avoir lu. \
 Avant toute commande bash, explique pourquoi.\
@@ -244,3 +249,33 @@ class LLMClient:
             return calls if calls else None
 
         return None
+
+    def extract_mixed_tool_call(
+        self, content: str, valid_tool_names: set[str]
+    ) -> tuple[str, Optional[list[dict]]]:
+        """
+        Extrait un tool call JSON depuis un contenu mixte (texte + JSON collés).
+        Retourne (texte_avant, tool_calls) ou (content, None) si rien trouvé.
+        """
+        # Essai pure JSON d'abord
+        pure = self._parse_text_tool_calls(content, valid_tool_names)
+        if pure:
+            return "", pure
+
+        # Chercher le début d'un JSON tool call dans le contenu
+        names_pattern = "|".join(re.escape(n) for n in valid_tool_names)
+        pattern = rf'\{{"name":\s*"(?:{names_pattern})"'
+        matches = list(re.finditer(pattern, content))
+        if not matches:
+            return content, None
+
+        # Prendre le dernier match et tenter de parser depuis là
+        start = matches[-1].start()
+        text_part = content[:start].rstrip()
+        json_part = content[start:]
+
+        parsed = self._parse_text_tool_calls(json_part, valid_tool_names)
+        if parsed:
+            return text_part, parsed
+
+        return content, None
