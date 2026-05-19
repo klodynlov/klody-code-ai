@@ -248,14 +248,18 @@ def _build_streaming_orchestrator(
 
         tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
-        # Fallback : tool call émis en JSON texte
+        # Fallback : tool call émis en JSON texte (pur ou mélangé avec du texte)
         if not tool_calls and full_content and tools:
             valid_names = {t["function"]["name"] for t in tools}
-            parsed = orch.llm._parse_text_tool_calls(full_content, valid_names)
+            text_part, parsed = orch.llm.extract_mixed_tool_call(full_content, valid_names)
             if parsed:
                 tool_calls = parsed
-                full_content = ""
-                _put({"type": "discard_stream"})
+                if text_part:
+                    # Garder la partie texte visible, supprimer le JSON
+                    _put({"type": "stream_trim", "content": text_part})
+                else:
+                    _put({"type": "discard_stream"})
+                full_content = text_part
                 return full_content, tool_calls
 
         if full_content:

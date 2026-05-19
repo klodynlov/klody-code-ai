@@ -15,6 +15,7 @@ from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
 from tools.skills import save_skill, load_skills, format_skills_for_prompt
+from tools.llm_import import import_llm_export, list_imports
 from tools.terminal import CommandBlocked, Terminal
 from config import MAX_ITERATIONS, PROJECT_ROOT
 
@@ -145,6 +146,10 @@ class Orchestrator:
                     tool_args["description"],
                     tool_args["content"],
                 )
+            if tool_name == "import_llm_export":
+                return import_llm_export(tool_args["path"])
+            if tool_name == "list_imports":
+                return list_imports()
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:
