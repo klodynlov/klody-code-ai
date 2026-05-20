@@ -81,7 +81,7 @@ def print_banner(memory: ConversationMemory) -> None:
     console.print(Align.center(table))
     console.print()
     console.print(
-        Align.center(Text("/help  /clear  /memory  /model  /skills  /exit", style="dim"))
+        Align.center(Text("/help  /clear  /memory  /sessions  /model  /skills  /exit", style="dim"))
     )
     console.print(Rule(style="dim blue"))
     console.print()
@@ -117,9 +117,10 @@ HELP_TEXT = """
 
   [cyan]/help[/cyan]              Cette aide
   [cyan]/clear[/cyan]             Effacer l'historique de la session
-  [cyan]/memory[/cyan]            Statistiques de la session
+  [cyan]/memory[/cyan]            Session courante + souvenirs long terme
   [cyan]/model[/cyan]             Afficher le modèle actif
   [cyan]/model <nom>[/cyan]       Changer de modèle  [dim]ex: /model qwen2.5-coder:7b[/dim]
+  [cyan]/sessions[/cyan]          Lister et charger une session précédente
   [cyan]/skills[/cyan]            Lister les compétences mémorisées
   [cyan]/tokens[/cyan]            Afficher le compteur de tokens
   [cyan]/exit[/cyan]              Quitter
@@ -221,6 +222,81 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
             console.print(f"\n  [green]✓[/green] Modèle → [bold]{new_model}[/bold]\n")
         else:
             console.print(f"\n  Modèle actif : [bold green]{orchestrator.llm.model}[/bold green]\n")
+        return True
+
+    if token == "/sessions":
+        files = sorted(
+            MEMORY_DIR.glob("memory_*.json"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )[:15]
+        if not files:
+            console.print("\n  [dim]Aucune session sauvegardée.[/dim]\n")
+            return True
+
+        import json as _json
+        tbl = Table(
+            title="[bold]Sessions récentes[/bold]",
+            box=box.ROUNDED, border_style="cyan", show_lines=False,
+        )
+        tbl.add_column("#", style="dim", width=3, no_wrap=True)
+        tbl.add_column("ID", style="bold cyan", no_wrap=True)
+        tbl.add_column("Titre", style="white")
+        tbl.add_column("Msgs", style="dim", no_wrap=True)
+        tbl.add_column("Modifié", style="dim", no_wrap=True)
+
+        session_ids = []
+        for i, f in enumerate(files, 1):
+            try:
+                data = _json.loads(f.read_text())
+                sid = data.get("session_id", f.stem.replace("memory_", ""))
+                title = data.get("title", "") or sid
+                msgs = [m for m in data.get("messages", []) if m.get("role") not in ("system", "tool")]
+                import datetime
+                mtime = datetime.datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m %H:%M")
+                active = " ◆" if sid == orchestrator.memory.session_id else ""
+                tbl.add_row(str(i), sid[:8] + active, title[:55], str(len(msgs)), mtime)
+                session_ids.append(sid)
+            except Exception:
+                continue
+
+        console.print()
+        console.print(tbl)
+        console.print("  [dim]Pour charger : /sessions <numéro>  ex: /sessions 2[/dim]\n")
+        return True
+
+    if token.startswith("/sessions "):
+        parts = cmd.strip().split(maxsplit=1)
+        if len(parts) < 2:
+            return True
+        arg = parts[1].strip()
+        files = sorted(
+            MEMORY_DIR.glob("memory_*.json"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
+        )[:15]
+        # Chercher par numéro ou par ID partiel
+        target = None
+        if arg.isdigit():
+            idx = int(arg) - 1
+            if 0 <= idx < len(files):
+                target = files[idx]
+        else:
+            for f in files:
+                if arg in f.stem:
+                    target = f
+                    break
+        if target is None:
+            console.print(f"\n  [red]Session introuvable : {arg}[/red]\n")
+            return True
+        from agent.memory import ConversationMemory as _CM
+        loaded = _CM.load_from_file(target)
+        orchestrator.memory = loaded
+        # Réinitialiser le system prompt si absent
+        if not any(m["role"] == "system" for m in loaded.messages):
+            orchestrator._inject_system_prompt()
+        n = sum(1 for m in loaded.messages if m["role"] not in ("system", "tool"))
+        console.print(f"\n  [green]✓[/green] Session [bold]{loaded.session_id}[/bold] chargée — {n} messages.\n")
         return True
 
     if token in ("/exit", "/quit", "/q"):
