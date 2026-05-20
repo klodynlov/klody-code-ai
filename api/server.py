@@ -8,6 +8,7 @@ import json
 import logging
 import sys
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -27,23 +28,29 @@ from agent.memory_extractor import extract_and_save
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="KlodyAI API", version="1.0.0")
 
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
+    yield
+
+
+app = FastAPI(title="KlodyAI API", version="1.0.0", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost",
         "http://localhost:1420",  # Tauri dev
-        "http://localhost:3000",  # Next.js dev
+        "http://localhost:1421",
+        "http://localhost:5173",  # Vite dev
+        "http://localhost:5174",
+        "http://localhost:3000",
         "http://127.0.0.1",
         "http://127.0.0.1:1420",
         "tauri://localhost",       # Tauri production
     ],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -156,7 +163,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     memory = ConversationMemory()
     current_model = MODEL_NAME
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue()
 
     # Envoyer le statut initial
