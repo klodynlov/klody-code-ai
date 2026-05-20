@@ -23,6 +23,7 @@ from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
 from agent.long_term_memory import get_long_term_memory
+from agent.memory_extractor import extract_and_save
 
 logger = logging.getLogger(__name__)
 
@@ -197,20 +198,30 @@ async def websocket_endpoint(ws: WebSocket):
                 def run_agent():
                     try:
                         orch.run(user_text)
-                        asyncio.run_coroutine_threadsafe(
-                            queue.put({"type": "done", "session_id": memory.session_id}),
-                            loop,
-                        )
                     except StopGeneration:
-                        asyncio.run_coroutine_threadsafe(
-                            queue.put({"type": "done", "session_id": memory.session_id}),
-                            loop,
-                        )
+                        pass
                     except Exception as e:
                         asyncio.run_coroutine_threadsafe(
                             queue.put({"type": "error", "content": str(e)}),
                             loop,
                         )
+                        asyncio.run_coroutine_threadsafe(
+                            queue.put({"type": "done", "session_id": memory.session_id}),
+                            loop,
+                        )
+                        return
+
+                    asyncio.run_coroutine_threadsafe(
+                        queue.put({"type": "done", "session_id": memory.session_id}),
+                        loop,
+                    )
+                    # Extraction mémoire en arrière-plan (non-bloquant)
+                    threading.Thread(
+                        target=_extract_memory_bg,
+                        args=(memory.messages, get_long_term_memory()),
+                        daemon=True,
+                        name="mem-extractor",
+                    ).start()
 
                 thread = threading.Thread(target=run_agent, daemon=True)
                 thread.start()
@@ -256,6 +267,16 @@ async def websocket_endpoint(ws: WebSocket):
         logger.info("WebSocket déconnecté")
     except Exception as e:
         logger.error("WebSocket erreur: %s", e)
+
+
+def _extract_memory_bg(messages: list[dict], lt_memory) -> None:
+    """Lance l'extraction mémoire dans un thread background."""
+    try:
+        facts = extract_and_save(messages, lt_memory)
+        if facts:
+            logger.info("[API] %d fait(s) mémorisé(s) automatiquement", len(facts))
+    except Exception as e:
+        logger.warning("[API] Extraction mémoire échouée : %s", e)
 
 
 def _export_messages(memory: ConversationMemory) -> list[dict]:

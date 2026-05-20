@@ -25,6 +25,8 @@ from rich.text import Text
 from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
+from agent.long_term_memory import get_long_term_memory
+from agent.memory_extractor import extract_and_save
 from services import ensure_librarybrain
 
 logger = logging.getLogger(__name__)
@@ -140,13 +142,40 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         return True
 
     if token == "/memory":
+        # Stats session courante
         stats = orchestrator.memory.stats()
-        table = Table(title="Session", box=box.ROUNDED, border_style="cyan")
+        table = Table(title="Session courante", box=box.ROUNDED, border_style="cyan")
         table.add_column("Clé", style="dim", no_wrap=True)
         table.add_column("Valeur", style="bold")
         for k, v in stats.items():
             table.add_row(k, str(v))
         console.print(table)
+
+        # Mémoire longue terme
+        lt = get_long_term_memory()
+        entries = lt.list_all()
+        if entries:
+            _CATEGORY_LABELS = {
+                "user": "Utilisateur", "project": "Projets",
+                "preference": "Préférences", "context": "Contexte",
+            }
+            lt_table = Table(
+                title=f"[bold]{len(entries)} Souvenir(s) long terme[/bold]",
+                box=box.ROUNDED, border_style="magenta", show_lines=True,
+            )
+            lt_table.add_column("Catégorie", style="dim", no_wrap=True)
+            lt_table.add_column("Clé", style="bold cyan", no_wrap=True)
+            lt_table.add_column("Contenu", style="white")
+            for e in entries:
+                lt_table.add_row(
+                    _CATEGORY_LABELS.get(e["category"], e["category"]),
+                    e["key"],
+                    e["content"],
+                )
+            console.print()
+            console.print(lt_table)
+        else:
+            console.print("\n  [dim]Aucun souvenir long terme. Klody mémorisera automatiquement les faits importants.[/dim]\n")
         return True
 
     if token == "/skills":
@@ -196,6 +225,7 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
 
     if token in ("/exit", "/quit", "/q"):
         console.print("\n[bold blue]  ◆  À bientôt ![/bold blue]\n")
+        _run_extraction(orchestrator)
         sys.exit(0)
 
     return False
@@ -204,6 +234,16 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
 # ------------------------------------------------------------------ #
 # REPL principal                                                       #
 # ------------------------------------------------------------------ #
+
+def _run_extraction(orchestrator: Orchestrator) -> None:
+    """Extraction silencieuse des faits importants en fin de session."""
+    lt = get_long_term_memory()
+    facts = extract_and_save(orchestrator.memory.messages, lt)
+    if facts:
+        console.print(
+            f"  [dim magenta]◆ {len(facts)} fait(s) mémorisé(s) automatiquement[/dim magenta]\n"
+        )
+
 
 def repl(orchestrator: Orchestrator) -> None:
     """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions)."""
@@ -251,6 +291,7 @@ def repl(orchestrator: Orchestrator) -> None:
             continue
         except EOFError:
             console.print("\n[bold blue]  ◆  À bientôt ![/bold blue]\n")
+            _run_extraction(orchestrator)
             sys.exit(0)
         except Exception as e:
             logger.error("Erreur REPL: %s", e, exc_info=True)
