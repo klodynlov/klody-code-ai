@@ -25,6 +25,13 @@ LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
+# --- GitHub ---
+GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
+
+# --- Projets ---
+PROJECTS_DIR: Path = Path(os.getenv("PROJECTS_DIR", str(Path.home() / "Projets"))).resolve()
+PYCHARM_CMD: str = os.getenv("PYCHARM_CMD", "/usr/local/bin/pycharm")
+
 # --- Chemins ---
 _ROOT: Path = Path(__file__).parent
 LOG_DIR: Path = _ROOT / "logs"

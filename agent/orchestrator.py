@@ -18,6 +18,18 @@ from tools.search import Search
 from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills
+from tools.github_reader import (
+    browse_repo as gh_browse_repo,
+    read_github_file as gh_read_file,
+    list_indexed_repos as gh_list_indexed,
+    index_github_repo as gh_index_repo,
+    extract_best_practices as gh_extract_practices,
+)
+from tools.project_creator import (
+    clone_github_repo as pc_clone,
+    create_project as pc_create,
+    open_in_pycharm as pc_open_pycharm,
+)
 from tools.terminal import CommandBlocked, Terminal
 from config import MAX_ITERATIONS, PROJECT_ROOT
 
@@ -177,6 +189,33 @@ class Orchestrator:
                 )
             if tool_name == "forget_fact":
                 return self.lt_memory.forget(tool_args["key"])
+            if tool_name == "browse_repo":
+                return gh_browse_repo(
+                    tool_args["repo"],
+                    tool_args.get("path", ""),
+                    tool_args.get("recursive", False),
+                )
+            if tool_name == "read_github_file":
+                return gh_read_file(tool_args["repo"], tool_args["path"])
+            if tool_name == "list_indexed_repos":
+                return gh_list_indexed()
+            if tool_name == "index_github_repo":
+                return gh_index_repo(tool_args["repo"])
+            if tool_name == "extract_best_practices":
+                return gh_extract_practices(tool_args["repo"])
+            if tool_name == "clone_github_repo":
+                return pc_clone(
+                    tool_args["repo"], tool_args.get("target_dir", "")
+                )
+            if tool_name == "create_project":
+                return pc_create(
+                    tool_args["name"],
+                    tool_args.get("template", "python"),
+                    tool_args.get("description", ""),
+                    tool_args.get("inspired_by", ""),
+                )
+            if tool_name == "open_in_pycharm":
+                return pc_open_pycharm(tool_args["project_path"])
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:
@@ -253,6 +292,54 @@ class Orchestrator:
                 result[:800] + ("…" if len(result) > 800 else ""),
                 title=f"[blue]🎓 Conventions {domain}[/blue]",
                 border_style="blue",
+                padding=(0, 1),
+            ))
+
+        elif tool_name == "browse_repo":
+            repo = tool_args.get("repo", "")
+            tree = Tree(f"[bold blue]📦 {repo}[/bold blue]")
+            for line in result.splitlines()[1:]:
+                line = line.strip()
+                if line.startswith("📁"):
+                    tree.add(f"[blue]{line}[/blue]")
+                elif line.startswith("📄"):
+                    tree.add(f"[white]{line}[/white]")
+            console.print(Panel(tree, title="[blue]GitHub — Arborescence[/blue]", border_style="blue", padding=(0, 2)))
+
+        elif tool_name == "read_github_file":
+            path = tool_args.get("path", "")
+            lexer = _lexer_for(path)
+            console.print(Panel(
+                Syntax(result[:5000], lexer, theme="monokai", line_numbers=True, word_wrap=True),
+                title=f"[cyan]📄 GitHub: {tool_args.get('repo', '')}/{path}[/cyan]",
+                border_style="cyan",
+                padding=(0, 1),
+            ))
+
+        elif tool_name in ("list_indexed_repos", "index_github_repo"):
+            icon = "📚" if "list" in tool_name else "📥"
+            console.print(Panel(
+                result,
+                title=f"[magenta]{icon} {tool_name}[/magenta]",
+                border_style="magenta",
+                padding=(0, 1),
+            ))
+
+        elif tool_name == "extract_best_practices":
+            repo = tool_args.get("repo", "")
+            preview = result[:2000] + "…" if len(result) > 2000 else result
+            console.print(Panel(
+                preview,
+                title=f"[yellow]🔍 Bonnes pratiques — {repo}[/yellow]",
+                border_style="yellow",
+                padding=(0, 1),
+            ))
+
+        elif tool_name in ("clone_github_repo", "create_project", "open_in_pycharm"):
+            console.print(Panel(
+                result,
+                title=f"[green]🚀 {tool_name}[/green]",
+                border_style="green",
                 padding=(0, 1),
             ))
 

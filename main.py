@@ -125,6 +125,16 @@ HELP_TEXT = """
   [cyan]/tokens[/cyan]            Afficher le compteur de tokens
   [cyan]/exit[/cyan]              Quitter
 
+[bold]GitHub & Projets :[/bold]
+  Demandez à Klody de parcourir un dépôt GitHub, d'en extraire les bonnes
+  pratiques, de cloner et ouvrir dans PyCharm, ou de créer un nouveau projet.
+
+  Exemples :
+    [dim]« Montre-moi la structure de fastapi/fastapi »[/dim]
+    [dim]« Analyse les bonnes pratiques de tiangolo/sqlmodel »[/dim]
+    [dim]« Clone ce dépôt et ouvre-le dans PyCharm »[/dim]
+    [dim]« Crée un projet FastAPI inspiré de ce dépôt »[/dim]
+
 [dim]Saisie multi-ligne : terminer une ligne par  \\  puis Entrée[/dim]
 [dim]Historique : flèches ↑ ↓[/dim]
 """

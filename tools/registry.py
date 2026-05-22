@@ -356,7 +356,213 @@ MEMORY_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS]
+GITHUB_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "browse_repo",
+            "description": (
+                "Parcourt l'arbre de fichiers d'un dépôt GitHub. "
+                "Utilise cet outil pour voir la structure d'un projet avant de lire des fichiers. "
+                "Accepte 'owner/repo' ou une URL GitHub complète."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Dépôt GitHub (ex: 'fastapi/fastapi' ou URL complète)",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Sous-dossier à explorer (défaut: racine)",
+                        "default": "",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Si true, affiche tout l'arbre récursivement",
+                        "default": False,
+                    },
+                },
+                "required": ["repo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_github_file",
+            "description": (
+                "Lit le contenu d'un fichier source depuis un dépôt GitHub. "
+                "Utilise cet outil pour lire du code, des configs, ou de la documentation "
+                "d'un dépôt distant. Utilise browse_repo d'abord pour trouver le bon chemin."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Dépôt GitHub (ex: 'owner/repo')",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin du fichier dans le dépôt (ex: 'src/main.py')",
+                    },
+                },
+                "required": ["repo", "path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_indexed_repos",
+            "description": (
+                "Liste les dépôts GitHub déjà indexés dans LibraryBrain. "
+                "Appelle cet outil pour savoir quels dépôts sont disponibles dans la base de connaissances."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "index_github_repo",
+            "description": (
+                "Indexe un dépôt GitHub dans LibraryBrain (README + docs) pour pouvoir "
+                "l'interroger ensuite avec search_books. Utilise cet outil quand l'utilisateur "
+                "veut ajouter un nouveau dépôt à sa base de connaissances."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Dépôt GitHub à indexer (ex: 'owner/repo')",
+                    },
+                },
+                "required": ["repo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_best_practices",
+            "description": (
+                "Analyse un dépôt GitHub pour en extraire les bonnes pratiques : "
+                "structure, outils, CI/CD, linting, dépendances. "
+                "Retourne un rapport structuré que tu peux utiliser avec save_skill "
+                "pour mémoriser les patterns utiles. "
+                "Combine cet outil avec save_skill pour apprendre d'un dépôt."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Dépôt GitHub à analyser (ex: 'owner/repo')",
+                    },
+                },
+                "required": ["repo"],
+            },
+        },
+    },
+]
+
+PROJECT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "clone_github_repo",
+            "description": (
+                "Clone un dépôt GitHub dans le dossier projets et l'ouvre dans PyCharm. "
+                "Utilise cet outil quand l'utilisateur veut récupérer un dépôt pour le travailler localement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Dépôt GitHub (ex: 'owner/repo')",
+                    },
+                    "target_dir": {
+                        "type": "string",
+                        "description": "Dossier de destination (optionnel, défaut: PROJECTS_DIR/repo)",
+                        "default": "",
+                    },
+                },
+                "required": ["repo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_project",
+            "description": (
+                "Crée un nouveau projet local à partir d'un template (python, fastapi, cli, empty) "
+                "et l'ouvre dans PyCharm. Si 'inspired_by' est fourni, le LLM utilisera "
+                "les bonnes pratiques de ce dépôt pour structurer le projet. "
+                "Utilise extract_best_practices d'abord pour analyser le dépôt source, "
+                "puis create_project pour créer la structure, puis adapte les fichiers "
+                "avec write_file en s'inspirant du code source lu avec read_github_file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nom du projet (sera le nom du dossier)",
+                    },
+                    "template": {
+                        "type": "string",
+                        "description": "Type de template",
+                        "enum": ["python", "fastapi", "cli", "empty"],
+                        "default": "python",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Description courte du projet",
+                        "default": "",
+                    },
+                    "inspired_by": {
+                        "type": "string",
+                        "description": "Dépôt GitHub source d'inspiration (ex: 'owner/repo')",
+                        "default": "",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_in_pycharm",
+            "description": (
+                "Ouvre un dossier de projet dans PyCharm. "
+                "Utilise cet outil après un clone ou quand l'utilisateur veut ouvrir un projet existant."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_path": {
+                        "type": "string",
+                        "description": "Chemin absolu ou relatif du dossier à ouvrir",
+                    },
+                },
+                "required": ["project_path"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS]
 
 
 def get_tools() -> list[dict]:
