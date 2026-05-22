@@ -6,6 +6,7 @@ Bridge entre l'agent Python et le dashboard Tauri.
 import asyncio
 import json
 import logging
+import re
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -13,13 +14,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import MEMORY_DIR, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
+from config import MEMORY_DIR, MODEL_FALLBACK, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
@@ -389,6 +390,126 @@ def _build_streaming_orchestrator(
 
     return orch
 
+
+# ── Siri ──────────────────────────────────────────────────────────────────────
+
+_SIRI_SESSION_ID = "siri"
+_SIRI_LOCK = threading.Lock()
+
+_MD_BOLD = re.compile(r'\*{1,3}(.+?)\*{1,3}', re.DOTALL)
+_MD_CODE_BLOCK = re.compile(r'```[\s\S]*?```')
+_MD_INLINE_CODE = re.compile(r'`[^`]+`')
+_MD_HEADING = re.compile(r'^#{1,6}\s+', re.MULTILINE)
+_MD_BULLET = re.compile(r'^[-*]\s+', re.MULTILINE)
+_MD_LINK = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+_MD_MULTI_NL = re.compile(r'\n{3,}')
+
+
+def _strip_markdown(text: str) -> str:
+    """Simplifie le markdown pour une lecture TTS naturelle par Siri."""
+    text = _MD_CODE_BLOCK.sub('', text)
+    text = _MD_INLINE_CODE.sub(lambda m: m.group(0)[1:-1], text)
+    text = _MD_BOLD.sub(r'\1', text)
+    text = _MD_HEADING.sub('', text)
+    text = _MD_BULLET.sub('- ', text)
+    text = _MD_LINK.sub(r'\1', text)
+    text = _MD_MULTI_NL.sub('\n\n', text)
+    return text.strip()
+
+
+def _run_siri_query(query: str) -> str:
+    """Exécute la requête de façon synchrone dans un thread dédié.
+    Utilise une session persistante 'siri' et MODEL_FALLBACK pour la réactivité.
+    """
+    with _SIRI_LOCK:
+        siri_file = MEMORY_DIR / f"memory_{_SIRI_SESSION_ID}.json"
+        if siri_file.exists():
+            memory = ConversationMemory.load_from_file(siri_file)
+        else:
+            memory = ConversationMemory(session_id=_SIRI_SESSION_ID)
+
+        orch = Orchestrator(memory)
+        orch.llm.model = MODEL_FALLBACK
+
+        # Remplace stream_chat par une version synchrone sans affichage Rich
+        def _sync_chat(messages: list[dict], tools=None) -> tuple[str, Any]:
+            params: dict = {
+                "model": orch.llm.model,
+                "messages": messages,
+                "stream": False,
+                "temperature": 0.1,
+            }
+            if tools:
+                params["tools"] = tools
+                params["tool_choice"] = "auto"
+
+            completion = orch.llm.client.chat.completions.create(**params)
+            choice = completion.choices[0]
+            content: str = choice.message.content or ""
+
+            tool_calls = None
+            raw_tcs = choice.message.tool_calls or []
+            if raw_tcs:
+                tool_calls = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in raw_tcs
+                ]
+            elif content and tools:
+                valid = {t["function"]["name"] for t in tools}
+                _, parsed = orch.llm.extract_mixed_tool_call(content, valid)
+                if parsed:
+                    tool_calls = parsed
+                    content = ""
+
+            orch.llm.total_tokens += len(content) // 4
+            return content, tool_calls
+
+        orch.llm.stream_chat = _sync_chat
+        # Supprime l'affichage Rich des outils (on garde l'exécution)
+        orch._execute_and_display = lambda name, args: orch._execute_tool(name, args)
+
+        try:
+            orch.run(query)
+        except Exception as e:
+            logger.error("[Siri] Erreur agent: %s", e, exc_info=True)
+            return "Une erreur s'est produite. Vérifiez que Ollama est démarré."
+
+        last = next(
+            (m["content"] for m in reversed(memory.messages)
+             if m["role"] == "assistant" and m.get("content")),
+            "Je n'ai pas pu répondre.",
+        )
+        return _strip_markdown(last)
+
+
+@app.post("/api/siri")
+async def siri_post(request: Request):
+    """Endpoint pour Siri Shortcut — reçoit {query} et retourne {response}."""
+    body = await request.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"response": "Question vide.", "session_id": _SIRI_SESSION_ID}
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(None, _run_siri_query, query)
+    return {"response": response, "session_id": _SIRI_SESSION_ID}
+
+
+@app.get("/api/siri")
+async def siri_get(q: str = ""):
+    """Endpoint GET pour test rapide : GET /api/siri?q=ta+question"""
+    query = q.strip()
+    if not query:
+        return {"response": "Paramètre q manquant.", "session_id": _SIRI_SESSION_ID}
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(None, _run_siri_query, query)
+    return {"response": response, "session_id": _SIRI_SESSION_ID}
+
+
+# ── Health ─────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
