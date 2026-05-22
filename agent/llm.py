@@ -1,11 +1,13 @@
 import json
 import logging
 import re
+import time
 import uuid
 from typing import Callable, Optional
 
 from openai import OpenAI, APIConnectionError, APITimeoutError
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
@@ -44,6 +46,27 @@ Dépôts GitHub et bonnes pratiques :
 - Pour travailler sur du code : clone_github_repo le clone et l'ouvre dans PyCharm.
 - Pour créer un projet inspiré d'un dépôt : extract_best_practices → create_project → \
 adapte avec write_file en lisant le code source via read_github_file.
+
+Aperçu de code web :
+- Quand tu génères du HTML/CSS/JS, utilise preview_code pour créer un aperçu \
+local et ouvrir automatiquement le navigateur.
+- Passe le HTML du body dans html, le CSS dans css, le JS dans js, et un titre descriptif.
+- Utilise preview_file pour ouvrir un fichier .html existant dans le navigateur.
+- list_previews affiche tous les aperçus disponibles avec leurs URLs.
+
+Apprentissage continu :
+- Utilise learn_from_books pour acquérir des connaissances depuis LibraryBrain \
+et les sauvegarder comme compétences permanentes.
+- Quand tu rencontres un sujet technique où tu manques de profondeur, \
+propose d'apprendre via les livres indexés.
+- Après avoir appris, adapte tes réponses en utilisant ces nouvelles connaissances.
+
+Proactivité :
+- Tu as accès au profil de l'utilisateur (technologies préférées, activités récurrentes).
+- Sois force de proposition : suggère des améliorations, des outils, des patterns \
+adaptés à la stack et aux habitudes détectées.
+- Anticipe les besoins : si l'utilisateur fait souvent X suivi de Y, propose Y en avance.
+- Utilise remember_fact pour mémoriser les préférences découvertes.
 
 Ne modifie jamais un fichier sans l'avoir lu. \
 Avant toute commande bash, explique pourquoi.\
@@ -90,11 +113,10 @@ class LLMClient:
 
         full_content = ""
         raw_tool_calls: dict[int, dict] = {}
+        t0 = time.monotonic()
 
         try:
             stream = self.client.chat.completions.create(**params)
-
-            first_token = False
 
             # Phase 1 : spinner pendant que le modèle charge
             spinner = Spinner("dots2", text=Text(" Klody réfléchit…", style="dim cyan"))
@@ -109,20 +131,14 @@ class LLMClient:
                         full_content += delta.content
                         if token_callback:
                             token_callback(delta.content)
-                        first_token = True
                         break
 
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
-                        first_token = True
                         break
 
-            # Phase 2 : streaming token par token — texte brut affiché au fil de l'eau
-            if full_content:
-                # Premier token déjà dans full_content — l'afficher sans markup
-                console.print(full_content, end="", markup=False, highlight=False)
-
+            # Phase 2 : accumulation des tokens (spinner déjà fermé)
             for chunk in stream:
                 if not chunk.choices:
                     continue
@@ -130,7 +146,6 @@ class LLMClient:
 
                 if delta.content:
                     full_content += delta.content
-                    console.print(delta.content, end="", markup=False, highlight=False)
                     if token_callback:
                         token_callback(delta.content)
 
@@ -138,16 +153,21 @@ class LLMClient:
                     for tc_chunk in delta.tool_calls:
                         self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
-            # Saut de ligne + séparateur discret après la réponse texte
-            if full_content:
-                console.print()
-                console.print(Rule(style="dim blue"))
+            elapsed = time.monotonic() - t0
 
-            # Estimation tokens
+            # Rendu final : Markdown si détecté, sinon texte brut
+            if full_content:
+                if _has_markdown(full_content):
+                    console.print(Markdown(full_content))
+                else:
+                    console.print(full_content, markup=False, highlight=False)
+                console.print(Rule(
+                    f"[dim]⏱ {elapsed:.1f}s · ~{len(full_content) // 4} tokens[/dim]",
+                    style="dim blue",
+                ))
+
+            # Estimation tokens (réponse uniquement — les messages d'entrée ne sont comptés qu'une fois à l'envoi)
             self.total_tokens += len(full_content) // 4
-            for m in messages:
-                c = m.get("content") or ""
-                self.total_tokens += len(c) // 4
 
             tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 

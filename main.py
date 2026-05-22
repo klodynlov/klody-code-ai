@@ -10,24 +10,22 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
-from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 from rich import box
 from rich.align import Align
-from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
+from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL, PREVIEW_DIR, PREVIEW_PORT
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
 from agent.long_term_memory import get_long_term_memory
 from agent.memory_extractor import extract_and_save
-from services import ensure_librarybrain
+from services import ensure_librarybrain, get_librarybrain_status
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -81,7 +79,7 @@ def print_banner(memory: ConversationMemory) -> None:
     console.print(Align.center(table))
     console.print()
     console.print(
-        Align.center(Text("/help  /clear  /memory  /sessions  /model  /skills  /exit", style="dim"))
+        Align.center(Text("/help  /clear  /memory  /sessions  /model  /skills  /profile  /preview  /status  /exit", style="dim"))
     )
     console.print(Rule(style="dim blue"))
     console.print()
@@ -123,11 +121,32 @@ HELP_TEXT = """
   [cyan]/sessions[/cyan]          Lister et charger une session précédente
   [cyan]/skills[/cyan]            Lister les compétences mémorisées
   [cyan]/tokens[/cyan]            Afficher le compteur de tokens
+  [cyan]/preview[/cyan]           Aperçus HTML disponibles + URLs
+  [cyan]/export[/cyan]            Exporter la session en Markdown
+  [cyan]/profile[/cyan]           Profil utilisateur détecté (techs, patterns)
+  [cyan]/status[/cyan]            État du système (Ollama, LibraryBrain, Preview)
   [cyan]/exit[/cyan]              Quitter
 
+[bold]Apprentissage & Profil :[/bold]
+  Klody profile l'utilisateur pour anticiper ses besoins et apprend
+  de nouvelles connaissances via LibraryBrain.
+
+  Exemples :
+    [dim]« Apprends les design patterns Python depuis la bibliothèque »[/dim]
+    [dim]« Quelles sont les bonnes pratiques React ? »[/dim]
+
+[bold]Aperçu web :[/bold]
+  Klody peut générer du code HTML/CSS/JS et l'ouvrir automatiquement
+  dans le navigateur pour un aperçu local instantané.
+
+  Exemples :
+    [dim]« Crée une page d'accueil responsive avec Tailwind »[/dim]
+    [dim]« Fais un jeu Snake en JS avec aperçu »[/dim]
+    [dim]« Montre-moi un formulaire de login stylé »[/dim]
+
 [bold]GitHub & Projets :[/bold]
-  Demandez à Klody de parcourir un dépôt GitHub, d'en extraire les bonnes
-  pratiques, de cloner et ouvrir dans PyCharm, ou de créer un nouveau projet.
+  Parcourir un dépôt GitHub, en extraire les bonnes pratiques,
+  cloner et ouvrir dans PyCharm, ou créer un nouveau projet.
 
   Exemples :
     [dim]« Montre-moi la structure de fastapi/fastapi »[/dim]
@@ -307,6 +326,118 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
             orchestrator._inject_system_prompt()
         n = sum(1 for m in loaded.messages if m["role"] not in ("system", "tool"))
         console.print(f"\n  [green]✓[/green] Session [bold]{loaded.session_id}[/bold] chargée — {n} messages.\n")
+        return True
+
+    if token == "/profile":
+        from agent.profiler import get_profiler
+        profiler = get_profiler()
+        summary = profiler.get_display_summary()
+        if not summary:
+            console.print("\n  [dim]Aucun profil détecté. Klody apprend au fil des conversations.[/dim]\n")
+            return True
+
+        tbl = Table(
+            title="[bold]Profil utilisateur détecté[/bold]",
+            box=box.ROUNDED, border_style="magenta", show_lines=True,
+        )
+        tbl.add_column("Catégorie", style="bold cyan", no_wrap=True)
+        tbl.add_column("Détails", style="white")
+
+        if summary.get("top_techs"):
+            techs = ", ".join(f"{t} ({c})" for t, c in summary["top_techs"])
+            tbl.add_row("Technologies", techs)
+
+        if summary.get("top_categories"):
+            cats = ", ".join(f"{c} ({n})" for c, n in summary["top_categories"])
+            tbl.add_row("Activités", cats)
+
+        if summary.get("top_tools"):
+            tools = ", ".join(f"{t} ({n})" for t, n in summary["top_tools"])
+            tbl.add_row("Outils favoris", tools)
+
+        if summary.get("pattern"):
+            tbl.add_row("Pattern récurrent", summary["pattern"])
+
+        tbl.add_row("Requêtes totales", str(summary.get("total_requests", 0)))
+
+        console.print()
+        console.print(tbl)
+
+        suggestions = profiler.get_suggestions("", [])
+        if suggestions:
+            console.print()
+            sugg_text = "\n".join(f"  [yellow]💡[/yellow] {s}" for s in suggestions[:5])
+            console.print(Panel(sugg_text, title="[yellow]Suggestions[/yellow]", border_style="yellow"))
+        console.print()
+        return True
+
+    if token == "/preview":
+        from tools.preview import list_previews
+        result = list_previews()
+        console.print(Panel(result, title="[magenta]👁  Aperçus[/magenta]", border_style="magenta"))
+        return True
+
+    if token == "/export":
+        mem = orchestrator.memory
+        msgs = [m for m in mem.messages if m["role"] in ("user", "assistant") and m.get("content")]
+        if not msgs:
+            console.print("\n  [dim]Aucun message à exporter.[/dim]\n")
+            return True
+        title = mem.title or mem.session_id
+        lines = [f"# {title}", "", f"> Session {mem.session_id} · {len(msgs)} messages", "", "---", ""]
+        for m in msgs:
+            if m["role"] == "user":
+                lines += [f"**Vous :** {m['content']}", ""]
+            else:
+                lines += ["**Klody :**", "", m["content"], "", "---", ""]
+        export_path = MEMORY_DIR / f"export_{mem.session_id}.md"
+        export_path.write_text("\n".join(lines), encoding="utf-8")
+        console.print(f"\n  [green]✓[/green] Session exportée → [bold]{export_path}[/bold]\n")
+        return True
+
+    if token == "/status":
+        import httpx
+        from config import OLLAMA_BASE_URL
+
+        tbl = Table(title="[bold]État du système[/bold]", box=box.ROUNDED, border_style="cyan")
+        tbl.add_column("Service", style="bold", no_wrap=True)
+        tbl.add_column("État", no_wrap=True)
+        tbl.add_column("Détails", style="dim")
+
+        # Ollama
+        try:
+            r = httpx.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags", timeout=2.0)
+            models = [m["name"] for m in r.json().get("models", [])]
+            tbl.add_row("Ollama", "[green]✓ en ligne[/green]", f"{len(models)} modèle(s)")
+        except Exception:
+            tbl.add_row("Ollama", "[red]✗ hors ligne[/red]", "ollama serve")
+
+        # Modèle
+        tbl.add_row("Modèle", f"[cyan]{orchestrator.llm.model}[/cyan]", f"~{orchestrator.llm.total_tokens:,} tokens")
+
+        # LibraryBrain
+        lb = get_librarybrain_status()
+        if lb["up"]:
+            tbl.add_row("LibraryBrain", "[green]✓ en ligne[/green]", f"PID {lb.get('pid', '?')}")
+        else:
+            tbl.add_row("LibraryBrain", "[yellow]✗ hors ligne[/yellow]", f"{lb.get('restarts', 0)} redémarrage(s)")
+
+        # Preview
+        from tools.preview import _server as pv_server
+        if pv_server is not None:
+            n_files = len(list(PREVIEW_DIR.glob("*.html"))) if PREVIEW_DIR.exists() else 0
+            tbl.add_row("Preview", f"[green]✓ port {PREVIEW_PORT}[/green]", f"{n_files} fichier(s)")
+        else:
+            tbl.add_row("Preview", "[dim]inactif[/dim]", "Démarre au premier aperçu")
+
+        # Session
+        mem = orchestrator.memory
+        n = sum(1 for m in mem.messages if m["role"] != "system")
+        tbl.add_row("Session", f"[cyan]{mem.session_id}[/cyan]", f"{n} messages")
+
+        console.print()
+        console.print(tbl)
+        console.print()
         return True
 
     if token in ("/exit", "/quit", "/q"):

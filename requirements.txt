@@ -5,6 +5,5 @@ prompt_toolkit>=3.0.43
 pytest>=8.2.0
 fastmcp>=2.0.0
 httpx>=0.27.0
-loguru>=0.7.2
 fastapi>=0.111.0
 uvicorn>=0.30.0

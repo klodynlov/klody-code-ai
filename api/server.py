@@ -183,12 +183,6 @@ async def websocket_endpoint(ws: WebSocket):
             "messages": non_sys,
         })
 
-    def make_event_orchestrator(mem: ConversationMemory, model: str, q: asyncio.Queue):
-        """Crée un orchestrateur qui envoie les événements dans la queue."""
-        orch = Orchestrator(mem)
-        orch.llm.model = model
-        return orch
-
     try:
         while True:
             raw = await ws.receive_text()

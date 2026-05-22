@@ -96,12 +96,31 @@ class FileManager:
 
         resolved.parent.mkdir(parents=True, exist_ok=True)
 
+        old_content = ""
         existed = resolved.exists()
+        if existed:
+            old_content = resolved.read_text(encoding="utf-8", errors="replace")
+
         resolved.write_text(content, encoding="utf-8")
 
         action = "modifié" if existed else "créé"
         logger.info("Écriture (%s): %s (%d caractères)", action, path, len(content))
-        return f"Fichier {action} avec succès: {path}"
+
+        result = f"Fichier {action} avec succès: {path}"
+        if existed and old_content != content:
+            diff_lines = list(difflib.unified_diff(
+                old_content.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+                n=3,
+            ))
+            if diff_lines:
+                diff_text = "".join(diff_lines[:80])
+                if len(diff_lines) > 80:
+                    diff_text += f"\n… ({len(diff_lines) - 80} lignes de diff supplémentaires)"
+                result += f"\n\n{diff_text}"
+        return result
 
     def list_files(self, path: str = ".", recursive: bool = False) -> str:
         resolved = self._validate_path(path)
@@ -116,6 +135,7 @@ class FileManager:
             ".git", ".claude", ".venv", "__pycache__", "node_modules",
             ".pytest_cache", ".mypy_cache", "target", "dist", ".next",
             "build", ".cache", ".env", ".env.local", ".env.production",
+            "_preview",
         }
         MAX_ENTRIES = 150
 

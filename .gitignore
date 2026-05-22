@@ -40,5 +40,8 @@ logs/memory_*.json
 # Claude Code
 .claude/
 
+# Aperçu local
+_preview/
+
 # Mémoire agent
 memory/

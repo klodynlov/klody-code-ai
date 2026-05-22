@@ -32,6 +32,10 @@ GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 PROJECTS_DIR: Path = Path(os.getenv("PROJECTS_DIR", str(Path.home() / "Projets"))).resolve()
 PYCHARM_CMD: str = os.getenv("PYCHARM_CMD", "/usr/local/bin/pycharm")
 
+# --- Preview ---
+PREVIEW_DIR: Path = Path(os.getenv("PREVIEW_DIR", str(Path(__file__).parent / "_preview"))).resolve()
+PREVIEW_PORT: int = int(os.getenv("PREVIEW_PORT", 8899))
+
 # --- Chemins ---
 _ROOT: Path = Path(__file__).parent
 LOG_DIR: Path = _ROOT / "logs"

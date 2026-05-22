@@ -296,6 +296,33 @@ MCP_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "learn_from_books",
+            "description": (
+                "Apprend un sujet depuis LibraryBrain et le mémorise comme compétence permanente. "
+                "Utilise cet outil quand l'utilisateur veut enrichir tes connaissances sur un sujet, "
+                "ou quand tu identifies un domaine où tu pourrais être plus compétent. "
+                "Combine recherche dans les livres + sauvegarde en skill réutilisable."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Sujet à apprendre (ex: 'design patterns Python', 'optimisation SQL')",
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Nom de la compétence créée (auto-généré si vide)",
+                        "default": "",
+                    },
+                },
+                "required": ["topic"],
+            },
+        },
+    },
 ]
 
 MEMORY_TOOLS = [
@@ -562,7 +589,94 @@ PROJECT_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS]
+PREVIEW_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "preview_code",
+            "description": (
+                "Génère un aperçu local d'un code HTML/CSS/JS. "
+                "Crée un fichier HTML autonome, démarre un serveur HTTP local "
+                "et ouvre automatiquement le navigateur. "
+                "Utilise cet outil après avoir généré du code web pour le prévisualiser."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "html": {
+                        "type": "string",
+                        "description": "Code HTML du body (sans <!DOCTYPE>, <html>, <head>)",
+                    },
+                    "css": {
+                        "type": "string",
+                        "description": "Code CSS à injecter dans une balise <style>",
+                        "default": "",
+                    },
+                    "js": {
+                        "type": "string",
+                        "description": "Code JavaScript à injecter dans une balise <script>",
+                        "default": "",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Titre de la page (utilisé aussi pour le nom du fichier)",
+                        "default": "Preview",
+                    },
+                },
+                "required": ["html"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "preview_file",
+            "description": (
+                "Ouvre un fichier HTML existant du projet dans le navigateur via le serveur de prévisualisation. "
+                "Le fichier est copié dans le dossier de prévisualisation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin relatif du fichier HTML à prévisualiser",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_previews",
+            "description": (
+                "Liste tous les aperçus HTML disponibles dans le dossier de prévisualisation "
+                "avec leurs URLs locales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_preview_server",
+            "description": "Arrête le serveur HTTP de prévisualisation.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS]
 
 
 def get_tools() -> list[dict]:

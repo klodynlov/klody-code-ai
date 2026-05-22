@@ -41,6 +41,75 @@ Si rien d'important à retenir : []
 
 # Utilise le modèle fallback (plus rapide) pour l'extraction
 _MIN_USER_MESSAGES = 2  # Ne pas extraire pour les sessions trop courtes
+_MID_SESSION_INTERVAL = 8  # Extraire tous les N messages user mid-session
+_last_mid_extraction_count: int = 0
+
+
+def extract_mid_session(
+    messages: list[dict],
+    lt_memory: "LongTermMemory",
+    model: str = MODEL_FALLBACK,
+) -> list[dict]:
+    """Extraction proactive mid-session : tourne toutes les _MID_SESSION_INTERVAL
+    requêtes utilisateur pour capturer les préférences en temps réel.
+
+    Plus légère que extract_and_save : ne regarde que les 10 derniers messages.
+    """
+    global _last_mid_extraction_count
+
+    user_count = sum(1 for m in messages if m.get("role") == "user" and m.get("content"))
+    if user_count < _MIN_USER_MESSAGES:
+        return []
+    if user_count - _last_mid_extraction_count < _MID_SESSION_INTERVAL:
+        return []
+
+    _last_mid_extraction_count = user_count
+
+    recent = [
+        m for m in messages[-15:]
+        if m.get("role") in ("user", "assistant") and m.get("content")
+    ]
+    if len(recent) < 3:
+        return []
+
+    convo_lines = []
+    for m in recent:
+        role = "Utilisateur" if m["role"] == "user" else "Klody"
+        convo_lines.append(f"{role}: {str(m['content'])[:300]}")
+    conversation = "\n".join(convo_lines)
+
+    try:
+        client = OpenAI(base_url=OLLAMA_BASE_URL, api_key=OLLAMA_API_KEY)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _EXTRACTION_PROMPT},
+                {"role": "user", "content": f"Conversation récente à analyser :\n\n{conversation}"},
+            ],
+            temperature=0.1,
+            stream=False,
+        )
+        raw = response.choices[0].message.content or "[]"
+    except Exception as e:
+        logger.warning("[Extractor-mid] Erreur LLM : %s", e)
+        return []
+
+    facts = _parse_json_facts(raw)
+    saved = []
+    for fact in facts:
+        key = fact.get("key", "").strip()
+        content = fact.get("content", "").strip()
+        category = fact.get("category", "context")
+        if category not in ("user", "project", "preference", "context"):
+            category = "context"
+        if key and content:
+            result = lt_memory.remember(key, content, category)
+            logger.info("[Extractor-mid] %s", result)
+            saved.append({"key": key, "content": content, "category": category})
+
+    if saved:
+        logger.info("[Extractor-mid] %d fait(s) extraits mid-session", len(saved))
+    return saved
 
 
 def extract_and_save(

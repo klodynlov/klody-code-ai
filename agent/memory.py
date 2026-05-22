@@ -150,11 +150,33 @@ class ConversationMemory:
         }
 
     def _apply_sliding_window(self) -> None:
-        """Maintient au maximum MAX_MESSAGES messages non-system."""
+        """Maintient au maximum MAX_MESSAGES messages non-system.
+
+        Supprime par groupes cohérents pour ne pas orphaner de tool results
+        ou séparer un échange user/assistant.
+        """
         non_system = [m for m in self.messages if m["role"] != "system"]
         if len(non_system) <= MAX_MESSAGES:
             return
-        for i, m in enumerate(self.messages):
-            if m["role"] != "system":
-                self.messages.pop(i)
+
+        while len([m for m in self.messages if m["role"] != "system"]) > MAX_MESSAGES:
+            # Trouver le premier message non-system
+            idx = next((i for i, m in enumerate(self.messages) if m["role"] != "system"), None)
+            if idx is None:
                 break
+
+            role = self.messages[idx]["role"]
+
+            if role == "user":
+                # Supprimer le user + tout ce qui suit jusqu'au prochain user (assistant + tools)
+                self.messages.pop(idx)
+                while idx < len(self.messages) and self.messages[idx]["role"] != "system" and self.messages[idx]["role"] != "user":
+                    self.messages.pop(idx)
+            elif role == "assistant" and self.messages[idx].get("tool_calls"):
+                # Assistant avec tool_calls : supprimer l'assistant + les tool results associés
+                tc_ids = {tc["id"] for tc in self.messages[idx].get("tool_calls", [])}
+                self.messages.pop(idx)
+                while idx < len(self.messages) and self.messages[idx]["role"] == "tool" and self.messages[idx].get("tool_call_id") in tc_ids:
+                    self.messages.pop(idx)
+            else:
+                self.messages.pop(idx)

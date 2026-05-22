@@ -53,31 +53,30 @@ def search_books(query: str, limit: int = 3) -> str:
     payload = {"query": query, "response_format": "explication"}
 
     try:
-        # 1. Soumettre le job
         with httpx.Client(timeout=10.0) as client:
+            # 1. Soumettre le job
             resp = client.post(job_url, json=payload)
             resp.raise_for_status()
             job_id: str = resp.json()["job_id"]
-        logger.info("search_books job soumis: %s", job_id)
+            logger.info("search_books job soumis: %s", job_id)
 
-        # 2. Polling jusqu'à completion
-        status_url = f"{_SERVER_BASE}/api/ask/job/{job_id}"
-        for attempt in range(_POLL_MAX):
-            time.sleep(_POLL_INTERVAL)
-            with httpx.Client(timeout=10.0) as client:
+            # 2. Polling jusqu'à completion (même client réutilisé)
+            status_url = f"{_SERVER_BASE}/api/ask/job/{job_id}"
+            for attempt in range(_POLL_MAX):
+                time.sleep(_POLL_INTERVAL)
                 status_resp = client.get(status_url)
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
 
-            status = status_data.get("status", "")
-            if status == "done":
-                result = status_data.get("result", {})
-                logger.info("search_books done après %ds", int((attempt + 1) * _POLL_INTERVAL))
-                return _parse_result(result, limit)
-            if status == "error":
-                err = status_data.get("error", "erreur inconnue")
-                logger.error("search_books job error: %s", err)
-                return f"LibraryBrain erreur RAG : {err}"
+                status = status_data.get("status", "")
+                if status == "done":
+                    result = status_data.get("result", {})
+                    logger.info("search_books done après %ds", int((attempt + 1) * _POLL_INTERVAL))
+                    return _parse_result(result, limit)
+                if status == "error":
+                    err = status_data.get("error", "erreur inconnue")
+                    logger.error("search_books job error: %s", err)
+                    return f"LibraryBrain erreur RAG : {err}"
 
         return f"LibraryBrain timeout après {int(_POLL_MAX * _POLL_INTERVAL)}s — réessaie plus tard."
 
@@ -99,6 +98,39 @@ def _is_domain_file(path: Path) -> bool:
         return isinstance(data, list) and bool(data) and isinstance(data[0], dict) and "title" in data[0]
     except Exception:
         return False
+
+
+def learn_from_books(topic: str, skill_name: str = "") -> str:
+    """Cherche un sujet dans LibraryBrain et sauvegarde le résultat comme skill permanente.
+
+    Combine search_books + save_skill en une seule action :
+    1. Recherche sémantique dans la bibliothèque
+    2. Formate le résultat comme connaissance réutilisable
+    3. Sauvegarde en tant que compétence Klody
+
+    Args:
+        topic: Sujet à apprendre (ex: "design patterns Python", "optimisation SQL")
+        skill_name: Nom de la skill (auto-généré si vide)
+    """
+    from tools.skills import save_skill
+
+    result = search_books(topic, limit=5)
+
+    if result.startswith(("Aucun", "LibraryBrain", "Erreur")):
+        return f"Impossible d'apprendre sur « {topic} » : {result}"
+
+    name = skill_name or f"Connaissances : {topic[:50]}"
+    description = f"Appris depuis LibraryBrain — {topic}"
+
+    save_result = save_skill(name, description, result)
+    logger.info("[learn_from_books] Skill créée : %s", name)
+
+    return (
+        f"✅ Nouvelle connaissance acquise !\n"
+        f"  Sujet : {topic}\n"
+        f"  {save_result}\n\n"
+        f"Contenu appris :\n{result[:1500]}"
+    )
 
 
 def get_skills(domain: str) -> str:
