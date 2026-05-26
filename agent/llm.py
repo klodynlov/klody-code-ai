@@ -13,7 +13,10 @@ from rich.spinner import Spinner
 from rich.text import Text
 from rich.live import Live
 
-from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME, MODEL_FALLBACK
+from config import (
+    OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME, MODEL_FALLBACK,
+    LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, BACKEND,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -103,12 +106,13 @@ def _has_markdown(text: str) -> bool:
 
 
 class LLMClient:
-    def __init__(self, model: str = MODEL_NAME):
+    def __init__(self, model: str = LLM_MODEL):
         self.model = model
         self.client = OpenAI(
-            base_url=OLLAMA_BASE_URL,
-            api_key=OLLAMA_API_KEY,
+            base_url=LLM_BASE_URL,
+            api_key=LLM_API_KEY,
         )
+        self._backend = BACKEND
         # Compteur de tokens approximatif (session courante)
         self.total_tokens: int = 0
 
@@ -194,13 +198,14 @@ class LLMClient:
 
             tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
-            # Fallback : tool call émis en JSON texte (qwen2.5-coder via Ollama)
+            # Fallback : tool call émis en JSON texte ou contenu mixte (texte + JSON)
+            # extract_mixed_tool_call gère : JSON pur, format compact `tool [p] {…}`,
+            # et texte libre suivi d'un JSON tool call.
             if not tool_calls and full_content and tools:
                 valid_names = {t["function"]["name"] for t in tools}
-                parsed = self._parse_text_tool_calls(full_content, valid_names)
-                if parsed:
-                    tool_calls = parsed
-                    full_content = ""
+                full_content, tool_calls = self.extract_mixed_tool_call(
+                    full_content, valid_names
+                )
 
             if full_content:
                 logger.info("Réponse LLM: %d chars", len(full_content))
@@ -258,25 +263,111 @@ class LLMClient:
             if tc_chunk.function.arguments:
                 raw[idx]["function"]["arguments"] += tc_chunk.function.arguments
 
+    @staticmethod
+    def _repair_json_quotes(text: str) -> str:
+        """Tente de réparer un JSON cassé par des guillemets non-échappés
+        à l'intérieur de valeurs string (ex: docstrings Python `\"\"\"`).
+
+        Stratégies essayées dans l'ordre :
+        1. Remplacer `\"\"\"` (triple-quote littéral non-échappé) par `\\\"\\\"\\\"`.
+        2. Remplacer les `\\n` littéraux (backslash-n en deux chars) par le vrai \\n.
+        """
+        # Stratégie 1 : triple-quote non-échappé → échappé
+        # Cherche `"""` non précédé d'un backslash dans le texte JSON brut.
+        repaired = re.sub(r'(?<!\\)"""', r'\\"\\"\\"', text)
+        if repaired != text:
+            return repaired
+        # Stratégie 2 : guillemets doubles non-échappés isolés dans une valeur
+        # (séquence `"` qui n'ouvre/ferme pas une clé/valeur JSON)
+        # Approche naïve : remplacer tous les `"` non précédés de `\` à l'intérieur
+        # des strings, en excluant la structure JSON de base.
+        return text
+
     def _parse_text_tool_calls(
         self, content: str, valid_tool_names: set[str]
     ) -> Optional[list[dict]]:
         """
         Fallback : parse les tool calls émis comme JSON texte.
-        Gère objet unique, liste, blocs ```json```.
+        Gère objet unique, liste, blocs ```json```,
+        ET le format compact `tool_name [param] {"key": "val"}` émis par
+        certains modèles (ex: qwen2.5-coder, qwen3.5).
         """
         text = content.strip()
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
         text = re.sub(r"\s*```\s*$", "", text, flags=re.MULTILINE)
         text = text.strip()
 
+        # --- Format XML-like : `<function=tool_name><parameter=p>val</parameter></function>` ---
+        # Utilisé par Qwen3-Coder dans certains contextes.
+        # On exige que le texte commence par `<function=` (ignorant les whitespaces)
+        # pour ne pas voler le travail d'extract_mixed_tool_call sur du contenu mixte.
+        if text.startswith("<function="):
+            xml_calls = list(re.finditer(
+                r'<function=(\w+)>([\s\S]*?)</function>',
+                text,
+                re.IGNORECASE,
+            ))
+            if xml_calls:
+                results = []
+                for m in xml_calls:
+                    fn_name = m.group(1)
+                    if fn_name not in valid_tool_names:
+                        continue
+                    body = m.group(2)
+                    args: dict = {}
+                    for param in re.finditer(
+                        r'<parameter=(\w+)>([\s\S]*?)</parameter>', body, re.IGNORECASE
+                    ):
+                        args[param.group(1)] = param.group(2).strip()
+                    results.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": fn_name,
+                            "arguments": json.dumps(args),
+                        },
+                    })
+                if results:
+                    return results
+
+        # --- Format compact : `tool_name [param] {"key": "val"}` ---
+        # Exemple : `read_file [path] {"path":"app.py"}`
+        # Exemple : `write_file [path, content] {"path":"x.py","content":"..."}`
         if not text.startswith(("{", "[")):
+            names_pattern = "|".join(re.escape(n) for n in valid_tool_names)
+            compact = re.match(
+                rf'^({names_pattern})\s*(?:\[[^\]]*\])?\s*(\{{.*}})$',
+                text,
+                re.DOTALL,
+            )
+            if compact:
+                name, args_str = compact.group(1), compact.group(2)
+                try:
+                    args = json.loads(args_str)
+                    return [{
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": json.dumps(args),
+                        },
+                    }]
+                except json.JSONDecodeError:
+                    pass
             return None
 
+        # --- Format JSON standard ---
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            return None
+            # Tentative de réparation : certains modèles émettent des `"""`
+            # non-échappés dans les valeurs JSON (ex: docstrings Python).
+            # On cherche et remplace les guillemets internes non-échappés.
+            repaired = self._repair_json_quotes(text)
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError:
+                return None
 
         def make_call(item: dict) -> Optional[dict]:
             name = item.get("name", "")
@@ -306,15 +397,25 @@ class LLMClient:
         self, content: str, valid_tool_names: set[str]
     ) -> tuple[str, Optional[list[dict]]]:
         """
-        Extrait un tool call JSON depuis un contenu mixte (texte + JSON collés).
+        Extrait un tool call depuis un contenu mixte (texte + appel collé).
+        Gère JSON (`{"name":...}`), XML-like (`<function=...>`) et format compact.
         Retourne (texte_avant, tool_calls) ou (content, None) si rien trouvé.
         """
-        # Essai pure JSON d'abord
+        # Essai pure (JSON, XML, compact) d'abord
         pure = self._parse_text_tool_calls(content, valid_tool_names)
         if pure:
             return "", pure
 
-        # Chercher le début d'un JSON tool call dans le contenu
+        # --- XML-like dans contenu mixte ---
+        xml_match = re.search(r'<function=\w+>[\s\S]*?</function>', content, re.IGNORECASE)
+        if xml_match:
+            text_part = content[:xml_match.start()].rstrip()
+            xml_part = content[xml_match.start():]
+            parsed = self._parse_text_tool_calls(xml_part, valid_tool_names)
+            if parsed:
+                return text_part, parsed
+
+        # --- JSON {"name":...} dans contenu mixte ---
         names_pattern = "|".join(re.escape(n) for n in valid_tool_names)
         pattern = rf'\{{"name":\s*"(?:{names_pattern})"'
         matches = list(re.finditer(pattern, content))

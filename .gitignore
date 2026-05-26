@@ -25,6 +25,8 @@ htmlcov/
 # Logs et mémoire de session (garder le dossier)
 logs/*.log
 logs/memory_*.json
+logs/long_term.json
+logs/user_profile.json
 !logs/.gitkeep
 
 # macOS
@@ -42,6 +44,12 @@ logs/memory_*.json
 
 # Aperçu local
 _preview/
+preview/
+
+# Bench results (locaux, gros JSON)
+bench/results/*.json
+bench/results/*.md
+!bench/results/.gitkeep
 
 # Mémoire agent
 memory/

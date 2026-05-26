@@ -117,7 +117,7 @@ HELP_TEXT = """
   [cyan]/clear[/cyan]             Effacer l'historique de la session
   [cyan]/memory[/cyan]            Session courante + souvenirs long terme
   [cyan]/model[/cyan]             Afficher le modèle actif
-  [cyan]/model <nom>[/cyan]       Changer de modèle  [dim]ex: /model qwen2.5-coder:7b[/dim]
+  [cyan]/model <nom>[/cyan]       Changer de modèle  [dim]ex: /model qwen3.5:9b[/dim]
   [cyan]/sessions[/cyan]          Lister et charger une session précédente
   [cyan]/skills[/cyan]            Lister les compétences mémorisées
   [cyan]/tokens[/cyan]            Afficher le compteur de tokens
