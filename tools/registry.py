@@ -96,6 +96,39 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "run_in_sandbox",
+            "description": (
+                "Exécute une commande Python (pytest, python <fichier>, etc.) dans un "
+                "venv jetable, en récupérant stdout/stderr/exit code. "
+                "Utilise cet outil pour valider du code écrit : lancer les tests, "
+                "vérifier qu'un script s'exécute, reproduire un bug. "
+                "Après chaque write_file sur un .py, un check sandbox est lancé "
+                "automatiquement — appelle cet outil uniquement pour des commandes spécifiques."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": (
+                            "Commande à exécuter, ex: 'pytest test_x.py -q' ou 'python main.py'. "
+                            "Les chemins sont relatifs au workdir. python/pytest/pip sont remappés "
+                            "vers le venv sandbox automatiquement."
+                        ),
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout en secondes (défaut: 30)",
+                        "default": 30,
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_in_files",
             "description": (
                 "Recherche un pattern (texte ou regex) dans les fichiers du projet. "

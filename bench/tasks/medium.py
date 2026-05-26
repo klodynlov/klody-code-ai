@@ -44,10 +44,61 @@ class AddTypeHints(_Stub):
 
 
 @register
-class FixFailingTest(_Stub):
+class FixFailingTest(Task):
+    """Fix bug : un test pytest échoue, l'agent doit corriger le CODE (pas le test).
+
+    Démontre l'impact du sandbox loop (Roadmap v2 #3) : avec sandbox auto-exec,
+    l'agent voit l'AssertionError dans stderr et corrige immédiatement.
+    """
     id = "medium/fix_failing_test"
     category = "medium"
-    prompt = "TODO: un test pytest échoue, corriger le code (pas le test)."
+    prompt = (
+        "Le test test_calc.py échoue. Lis le test et le module calc.py, identifie "
+        "le bug dans calc.py et corrige-le. Ne modifie PAS le test — c'est la "
+        "spécification. Lance pytest pour vérifier que tout passe."
+    )
+
+    def setup(self, workdir):
+        # calc.py : la fonction `multiply` retourne `a + b` au lieu de `a * b`
+        (workdir / "calc.py").write_text(
+            "def multiply(a, b):\n"
+            "    # BUG: opérateur incorrect\n"
+            "    return a + b\n",
+            encoding="utf-8",
+        )
+        (workdir / "test_calc.py").write_text(
+            "from calc import multiply\n"
+            "\n"
+            "def test_multiply_positives():\n"
+            "    assert multiply(3, 4) == 12\n"
+            "\n"
+            "def test_multiply_with_one():\n"
+            "    assert multiply(7, 1) == 7\n"
+            "\n"
+            "def test_multiply_with_zero():\n"
+            "    assert multiply(5, 0) == 0\n",
+            encoding="utf-8",
+        )
+
+    def validate(self, workdir):
+        import subprocess
+        import sys
+
+        # Le code corrigé doit faire passer les 3 tests sans modifier test_calc.py
+        test_src = (workdir / "test_calc.py").read_text(encoding="utf-8")
+        if "multiply(3, 4) == 12" not in test_src:
+            return False, "test_calc.py a été modifié (interdit)"
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", str(workdir / "test_calc.py"), "-q", "--no-header"],
+            capture_output=True, text=True, timeout=30, cwd=workdir,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stdout + proc.stderr).strip().splitlines()
+            return False, f"pytest KO: {tail[-1][:80] if tail else 'no output'}"
+        if "3 passed" not in proc.stdout:
+            return False, f"pytest output inattendu: {proc.stdout.strip()[:80]}"
+        return True, "3/3 tests passent, code corrigé"
 
 
 @register

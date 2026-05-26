@@ -38,7 +38,7 @@ from tools.preview import (
 from tools.terminal import CommandBlocked, Terminal
 from agent.profiler import get_profiler
 from agent.memory_extractor import extract_mid_session
-from config import MAX_ITERATIONS, PROJECT_ROOT
+from config import MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -117,9 +117,21 @@ class Orchestrator:
         self.tools = get_tools()
         self.lt_memory = get_long_term_memory()
         self.profiler = get_profiler()
+        # Sandbox jetable (créé paresseusement à la première utilisation).
+        self._sandbox = None
+        self._sandbox_auto_exec = SANDBOX_AUTO_EXEC
+        self._sandbox_timeout = SANDBOX_TIMEOUT
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
+
+    @property
+    def sandbox(self):
+        """SandboxRunner attaché au PROJECT_ROOT courant (lazy init)."""
+        if self._sandbox is None:
+            from tools.sandbox import SandboxRunner
+            self._sandbox = SandboxRunner(self.file_manager.root)
+        return self._sandbox
 
     def _inject_system_prompt(self) -> None:
         skills = load_skills()
@@ -144,10 +156,62 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
 
     def _execute_and_display(self, tool_name: str, tool_args: dict) -> str:
-        """Exécute un outil et affiche le résultat avec un rendu adapté."""
+        """Exécute un outil et affiche le résultat avec un rendu adapté.
+
+        Bonus : après un write_file réussi sur un .py, lance un auto-check
+        sandbox (pytest si tests, python si main, py_compile sinon) et
+        injecte le résultat à la suite — l'agent voit immédiatement si
+        son code parse / passe les tests.
+        """
         result = self._execute_tool(tool_name, tool_args)
         self._display_tool_result(tool_name, tool_args, result)
+
+        # Auto-check sandbox après write_file (Roadmap v2 #3)
+        if (
+            tool_name == "write_file"
+            and not result.startswith("ERREUR")
+            and getattr(self, "_sandbox_auto_exec", True)
+        ):
+            extra = self._auto_sandbox_check(tool_args.get("path", ""))
+            if extra:
+                result = f"{result}\n\n{extra}"
+
         return result
+
+    def _auto_sandbox_check(self, rel_path: str) -> str:
+        """Si rel_path est un .py exécutable, lance la commande la plus
+        pertinente dans le sandbox et retourne le rapport formaté."""
+        if not rel_path:
+            return ""
+        from tools.sandbox import auto_command_for
+
+        full_path = (self.file_manager.root / rel_path).resolve()
+        # Le file_manager a déjà validé la sandbox — on re-vérifie quand même
+        try:
+            full_path.relative_to(self.file_manager.root.resolve())
+        except ValueError:
+            return ""
+
+        cmd = auto_command_for(full_path)
+        if cmd is None:
+            return ""
+
+        # Lancer dans le sandbox du workdir (cwd = workdir, chemin relatif)
+        rel_cmd = [c if c != full_path.name else rel_path for c in cmd]
+        result = self.sandbox.run(rel_cmd, timeout=self._sandbox_timeout)
+        report = result.format_for_llm()
+        self._display_sandbox_result(report, result.success)
+        return f"[sandbox auto-check]\n{report}"
+
+    def _display_sandbox_result(self, report: str, success: bool) -> None:
+        """Affiche le résultat sandbox dans un panneau coloré."""
+        style = "green" if success else "yellow"
+        title = "🧪 Sandbox auto-check" if success else "🧪 Sandbox auto-check (échec)"
+        # Tronquer pour l'affichage console (le LLM voit la version complète)
+        body = report
+        if len(body) > 600:
+            body = body[:300] + "\n[...]\n" + body[-280:]
+        console.print(Panel(body, title=f"[{style}]{title}[/{style}]", border_style=style))
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
@@ -171,6 +235,12 @@ class Orchestrator:
                     tool_args.get("file_pattern", ""),
                     tool_args.get("case_sensitive", True),
                 )
+            if tool_name == "run_in_sandbox":
+                res = self.sandbox.run(
+                    tool_args["command"],
+                    timeout=int(tool_args.get("timeout", 30)),
+                )
+                return res.format_for_llm()
             if tool_name == "list_skills":
                 return list_skills()
             if tool_name == "delete_skill":

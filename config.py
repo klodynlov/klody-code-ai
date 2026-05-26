@@ -37,6 +37,11 @@ MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 10))
 MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 
+# --- Sandbox (Roadmap v2 #3) ---
+# Auto-exec après chaque write_file sur un .py (pytest/python/py_compile selon contenu).
+SANDBOX_AUTO_EXEC: bool = os.getenv("SANDBOX_AUTO_EXEC", "true").lower() in ("1", "true", "yes", "on")
+SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", 20))
+
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain

@@ -416,19 +416,42 @@ class LLMClient:
                 return text_part, parsed
 
         # --- JSON {"name":...} dans contenu mixte ---
+        # Cherche TOUS les objets JSON tool call dans le contenu (un modèle peut
+        # en émettre plusieurs collés sans liste `[]`, ex: `{...} {...}`).
         names_pattern = "|".join(re.escape(n) for n in valid_tool_names)
         pattern = rf'\{{"name":\s*"(?:{names_pattern})"'
         matches = list(re.finditer(pattern, content))
         if not matches:
             return content, None
 
-        # Prendre le dernier match et tenter de parser depuis là
-        start = matches[-1].start()
-        text_part = content[:start].rstrip()
-        json_part = content[start:]
+        # Texte avant le PREMIER appel
+        text_part = content[:matches[0].start()].rstrip()
 
-        parsed = self._parse_text_tool_calls(json_part, valid_tool_names)
-        if parsed:
-            return text_part, parsed
+        # Extraire chaque appel individuellement via décodage glouton
+        decoder = json.JSONDecoder()
+        all_calls: list[dict] = []
+        for m in matches:
+            start = m.start()
+            try:
+                obj, _end = decoder.raw_decode(content[start:])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            name = obj.get("name", "")
+            if name not in valid_tool_names:
+                continue
+            args = obj.get("arguments", obj.get("parameters", {}))
+            all_calls.append({
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                },
+            })
+
+        if all_calls:
+            return text_part, all_calls
 
         return content, None

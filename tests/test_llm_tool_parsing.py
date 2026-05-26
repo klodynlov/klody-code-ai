@@ -199,6 +199,20 @@ class TestExtractMixed:
         assert calls is not None and len(calls) == 1
         assert text_part == ""
 
+    def test_deux_json_calls_colles_sans_liste(self, client, valid_tools):
+        """Cas réel observé sur Ollama qwen2.5-coder : deux objets JSON
+        consécutifs sans `[]`. Les deux doivent être extraits."""
+        content = (
+            'Je sauvegarde puis je teste.\n\n'
+            '{"name":"write_file","arguments":{"path":"x.py","content":"a"}} '
+            '{"name":"read_file","arguments":{"path":"x.py"}}'
+        )
+        text_part, calls = client.extract_mixed_tool_call(content, valid_tools)
+        assert calls is not None and len(calls) == 2
+        assert calls[0]["function"]["name"] == "write_file"
+        assert calls[1]["function"]["name"] == "read_file"
+        assert text_part.startswith("Je sauvegarde")
+
 
 # ── Backend switching ─────────────────────────────────────────────────────────
 
