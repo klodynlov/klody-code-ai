@@ -38,7 +38,7 @@ from tools.preview import (
 from tools.terminal import CommandBlocked, Terminal
 from agent.profiler import get_profiler
 from agent.memory_extractor import extract_mid_session
-from config import MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT
+from config import MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT, ROUTER_ENABLED
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -121,6 +121,10 @@ class Orchestrator:
         self._sandbox = None
         self._sandbox_auto_exec = SANDBOX_AUTO_EXEC
         self._sandbox_timeout = SANDBOX_TIMEOUT
+        # Router adaptatif — classifie chaque prompt avant la boucle ReAct.
+        self._router_enabled = ROUTER_ENABLED
+        self._router = None  # lazy
+        self.last_routing = None  # dernière décision, pour debug et étapes futures
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -132,6 +136,14 @@ class Orchestrator:
             from tools.sandbox import SandboxRunner
             self._sandbox = SandboxRunner(self.file_manager.root)
         return self._sandbox
+
+    @property
+    def router(self):
+        """Router adaptatif (lazy init, partage le même LLM backend)."""
+        if self._router is None:
+            from agent.router import Router
+            self._router = Router()
+        return self._router
 
     def _inject_system_prompt(self) -> None:
         skills = load_skills()
@@ -202,6 +214,30 @@ class Orchestrator:
         report = result.format_for_llm()
         self._display_sandbox_result(report, result.success)
         return f"[sandbox auto-check]\n{report}"
+
+    def _display_routing(self, decision, max_iter: int) -> None:
+        """Affiche la décision du router en panneau discret."""
+        color = {"easy": "green", "medium": "cyan", "hard": "magenta"}.get(
+            decision.difficulty, "white"
+        )
+        flags = []
+        if decision.use_planner:
+            flags.append("planner")
+        if decision.use_best_of_n:
+            flags.append("best-of-N")
+        flags_str = f"  · {' · '.join(flags)}" if flags else ""
+        body = (
+            f"[bold {color}]{decision.difficulty}[/bold {color}] "
+            f"· [bold]{decision.task_type}[/bold] "
+            f"· max_iter={max_iter}{flags_str}\n"
+            f"[dim]{decision.reasoning}[/dim]"
+        )
+        console.print(Panel(
+            body,
+            title="[dim]🎯 Router[/dim]",
+            border_style="dim",
+            padding=(0, 1),
+        ))
 
     def _display_sandbox_result(self, report: str, success: bool) -> None:
         """Affiche le résultat sandbox dans un panneau coloré."""
@@ -535,10 +571,22 @@ class Orchestrator:
             name="mid-extract",
         ).start()
 
-        for iteration in range(MAX_ITERATIONS):
+        # Router adaptatif (Roadmap v2 #4) — classifie le prompt avant la boucle.
+        # Le max_iterations est adapté selon la difficulté détectée.
+        max_iter = MAX_ITERATIONS
+        if self._router_enabled:
+            try:
+                decision = self.router.classify(user_input)
+                self.last_routing = decision
+                max_iter = min(decision.max_iterations, MAX_ITERATIONS)
+                self._display_routing(decision, max_iter)
+            except Exception as exc:
+                logger.warning("Router failed, using defaults: %s", exc)
+
+        for iteration in range(max_iter):
             if iteration > 0:
                 console.print(
-                    f"\n[dim]  ⟳  Itération {iteration + 1}/{MAX_ITERATIONS}[/dim]"
+                    f"\n[dim]  ⟳  Itération {iteration + 1}/{max_iter}[/dim]"
                 )
 
             messages = self.memory.get_messages_for_api()
@@ -591,9 +639,9 @@ class Orchestrator:
 
         else:
             console.print(
-                f"\n[yellow]  ⚠  Limite d'itérations atteinte ({MAX_ITERATIONS}).[/yellow]"
+                f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}).[/yellow]"
             )
-            logger.warning("Limite d'itérations: %d", MAX_ITERATIONS)
+            logger.warning("Limite d'itérations: %d", max_iter)
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
