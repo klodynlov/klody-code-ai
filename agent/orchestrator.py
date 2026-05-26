@@ -11,6 +11,7 @@ from rich.tree import Tree
 from agent.llm import LLMClient, SYSTEM_PROMPT
 from agent.memory import ConversationMemory
 from agent.long_term_memory import get_long_term_memory
+from agent.prompts import compose_system_prompt
 from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
@@ -145,23 +146,32 @@ class Orchestrator:
             self._router = Router()
         return self._router
 
-    def _inject_system_prompt(self) -> None:
+    def _inject_system_prompt(self, task_type: str | None = None) -> None:
+        """Injecte (ou met à jour) le system prompt en mémoire.
+
+        Si task_type est fourni, utilise le prompt focalisé correspondant
+        (Roadmap v2 #5). Sinon, utilise le fallback `default.md`.
+        """
+        base_prompt = compose_system_prompt(task_type)
         skills = load_skills()
         skills_section = format_skills_for_prompt(skills) if skills else ""
         lt_section = self.lt_memory.format_for_prompt()
         profile_section = self.profiler.get_profile_for_prompt()
         content = (
-            f"{SYSTEM_PROMPT}\n\n"
+            f"{base_prompt}\n\n"
             f"Dossier projet actif: {PROJECT_ROOT}"
             f"{skills_section}"
             f"{lt_section}"
             f"{profile_section}"
         )
-        self.memory.messages.insert(0, {
-            "role": "system",
-            "content": content,
-            "timestamp": None,
-        })
+
+        # Si un system message existe déjà → on le remplace (hot-swap).
+        # Sinon → on l'insère en tête.
+        message = {"role": "system", "content": content, "timestamp": None}
+        if self.memory.messages and self.memory.messages[0].get("role") == "system":
+            self.memory.messages[0] = message
+        else:
+            self.memory.messages.insert(0, message)
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #
@@ -573,6 +583,7 @@ class Orchestrator:
 
         # Router adaptatif (Roadmap v2 #4) — classifie le prompt avant la boucle.
         # Le max_iterations est adapté selon la difficulté détectée.
+        # Le system prompt est hot-swappé selon task_type (Roadmap v2 #5).
         max_iter = MAX_ITERATIONS
         if self._router_enabled:
             try:
@@ -580,6 +591,8 @@ class Orchestrator:
                 self.last_routing = decision
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
+                # Hot-swap du system prompt selon le task_type détecté
+                self._inject_system_prompt(task_type=decision.task_type)
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 

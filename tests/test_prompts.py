@@ -1,0 +1,93 @@
+"""Tests pour agent.prompts — chargement et composition des system prompts."""
+from __future__ import annotations
+
+import pytest
+
+from agent.prompts import (
+    compose_system_prompt,
+    load_prompt_file,
+    available_task_types,
+    _TASK_PROMPT_FILES,
+    PROMPTS_DIR,
+)
+
+
+class TestFichiersExistent:
+    def test_dossier_prompts_present(self):
+        assert PROMPTS_DIR.exists() and PROMPTS_DIR.is_dir()
+
+    def test_tous_les_fichiers_prompts_existent(self):
+        """base.md, default.md + 1 fichier par task_type."""
+        expected = ["base.md", "default.md", *_TASK_PROMPT_FILES.values()]
+        for name in expected:
+            assert (PROMPTS_DIR / name).exists(), f"Manquant: prompts/{name}"
+
+    def test_aucun_fichier_vide(self):
+        for name in ["base.md", "default.md", *_TASK_PROMPT_FILES.values()]:
+            content = (PROMPTS_DIR / name).read_text(encoding="utf-8").strip()
+            assert len(content) > 50, f"prompts/{name} trop court ({len(content)} chars)"
+
+
+class TestComposition:
+    def test_default_contient_base(self):
+        """Le prompt composé sans task_type doit inclure le BASE."""
+        s = compose_system_prompt(None)
+        base = load_prompt_file("base.md")
+        assert base[:80] in s
+
+    def test_easy_edit_focalise(self):
+        """Le prompt easy_edit doit être court et mentionner read/write."""
+        s = compose_system_prompt("edit")
+        assert "read_file" in s
+        assert "write_file" in s
+        # Doit être beaucoup plus court que default (focalisation = moins de bruit)
+        default = compose_system_prompt(None)
+        assert len(s) < len(default), "easy_edit doit être plus court que default"
+
+    def test_bug_fix_mentionne_test_et_sandbox(self):
+        s = compose_system_prompt("bug_fix")
+        assert "test" in s.lower()
+        assert "sandbox" in s.lower()
+
+    def test_explain_interdit_write(self):
+        s = compose_system_prompt("explain")
+        assert "write_file" in s  # mentionné explicitement comme interdit
+        # Doit clairement signaler qu'on ne modifie rien
+        assert ("INTERDICTION" in s) or ("JAMAIS" in s) or ("AUCUNE modification" in s)
+
+    def test_feature_mentionne_plan_et_test(self):
+        s = compose_system_prompt("feature")
+        assert "plan" in s.lower()
+        assert "test" in s.lower()
+
+    def test_refactor_mentionne_comportement(self):
+        s = compose_system_prompt("refactor")
+        assert "comportement" in s.lower()
+
+    def test_task_type_inconnu_utilise_default(self):
+        """Un task_type bidon → fallback default (qui inclut GitHub/LibraryBrain/etc)."""
+        s = compose_system_prompt("foobar_unknown_xyz")
+        default = compose_system_prompt(None)
+        assert s == default
+
+    def test_task_type_none_utilise_default(self):
+        s = compose_system_prompt(None)
+        default = load_prompt_file("default.md")
+        assert default[:80] in s
+
+
+class TestCache:
+    def test_load_prompt_file_cache(self):
+        """Deux appels successifs doivent renvoyer le même objet (LRU cache)."""
+        a = load_prompt_file("base.md")
+        b = load_prompt_file("base.md")
+        assert a is b
+
+    def test_load_fichier_inexistant_renvoie_vide(self):
+        assert load_prompt_file("does_not_exist.md") == ""
+
+
+class TestAvailableTypes:
+    def test_5_types_disponibles(self):
+        types = available_task_types()
+        assert set(types) == {"edit", "refactor", "bug_fix", "feature", "explain"}
