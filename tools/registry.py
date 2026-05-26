@@ -595,17 +595,23 @@ PREVIEW_TOOLS = [
         "function": {
             "name": "preview_code",
             "description": (
-                "Génère un aperçu local d'un code HTML/CSS/JS. "
-                "Crée un fichier HTML autonome, démarre un serveur HTTP local "
-                "et ouvre automatiquement le navigateur. "
-                "Utilise cet outil après avoir généré du code web pour le prévisualiser."
+                "Génère un aperçu local d'un code HTML/CSS/JS, démarre un serveur HTTP "
+                "local et ouvre automatiquement le navigateur. "
+                "Utilise cet outil après avoir généré du code web pour le prévisualiser. "
+                "IMPORTANT : si ton code utilise une librairie externe (Three.js, Chart.js, "
+                "d3, p5, etc.), déclare son URL CDN dans 'scripts' — sinon la page sera vide. "
+                "La valeur de retour peut contenir des avertissements : lis-les et corrige."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "html": {
                         "type": "string",
-                        "description": "Code HTML du body (sans <!DOCTYPE>, <html>, <head>)",
+                        "description": (
+                            "Contenu HTML. De préférence le fragment du <body> seul "
+                            "(sans <!DOCTYPE>/<html>/<head>), mais un document HTML complet "
+                            "est aussi accepté et servi tel quel — ne le mets jamais deux fois."
+                        ),
                     },
                     "css": {
                         "type": "string",
@@ -621,6 +627,22 @@ PREVIEW_TOOLS = [
                         "type": "string",
                         "description": "Titre de la page (utilisé aussi pour le nom du fichier)",
                         "default": "Preview",
+                    },
+                    "scripts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "URLs CDN des librairies JS externes à charger AVANT ton code "
+                            "(ex: ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js']). "
+                            "Indispensable dès que js référence THREE, Chart, d3, p5…"
+                        ),
+                        "default": [],
+                    },
+                    "styles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "URLs CDN de feuilles de style externes à charger (<link>).",
+                        "default": [],
                     },
                 },
                 "required": ["html"],

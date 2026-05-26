@@ -237,6 +237,8 @@ class Orchestrator:
                     tool_args.get("css", ""),
                     tool_args.get("js", ""),
                     tool_args.get("title", "Preview"),
+                    tool_args.get("scripts"),
+                    tool_args.get("styles"),
                 )
             if tool_name == "preview_file":
                 return pv_preview_file(tool_args["path"])

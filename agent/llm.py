@@ -47,10 +47,33 @@ Dépôts GitHub et bonnes pratiques :
 - Pour créer un projet inspiré d'un dépôt : extract_best_practices → create_project → \
 adapte avec write_file en lisant le code source via read_github_file.
 
-Aperçu de code web :
+Aperçu de code web (preview_code) :
 - Quand tu génères du HTML/CSS/JS, utilise preview_code pour créer un aperçu \
 local et ouvrir automatiquement le navigateur.
-- Passe le HTML du body dans html, le CSS dans css, le JS dans js, et un titre descriptif.
+- Sépare proprement : le HTML du body dans html, le CSS dans css, le JS dans js. \
+Ne place JAMAIS un document HTML complet imbriqué dans un autre — html attend le \
+contenu du body, pas un second <!DOCTYPE>/<html>/<head>.
+- DÉPENDANCES EXTERNES : si ton JS utilise une librairie (Three.js, Chart.js, d3, \
+p5, GSAP…), tu DOIS fournir son URL CDN dans le paramètre scripts (liste). \
+Exemple Three.js : scripts=["https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"]. \
+Sans cela, la variable globale (THREE, Chart…) est indéfinie et la page reste vide.
+- Pour un <canvas>/WebGL plein écran, ajoute le CSS `body{margin:0} canvas{display:block}`.
+- VISUALISATIONS 3D (Three.js) — vise un rendu présentable, pas un brouillon :
+  * Caméra en angle, jamais frontale — ex. camera.position.set(15, 12, 18); camera.lookAt(0,0,0).
+  * Contrôles : ajoute TOUJOURS new THREE.OrbitControls(camera, renderer.domElement) \
+pour que l'utilisateur puisse tourner et zoomer la scène à la souris.
+  * Éclairage : combine HemisphereLight(0xffffff, 0x444444, 0.6) + DirectionalLight(0xffffff, 0.8) \
+posée en (5,10,7). Évite AmbientLight(0x404040) seul — la scène devient noire.
+  * Fond de scène : scene.background = new THREE.Color(0x87ceeb) (ciel) ou similaire — pas le noir par défaut.
+  * Couleurs DISTINCTES par élément (sol vert, murs beige/brique, toit rouge sombre, etc.) — \
+ne mets pas la même couleur partout sinon les volumes se confondent.
+  * Pyramide à 4 pans (toit, par ex.) : CylinderGeometry(0, baseRadius, height, 4) — \
+ne fais pas rotation.x = Math.PI/4 sur un ConeGeometry, le toit finit couché.
+  * Boucle d'animation : appelle controls.update() avant renderer.render() si OrbitControls(damping).
+- AUTO-CORRECTION : la valeur de retour de preview_code peut contenir une section \
+"⚠ Avertissements". Lis-la systématiquement. Si elle signale une lib manquante ou \
+un problème, corrige ton appel (ajoute les scripts, sépare le HTML) et rappelle \
+preview_code — ne déclare jamais l'aperçu réussi tant qu'il reste des avertissements.
 - Utilise preview_file pour ouvrir un fichier .html existant dans le navigateur.
 - list_previews affiche tous les aperçus disponibles avec leurs URLs.
 
