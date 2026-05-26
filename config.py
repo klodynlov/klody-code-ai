@@ -5,11 +5,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- LLM ---
+# --- LLM Backend ---
+# BACKEND=ollama (défaut) | mlx
+# En mode mlx : MLX_BASE_URL + MLX_MODEL sont utilisés.
+# En mode ollama : OLLAMA_BASE_URL + MODEL_NAME sont utilisés.
+BACKEND: str = os.getenv("BACKEND", "ollama")
+
+# Ollama
 OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-OLLAMA_API_KEY: str = os.getenv("OLLAMA_API_KEY", "ollama")
-MODEL_NAME: str = os.getenv("MODEL_NAME", "qwen2.5-coder:32b")
-MODEL_FALLBACK: str = os.getenv("MODEL_FALLBACK", "qwen2.5-coder:7b")
+OLLAMA_API_KEY: str  = os.getenv("OLLAMA_API_KEY", "ollama")
+MODEL_NAME: str      = os.getenv("MODEL_NAME", "qwen3.5:9b")
+MODEL_FALLBACK: str  = os.getenv("MODEL_FALLBACK", "qwen3.5:9b")
+
+# MLX (Apple Silicon — mlx_lm.server)
+MLX_BASE_URL: str = os.getenv("MLX_BASE_URL", "http://localhost:8080/v1")
+MLX_API_KEY: str  = os.getenv("MLX_API_KEY", "mlx")
+MLX_MODEL: str    = os.getenv("MLX_MODEL", "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2")
+MLX_DRAFT_MODEL: str = os.getenv("MLX_DRAFT_MODEL", "")  # speculative decoding (optionnel)
+
+# Résolution active selon BACKEND
+LLM_BASE_URL: str = MLX_BASE_URL if BACKEND == "mlx" else OLLAMA_BASE_URL
+LLM_API_KEY: str  = MLX_API_KEY  if BACKEND == "mlx" else OLLAMA_API_KEY
+LLM_MODEL: str    = MLX_MODEL    if BACKEND == "mlx" else MODEL_NAME
 
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
