@@ -1,0 +1,51 @@
+{
+  "name": "max_iterations_cap",
+  "description": "Le LLM appelle un tool en boucle (read_file→read_file→read_file…). L'orchestrator doit arrêter à max_iter=3 sans crasher.",
+  "user_prompt": "Lis pi.txt jusqu'à comprendre.",
+  "seed_files": {
+    "pi.txt": "3.14159265358979\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "tâche minimale qu'on cappera côté test à 3 iter"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}
+        }
+      ]
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 3,
+    "tool_calls_invoked": ["read_file", "read_file", "read_file"]
+  },
+  "max_iterations": 3
+}

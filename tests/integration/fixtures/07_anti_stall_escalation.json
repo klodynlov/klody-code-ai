@@ -1,0 +1,47 @@
+{
+  "name": "anti_stall_escalation",
+  "description": "Stall répété : iter 1 = plan textuel sans action (déclenche anti-stall), iter 2 = LLM appelle quand même un tool malgré le nudge. Vérifie que le force_action tool_choice=required est demandé à l'iter 2.",
+  "user_prompt": "Refactor le fichier hello.py pour ajouter une fonction main().",
+  "seed_files": {
+    "hello.py": "print('hi')\n"
+  },
+  "router_decision": {
+    "difficulty": "medium",
+    "task_type": "refactor",
+    "reasoning": "refactor python simple"
+  },
+  "llm_responses": [
+    {
+      "content": "Je vais d'abord lire le fichier, puis je vais ensuite ajouter une fonction main. Voici mon plan :\n\n1. Lire hello.py\n2. Ajouter def main()\n3. Tester\n\nCommençons par :",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_anti_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"hello.py\", \"content\": \"def main():\\n    print('hi')\\n\\nif __name__ == '__main__':\\n    main()\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Refactoring terminé : hello.py utilise maintenant une fonction main().",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["write_file"],
+    "final_content_contains": ["main"],
+    "anti_stall_fired": true,
+    "file_created": {
+      "path": "hello.py",
+      "content_contains": "def main()"
+    }
+  }
+}

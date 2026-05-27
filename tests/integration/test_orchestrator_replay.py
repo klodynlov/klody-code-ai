@@ -20,6 +20,12 @@ SCENARIOS = [
     "03_multi_iteration_refactor",
     "04_anti_stall_recovery",
     "05_max_tokens_truncated_regression",
+    "06_text_to_action_fallback",
+    "07_anti_stall_escalation",
+    "08_read_then_write",
+    "09_unknown_tool",
+    "10_max_iterations_cap",
+    "11_search_then_explain",
 ]
 
 
@@ -122,7 +128,10 @@ def test_replay_scenario(scenario, fake_orchestrator, fixture_loader, project_ro
     if "seed_files" in fixture:
         _seed_files(project_root, fixture["seed_files"])
 
-    orch, fake_llm = fake_orchestrator(fixture)
+    kwargs = {}
+    if "max_iterations" in fixture:
+        kwargs["max_iterations"] = fixture["max_iterations"]
+    orch, fake_llm = fake_orchestrator(fixture, **kwargs)
 
     # Le scénario #5 ne doit PAS crasher malgré un tool_args JSON tronqué
     orch.run(fixture["user_prompt"])

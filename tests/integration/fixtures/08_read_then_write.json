@@ -1,0 +1,55 @@
+{
+  "name": "read_then_write",
+  "description": "Workflow: LLM lit un fichier seedé puis le modifie. Couvre _execute_tool(read_file) + _execute_tool(write_file).",
+  "user_prompt": "Ajoute un commentaire en tête de utils.py pour expliquer ce que fait le fichier.",
+  "seed_files": {
+    "utils.py": "def add(a, b):\n    return a + b\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "edit",
+    "reasoning": "modification simple d'un fichier"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_r1",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"utils.py\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_w1",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"utils.py\", \"content\": \"# Fonctions utilitaires arithmétiques.\\ndef add(a, b):\\n    return a + b\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Commentaire ajouté en tête de utils.py.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["read_file", "write_file"],
+    "final_content_contains": ["ajouté"],
+    "file_created": {
+      "path": "utils.py",
+      "content_contains": "# Fonctions utilitaires"
+    }
+  }
+}

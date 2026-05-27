@@ -1,0 +1,26 @@
+{
+  "name": "text_to_action_fallback",
+  "description": "LLM répond en texte avec un bloc ```html``` au lieu d'appeler preview_code. L'orchestrator doit extraire le HTML et invoquer preview_code lui-même (text-to-action fallback).",
+  "user_prompt": "Crée une page HTML avec un titre Hello World.",
+  "router_decision": {
+    "difficulty": "medium",
+    "task_type": "feature",
+    "reasoning": "feature web simple"
+  },
+  "llm_responses": [
+    {
+      "content": "Voici une page HTML simple :\n\n```html\n<!DOCTYPE html>\n<html><body><h1>Hello World</h1></body></html>\n```\n\nElle affiche un grand titre.",
+      "tool_calls": null
+    },
+    {
+      "content": "C'est tout. La preview est ouverte dans ton navigateur.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 1,
+    "max_llm_calls": 3,
+    "final_content_contains": ["Tool fallback exécuté"],
+    "no_tool_calls": true
+  }
+}

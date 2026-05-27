@@ -1,0 +1,48 @@
+{
+  "name": "unknown_tool_resilience",
+  "description": "LLM appelle un tool qui n'existe pas. L'orchestrator doit retourner 'ERREUR: Outil inconnu ...' SANS crasher, puis le LLM peut se rattraper.",
+  "user_prompt": "Liste les fichiers du projet.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "demande triviale exploratoire"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_unknown",
+          "type": "function",
+          "function": {
+            "name": "i_dont_exist",
+            "arguments": "{\"foo\": \"bar\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_recover",
+          "type": "function",
+          "function": {
+            "name": "list_files",
+            "arguments": "{\"path\": \".\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Voici la liste des fichiers du projet.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["i_dont_exist", "list_files"],
+    "final_content_contains": ["liste"]
+  }
+}

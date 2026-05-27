@@ -1,0 +1,39 @@
+{
+  "name": "search_then_explain",
+  "description": "search_in_files puis explication. Couvre une autre branche de _execute_tool (search_in_files) + un task_type explain.",
+  "user_prompt": "Où est définie la fonction add ?",
+  "seed_files": {
+    "utils.py": "def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n",
+    "main.py": "from utils import add\n\nprint(add(2, 3))\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "exploration code"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "s1",
+          "type": "function",
+          "function": {
+            "name": "search_in_files",
+            "arguments": "{\"pattern\": \"def add\", \"path\": \".\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "La fonction `add` est définie dans `utils.py` ligne 1. Elle prend deux arguments a et b et retourne leur somme.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 2,
+    "max_llm_calls": 3,
+    "tool_calls_invoked": ["search_in_files"],
+    "final_content_contains": ["utils.py"]
+  }
+}
