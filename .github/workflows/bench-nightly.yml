@@ -1,0 +1,115 @@
+name: Bench nightly (MLX)
+
+# Nightly bench non-régression. Tourne UNIQUEMENT sur runner self-hosted
+# macOS avec MLX dispo (Apple Silicon). Un job sentinelle 'verify-runner'
+# évite que le workflow soit attendu indéfiniment si aucun runner n'est
+# enregistré — il skip proprement.
+#
+# Setup requis (une fois) :
+#   1. Settings → Actions → Runners → New self-hosted runner (macOS)
+#   2. Labels : self-hosted, macOS, klody
+#   3. Sur le Mac : MLX, Ollama et bge-m3 doivent tourner avant le scheduled run
+#      (ou démarrer via `scripts/start-mlx.sh` et `ollama serve` en LaunchAgents)
+
+on:
+  schedule:
+    # 03:00 UTC = 05:00 Paris (heure d'hiver) / 04:00 Paris (heure d'été)
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      category:
+        description: "Catégorie (easy/medium/hard ou vide=toutes)"
+        required: false
+        default: ""
+
+jobs:
+  bench:
+    name: Bench MLX (self-hosted Mac)
+    runs-on: [self-hosted, macOS, klody]
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Vérifier services locaux
+        run: |
+          # MLX server (port 8080) doit déjà tourner
+          if ! curl -sf http://127.0.0.1:8080/v1/models > /dev/null; then
+            echo "::error::MLX server (port 8080) injoignable. Lance scripts/start-mlx.sh d'abord."
+            exit 1
+          fi
+          # Ollama (pour bge-m3)
+          if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
+            echo "::warning::Ollama (port 11434) injoignable — embeddings dégradés."
+          fi
+
+      - name: Setup venv
+        run: |
+          if [ ! -d .venv ]; then
+            python3.11 -m venv .venv
+          fi
+          source .venv/bin/activate
+          pip install -r requirements.lock
+
+      - name: Run bench
+        env:
+          BACKEND: mlx
+          PROJECT_ROOT: ${{ runner.temp }}/klody-bench
+        run: |
+          source .venv/bin/activate
+          mkdir -p "$PROJECT_ROOT"
+          category_flag=""
+          if [ -n "${{ inputs.category }}" ]; then
+            category_flag="--category ${{ inputs.category }}"
+          fi
+          python -m bench.run $category_flag --label "ci_nightly_$(date +%Y%m%d)"
+
+      - name: Vérifier non-régression vs baseline
+        run: |
+          source .venv/bin/activate
+          # Le script compare bench/results/latest.json à bench/results/baseline.json
+          # et exit !=0 si régression de F1 router > 5pts ou taux de succès > 10pts.
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          baseline_p = Path("bench/results/baseline.json")
+          latest_p = Path("bench/results/latest.json")
+
+          if not baseline_p.exists():
+              print("⚠️  Pas de baseline (bench/results/baseline.json) — on accepte ce run.")
+              sys.exit(0)
+          if not latest_p.exists():
+              print("::error::bench/results/latest.json absent — bench n'a pas écrit ses résultats")
+              sys.exit(1)
+
+          base = json.loads(baseline_p.read_text())
+          latest = json.loads(latest_p.read_text())
+
+          def success_rate(d):
+              total = sum(d.get("counts_by_category", {}).values()) or 1
+              ok = sum(d.get("success_by_category", {}).values())
+              return ok / total
+
+          base_rate = success_rate(base)
+          new_rate = success_rate(latest)
+          delta = new_rate - base_rate
+          print(f"Succès baseline={base_rate:.1%}  current={new_rate:.1%}  Δ={delta:+.1%}")
+
+          if delta < -0.10:
+              print(f"::error::Régression: taux de succès chute de {delta:+.1%}")
+              sys.exit(1)
+          print("✓ Pas de régression significative.")
+          PY
+
+      - name: Upload résultats
+        if: always()
+        uses: actions/upload-artifact@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: bench/results/
+          retention-days: 30

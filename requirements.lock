@@ -175,6 +175,8 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
+prometheus-client==0.25.0
+    # via -r requirements.txt
 prompt-toolkit==3.0.52
     # via -r requirements.txt
 py-key-value-aio==0.4.5

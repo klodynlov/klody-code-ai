@@ -59,6 +59,13 @@
       "body_required": false
     }
   },
+  "/metrics": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/health": {
     "GET": {
       "params": [],

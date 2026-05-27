@@ -26,6 +26,7 @@ from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
 from agent.long_term_memory import get_long_term_memory
 from agent.memory_extractor import extract_and_save
+from api import metrics as _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,8 @@ async def stop_generation():
 @app.websocket("/api/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    _metrics.ws_connections_total.inc()
+    _metrics.ws_active.inc()
 
     memory = ConversationMemory()
     # Modèle actif = celui résolu par config selon BACKEND (ollama / mlx).
@@ -263,6 +266,11 @@ async def websocket_endpoint(ws: WebSocket):
                 if not user_text:
                     continue
 
+                # Métriques : démarre le timer + compte la requête
+                import time as _time
+                _chat_t0 = _time.monotonic()
+                _chat_status = "ok"
+
                 # Créer l'orchestrateur avec callbacks via queue
                 _stop_flag[0] = False
                 orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag)
@@ -305,14 +313,31 @@ async def websocket_endpoint(ws: WebSocket):
                     while True:
                         event = await queue.get()
                         await ws.send_json(event)
-                        if event["type"] in ("done", "error"):
+                        et = event.get("type")
+                        # Métriques : observe les événements qui transitent
+                        if et == "tool_start":
+                            _metrics.tool_calls_total.labels(
+                                tool=event.get("tool", "unknown")
+                            ).inc()
+                        elif et == "anti_stall":
+                            _metrics.anti_stall_total.inc()
+                        elif et == "text_to_action":
+                            _metrics.text_to_action_total.inc()
+                        elif et == "error":
+                            _chat_status = "error"
+                        if et in ("done", "error"):
                             break
                 except WebSocketDisconnect:
                     logger.info("WS déconnectée pendant génération → stop_flag set")
                     _stop_flag[0] = True
+                    _chat_status = "stopped"
+                    _metrics.chat_requests_total.labels(status=_chat_status).inc()
+                    _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
                     # Re-raise pour sortir proprement de la boucle while True externe
                     raise
 
+                _metrics.chat_requests_total.labels(status=_chat_status).inc()
+                _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
                 await send_status()
 
             elif msg["type"] == "model_change":
@@ -350,6 +375,8 @@ async def websocket_endpoint(ws: WebSocket):
     except Exception as e:
         logger.error("WebSocket erreur: %s", e)
         _stop_flag[0] = True
+    finally:
+        _metrics.ws_active.dec()
 
 
 def _extract_memory_bg(messages: list[dict], lt_memory) -> None:
@@ -699,11 +726,75 @@ async def siri_get(q: str = ""):
     return {"response": response, "session_id": _SIRI_SESSION_ID}
 
 
+# ── Metrics Prometheus ─────────────────────────────────────────────────────────
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Endpoint scrape Prometheus — format texte standard."""
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from fastapi.responses import Response as FastAPIResponse
+    return FastAPIResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 # ── Health ─────────────────────────────────────────────────────────────────────
 
+async def _probe_url(url: str, timeout: float = 1.5, accept_status: tuple = (200,)) -> bool:
+    """Petite probe HTTP — True si reachable et status acceptable."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url)
+            return r.status_code in accept_status
+    except Exception:
+        return False
+
+
+from fastapi import Response
+
+
 @app.get("/health")
-async def health():
-    return {"status": "ok", "service": "klody-api", "version": "1.0.0"}
+async def health(response: Response):
+    """Probe profonde : OK 200 si tous les backends critiques sont up,
+    sinon 503 + détail. Utilisable par k8s liveness/readiness, cron probes, etc.
+    """
+    from config import BACKEND, MLX_BASE_URL
+
+    # Probes parallèles
+    ollama_url = OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
+    mlx_url = MLX_BASE_URL.replace("/v1", "") + "/v1/models"
+    mcp_url = "http://127.0.0.1:8083/mcp"
+
+    probes = await asyncio.gather(
+        _probe_url(ollama_url),
+        _probe_url(mlx_url) if BACKEND == "mlx" else asyncio.sleep(0, result=None),
+        _probe_url(mcp_url, accept_status=(200, 405, 406)),
+        return_exceptions=True,
+    )
+    ollama_ok = probes[0] is True
+    mlx_ok = probes[1] is True if BACKEND == "mlx" else None
+    mcp_ok = probes[2] is True
+
+    # LLM principal selon BACKEND
+    llm_ok = mlx_ok if BACKEND == "mlx" else ollama_ok
+
+    checks = {
+        "llm_backend": "ok" if llm_ok else "down",
+        "ollama": "ok" if ollama_ok else "down",
+        "mcp": "ok" if mcp_ok else "down",
+    }
+    if mlx_ok is not None:
+        checks["mlx"] = "ok" if mlx_ok else "down"
+
+    # Critique = LLM backend principal. MCP/Ollama secondaire si BACKEND=mlx.
+    all_ok = bool(llm_ok)
+    if not all_ok:
+        response.status_code = 503
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "service": "klody-api",
+        "version": "1.0.0",
+        "backend": BACKEND,
+        "checks": checks,
+    }
 
 
 if __name__ == "__main__":

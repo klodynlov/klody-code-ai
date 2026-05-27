@@ -34,13 +34,40 @@ def client(monkeypatch: pytest.MonkeyPatch):
         yield c
 
 
-def test_health_endpoint(client):
-    """/health doit répondre 200 avec status ok."""
+def test_health_endpoint_degraded_when_llm_down(client):
+    """Sans backend LLM joignable, /health doit retourner 503 + 'degraded'."""
+    # En env de test, aucun MLX/Ollama n'est up → degraded attendu.
+    r = client.get("/health")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["status"] == "degraded"
+    assert body["service"] == "klody-api"
+    assert "checks" in body
+    assert body["checks"]["llm_backend"] == "down"
+
+
+def test_health_endpoint_ok_when_llm_reachable(client, monkeypatch):
+    """Avec backend LLM joignable (mocké), /health doit retourner 200 + 'ok'."""
+    async def _ok_probe(*_a, **_kw):
+        return True
+    monkeypatch.setattr("api.server._probe_url", _ok_probe)
     r = client.get("/health")
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["service"] == "klody-api"
+    assert body["checks"]["llm_backend"] == "ok"
+
+
+def test_metrics_endpoint_exposes_prometheus_format(client):
+    """/metrics doit exposer le format texte Prometheus avec nos compteurs."""
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert "text/plain" in r.headers.get("content-type", "")
+    body = r.text
+    # Au moins quelques-uns de nos compteurs Klody doivent apparaître
+    assert "klody_ws_connections_total" in body
+    assert "klody_chat_requests_total" in body
+    assert "klody_tool_calls_total" in body
 
 
 def test_status_endpoint(client):
