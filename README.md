@@ -1,50 +1,110 @@
-# 🤖 Klody Code AI
+# Klody Code AI
 
-Agent de coding IA autonome, 100 % local, propulsé par Ollama + qwen2.5-coder:32b.
+Agent de coding local autonome — 100% offline, propulsé par MLX-LM + Qwen3-Coder-30B-A3B
+sur Apple Silicon. Pensé pour rivaliser avec un agent cloud sur une machine perso.
+
+> **Status** : v2.1 stable · 490 tests · 9 étapes roadmap livrées · MLX backend × 12 vs Ollama
 
 ---
+
+## Architecture
+
+```
+                ┌─── UI Tauri (klody-ui) ─────────────┐
+                │  React 19 · Tailwind 4 · WebSocket  │
+                └──────────────┬──────────────────────┘
+                               │ ws://localhost:8000/api/ws
+                               ▼
+                ┌─── FastAPI + WebSocket ─────────────┐
+                │  api/server.py — port 8000          │
+                └──────────────┬──────────────────────┘
+                               │
+              ┌────────────────┴────────────────┐
+              ▼                                 ▼
+    ┌── Adaptive Orchestrator ──┐   ┌── MCP Server (klody_mcp) ──┐
+    │  Router (Qwen3-4B logic)  │   │  8 tools exposés en MCP    │
+    │   → easy / medium / hard  │   │  Continue.dev / Cline /    │
+    │   → 6 task_types          │   │  Zed peuvent consommer     │
+    │  Hot-swap system prompts  │   │  port 8083 (stdio | http)  │
+    │  Best-of-N conditionnel   │   └────────────────────────────┘
+    │  Anti-stall + nudge       │
+    │  Text-to-action fallback  │
+    └──────────────┬────────────┘
+                   │
+            ┌──────┴───────┐
+            ▼              ▼
+    ┌── Tools (~30) ──┐  ┌── LLM Backend ──┐
+    │ read/write_file │  │ MLX  → port 8080│
+    │ execute_command │  │   Qwen3-Coder-  │
+    │ find_symbol     │  │   30B-A3B-4bit  │
+    │ find_references │  │ ou Ollama       │
+    │ find_relevant_  │  │   → port 11434  │
+    │   files (RAG)   │  └─────────────────┘
+    │ run_in_sandbox  │
+    │ preview_code    │
+    │ search_books    │  ┌── LibraryBrain ──┐
+    │ browse_repo     │  │ RAG livres locale│
+    │ ...             │  │ port 8765 / 8082 │
+    └─────────────────┘  └──────────────────┘
+```
+
+## Caractéristiques clés (v2)
+
+| # | Feature | Détail |
+|---|---|---|
+| 1 | **Bench reproductible** | 20 tâches catégorisées (easy/medium/hard) + métriques (latence, tokens, tool_calls cassés) |
+| 2 | **MLX backend** | Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2 sur Apple Silicon, **×12** vs Ollama qwen2.5-coder:32b |
+| 3 | **Sandbox loop** | venv jetable + auto-exec après `write_file` sur `.py` (pytest si test, py_compile sinon) |
+| 4 | **Router adaptatif** | classifie chaque prompt → 3 difficultés × 6 task_types → max_iter + planner + best_of_n |
+| 5 | **Hot-swap prompts** | 6 prompts focalisés (`easy_edit`, `refactor`, `bug_fix`, `feature`, `explain`, `self_dev`) |
+| 6 | **Retrieval code-aware** | tree-sitter symboles/refs + embeddings bge-m3 (`find_symbol`, `find_relevant_files`) |
+| 7 | **Best-of-N conditionnel** | 3 candidats T=0.5/0.8/1.0 + action override (préfère un candidat avec tool_calls) |
+| 8 | **Memory utile** | Conventions auto-détectées + erreurs récurrentes (`.klody/` cache) |
+| 9 | **MCP server expose** | Klody = plateforme pour d'autres agents (Continue.dev, Cline, Zed) |
 
 ## Stack technique
 
-| Composant | Technologie |
-|-----------|------------|
+| Composant | Tech |
+|-----------|------|
 | Runtime | Python 3.11+ |
-| LLM local | Ollama — `qwen2.5-coder:32b` (port 11434) |
-| RAG / Livres | LibraryBrain — sqlite-vec + FTS5 hybride (port 8765) |
-| MCP Bridge | FastMCP — serveur MCP LibraryBrain (port 8082) |
-| RAG Proxy | FastAPI — middleware Aider→mlx-lm (port 8081) |
-| API Client | `openai` SDK (compatible Ollama) |
-| UI Terminal | `rich` — couleurs, panels, streaming Markdown |
-| Config | `python-dotenv` — `.env` local |
-| Tests | `pytest` — 100 % pass |
-
----
+| LLM principal | **MLX-LM** — `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2` (port 8080) |
+| LLM fallback | **Ollama** — `qwen2.5-coder:32b` ou `qwen3.5:9b` (port 11434) |
+| Embeddings | **Ollama** — `bge-m3` (toujours via Ollama, léger) |
+| RAG livres | **LibraryBrain** — sqlite-vec + FTS5 (port 8765) |
+| MCP server | **FastMCP** — 8 outils Klody exposés (port 8083) |
+| API client | `openai` SDK (compat MLX et Ollama) |
+| UI terminal | `rich` |
+| UI graphique | `klody-ui` (Tauri 2 + React 19 + Tailwind 4) — voir [klody-ui repo](https://github.com/klodynlov/klody-ui) |
+| Tests | `pytest` — **490 tests** |
 
 ## Installation
 
 ### 1. Prérequis système
 
 ```bash
-# Ollama
+# MLX-LM (Apple Silicon recommandé)
+pip install mlx-lm
+
+# Ollama (pour bge-m3 embeddings + fallback LLM)
 brew install ollama
 
-# ripgrep (optionnel — recherche plus rapide)
+# Optionnel : ripgrep (recherche plus rapide), sqlite-vec (LibraryBrain)
 brew install ripgrep
-
-# sqlite-vec (requis pour la recherche vectorielle LibraryBrain)
 pip install sqlite-vec
 ```
 
 ### 2. Télécharger les modèles
 
 ```bash
+# MLX — modèle principal (~16 Go, 30B paramètres, 3B actifs MoE)
+huggingface-cli download mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2
+
+# Ollama — embeddings (toujours requis pour retrieval)
 ollama serve
+ollama pull bge-m3
 
-# Modèle principal (20 GB)
+# Optionnel : fallback Ollama si tu n'as pas Apple Silicon
 ollama pull qwen2.5-coder:32b
-
-# Modèle plus léger si RAM limitée
-ollama pull qwen2.5-coder:7b
 ```
 
 ### 3. Cloner et installer
@@ -52,381 +112,173 @@ ollama pull qwen2.5-coder:7b
 ```bash
 git clone https://github.com/klodynlov/klody-code-ai.git
 cd klody-code-ai
-
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configurer
-
-```bash
-cp .env.example .env
-```
-
-Éditer `.env` :
+### 4. Configurer `.env`
 
 ```env
-# LLM
+# Backend LLM : "mlx" (recommandé Apple Silicon) ou "ollama"
+BACKEND=mlx
+
+# MLX
+MLX_BASE_URL=http://localhost:8080/v1
+MLX_MODEL=mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2
+
+# Ollama (fallback ou si BACKEND=ollama)
 OLLAMA_BASE_URL=http://localhost:11434/v1
 MODEL_NAME=qwen2.5-coder:32b
+MODEL_FALLBACK=mistral:latest
 
-# Sandbox — dossier sur lequel l'agent peut travailler
+# Sandbox de fichiers — dossier que l'agent peut éditer
 PROJECT_ROOT=/Users/ton-nom/mon-projet
 
-# LibraryBrain (optionnel — si installé)
-LIBRARYBRAIN_URL=http://127.0.0.1:8765/api/ask
-```
+# Adaptive Orchestrator (tout activé par défaut)
+ROUTER_ENABLED=true
+BEST_OF_N_ENABLED=true
+BEST_OF_N_COUNT=3
+SANDBOX_AUTO_EXEC=true
+SANDBOX_TIMEOUT=20
 
----
+# LibraryBrain (optionnel)
+LIBRARYBRAIN_URL=http://127.0.0.1:8765/api/ask
+LIBRARYBRAIN_DIR=/chemin/vers/library-brain
+```
 
 ## Lancement
 
 ```bash
-# Démarrer Ollama (si pas encore lancé)
+# Terminal 1 — MLX server (charge le modèle ~30s, ~16 Go RAM)
+./scripts/start-mlx.sh
+
+# Terminal 2 — Ollama (pour embeddings)
 ollama serve
 
-# Lancer Klody
+# Terminal 3 — Klody CLI Rich
 source .venv/bin/activate
 python main.py
+
+# (Optionnel) Terminal 4 — API WebSocket pour l'UI Tauri
+python api/server.py
+
+# (Optionnel) Terminal 5 — MCP server pour exposer Klody à d'autres clients
+./scripts/start-klody-mcp.sh           # stdio
+./scripts/start-klody-mcp.sh --http    # HTTP port 8083
 ```
 
-### Démarrer LibraryBrain (optionnel)
-
-LibraryBrain doit être lancé **depuis son propre répertoire** :
-
-```bash
-cd /chemin/vers/library-brain
-python3 -m uvicorn search.api:app --host 127.0.0.1 --port 8765
-```
-
----
-
-## Interface
-
-```
-╔══════════════════════════════════════════╗
-║  🤖  Klody Code Ai                       ║
-║  Powered by Ollama · 100% local · privé  ║
-╚══════════════════════════════════════════╝
-
-  Modèle    qwen2.5-coder:32b
-  Projet    /Users/ton-nom/mon-projet
-  Session   a1b2c3d4
-  Messages  0
-
-Tapez /help pour l'aide · /exit pour quitter
-
-Vous >
-```
-
-### Exemples de requêtes
-
-```
-Vous > Liste les fichiers Python dans ce projet
-Vous > Lis le fichier src/main.py et explique ce qu'il fait
-Vous > Ajoute des docstrings aux fonctions de utils.py
-Vous > Lance les tests et dis-moi ce qui échoue
-Vous > Quels design patterns utilise-t-on pour ce problème ?
-```
-
----
-
-## Commandes spéciales
+## Commandes CLI
 
 | Commande | Description |
 |----------|-------------|
-| `/help` | Afficher l'aide |
-| `/clear` | Effacer l'historique de la session |
-| `/memory` | Statistiques de mémoire |
-| `/model` | Afficher le modèle actif |
-| `/model qwen2.5-coder:7b` | Changer de modèle à la volée |
-| `/exit` | Quitter |
-| `Ctrl+C` | Quitter |
+| `/help` | Affiche l'aide |
+| `/sessions` | Liste / charge une session passée |
+| `/memory` | Mémoire courte + souvenirs long terme |
+| `/model` | Affiche le modèle actif |
+| `/model <id>` | Change de modèle à chaud |
+| `/skills` | Liste les compétences mémorisées |
+| `/exit` | Quitte |
+| `Cmd+K / Ctrl+K` | Nouvelle session |
 
 ```bash
-# Reprendre la dernière session
-python main.py --resume
-
-# Reprendre une session précise
-python main.py --session a1b2c3d4
+python main.py --resume                  # reprend la dernière session
+python main.py --session <id-court>      # reprend une session précise
 ```
 
----
+## Outils disponibles (~30)
 
-## Outils disponibles
+| Catégorie | Outils |
+|---|---|
+| **Fichiers** | `read_file`, `write_file`, `list_files`, `search_in_files` |
+| **Code-aware** (#6) | `find_symbol`, `find_references`, `find_relevant_files` |
+| **Exécution** | `execute_command`, `run_in_sandbox` |
+| **Web preview** | `preview_code` (HTML/CSS/JS auto-CDN + overlay erreurs), `preview_file`, `list_previews` |
+| **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
+| **RAG / Skills** | `search_books`, `learn_from_books`, `get_skills`, `save_skill`, `list_skills`, `delete_skill` |
+| **Mémoire long terme** | `remember_fact`, `forget_fact` |
+| **Imports LLM** | `import_llm_export`, `list_imports` (analyse exports ChatGPT/Claude) |
 
-L'agent dispose de **10 outils** invoqués automatiquement selon le besoin :
+## Sécurité
 
-| Outil | Description |
-|-------|-------------|
-| `read_file` | Lit un fichier (sandboxé, max 1 MB) |
-| `write_file` | Écrit/crée un fichier (max 1 MB) |
-| `list_files` | Liste un répertoire (récursif optionnel) |
-| `execute_command` | Exécute une commande shell **avec confirmation humaine** |
-| `search_in_files` | Grep/ripgrep dans les fichiers du projet |
-| `save_skill` | Mémorise un pattern ou convention pour les prochaines sessions |
-| `import_llm_export` | Analyse un export JSON ChatGPT/Claude pour apprendre les pratiques |
-| `list_imports` | Liste les exports disponibles dans `imports/` |
-| `search_books` | Recherche sémantique dans LibraryBrain (RAG hybride FTS5+vec) |
-| `get_skills` | Récupère les conventions d'un domaine (symfony, nextjs, python, mlx) |
-
----
-
-## Sécurité sandbox
-
-### Fichiers
-
-- L'agent ne peut accéder qu'au dossier `PROJECT_ROOT` défini dans `.env`
-- Chemins absolus, `../`, symlinks sortants → bloqués
-- `list_files` masque automatiquement : `.git`, `.claude`, `.env`, `.venv`, `__pycache__`, `node_modules`
-- Extensions bloquées en lecture/écriture : `.env`, `.key`, `.pem`, `.p12`, `.cer`, `.crt`, `.ppk`
-- Écriture limitée à **1 MB** par fichier
-
-### Commandes
-
-Toute commande demande une **confirmation `[Y/n]`** — défaut = **N**.
-
-Commandes bloquées sans confirmation possible :
-
-```
-sudo              rm -rf /          mkfs             dd if=/dev
-bash -c '…'       sh -c '…'         python3 -c '…'   ruby -e '…'
-node -e '…'       perl -e '…'       php -r '…'
-cat /etc/passwd   cat /etc/shadow   ~/.ssh/id_rsa    ~/.aws/
-env               printenv          nc -…            netcat -…
-curl … && bash    wget … && sh      |bash            |sh
-```
-
-- Sortie des commandes tronquée à **50 000 caractères**
-
-### API
-
-- CORS restreint aux origines locales (`localhost`, `127.0.0.1`, `tauri://localhost`)
-- Aucune clé API exposée dans les réponses
-
----
-
-## Skills & mémoire
-
-Klody peut **mémoriser des patterns** entre les sessions :
-
-```
-Vous > save_skill(name="Commit convention", description="Format commit", content="feat(scope): message")
-```
-
-Les skills sont rechargés automatiquement à chaque démarrage et injectés dans le system prompt.
-
-### Skills domaines (pour search_books / get_skills)
-
-| Fichier | Domaine | Contenu |
-|---------|---------|---------|
-| `skills/symfony.json` | symfony | Migrations Doctrine, DI, Messenger, PHPUnit |
-| `skills/nextjs.json` | nextjs | App Router, Data fetching, TypeScript, Performance |
-| `skills/python.json` | python | Type hints, Dataclasses, Async, Pytest |
-| `skills/mlx.json` | mlx | Arrays, Quantization, mlx-lm serving, LoRA |
-
----
-
-## LibraryBrain — RAG local
-
-Quand LibraryBrain est actif, l'agent peut interroger ta bibliothèque de livres :
-
-```
-Vous > Quels livres parles de clean code ?
-Vous > Explique-moi les design patterns selon tes livres
-```
-
-La recherche est **hybride** : FTS5 (plein texte) + sqlite-vec (vecteurs sémantiques).
-
-### Prérequis LibraryBrain
-
-```bash
-pip install sqlite-vec   # moteur vectoriel
-```
-
----
-
-## Architecture Phase 4 — RAG Bridge
-
-```
-Klody (main.py)
-    │  search_books / get_skills — natifs
-    ▼
-tools/mcp_client.py  ──── POST /api/ask/job ───►  LibraryBrain :8765
-                          GET  /api/ask/job/{id}   (sqlite-vec + FTS5)
-
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
-Aider / clients externes
-    │
-    ▼  OpenAI-compatible — port 8081
-scripts/rag-proxy.py        injecte contexte RAG (≤ 2000 tokens)
-    │
-    ▼  port 8765
-LibraryBrain (FastAPI)
-    │
-    ▼  port 8080
-mlx-lm (optionnel)
-
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
-Claude Desktop / MCP clients
-    │
-    ▼  MCP streamable-http — port 8082
-mcp/server.py (FastMCP)
-    ├── search_books(query, limit)
-    ├── get_skills(domain)
-    └── get_conventions(project)
-```
-
-### Ports
-
-| Port | Service | Rôle |
-|------|---------|------|
-| 11434 | Ollama | Backend LLM principal |
-| 8765 | LibraryBrain | Source RAG — livres indexés |
-| 8081 | rag-proxy | Middleware Aider (RAG injecté) |
-| 8082 | FastMCP | Interface MCP clients externes |
-| 8000 | Klody API | WebSocket dashboard Tauri |
-| 8080 | mlx-lm | Backend LLM alternatif (optionnel) |
-
-### Lancer le RAG Proxy (pour Aider)
-
-```bash
-source .venv/bin/activate
-./scripts/start-rag-proxy.sh
-
-# Configurer Aider
-aider --openai-api-base http://127.0.0.1:8081/v1 \
-      --openai-api-key local \
-      --model qwen2.5-coder
-```
-
----
+- **Sandbox fichiers** : tout accès limité à `PROJECT_ROOT`, `../`/symlinks bloqués, `.env`/`.key`/`.pem` interdits, max 1 MB par écriture
+- **Sandbox exécution** : `execute_command` requiert confirmation `[Y/n]` en TTY (auto-confirm en API + check sécurité pré-confirmation pour bloquer `sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS, etc.)
+- **Sandbox isolé** : `run_in_sandbox` lance dans un venv jetable dédié (`~/.cache/klody/sandbox-venvs/<hash>/`)
+- **CORS** restreint aux origines locales
 
 ## Tests
 
 ```bash
 source .venv/bin/activate
-pytest tests/ -v
+python -m pytest tests/ -q      # 490 passing
+python -m pytest tests/ -v      # détaillé
 ```
 
-Couverture :
+## Bench
 
-| Fichier | Tests |
-|---------|-------|
-| `test_file_manager.py` | Sandbox, lecture, écriture, limite taille, masquage `.claude/` |
-| `test_terminal.py` | Blocklist sécurité, faux positifs, sortie tronquée |
-| `test_memory.py` | Persistance, troncature, messages API |
-| `test_skills.py` | save/load, format prompt, domaines vs user skills |
-| `test_mcp_client.py` | `_is_domain_file`, `get_skills`, `_parse_result`, erreurs réseau |
-| `test_search.py` | Recherche pattern, sandbox path, résultats tronqués |
-| `test_llm_import.py` | Parsers ChatGPT/Claude/generic, détection techs, fichiers invalides |
+```bash
+# Lance les tâches du bench sur Klody actuel (config .env)
+BACKEND=mlx python -m bench.run --category easy
+BACKEND=mlx python -m bench.run --task hard/debug_test_suite
 
----
+# Évaluer la précision du Router (F1 macro)
+BACKEND=mlx python -m bench.router_eval --label mlx_qwen3coder
+```
 
-## Structure du projet
+Voir [`bench/README.md`](bench/README.md) pour ajouter des tâches.
+
+## Architecture détaillée
 
 ```
 klody-code-ai/
-├── .env.example               # Template de configuration
-├── .gitignore
-├── requirements.txt
-├── README.md
-├── main.py                    # Point d'entrée CLI — REPL Rich
-├── config.py                  # Variables d'environnement, constantes
-│
 ├── agent/
-│   ├── llm.py                 # Client Ollama, streaming, fallback tool calls
-│   ├── memory.py              # Historique JSON persistant par session
-│   └── orchestrator.py        # Boucle ReAct : Thought → Action → Observation
-│
-├── api/
-│   └── server.py              # API WebSocket pour dashboard Tauri (port 8000)
-│
-├── mcp/
-│   └── server.py              # Serveur FastMCP — 3 outils (port 8082)
+│   ├── llm.py                  # Client LLM unifié (MLX/Ollama) + 6 parsers tool_call
+│   ├── orchestrator.py         # Boucle ReAct + Router + BoN + anti-stall + auto-preview
+│   ├── router.py               # Classifier easy/medium/hard × 6 task_types (F1=0.85)
+│   ├── prompts.py              # Composer + cache LRU des prompts focalisés
+│   ├── best_of_n.py            # N candidats + action override + LLM-as-judge fallback
+│   ├── conventions.py          # Détecteur heuristique (test framework, async, types, …)
+│   ├── error_memory.py         # Mémoire des erreurs récurrentes sandbox
+│   ├── memory.py / long_term_memory.py
+│   └── memory_extractor.py
 │
 ├── tools/
-│   ├── registry.py            # Schémas JSON Schema des 10 outils
-│   ├── file_manager.py        # read/write/list sandboxé + limites
-│   ├── terminal.py            # Exécution bash — confirmation + blocklist
-│   ├── search.py              # grep/ripgrep sandboxé
-│   ├── skills.py              # Mémoire persistante inter-sessions
-│   ├── mcp_client.py          # Client LibraryBrain — job polling async
-│   └── llm_import.py          # Parser exports ChatGPT/Claude/Gemini
+│   ├── file_manager.py         # Sandbox fichiers
+│   ├── terminal.py             # Shell + auto-confirm non-TTY + blocklist
+│   ├── sandbox.py              # venv jetable + py_compile/pytest auto
+│   ├── code_index.py           # tree-sitter (Python/JS/TS) — symboles + refs
+│   ├── code_search.py          # Embeddings bge-m3 — recherche sémantique
+│   ├── preview.py              # HTML/CSS/JS + auto-CDN + overlay erreurs JS
+│   ├── github_reader.py / project_creator.py
+│   ├── mcp_client.py           # Client LibraryBrain
+│   └── llm_import.py / skills.py / search.py
 │
-├── skills/
-│   ├── symfony.json           # Conventions PHP/Symfony
-│   ├── nextjs.json            # Conventions Next.js/React
-│   ├── python.json            # Conventions Python
-│   ├── mlx.json               # Conventions MLX/Apple Silicon
-│   └── utilisateur_*.json     # Skills appris depuis l'export Claude
-│
+├── prompts/                    # 6 prompts focalisés + base + default (~300-600 tok chacun)
+├── klody_mcp/                  # Serveur MCP Klody (FastMCP, 8 outils exposés)
+├── api/server.py               # FastAPI + WebSocket pour UI Tauri
+├── bench/                      # Bench reproductible 20 tâches
 ├── scripts/
-│   ├── rag-proxy.py           # Middleware FastAPI — RAG pour Aider
-│   ├── start-rag-proxy.sh     # Lance MCP + RAG proxy
-│   └── import-claude-export.py # Import export Claude.ai → skills
-│
-├── imports/                   # Dépôt des exports JSON à analyser
-├── logs/                      # Logs + sessions (gitignored)
-│
-└── tests/
-    ├── test_file_manager.py
-    ├── test_terminal.py
-    ├── test_memory.py
-    ├── test_skills.py
-    ├── test_mcp_client.py
-    ├── test_search.py
-    └── test_llm_import.py
+│   ├── start-mlx.sh            # Lance mlx_lm.server
+│   ├── start-klody-mcp.sh      # Lance le MCP server
+│   ├── start-rag-proxy.sh      # Lance LibraryBrain + proxy RAG pour Aider
+│   └── lora/                   # Scaffolding LoRA fine-tuning
+├── tests/                      # 490 tests pytest
+└── ROADMAP.md                  # 9 étapes v2 + critères de done
 ```
-
----
 
 ## Erreurs fréquentes
 
-### `APIConnectionError: Connection refused`
+**`APIConnectionError` sur MLX** → lance `./scripts/start-mlx.sh`
 
-Ollama n'est pas lancé.
+**`Connection refused` Ollama** → `ollama serve` (requis pour bge-m3 embeddings)
 
-```bash
-ollama serve
-```
+**`model not found` MLX** → `huggingface-cli download mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2`
 
-### `model "qwen2.5-coder:32b" not found`
+**`SandboxViolation`** → `PROJECT_ROOT` dans `.env` doit être un chemin absolu existant
 
-```bash
-ollama pull qwen2.5-coder:32b
-# ou version légère :
-ollama pull qwen2.5-coder:7b
-# puis dans .env : MODEL_NAME=qwen2.5-coder:7b
-```
+**`Confirm.ask EOFError`** → tu es dans un environnement non-TTY (script, CI). Mets `BACKEND=mlx` et utilise l'API (le terminal auto-confirme en non-TTY depuis le fix terminal v2.1)
 
-### `SandboxViolation: Chemin hors sandbox`
-
-`PROJECT_ROOT` dans `.env` doit être un chemin absolu existant.
-
-```bash
-echo "PROJECT_ROOT=$(pwd)" >> .env
-```
-
-### `LibraryBrain inaccessible`
-
-LibraryBrain n'est pas démarré ou n'est pas lancé depuis son répertoire.
-
-```bash
-cd /chemin/vers/library-brain
-python3 -m uvicorn search.api:app --host 127.0.0.1 --port 8765
-```
-
-### `no such module: vec0`
-
-Le module `sqlite-vec` n'est pas installé.
-
-```bash
-pip install sqlite-vec
-```
-
----
+**UI Tauri stuck** → recharge avec `Cmd+Shift+R`, vérifie que `python api/server.py` tourne sur port 8000
 
 ## Licence
 
