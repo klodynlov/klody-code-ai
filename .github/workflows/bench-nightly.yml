@@ -22,6 +22,10 @@ on:
         required: false
         default: ""
 
+# GITHUB_TOKEN au strict minimum
+permissions:
+  contents: read
+
 jobs:
   bench:
     name: Bench MLX (self-hosted Mac)

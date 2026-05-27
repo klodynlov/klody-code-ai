@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# GITHUB_TOKEN au strict minimum (principe du moindre privilège).
+# Les jobs qui ont besoin de plus de droits les déclarent explicitement.
+permissions:
+  contents: read
+
 # Annule les runs précédents sur la même branche (économise des minutes Actions)
 concurrency:
   group: ci-${{ github.ref }}
