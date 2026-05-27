@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import MEMORY_DIR, MODEL_FALLBACK, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL
+from config import MEMORY_DIR, MODEL_FALLBACK, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL, LLM_MODEL
 from agent.memory import ConversationMemory
 from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
@@ -70,8 +70,8 @@ class StopGeneration(Exception):
 
 @app.get("/api/status")
 async def get_status():
+    from config import BACKEND, LLM_MODEL
     ollama_ok = False
-    model_name = MODEL_NAME
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags")
@@ -83,13 +83,65 @@ async def get_status():
     except Exception:
         models = []
 
+    # Backend MLX status si BACKEND=mlx
+    mlx_ok = False
+    if BACKEND == "mlx":
+        try:
+            from config import MLX_BASE_URL
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                r = await client.get(MLX_BASE_URL.replace("/v1", "") + "/v1/models")
+                if r.status_code == 200:
+                    mlx_ok = True
+                    models = [m["id"] for m in r.json().get("data", [])]
+        except Exception:
+            pass
+
+    # Klody MCP server status (port 8083)
+    mcp_active = False
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
+            r = await client.get("http://127.0.0.1:8083/mcp", headers={"Accept": "text/event-stream"})
+            mcp_active = r.status_code in (200, 405, 406)  # 406 = Not Acceptable mais up
+    except Exception:
+        pass
+
+    # Conventions et erreurs récurrentes (Roadmap v2 #8)
+    project_info = _load_project_info()
+
     return {
         "ollama": ollama_ok,
-        "model": model_name,
+        "model": LLM_MODEL,
         "models": models,
         "project": str(PROJECT_ROOT),
         "librarybrain": get_librarybrain_status(),
+        # v2 fields
+        "backend": BACKEND,
+        "backend_active": mlx_ok if BACKEND == "mlx" else ollama_ok,
+        "mcp_server_active": mcp_active,
+        "project_info": project_info,
     }
+
+
+def _load_project_info() -> dict:
+    """Lit .klody/conventions.json et errors.json sur le PROJECT_ROOT."""
+    info: dict = {"conventions": [], "recurrent_errors": [], "workdir": str(PROJECT_ROOT)}
+    try:
+        from agent.conventions import ConventionDetector
+        from agent.error_memory import ErrorMemory
+        det = ConventionDetector(PROJECT_ROOT)
+        report = det.detect()
+        info["conventions"] = [
+            {"name": c.name, "value": c.value, "evidence": c.evidence, "confidence": c.confidence}
+            for c in report.conventions
+        ]
+        info["workdir"] = report.workdir
+        em = ErrorMemory(workdir=PROJECT_ROOT)
+        info["recurrent_errors"] = [
+            {"signature": sig, "count": n} for sig, n in em.recurrent(min_count=2)
+        ]
+    except Exception as exc:
+        logger.debug("project_info load failed: %s", exc)
+    return info
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
@@ -163,7 +215,8 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
 
     memory = ConversationMemory()
-    current_model = MODEL_NAME
+    # Modèle actif = celui résolu par config selon BACKEND (ollama / mlx).
+    current_model = LLM_MODEL
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue()
 
@@ -173,6 +226,23 @@ async def websocket_endpoint(ws: WebSocket):
         "session_id": memory.session_id,
         "model": current_model,
     })
+
+    # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
+    try:
+        info = _load_project_info()
+        if info["conventions"]:
+            await ws.send_json({
+                "type": "conventions_loaded",
+                "workdir": info.get("workdir"),
+                "conventions": info["conventions"],
+            })
+        if info["recurrent_errors"]:
+            await ws.send_json({
+                "type": "recurrent_errors",
+                "errors": info["recurrent_errors"],
+            })
+    except Exception as exc:
+        logger.debug("Failed to push project info: %s", exc)
 
     async def send_status():
         non_sys = sum(1 for m in memory.messages if m["role"] != "system")
@@ -228,12 +298,20 @@ async def websocket_endpoint(ws: WebSocket):
                 thread = threading.Thread(target=run_agent, daemon=True)
                 thread.start()
 
-                # Relayer les événements au client
-                while True:
-                    event = await queue.get()
-                    await ws.send_json(event)
-                    if event["type"] in ("done", "error"):
-                        break
+                # Relayer les événements au client.
+                # Si la WS se déconnecte en cours de route, on stoppe immédiatement
+                # l'orchestrator pour libérer MLX/CPU (sinon il continue en fantôme).
+                try:
+                    while True:
+                        event = await queue.get()
+                        await ws.send_json(event)
+                        if event["type"] in ("done", "error"):
+                            break
+                except WebSocketDisconnect:
+                    logger.info("WS déconnectée pendant génération → stop_flag set")
+                    _stop_flag[0] = True
+                    # Re-raise pour sortir proprement de la boucle while True externe
+                    raise
 
                 await send_status()
 
@@ -267,8 +345,11 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("WebSocket déconnecté")
+        # Filet de sécurité : si une génération était en cours, stoppe-la.
+        _stop_flag[0] = True
     except Exception as e:
         logger.error("WebSocket erreur: %s", e)
+        _stop_flag[0] = True
 
 
 def _extract_memory_bg(messages: list[dict], lt_memory) -> None:
@@ -304,42 +385,72 @@ def _build_streaming_orchestrator(
     def _put(event: dict) -> None:
         asyncio.run_coroutine_threadsafe(queue.put(event), loop)
 
-    def stream_api(messages: list[dict], tools=None) -> tuple[str, Any]:
-        """Streaming direct sans Rich — pour l'API server (pas de TTY)."""
-        _put({"type": "thinking"})
+    def stream_api(
+        messages: list[dict],
+        tools=None,
+        token_callback=None,
+        temperature: float = 0.1,
+        silent: bool = False,
+        tool_choice: str = "auto",
+        max_tokens: int = 8192,
+    ) -> tuple[str, Any]:
+        """Streaming direct sans Rich — pour l'API server (pas de TTY).
+
+        Signature alignée avec LLMClient.stream_chat.
+        max_tokens=8192 par défaut : permet de générer des gros fichiers
+        (Three.js avec scène complète peut faire 3-5KB, donc ~1500-2000 tokens
+        rien que pour le content de write_file). Avant : MLX coupait à ~500 tokens.
+        """
+        import time as _t
+        t0 = _t.perf_counter()
+        if not silent:
+            _put({"type": "thinking"})
 
         params: dict = {
             "model": orch.llm.model,
             "messages": messages,
             "stream": True,
-            "temperature": 0.1,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         }
         if tools:
             params["tools"] = tools
-            params["tool_choice"] = "auto"
+            params["tool_choice"] = tool_choice
 
         full_content = ""
         raw_tool_calls: dict = {}
 
+        # Vérification précoce : si l'utilisateur a déjà demandé l'arrêt (WS disconnect,
+        # bouton stop, etc.), on évite même de lancer le LLM call (coûteux côté MLX).
+        if stop_flag and stop_flag[0]:
+            raise StopGeneration()
+
         try:
             stream = orch.llm.client.chat.completions.create(**params)
             for chunk in stream:
+                # Check stop_flag sur CHAQUE chunk, même en mode silent (BoN/router).
+                # Le mode silent ne pousse rien à l'UI mais doit pouvoir s'arrêter.
                 if stop_flag and stop_flag[0]:
-                    _put({"type": "stream_end"})
+                    if not silent:
+                        _put({"type": "stream_end"})
                     raise StopGeneration()
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
                 if delta.content:
                     full_content += delta.content
-                    _put({"type": "token", "content": delta.content})
+                    if not silent:
+                        _put({"type": "token", "content": delta.content})
+                    if token_callback:
+                        token_callback(delta.content)
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         orch.llm._accumulate_tool_call(raw_tool_calls, tc)
         except StopGeneration:
             raise
         except Exception as e:
-            _put({"type": "error", "content": str(e)})
+            if not silent:
+                _put({"type": "error", "content": str(e)})
             raise
 
         tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
@@ -350,16 +461,21 @@ def _build_streaming_orchestrator(
             text_part, parsed = orch.llm.extract_mixed_tool_call(full_content, valid_names)
             if parsed:
                 tool_calls = parsed
-                if text_part:
-                    # Garder la partie texte visible, supprimer le JSON
-                    _put({"type": "stream_trim", "content": text_part})
-                else:
-                    _put({"type": "discard_stream"})
+                if not silent:
+                    if text_part:
+                        _put({"type": "stream_trim", "content": text_part})
+                    else:
+                        _put({"type": "discard_stream"})
                 full_content = text_part
                 return full_content, tool_calls
 
-        if full_content:
+        if full_content and not silent:
             _put({"type": "stream_end"})
+            # Stats par message (Roadmap v2 — UI affiche latence + tokens)
+            elapsed = round(_t.perf_counter() - t0, 2)
+            tokens_est = max(1, len(full_content) // 4)
+            _put({"type": "message_stats", "latency_s": elapsed,
+                  "tokens": tokens_est, "model": orch.llm.model})
 
         # Mise à jour compteur tokens
         orch.llm.total_tokens += len(full_content) // 4
@@ -381,6 +497,86 @@ def _build_streaming_orchestrator(
         return truncated
 
     orch._execute_tool = execute_with_events
+
+    # ── v2 events : router / sandbox / best_of_n ─────────────────────────
+
+    # Router : remplace _display_routing pour émettre l'event vers UI
+    def display_routing_api(decision, max_iter: int) -> None:
+        try:
+            _put({"type": "router_decision", "decision": {
+                "difficulty": decision.difficulty,
+                "task_type": decision.task_type,
+                "max_iterations": max_iter,
+                "use_planner": decision.use_planner,
+                "use_best_of_n": decision.use_best_of_n,
+                "reasoning": decision.reasoning,
+            }})
+        except Exception:
+            pass
+    orch._display_routing = display_routing_api
+
+    # Sandbox auto-check : wrap _auto_sandbox_check pour émettre + appeler l'original
+    original_auto_sandbox = orch._auto_sandbox_check
+
+    def auto_sandbox_with_event(rel_path: str) -> str:
+        # Réimplémentation rapide pour intercepter le SandboxResult avant format
+        if not rel_path or not getattr(orch, "_sandbox_auto_exec", True):
+            return ""
+        from tools.sandbox import auto_command_for
+        full_path = (orch.file_manager.root / rel_path).resolve()
+        try:
+            full_path.relative_to(orch.file_manager.root.resolve())
+        except ValueError:
+            return ""
+        cmd = auto_command_for(full_path)
+        if cmd is None:
+            return ""
+        rel_cmd = [c if c != full_path.name else rel_path for c in cmd]
+        sb_result = orch.sandbox.run(rel_cmd, timeout=getattr(orch, "_sandbox_timeout", 20))
+        if not sb_result.success and sb_result.stderr:
+            try:
+                orch.error_memory.record(sb_result.stderr, command=" ".join(rel_cmd))
+            except Exception:
+                pass
+        _put({"type": "sandbox_check", "check": {
+            "command": sb_result.command,
+            "success": sb_result.success,
+            "exit_code": sb_result.exit_code,
+            "stdout": sb_result.stdout,
+            "stderr": sb_result.stderr,
+            "duration_s": sb_result.duration_s,
+            "timed_out": sb_result.timed_out,
+        }})
+        return f"[sandbox auto-check]\n{sb_result.format_for_llm()}"
+
+    orch._auto_sandbox_check = auto_sandbox_with_event
+
+    # Best-of-N : wrap _run_best_of_n pour émettre l'event puis renvoyer le winner
+    original_run_bon = orch._run_best_of_n if hasattr(orch, "_run_best_of_n") else None
+    if original_run_bon:
+        def run_bon_with_event(messages: list[dict]):
+            winner, all_cands, reasoning = orch.best_of_n.best(
+                messages, tools=orch.tools, user_prompt=orch._current_user_prompt,
+            )
+            _put({"type": "best_of_n", "result": {
+                "winner_idx": winner.idx,
+                "reasoning": reasoning,
+                "candidates": [
+                    {
+                        "idx": c.idx,
+                        "temperature": c.temperature,
+                        "content": c.content,
+                        "tool_calls": [{"name": tc["function"]["name"]} for tc in (c.tool_calls or [])],
+                        "latency_s": c.latency_s,
+                    }
+                    for c in all_cands
+                ],
+            }})
+            # Émettre aussi le content du winner comme stream_end pour qu'il s'affiche
+            if winner.content:
+                _put({"type": "assistant", "content": winner.content})
+            return winner.content, winner.tool_calls
+        orch._run_best_of_n = run_bon_with_event
 
     return orch
 
