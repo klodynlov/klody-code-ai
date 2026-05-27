@@ -1,0 +1,22 @@
+{
+  "name": "explain_simple",
+  "description": "Question d'explication pure, pas de tool call attendu (réponse texte directe).",
+  "user_prompt": "Explique-moi en une phrase ce qu'est un context manager Python.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "question conceptuelle sans modif"
+  },
+  "llm_responses": [
+    {
+      "content": "Un context manager Python est un objet implémentant `__enter__` et `__exit__` pour gérer automatiquement l'acquisition et la libération de ressources via le mot-clé `with`.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 1,
+    "max_llm_calls": 2,
+    "no_tool_calls": true,
+    "final_content_contains": ["context manager", "__enter__"]
+  }
+}

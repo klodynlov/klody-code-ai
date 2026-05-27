@@ -1,0 +1,44 @@
+{
+  "name": "anti_stall_recovery",
+  "description": "Le LLM répond vide à l'iter 1 (stall) → anti-stall nudge → action à l'iter 2.",
+  "user_prompt": "Crée un fichier README.md avec un titre.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "feature",
+    "reasoning": "création fichier markdown"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"README.md\", \"content\": \"# Mon projet\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "README.md créé avec un titre H1.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["write_file"],
+    "final_content_contains": ["créé"],
+    "file_created": {
+      "path": "README.md",
+      "content_contains": "# Mon projet"
+    },
+    "anti_stall_fired": true
+  }
+}

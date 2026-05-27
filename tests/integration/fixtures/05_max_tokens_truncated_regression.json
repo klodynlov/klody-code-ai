@@ -1,0 +1,54 @@
+{
+  "name": "max_tokens_truncated_regression",
+  "description": "RÉGRESSION 27/05 — write_file avec arguments JSON tronqués au milieu. L'orchestrator doit ABSORBER la troncature sans crasher (tool_args devient {} ou partiel), l'erreur tool est rendue, et le LLM peut retry. Test crucial : le bug initial faisait crasher la session.",
+  "user_prompt": "Crée une voiture 3D dans car.html avec Three.js.",
+  "router_decision": {
+    "difficulty": "hard",
+    "task_type": "feature",
+    "reasoning": "génération HTML/JS complexe avec deps externes"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"car.html\", \"content\": \"<!DOCTYPE html><html><head><script src='https://unpkg.com/three@0.150/build/three.min.js'></script></head><body><script>const scene = new THREE.Scene(); const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000); function createCar()"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Désolé, ma réponse a été tronquée. Je recommence avec un contenu plus court.",
+      "tool_calls": [
+        {
+          "id": "call_002",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"car.html\", \"content\": \"<!DOCTYPE html><html><body><h1>Voiture (placeholder)</h1></body></html>\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Voiture créée en version simplifiée — l'écriture initiale avait été tronquée.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["write_file", "write_file"],
+    "final_content_contains": ["simplifiée"],
+    "file_created": {
+      "path": "car.html",
+      "content_contains": "<!DOCTYPE html>"
+    },
+    "no_crash": true,
+    "first_tool_call_args_broken_json": true
+  }
+}

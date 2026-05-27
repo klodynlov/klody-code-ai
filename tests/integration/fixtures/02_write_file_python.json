@@ -1,0 +1,39 @@
+{
+  "name": "write_file_python",
+  "description": "Crée un fichier hello.py via write_file, puis confirme.",
+  "user_prompt": "Crée un fichier hello.py qui print('hello world').",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "feature",
+    "reasoning": "création fichier 1 ligne"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"hello.py\", \"content\": \"print('hello world')\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Fichier hello.py créé avec succès.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 2,
+    "max_llm_calls": 3,
+    "tool_calls_invoked": ["write_file"],
+    "final_content_contains": ["créé"],
+    "file_created": {
+      "path": "hello.py",
+      "content_contains": "print('hello world')"
+    }
+  }
+}

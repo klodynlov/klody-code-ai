@@ -1,0 +1,56 @@
+{
+  "name": "multi_iteration_refactor",
+  "description": "Lit un fichier puis le réécrit (refactor 2 itérations + conclusion).",
+  "user_prompt": "Renomme la variable 'usr' en 'user' dans seed.py.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "refactor",
+    "reasoning": "rename localisé 1 fichier"
+  },
+  "seed_files": {
+    "seed.py": "usr = 'alice'\nprint(usr)\n"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_001",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"seed.py\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_002",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"seed.py\", \"content\": \"user = 'alice'\\nprint(user)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Variable renommée de 'usr' vers 'user' dans seed.py.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["read_file", "write_file"],
+    "final_content_contains": ["renommée"],
+    "file_created": {
+      "path": "seed.py",
+      "content_contains": "user = 'alice'",
+      "content_excludes": "usr ="
+    }
+  }
+}
