@@ -46,6 +46,16 @@ SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", 20))
 # Classifie le prompt avant la boucle ReAct → adapte max_iterations + stratégie.
 ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
+# --- Best-of-N (Roadmap v2 #7) ---
+# Génère N candidats + reranker LLM-as-judge sur la 1ère itération des tâches hard.
+# Cost : (N+1) appels LLM au lieu de 1, déclenché UNIQUEMENT si router.use_best_of_n=True.
+BEST_OF_N_ENABLED: bool = os.getenv("BEST_OF_N_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+BEST_OF_N_COUNT: int = int(os.getenv("BEST_OF_N_COUNT", 3))
+# Override : force Best-of-N quelle que soit la décision du router. Utile pour
+# l'évaluation A/B (mesurer le gain réel sur des tâches que le router n'aurait
+# pas classifiées hard).
+BEST_OF_N_FORCE: bool = os.getenv("BEST_OF_N_FORCE", "false").lower() in ("1", "true", "yes", "on")
+
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain

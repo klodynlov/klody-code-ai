@@ -3,10 +3,17 @@ import logging
 from pathlib import Path
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+
+
+def _has_markdown_safe(text: str) -> bool:
+    """Détection minimale de markdown (évite l'import circulaire avec llm._has_markdown)."""
+    markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
+    return any(m in text for m in markers)
 
 from agent.llm import LLMClient, SYSTEM_PROMPT
 from agent.memory import ConversationMemory
@@ -39,7 +46,10 @@ from tools.preview import (
 from tools.terminal import CommandBlocked, Terminal
 from agent.profiler import get_profiler
 from agent.memory_extractor import extract_mid_session
-from config import MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT, ROUTER_ENABLED
+from config import (
+    MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT,
+    ROUTER_ENABLED, BEST_OF_N_ENABLED, BEST_OF_N_COUNT, BEST_OF_N_FORCE,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -129,6 +139,12 @@ class Orchestrator:
         # Retrieval code-aware (Roadmap v2 #6) — tree-sitter + embeddings.
         self._code_index = None      # symboles + références (tree-sitter)
         self._embed_index = None     # recherche sémantique (bge-m3)
+        # Best-of-N (Roadmap v2 #7) — N candidats + reranker LLM-as-judge.
+        self._best_of_n = None
+        self._best_of_n_enabled = BEST_OF_N_ENABLED
+        self._best_of_n_count = BEST_OF_N_COUNT
+        self._best_of_n_force = BEST_OF_N_FORCE
+        self._current_user_prompt = ""
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -164,6 +180,14 @@ class Orchestrator:
             from tools.code_search import EmbeddingIndex
             self._embed_index = EmbeddingIndex(self.file_manager.root)
         return self._embed_index
+
+    @property
+    def best_of_n(self):
+        """BestOfN engine (lazy)."""
+        if self._best_of_n is None:
+            from agent.best_of_n import BestOfN
+            self._best_of_n = BestOfN(self.llm, n=self._best_of_n_count)
+        return self._best_of_n
 
     def _inject_system_prompt(self, task_type: str | None = None) -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
@@ -243,6 +267,55 @@ class Orchestrator:
         report = result.format_for_llm()
         self._display_sandbox_result(report, result.success)
         return f"[sandbox auto-check]\n{report}"
+
+    def _run_best_of_n(self, messages: list[dict]) -> tuple[str, list[dict] | None]:
+        """Génère N candidats, sélectionne le meilleur, affiche le résultat retenu.
+
+        Retourne (content, tool_calls) du candidat gagnant — drop-in remplacement
+        pour stream_chat() côté boucle ReAct.
+        """
+        n = self._best_of_n_count
+        console.print(Panel(
+            f"[bold magenta]🎲 Best-of-{n}[/bold magenta] — génération de {n} candidats…",
+            border_style="magenta",
+            padding=(0, 1),
+        ))
+        winner, all_cands, reasoning = self.best_of_n.best(
+            messages,
+            tools=self.tools,
+            user_prompt=self._current_user_prompt,
+        )
+
+        # Récap des candidats + choix
+        recap_lines = []
+        for c in all_cands:
+            marker = "[bold green]→[/bold green]" if c.idx == winner.idx else "  "
+            tools_str = ""
+            if c.tool_calls:
+                tools_str = " · tools: " + ", ".join(
+                    tc["function"]["name"] for tc in c.tool_calls
+                )
+            text_preview = c.content.strip()[:50].replace("\n", " ") or "(no text)"
+            recap_lines.append(
+                f"{marker} [{c.idx + 1}] T={c.temperature:.1f} ({c.latency_s}s){tools_str}  «{text_preview}»"
+            )
+        recap_lines.append("")
+        recap_lines.append(f"[dim]Reranker: {reasoning}[/dim]")
+        console.print(Panel(
+            "\n".join(recap_lines),
+            title=f"[magenta]🏆 Candidat retenu : [{winner.idx + 1}][/magenta]",
+            border_style="magenta",
+            padding=(0, 1),
+        ))
+
+        # Re-display du candidat retenu comme s'il venait de stream_chat
+        if winner.content:
+            if _has_markdown_safe(winner.content):
+                console.print(Markdown(winner.content))
+            else:
+                console.print(winner.content, markup=False, highlight=False)
+
+        return winner.content, winner.tool_calls
 
     def _display_routing(self, decision, max_iter: int) -> None:
         """Affiche la décision du router en panneau discret."""
@@ -633,6 +706,9 @@ class Orchestrator:
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
+        # Mémoriser le prompt utilisateur courant (utilisé par Best-of-N)
+        self._current_user_prompt = user_input
+
         for iteration in range(max_iter):
             if iteration > 0:
                 console.print(
@@ -640,7 +716,18 @@ class Orchestrator:
                 )
 
             messages = self.memory.get_messages_for_api()
-            content, tool_calls = self.llm.stream_chat(messages, tools=self.tools)
+
+            # Best-of-N (Roadmap v2 #7) : activé uniquement à la 1ère itération
+            # des tâches hard, où la stratégie initiale est critique.
+            # Override BEST_OF_N_FORCE pour l'éval A/B.
+            use_bon = iteration == 0 and self._best_of_n_enabled and (
+                self._best_of_n_force
+                or (self.last_routing is not None and self.last_routing.use_best_of_n)
+            )
+            if use_bon:
+                content, tool_calls = self._run_best_of_n(messages)
+            else:
+                content, tool_calls = self.llm.stream_chat(messages, tools=self.tools)
 
             if tool_calls:
                 self.memory.add_tool_call_message([

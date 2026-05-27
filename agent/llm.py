@@ -121,18 +121,25 @@ class LLMClient:
         messages: list[dict],
         tools: Optional[list[dict]] = None,
         token_callback: Optional[Callable[[str], None]] = None,
+        temperature: float = 0.1,
+        silent: bool = False,
     ) -> tuple[str, Optional[list[dict]]]:
         """
         Envoie les messages et streame la réponse avec :
         - Spinner "Klody réfléchit..." avant le premier token
         - Rendu Markdown progressif pendant le streaming
         - Fallback : parse les tool calls émis en JSON texte
+
+        Args:
+            temperature : 0.0-1.0. Plus haut = plus de diversité (utile pour Best-of-N).
+            silent : si True, supprime tout affichage console (utile pour Best-of-N
+                     où on ne veut afficher que le candidat retenu).
         """
         params: dict = {
             "model": self.model,
             "messages": messages,
             "stream": True,
-            "temperature": 0.1,
+            "temperature": temperature,
         }
         if tools:
             params["tools"] = tools
@@ -145,10 +152,41 @@ class LLMClient:
         try:
             stream = self.client.chat.completions.create(**params)
 
-            # Phase 1 : spinner pendant que le modèle charge
-            spinner = Spinner("dots2", text=Text(" Klody réfléchit…", style="dim cyan"))
+            if silent:
+                # Mode silencieux : on consomme le stream sans affichage console
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        full_content += delta.content
+                        if token_callback:
+                            token_callback(delta.content)
+                    if delta.tool_calls:
+                        for tc_chunk in delta.tool_calls:
+                            self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+            else:
+                # Phase 1 : spinner pendant que le modèle charge
+                spinner = Spinner("dots2", text=Text(" Klody réfléchit…", style="dim cyan"))
 
-            with Live(spinner, console=console, refresh_per_second=12, transient=True):
+                with Live(spinner, console=console, refresh_per_second=12, transient=True):
+                    for chunk in stream:
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+
+                        if delta.content:
+                            full_content += delta.content
+                            if token_callback:
+                                token_callback(delta.content)
+                            break
+
+                        if delta.tool_calls:
+                            for tc_chunk in delta.tool_calls:
+                                self._accumulate_tool_call(raw_tool_calls, tc_chunk)
+                            break
+
+                # Phase 2 : accumulation des tokens (spinner déjà fermé)
                 for chunk in stream:
                     if not chunk.choices:
                         continue
@@ -158,32 +196,15 @@ class LLMClient:
                         full_content += delta.content
                         if token_callback:
                             token_callback(delta.content)
-                        break
 
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
-                        break
-
-            # Phase 2 : accumulation des tokens (spinner déjà fermé)
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-
-                if delta.content:
-                    full_content += delta.content
-                    if token_callback:
-                        token_callback(delta.content)
-
-                if delta.tool_calls:
-                    for tc_chunk in delta.tool_calls:
-                        self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
             elapsed = time.monotonic() - t0
 
-            # Rendu final : Markdown si détecté, sinon texte brut
-            if full_content:
+            # Rendu final : Markdown si détecté, sinon texte brut (uniquement si non-silent)
+            if full_content and not silent:
                 if _has_markdown(full_content):
                     console.print(Markdown(full_content))
                 else:
