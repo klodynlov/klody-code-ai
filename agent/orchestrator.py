@@ -76,6 +76,132 @@ def _lexer_for(path: str) -> str:
     return _EXT_LEXER.get(ext, "text")
 
 
+def _extract_code_blocks(content: str) -> dict[str, list[str]]:
+    """Extrait les blocs markdown ```lang ... ``` du content.
+
+    Retourne {lang: [code1, code2, ...]} pour les langs reconnus.
+    """
+    import re as _re
+    blocks: dict[str, list[str]] = {}
+    # ```lang\n...\n``` (lang optionnel, défaut text)
+    for m in _re.finditer(r"```(\w+)?\n(.*?)\n```", content, _re.DOTALL):
+        lang = (m.group(1) or "text").lower()
+        code = m.group(2).strip()
+        if not code:
+            continue
+        # Normalise quelques alias
+        lang = {"htm": "html", "javascript": "js", "py": "python"}.get(lang, lang)
+        blocks.setdefault(lang, []).append(code)
+    return blocks
+
+
+def _infer_action_from_text(content: str, user_input: str) -> dict | None:
+    """Si le LLM a répondu en texte avec du code dans des blocs markdown,
+    devine quel tool_call appeler avec les paramètres extraits.
+
+    Retourne un dict {"name": str, "args": dict} prêt à être exécuté,
+    ou None si rien d'exploitable.
+    """
+    blocks = _extract_code_blocks(content)
+    if not blocks:
+        return None
+
+    # 1) Web (HTML/JS/CSS) → preview_code
+    has_html = "html" in blocks
+    has_js = "js" in blocks
+    has_css = "css" in blocks
+    if has_html or has_js:
+        html = blocks.get("html", [""])[0]
+        js = blocks.get("js", [""])[0]
+        css = blocks.get("css", [""])[0]
+        # Si HTML complet (avec <!DOCTYPE/<html), garde tel quel
+        # Détecte les CDN nécessaires (Three.js, Chart.js, p5…)
+        scripts: list[str] = []
+        combined = html + " " + js
+        if "THREE" in combined or "three.js" in combined.lower():
+            scripts.append("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js")
+        if "Chart(" in combined or "chart.js" in combined.lower():
+            scripts.append("https://cdn.jsdelivr.net/npm/chart.js")
+        if "d3." in combined or "d3.v7" in combined:
+            scripts.append("https://d3js.org/d3.v7.min.js")
+        return {
+            "name": "preview_code",
+            "args": {
+                "html": html or "<canvas id='c' width='800' height='600'></canvas>",
+                "css": css, "js": js,
+                "title": (user_input or "Klody Preview")[:40],
+                **({"scripts": scripts} if scripts else {}),
+            },
+        }
+
+    # 2) Python → write_file en script.py
+    if "python" in blocks:
+        code = blocks["python"][0]
+        return {
+            "name": "write_file",
+            "args": {"path": "script.py", "content": code},
+        }
+
+    # 3) Bash/shell → execute_command
+    if "bash" in blocks or "shell" in blocks or "sh" in blocks:
+        cmd = blocks.get("bash", blocks.get("shell", blocks.get("sh", [""])))[0]
+        return {
+            "name": "execute_command",
+            "args": {"command": cmd, "reason": "extrait depuis bloc markdown"},
+        }
+
+    return None
+
+
+def _looks_like_unfinished_plan(content: str | None) -> bool:
+    """Détecte un message qui annonce un plan ou des intentions sans agir.
+
+    Patterns courants observés sur Qwen3-Coder en mode hard/feature avec T basse :
+    - "Voici mon plan : 1. … 2. … Commençons par X :"
+    - "Je vais créer Y. Tout d'abord :"
+    - "Je vais X. Je vais Y. Je vais d'abord Z." (≥2 intentions sans action)
+    - Finir par ":" / "…" / "..." après une énumération
+    """
+    if not content:
+        return False
+    stripped = content.strip()
+    if len(stripped) < 30:
+        return False
+    lower = stripped.lower()
+
+    # 1) Finit par marqueur d'incomplétude
+    ends_open = stripped[-1:] in (":", "…") or stripped.endswith("...")
+
+    # 2) Phrases d'intention future (le LLM annonce ce qu'il VA faire)
+    intent_patterns = (
+        "je vais", "i will", "i'll ", "let's", "commençons par",
+        "tout d'abord", "first,", "step 1", "étape 1",
+        "je commence", "je vais d'abord", "je vais ensuite",
+        "je vais maintenant", "voici mon plan", "let me start",
+    )
+    intent_count = sum(lower.count(p) for p in intent_patterns)
+
+    # 3) Énumération markdown ou liste indentée
+    has_enumeration = (
+        "\n1." in content or "\n1)" in content or
+        content.lstrip().startswith("1.") or
+        content.count("\n    ") >= 2 or       # liste indentée 4 espaces
+        content.count("\n- ") >= 2            # liste à tirets
+    )
+
+    # Triggers (en OR — il suffit qu'un seul soit vrai pour déclencher) :
+    # - Finit ouvert avec ≥1 intention OU énumération
+    # - OU ≥2 intentions futures distinctes (pattern "Je vais X. Je vais Y.")
+    # - OU énumération + ≥1 intention
+    if ends_open and (intent_count >= 1 or has_enumeration):
+        return True
+    if intent_count >= 2:
+        return True
+    if has_enumeration and intent_count >= 1:
+        return True
+    return False
+
+
 def _format_file_tree(listing: str, root: str) -> Tree:
     """Convertit la sortie texte de list_files en Rich Tree."""
     tree = Tree(f"[bold blue]📁 {root}[/bold blue]")
@@ -148,6 +274,12 @@ class Orchestrator:
         # Memory utile (Roadmap v2 #8) — détection conventions projet + erreurs récurrentes.
         self._conventions = None
         self._error_memory = None
+        # Anti-stall : 1 nudge max par run() pour débloquer un plan annoncé sans action.
+        self._anti_stall_fired = False
+        self._anti_stall_iter = -1
+        # Text-to-action : 1 fallback max par run() pour extraire un tool_call
+        # depuis un content texte+markdown si le LLM refuse d'appeler tool natifs.
+        self._t2a_fired = False
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -272,8 +404,31 @@ class Orchestrator:
             extra = self._auto_sandbox_check(tool_args.get("path", ""))
             if extra:
                 result = f"{result}\n\n{extra}"
+            # Auto-preview : si c'est un .html, ouvre dans le navigateur via preview_file
+            preview_extra = self._auto_preview_check(tool_args.get("path", ""))
+            if preview_extra:
+                result = f"{result}\n\n{preview_extra}"
 
         return result
+
+    def _auto_preview_check(self, rel_path: str) -> str:
+        """Si rel_path est un .html écrit dans le projet, lance preview_file
+        automatiquement pour que l'utilisateur voie le résultat dans le navigateur.
+
+        Émis comme un tool_call visible dans le chat (l'orchestrator passe par
+        execute_with_events qui dispatche l'event UI).
+        """
+        if not rel_path or not rel_path.lower().endswith((".html", ".htm")):
+            return ""
+        try:
+            # Réutilise le pipeline d'exécution standard pour que l'event UI
+            # `tool_call` + `tool_result` soit émis comme un tool normal.
+            res = self._execute_tool("preview_file", {"path": rel_path})
+            self._display_tool_result("preview_file", {"path": rel_path}, res)
+            return f"[auto-preview] preview_file lancé sur {rel_path}\n{res[:200]}"
+        except Exception as exc:
+            logger.debug("Auto-preview failed: %s", exc)
+            return ""
 
     def _auto_sandbox_check(self, rel_path: str) -> str:
         """Si rel_path est un .py exécutable, lance la commande la plus
@@ -732,11 +887,25 @@ class Orchestrator:
         # Router adaptatif (Roadmap v2 #4) — classifie le prompt avant la boucle.
         # Le max_iterations est adapté selon la difficulté détectée.
         # Le system prompt est hot-swappé selon task_type (Roadmap v2 #5).
+        # Sticky : si le prompt est une suite courte ("on y va", "ok", "continue"…)
+        # ET qu'on a déjà une décision plus complexe, on la réutilise pour ne pas
+        # rétrograder la stratégie au milieu d'une tâche.
         max_iter = MAX_ITERATIONS
         if self._router_enabled:
             try:
-                decision = self.router.classify(user_input)
-                self.last_routing = decision
+                trimmed = user_input.strip()
+                is_short_followup = (
+                    len(trimmed) < 40
+                    and self.last_routing is not None
+                    and self.last_routing.difficulty in ("medium", "hard")
+                )
+                if is_short_followup:
+                    decision = self.last_routing
+                    logger.info("Router sticky : réutilise %s/%s pour follow-up court",
+                                decision.difficulty, decision.task_type)
+                else:
+                    decision = self.router.classify(user_input)
+                    self.last_routing = decision
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
                 # Hot-swap du system prompt selon le task_type détecté
@@ -762,10 +931,23 @@ class Orchestrator:
                 self._best_of_n_force
                 or (self.last_routing is not None and self.last_routing.use_best_of_n)
             )
+            # Anti-stall escalation : si on vient d'injecter un nudge à l'itération
+            # précédente et que le LLM a encore produit du texte sans action, on
+            # FORCE tool_choice="required" pour le prochain tour — pas le choix.
+            force_action = (
+                getattr(self, "_anti_stall_fired", False)
+                and getattr(self, "_anti_stall_iter", -1) == iteration - 1
+            )
+            tool_choice = "required" if force_action else "auto"
+            if force_action:
+                logger.info("[anti-stall] iter %d : tool_choice=required (escalation)", iteration)
+
             if use_bon:
                 content, tool_calls = self._run_best_of_n(messages)
             else:
-                content, tool_calls = self.llm.stream_chat(messages, tools=self.tools)
+                content, tool_calls = self.llm.stream_chat(
+                    messages, tools=self.tools, tool_choice=tool_choice,
+                )
 
             if tool_calls:
                 self.memory.add_tool_call_message([
@@ -810,6 +992,81 @@ class Orchestrator:
             else:
                 if content:
                     self.memory.add_message("assistant", content)
+                # Anti-stall : déclenche dans 2 cas, tous deux des stalls réels
+                # sur les tâches actionnables (feature/refactor/self_dev) :
+                #   A. content textuel "Je vais X... Voici mon plan : ..." sans tool
+                #   B. content vide ET pas de tool_call (BoN avec 3 candidats vides,
+                #      LLM bloqué par prompt trop strict, etc.) — pire que A
+                content_stripped = (content or "").strip()
+                is_empty_response = not content_stripped
+                actionable_mode = (
+                    self.last_routing is not None
+                    and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
+                )
+                stalled = (
+                    actionable_mode
+                    and not getattr(self, "_anti_stall_fired", False)
+                    and iteration < max_iter - 1
+                    and (
+                        _looks_like_unfinished_plan(content)
+                        or is_empty_response
+                    )
+                )
+                if stalled:
+                    self._anti_stall_fired = True
+                    self._anti_stall_iter = iteration
+                    cause = "réponse vide" if is_empty_response else "plan annoncé sans action"
+                    logger.info("[anti-stall] %s → nudge injecté (iter=%d)", cause, iteration)
+                    if is_empty_response:
+                        nudge = (
+                            f"Ta dernière réponse était vide. Pour cette tâche, lance "
+                            f"directement un tool concret — par exemple :\n"
+                            f"  • `preview_code(html=..., js=...)` pour une démo web/canvas/3D\n"
+                            f"  • `write_file(path, content)` pour créer un fichier\n"
+                            f"  • `find_relevant_files(query)` pour explorer le projet\n"
+                            f"Réponds maintenant avec un tool_call qui adresse la demande "
+                            f"initiale de l'utilisateur."
+                        )
+                    else:
+                        nudge = (
+                            "Tu as annoncé un plan ou commencé à expliquer ton approche. "
+                            "Maintenant EXÉCUTE l'étape 1 immédiatement en appelant le "
+                            "tool nécessaire (write_file, preview_code, run_in_sandbox, "
+                            "find_relevant_files…). Ne réponds plus en texte pur, lance un tool."
+                        )
+                    self.memory.messages.append({
+                        "role": "user", "content": nudge, "timestamp": None,
+                    })
+                    console.print("[dim yellow]  ⤵  anti-stall : nudge → exécute maintenant[/dim yellow]")
+                    continue
+
+                # Text-to-action fallback : le LLM n'a pas appelé de tool mais a
+                # peut-être écrit du code dans des blocs markdown. On extrait et
+                # on appelle le tool nous-mêmes. C'est notre filet ultime pour
+                # contourner l'incapacité MLX-LM à enforcer tool_choice=required.
+                if (
+                    content
+                    and self.last_routing is not None
+                    and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
+                    and not getattr(self, "_t2a_fired", False)
+                ):
+                    inferred = _infer_action_from_text(content, self._current_user_prompt)
+                    if inferred:
+                        self._t2a_fired = True
+                        logger.info("[text-to-action] LLM stallé → extraction code → %s", inferred["name"])
+                        console.print(Panel(
+                            f"[bold]Klody a répondu en texte au lieu d'appeler un outil.[/bold]\n"
+                            f"J'extrais le code de sa réponse et j'invoque [cyan]{inferred['name']}[/cyan] moi-même.",
+                            title="[yellow]🔧 Text-to-action fallback[/yellow]",
+                            border_style="yellow", padding=(0, 1),
+                        ))
+                        try:
+                            result = self._execute_and_display(inferred["name"], inferred["args"])
+                            self.memory.add_message("assistant",
+                                f"[Système] Tool fallback exécuté : {inferred['name']}\n{result[:300]}")
+                        except Exception as exc:
+                            logger.warning("Text-to-action exec failed: %s", exc)
+                        # On break après — l'utilisateur a son résultat (preview ouverte, fichier écrit, etc.)
                 break
 
         else:
@@ -817,6 +1074,10 @@ class Orchestrator:
                 f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}).[/yellow]"
             )
             logger.warning("Limite d'itérations: %d", max_iter)
+        # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)
+        self._anti_stall_fired = False
+        self._anti_stall_iter = -1
+        self._t2a_fired = False
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""

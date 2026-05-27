@@ -91,8 +91,11 @@ def _format_candidates_for_rerank(user_prompt: str, cands: list[Candidate]) -> s
 class BestOfN:
     """Génère N candidats puis sélectionne le meilleur via LLM-as-judge."""
 
-    # Températures par défaut pour N=3 : couvre exploitation / exploration
-    _TEMPERATURES = [0.3, 0.6, 0.9]
+    # Températures par défaut pour N=3 — on évite T=0.3 trop déterministe qui
+    # pousse Qwen3-Coder à produire systématiquement des plans textuels sans
+    # tool_call. T=0.5/0.8/1.0 maximise les chances qu'au moins UN candidat
+    # émette un tool_call, ce qui déclenche l'override actionnable dans rerank().
+    _TEMPERATURES = [0.5, 0.8, 1.0]
 
     def __init__(self, llm_client, n: int = 3, temperatures: Optional[list[float]] = None):
         self.llm = llm_client
@@ -131,6 +134,14 @@ class BestOfN:
     def rerank(self, candidates: list[Candidate], user_prompt: str) -> tuple[int, str]:
         """Retourne (index_gagnant, reasoning).
 
+        Stratégie en 2 temps :
+        1. **Override objectif** : si au moins UN candidat a des tool_calls,
+           on le préfère systématiquement (le plus rapide d'entre eux).
+           Évite le piège "plan textuel sans action" qu'un LLM-judge favorise
+           parfois en hard/feature avec température basse.
+        2. **Fallback LLM-as-judge** : si aucun candidat n'a de tool_calls
+           (réponse pure texte attendue), on utilise le judge classique.
+
         En cas de réponse invalide du reranker, fallback sur le candidat 0.
         """
         if not candidates:
@@ -138,6 +149,19 @@ class BestOfN:
         if len(candidates) == 1:
             return 0, "single candidate"
 
+        # 1) Override : un candidat actionnable bat systématiquement un candidat textuel
+        actionable = [c for c in candidates if c.tool_calls]
+        if actionable:
+            winner = min(actionable, key=lambda c: c.latency_s)
+            n_act = len(actionable)
+            if n_act == len(candidates):
+                reason = f"action override: tous actionnables, choisi le plus rapide ({winner.latency_s}s)"
+            else:
+                reason = f"action override: {n_act}/{len(candidates)} avec tool_calls, évite le plan textuel"
+            logger.info("[BoN] %s → idx=%d", reason, winner.idx)
+            return winner.idx, reason
+
+        # 2) Aucun candidat actionnable → LLM-as-judge classique
         user_msg = _format_candidates_for_rerank(user_prompt, candidates)
         messages = [
             {"role": "system", "content": _RERANK_SYSTEM},

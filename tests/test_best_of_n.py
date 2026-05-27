@@ -155,7 +155,8 @@ class TestRerank:
         assert idx == 0
         mock_llm.stream_chat.assert_not_called()
 
-    def test_choisit_via_llm(self, mock_llm):
+    def test_choisit_via_llm_si_aucun_actionnable(self, mock_llm):
+        """LLM-judge utilisé uniquement quand aucun candidat n'a de tool_calls."""
         mock_llm.stream_chat.return_value = ('{"choice": 2, "reasoning": "best"}', None)
         bn = BestOfN(mock_llm, n=3)
         cands = [Candidate(idx=i, temperature=0.5, content=f"c{i}", tool_calls=None) for i in range(3)]
@@ -163,7 +164,7 @@ class TestRerank:
         assert idx == 1
         assert "best" in r
 
-    def test_rerank_silencieux(self, mock_llm):
+    def test_rerank_silencieux_quand_llm_judge(self, mock_llm):
         mock_llm.stream_chat.return_value = ('{"choice": 1}', None)
         bn = BestOfN(mock_llm, n=2)
         cands = [Candidate(idx=i, temperature=0.5, content=f"c{i}", tool_calls=None) for i in range(2)]
@@ -171,6 +172,45 @@ class TestRerank:
         call = mock_llm.stream_chat.call_args
         assert call.kwargs.get("silent") is True
         assert call.kwargs.get("temperature") == 0.0  # reranker = déterministe
+
+
+class TestRerankActionOverride:
+    """L'override objectif : préfère systématiquement les candidats avec tool_calls."""
+
+    def test_un_seul_actionnable_gagne_sans_llm(self, mock_llm):
+        bn = BestOfN(mock_llm, n=3)
+        cands = [
+            Candidate(idx=0, temperature=0.3, content="plan textuel", tool_calls=None, latency_s=2.0),
+            Candidate(idx=1, temperature=0.6, content="", tool_calls=[
+                {"function": {"name": "write_file", "arguments": '{"path":"x"}'}}
+            ], latency_s=3.5),
+            Candidate(idx=2, temperature=0.9, content="autre plan", tool_calls=None, latency_s=1.8),
+        ]
+        idx, reason = bn.rerank(cands, "task")
+        assert idx == 1, "doit choisir l'unique candidat avec tool_calls"
+        assert "action override" in reason
+        mock_llm.stream_chat.assert_not_called()  # pas de LLM-judge appelé
+
+    def test_plusieurs_actionnables_prend_le_plus_rapide(self, mock_llm):
+        bn = BestOfN(mock_llm, n=3)
+        tc = [{"function": {"name": "read_file", "arguments": '{"path":"x"}'}}]
+        cands = [
+            Candidate(idx=0, temperature=0.3, content="", tool_calls=tc, latency_s=4.2),
+            Candidate(idx=1, temperature=0.6, content="", tool_calls=tc, latency_s=1.5),
+            Candidate(idx=2, temperature=0.9, content="", tool_calls=tc, latency_s=2.8),
+        ]
+        idx, reason = bn.rerank(cands, "task")
+        assert idx == 1, "doit choisir le plus rapide"
+        assert "tous actionnables" in reason
+        mock_llm.stream_chat.assert_not_called()
+
+    def test_aucun_actionnable_fallback_llm_judge(self, mock_llm):
+        mock_llm.stream_chat.return_value = ('{"choice": 3, "reasoning": "le plus clair"}', None)
+        bn = BestOfN(mock_llm, n=3)
+        cands = [Candidate(idx=i, temperature=0.5, content=f"plan {i}", tool_calls=None) for i in range(3)]
+        idx, _ = bn.rerank(cands, "task")
+        assert idx == 2
+        mock_llm.stream_chat.assert_called_once()  # LLM-judge consulté
 
 
 class TestBest:

@@ -210,6 +210,94 @@ def _inject_missing_libs(doc: str) -> tuple[str, list[str]]:
     return doc, warnings
 
 
+_ERROR_OVERLAY = """
+<style id="__klody_overlay_style">
+#__klody_err_overlay {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  max-height: 50vh; overflow-y: auto;
+  background: #2a0f0f; color: #ffd2cc;
+  font: 12px/1.45 'JetBrains Mono', 'Menlo', monospace;
+  border-top: 2px solid #dc3545; box-shadow: 0 -6px 24px rgba(0,0,0,0.4);
+  z-index: 2147483647; padding: 10px 14px; display: none;
+}
+#__klody_err_overlay header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  font-weight: 600; color: #fff;
+}
+#__klody_err_overlay .__klody_close {
+  margin-left: auto; cursor: pointer; opacity: 0.7;
+  background: transparent; border: none; color: #fff;
+  font-size: 16px; line-height: 1; padding: 0 4px;
+}
+#__klody_err_overlay .__klody_close:hover { opacity: 1; }
+#__klody_err_overlay pre {
+  margin: 4px 0; padding: 6px 8px; background: rgba(0,0,0,0.25);
+  border-radius: 4px; white-space: pre-wrap; word-break: break-word;
+}
+#__klody_err_overlay .__klody_count {
+  background: #dc3545; color: white; border-radius: 999px;
+  padding: 1px 8px; font-size: 10.5px;
+}
+</style>
+<script id="__klody_overlay_script">
+(function(){
+  var entries = [];
+  var box;
+  function ensureBox() {
+    if (box) return box;
+    box = document.createElement('div');
+    box.id = '__klody_err_overlay';
+    box.innerHTML = '<header>⚠ Erreur(s) JS détectée(s)<span class="__klody_count">0</span>' +
+                    '<button class="__klody_close" title="Fermer">✕</button></header><div></div>';
+    box.querySelector('.__klody_close').onclick = function(){ box.style.display='none'; };
+    (document.body || document.documentElement).appendChild(box);
+    return box;
+  }
+  function render() {
+    var b = ensureBox();
+    b.style.display = 'block';
+    b.querySelector('.__klody_count').textContent = entries.length;
+    var list = b.querySelector('div');
+    list.innerHTML = entries.slice(-20).map(function(e){
+      return '<pre>' + (e.label ? '[' + e.label + '] ' : '') +
+             escapeHtml(e.msg) + (e.src ? '\\n  → ' + escapeHtml(e.src) : '') + '</pre>';
+    }).join('');
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
+  function add(label, msg, src){ entries.push({label:label, msg:msg, src:src}); render(); }
+  window.addEventListener('error', function(ev){
+    var src = ev.filename ? ev.filename + ':' + ev.lineno + ':' + ev.colno : '';
+    add('Error', (ev.message || ev.error || 'unknown'), src);
+  }, true);
+  window.addEventListener('unhandledrejection', function(ev){
+    add('Promise', (ev.reason && (ev.reason.stack || ev.reason.message || ev.reason)) || 'rejected');
+  });
+  var _ce = console.error;
+  console.error = function(){
+    try { add('console.error', Array.prototype.map.call(arguments, function(a){
+      return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); }
+    catch(_){ }
+    return _ce.apply(console, arguments);
+  };
+})();
+</script>"""
+
+
+def _inject_error_overlay(doc: str) -> str:
+    """Injecte l'overlay d'erreur JS de Klody en tout début de <head>.
+
+    Doit être placé AVANT les autres scripts pour pouvoir capter leurs erreurs.
+    """
+    if "__klody_overlay_script" in doc:
+        return doc
+    m = re.search(r"<head[^>]*>", doc, re.IGNORECASE)
+    if m:
+        return doc[: m.end()] + _ERROR_OVERLAY + doc[m.end() :]
+    # Fallback : si pas de <head>, on insère au début
+    return _ERROR_OVERLAY + doc
+
+
 def _build_document(
     html: str, css: str, js: str, scripts: list[str], styles: list[str], title: str
 ) -> tuple[str, list[str]]:
@@ -218,7 +306,9 @@ def _build_document(
         doc = _inject_into_document(html, css, js, scripts, styles)
     else:
         doc = _wrap_fragment(html, css, js, scripts, styles, title)
-    return _inject_missing_libs(doc)
+    doc, warnings = _inject_missing_libs(doc)
+    doc = _inject_error_overlay(doc)
+    return doc, warnings
 
 
 def preview_code(
