@@ -105,6 +105,63 @@ def _has_markdown(text: str) -> bool:
     return any(m in text for m in markers)
 
 
+def _build_xml_tool_call(
+    fn_name: str,
+    body: str,
+    valid_tool_names: set[str],
+    lenient: bool = False,
+) -> Optional[dict]:
+    """Construit un tool_call OpenAI à partir d'un body XML `<parameter=...>…`.
+
+    Args:
+        fn_name : nom de la fonction (ex: 'preview_code')
+        body : contenu entre `<function=…>` et `</function>` (ou tout ce qui suit
+               si le tag fermant manque).
+        valid_tool_names : set des noms valides — sinon None.
+        lenient : si True, accepte aussi les `<parameter=name>` non fermés en
+                  prenant le contenu jusqu'au prochain `<parameter=` OU la fin
+                  du body. Utile quand le LLM a tronqué son output.
+
+    Returns:
+        Le dict tool_call OpenAI-shape, ou None si aucun paramètre extractible
+        ou nom invalide.
+    """
+    if fn_name not in valid_tool_names:
+        return None
+
+    args: dict = {}
+    # 1) Paramètres bien fermés
+    for m in re.finditer(r'<parameter=(\w+)>([\s\S]*?)</parameter>', body, re.IGNORECASE):
+        args[m.group(1)] = m.group(2).strip()
+
+    # 2) Mode lenient : ramasser les paramètres ouverts mais non fermés
+    if lenient:
+        # Split par <parameter=name>, garde le contenu jusqu'au prochain
+        # <parameter= ou jusqu'à la fin (peut être tronqué en plein milieu).
+        for m in re.finditer(r'<parameter=(\w+)>', body, re.IGNORECASE):
+            name = m.group(1)
+            if name in args:
+                continue  # déjà extrait via la passe stricte
+            start = m.end()
+            # Cherche le prochain <parameter= après start, ou fin du body
+            next_p = re.search(r'<parameter=\w+>|</parameter>', body[start:], re.IGNORECASE)
+            end = start + next_p.start() if next_p else len(body)
+            value = body[start:end].strip()
+            if value:
+                args[name] = value
+
+    if not args:
+        return None
+    return {
+        "id": f"call_{uuid.uuid4().hex[:8]}",
+        "type": "function",
+        "function": {
+            "name": fn_name,
+            "arguments": json.dumps(args),
+        },
+    }
+
+
 class LLMClient:
     def __init__(self, model: str = LLM_MODEL):
         self.model = model
@@ -123,6 +180,8 @@ class LLMClient:
         token_callback: Optional[Callable[[str], None]] = None,
         temperature: float = 0.1,
         silent: bool = False,
+        tool_choice: str = "auto",
+        max_tokens: int = 8192,
     ) -> tuple[str, Optional[list[dict]]]:
         """
         Envoie les messages et streame la réponse avec :
@@ -134,16 +193,20 @@ class LLMClient:
             temperature : 0.0-1.0. Plus haut = plus de diversité (utile pour Best-of-N).
             silent : si True, supprime tout affichage console (utile pour Best-of-N
                      où on ne veut afficher que le candidat retenu).
+            tool_choice : "auto" (défaut) | "required" (force un tool_call) | "none".
+                          "required" est utilisé par l'anti-stall pour forcer une action
+                          quand le LLM répond en texte pur sur une tâche d'action.
         """
         params: dict = {
             "model": self.model,
             "messages": messages,
             "stream": True,
             "temperature": temperature,
+            "max_tokens": max_tokens,  # défaut généreux : 8192 tokens pour gros codes Three.js
         }
         if tools:
             params["tools"] = tools
-            params["tool_choice"] = "auto"
+            params["tool_choice"] = tool_choice
 
         full_content = ""
         raw_tool_calls: dict[int, dict] = {}
@@ -323,33 +386,34 @@ class LLMClient:
         # On exige que le texte commence par `<function=` (ignorant les whitespaces)
         # pour ne pas voler le travail d'extract_mixed_tool_call sur du contenu mixte.
         if text.startswith("<function="):
+            # Cherche d'abord les XML calls bien fermés
             xml_calls = list(re.finditer(
-                r'<function=(\w+)>([\s\S]*?)</function>',
-                text,
-                re.IGNORECASE,
+                r'<function=(\w+)>([\s\S]*?)</function>', text, re.IGNORECASE,
             ))
-            if xml_calls:
-                results = []
-                for m in xml_calls:
-                    fn_name = m.group(1)
-                    if fn_name not in valid_tool_names:
-                        continue
-                    body = m.group(2)
-                    args: dict = {}
-                    for param in re.finditer(
-                        r'<parameter=(\w+)>([\s\S]*?)</parameter>', body, re.IGNORECASE
-                    ):
-                        args[param.group(1)] = param.group(2).strip()
-                    results.append({
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {
-                            "name": fn_name,
-                            "arguments": json.dumps(args),
-                        },
-                    })
-                if results:
-                    return results
+            results: list[dict] = []
+            for m in xml_calls:
+                tc = _build_xml_tool_call(m.group(1), m.group(2), valid_tool_names)
+                if tc:
+                    results.append(tc)
+
+            # Cas robuste : le LLM a coupé son output avant </function> (truncation
+            # streaming, max_tokens, BoN température haute…). Si on n'a aucun call
+            # bien formé MAIS le texte commence par <function=name>, on tente quand
+            # même un best-effort sur la fonction principale en récupérant les
+            # paramètres présents (ouverts comme fermés).
+            if not results:
+                head = re.match(r'<function=(\w+)>', text, re.IGNORECASE)
+                if head:
+                    fn_name = head.group(1)
+                    body = text[head.end():]
+                    # Supprime un éventuel </function> traînant
+                    body = re.sub(r'</function>\s*$', '', body)
+                    tc = _build_xml_tool_call(fn_name, body, valid_tool_names, lenient=True)
+                    if tc:
+                        results.append(tc)
+
+            if results:
+                return results
 
         # --- Format compact : `tool_name [param] {"key": "val"}` ---
         # Exemple : `read_file [path] {"path":"app.py"}`

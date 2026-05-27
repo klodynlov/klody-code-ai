@@ -130,6 +130,34 @@ class TestFormatXml:
         assert calls is not None and len(calls) == 1
         assert calls[0]["function"]["name"] == "read_file"
 
+    def test_xml_tronque_best_effort(self, client, valid_tools):
+        """Cas réel : le LLM (BoN T=0.9) coupe son output en plein milieu.
+        Pas de </parameter></function> finaux. Best-effort doit extraire au
+        moins le premier paramètre complet + le 2e paramètre ouvert (incomplet)."""
+        # html bien fermé, js ouvert mais tronqué
+        text = (
+            '<function=write_file>\n'
+            '<parameter=path>x.py</parameter>\n'
+            '<parameter=content>print("hello")\n'
+            'def f(): return 1\n'
+            'incomplete...'   # pas de </parameter> ni </function>
+        )
+        calls = client._parse_text_tool_calls(text, valid_tools)
+        assert calls is not None and len(calls) == 1
+        assert calls[0]["function"]["name"] == "write_file"
+        import json as _j
+        args = _j.loads(calls[0]["function"]["arguments"])
+        assert args["path"] == "x.py"
+        # content extrait même tronqué
+        assert "print" in args["content"]
+        assert "incomplete" in args["content"]
+
+    def test_xml_tronque_nom_invalide(self, client, valid_tools):
+        """Si la fonction tronquée n'est pas dans valid_tool_names → None."""
+        text = '<function=evil_tool>\n<parameter=cmd>rm -rf'
+        calls = client._parse_text_tool_calls(text, valid_tools)
+        assert calls is None
+
 
 # ── JSON cassé : repair triple-quotes ──────────────────────────────────────────
 
