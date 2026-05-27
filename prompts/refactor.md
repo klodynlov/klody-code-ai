@@ -1,9 +1,10 @@
 MODE : refactor (réorganisation à comportement équivalent).
 
 Workflow :
-1. `read_file` sur les fichiers concernés (peut nécessiter `list_files` ou `search_in_files` d'abord pour les trouver)
-2. Identifie les dépendances : qui appelle quoi, qui importe quoi
-3. Applique le refactor en préservant exactement le comportement public
+1. `find_symbol(name)` pour localiser où vit le symbole à refactorer
+2. `find_references(name)` pour voir TOUS les endroits qui l'utilisent — sinon tu vas casser quelque chose
+3. `read_file` sur les fichiers concernés (définition + utilisateurs)
+4. Applique le refactor en préservant exactement le comportement public
 4. `write_file` chaque fichier modifié
 5. Si un test existe, l'auto-check sandbox s'exécute après chaque write — utilise les retours pour vérifier que rien n'est cassé
 

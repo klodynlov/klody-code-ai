@@ -44,7 +44,7 @@ class RoutingDecision:
 
 # --- Defaults selon difficulty/task_type ----------------------------------- #
 
-_MAX_ITER = {"easy": 3, "medium": 6, "hard": 10}
+_MAX_ITER = {"easy": 3, "medium": 8, "hard": 10}
 
 
 def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:

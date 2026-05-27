@@ -96,6 +96,76 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "find_symbol",
+            "description": (
+                "Cherche où un symbole (fonction, classe, méthode) est défini dans "
+                "le projet. Utilise cet outil avant de refactorer ou pour comprendre "
+                "où vit une entité. Plus précis que search_in_files car il utilise "
+                "tree-sitter et ne retourne que les définitions (pas les utilisations)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nom exact du symbole (case-sensitive). Ex: 'Router', 'compute_area'",
+                    }
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_references",
+            "description": (
+                "Liste tous les endroits où un symbole est utilisé/appelé. "
+                "Indispensable avant de renommer ou refactorer une fonction "
+                "pour ne rien casser. Retourne fichier:ligne + contexte."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nom exact du symbole à chercher (case-sensitive)",
+                    }
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_relevant_files",
+            "description": (
+                "Recherche sémantique : trouve les fichiers du projet les plus "
+                "pertinents pour une question en langage naturel. Utilise cet outil "
+                "quand tu ne sais pas dans quel(s) fichier(s) chercher. "
+                "Ex: 'où est gérée l'authentification' → top fichiers triés par score."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Question ou intention en langage naturel (français OK)",
+                    },
+                    "k": {
+                        "type": "integer",
+                        "description": "Nombre de fichiers à retourner (défaut: 5, max raisonnable: 10)",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_in_sandbox",
             "description": (
                 "Exécute une commande Python (pytest, python <fichier>, etc.) dans un "

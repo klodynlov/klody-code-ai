@@ -130,10 +130,67 @@ class AddLogging(_Stub):
 
 
 @register
-class MigratePrintToLogger(_Stub):
+class MigratePrintToLogger(Task):
+    """Multi-fichier : remplacer tous les print() par logger.info() dans le projet.
+
+    Démontre l'impact du retrieval (Roadmap v2 #6) : sans find_relevant_files
+    ou find_references, l'agent ne sait pas tous les endroits où print() est utilisé.
+    """
     id = "medium/migrate_print_to_logger"
     category = "medium"
-    prompt = "TODO: remplacer tous les print par logger.info."
+    prompt = (
+        "Dans ce projet, remplace TOUS les appels `print(...)` par `logger.info(...)`. "
+        "Ajoute `import logging` et `logger = logging.getLogger(__name__)` en tête des "
+        "fichiers concernés s'ils manquent. N'ajoute pas de print, n'en supprime aucun "
+        "par erreur. Couvre tous les fichiers .py du projet."
+    )
+
+    def setup(self, workdir):
+        # 3 fichiers Python avec des print éparpillés
+        (workdir / "app.py").write_text(
+            "def greet(name):\n"
+            "    print(f'Hello, {name}')\n"
+            "    return name\n",
+            encoding="utf-8",
+        )
+        (workdir / "utils.py").write_text(
+            "def divide(a, b):\n"
+            "    if b == 0:\n"
+            "        print('Erreur: division par zéro')\n"
+            "        return None\n"
+            "    print(f'{a} / {b}')\n"
+            "    return a / b\n",
+            encoding="utf-8",
+        )
+        (workdir / "main.py").write_text(
+            "from app import greet\n"
+            "from utils import divide\n"
+            "\n"
+            "print('Démarrage')\n"
+            "greet('Klody')\n"
+            "divide(10, 2)\n"
+            "print('Fin')\n",
+            encoding="utf-8",
+        )
+
+    def validate(self, workdir):
+        import re
+
+        files = ["app.py", "utils.py", "main.py"]
+        for name in files:
+            src = (workdir / name).read_text(encoding="utf-8")
+            # Plus de print(
+            if re.search(r"\bprint\s*\(", src):
+                return False, f"{name}: print() encore présent"
+            # logger.info présent dans les fichiers qui avaient des print
+            if "logger.info" not in src:
+                return False, f"{name}: pas de logger.info"
+            # imports logging présents
+            if "import logging" not in src:
+                return False, f"{name}: import logging manquant"
+            if "getLogger" not in src:
+                return False, f"{name}: logger = logging.getLogger(...) manquant"
+        return True, "3/3 fichiers migrés correctement"
 
 
 @register

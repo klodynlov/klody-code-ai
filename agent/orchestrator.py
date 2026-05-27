@@ -126,6 +126,9 @@ class Orchestrator:
         self._router_enabled = ROUTER_ENABLED
         self._router = None  # lazy
         self.last_routing = None  # dernière décision, pour debug et étapes futures
+        # Retrieval code-aware (Roadmap v2 #6) — tree-sitter + embeddings.
+        self._code_index = None      # symboles + références (tree-sitter)
+        self._embed_index = None     # recherche sémantique (bge-m3)
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -145,6 +148,22 @@ class Orchestrator:
             from agent.router import Router
             self._router = Router()
         return self._router
+
+    @property
+    def code_index(self):
+        """Index tree-sitter symboles + références (lazy)."""
+        if self._code_index is None:
+            from tools.code_index import CodeIndex
+            self._code_index = CodeIndex(self.file_manager.root)
+        return self._code_index
+
+    @property
+    def embed_index(self):
+        """Index embeddings bge-m3 pour recherche sémantique (lazy)."""
+        if self._embed_index is None:
+            from tools.code_search import EmbeddingIndex
+            self._embed_index = EmbeddingIndex(self.file_manager.root)
+        return self._embed_index
 
     def _inject_system_prompt(self, task_type: str | None = None) -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
@@ -287,6 +306,24 @@ class Orchestrator:
                     timeout=int(tool_args.get("timeout", 30)),
                 )
                 return res.format_for_llm()
+            if tool_name == "find_symbol":
+                from tools.code_index import format_symbols
+                syms = self.code_index.find_symbol(tool_args["name"])
+                return format_symbols(syms)
+            if tool_name == "find_references":
+                from tools.code_index import format_references
+                refs = self.code_index.find_references(tool_args["name"])
+                return format_references(refs)
+            if tool_name == "find_relevant_files":
+                from tools.code_search import format_hits
+                hits = self.embed_index.search(
+                    tool_args["query"],
+                    k=int(tool_args.get("k", 5)),
+                )
+                if not hits and not self.embed_index.is_available():
+                    return ("Recherche sémantique indisponible : Ollama ou "
+                            "bge-m3 introuvable. Utilise find_symbol ou search_in_files.")
+                return format_hits(hits)
             if tool_name == "list_skills":
                 return list_skills()
             if tool_name == "delete_skill":

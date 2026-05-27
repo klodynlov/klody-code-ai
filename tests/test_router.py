@@ -26,6 +26,7 @@ class TestStrategie:
 
     def test_medium_feature_active_planner(self):
         s = _decide_strategy("medium", "feature")
+        assert s["max_iterations"] == 8
         assert s["use_planner"] is True
         assert s["use_best_of_n"] is False
 
