@@ -1,0 +1,103 @@
+{
+  "find_symbol": {
+    "description_first_line": "Où un symbole (fonction, classe, méthode) est défini dans le projet.",
+    "required": [
+      "name"
+    ],
+    "parameters": {
+      "name": {
+        "type": "string"
+      }
+    }
+  },
+  "find_references": {
+    "description_first_line": "Liste tous les endroits où un symbole est utilisé/appelé.",
+    "required": [
+      "name"
+    ],
+    "parameters": {
+      "max_results": {
+        "type": "integer"
+      },
+      "name": {
+        "type": "string"
+      }
+    }
+  },
+  "find_relevant_files": {
+    "description_first_line": "Recherche sémantique : top-k fichiers les plus pertinents pour une question.",
+    "required": [
+      "query"
+    ],
+    "parameters": {
+      "k": {
+        "type": "integer"
+      },
+      "query": {
+        "type": "string"
+      }
+    }
+  },
+  "run_in_sandbox": {
+    "description_first_line": "Exécute une commande Python dans un venv jetable.",
+    "required": [
+      "command"
+    ],
+    "parameters": {
+      "command": {
+        "type": "string"
+      },
+      "timeout": {
+        "type": "integer"
+      }
+    }
+  },
+  "read_file": {
+    "description_first_line": "Lit un fichier du projet (sandbox-validé, lecture seule).",
+    "required": [
+      "path"
+    ],
+    "parameters": {
+      "path": {
+        "type": "string"
+      }
+    }
+  },
+  "list_files": {
+    "description_first_line": "Liste les fichiers/dossiers du projet.",
+    "required": [],
+    "parameters": {
+      "path": {
+        "type": "string"
+      },
+      "recursive": {
+        "type": "boolean"
+      }
+    }
+  },
+  "search_in_files": {
+    "description_first_line": "Recherche un pattern dans les fichiers (ripgrep si dispo, sinon grep).",
+    "required": [
+      "pattern"
+    ],
+    "parameters": {
+      "case_sensitive": {
+        "type": "boolean"
+      },
+      "file_pattern": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "pattern": {
+        "type": "string"
+      }
+    }
+  },
+  "detect_conventions": {
+    "description_first_line": "Conventions auto-détectées du projet (test framework, style, frameworks…).",
+    "required": [],
+    "parameters": {}
+  }
+}

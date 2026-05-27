@@ -1,0 +1,69 @@
+{
+  "/api/status": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/sessions": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/memories": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/memories/{key}": {
+    "DELETE": {
+      "params": [
+        "key"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/sessions/{session_id}/export": {
+    "GET": {
+      "params": [
+        "session_id"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/stop": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/siri": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    },
+    "GET": {
+      "params": [
+        "q"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/health": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  }
+}
