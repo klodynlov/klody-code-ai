@@ -20,6 +20,8 @@ venv/
 # Tests
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # Logs et mémoire de session (garder le dossier)

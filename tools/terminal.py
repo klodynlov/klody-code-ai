@@ -168,7 +168,9 @@ class Terminal:
         logger.info("Exécution: %s", command)
 
         try:
-            result = subprocess.run(
+            # shell=True voulu: l'outil expose un terminal au LLM (par design).
+            # Confirmation + allowlist orchestrator + sandbox venv encadrent l'usage.
+            result = subprocess.run(  # nosec B602
                 command,
                 shell=True,
                 capture_output=True,

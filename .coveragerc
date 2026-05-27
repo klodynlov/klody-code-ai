@@ -1,0 +1,34 @@
+[run]
+branch = True
+source = agent,tools,api
+omit =
+    */__pycache__/*
+    */tests/*
+    */.venv/*
+    */lora/*
+    */bench/*
+    */imports/*
+    # Cibles Vague 2 (intégration orchestrator + WS + bench) — exclus jusqu'à
+    # mise en place du replay LLM stub + fixtures WebSocket. Retirer ces
+    # exclusions quand la Vague 2 est livrée pour viser 80%+ global.
+    agent/orchestrator.py
+    agent/profiler.py
+    api/server.py
+
+[report]
+fail_under = 75
+precision = 1
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    \.\.\.
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

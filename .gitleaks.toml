@@ -1,0 +1,27 @@
+title = "Klody — config gitleaks"
+
+# On part de la config par défaut puis on ajoute des allowlists Klody-spécifiques.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Faux positifs connus dans Klody"
+paths = [
+    '''\.venv/''',
+    '''node_modules/''',
+    '''\.git/''',
+    '''logs/''',
+    '''_preview/''',
+    '''bench/results/''',
+    # Fixtures de tests : peuvent contenir des tokens factices pour vérifier le parsing
+    '''tests/.*\.json$''',
+    '''tests/fixtures/''',
+]
+regexes = [
+    # Exemple de docs : OLLAMA_API_KEY=ollama (placeholder local connu)
+    '''OLLAMA_API_KEY\s*=\s*ollama''',
+    # Placeholders documentés
+    '''YOUR_[A-Z_]+_HERE''',
+    '''sk-xxx+''',
+    '''dummy[-_]?key''',
+]

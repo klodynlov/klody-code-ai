@@ -17,3 +17,8 @@ tree-sitter-typescript>=0.23.0
 # MCP server expose (Roadmap v2 #9 — Klody-as-platform)
 # fastmcp + pytest-asyncio pour les tests d'intégration MCP
 pytest-asyncio>=0.23.0
+
+# Qualité & sécurité (Vague 1 — durcissement CI)
+pytest-cov>=5.0.0
+bandit>=1.7.9
+pip-audit>=2.7.3

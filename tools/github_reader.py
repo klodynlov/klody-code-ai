@@ -26,7 +26,8 @@ def _gh_get(url: str, token: str = "", timeout: int = 15) -> Optional[dict | lis
     if tok:
         req.add_header("Authorization", f"Bearer {tok}")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # URL construite en interne contre api.github.com, pas d'input utilisateur libre
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         logger.debug("[github_reader] HTTP %s pour %s", exc.code, url)
@@ -107,7 +108,8 @@ def read_github_file(repo_ref: str, path: str) -> str:
         if tok:
             req.add_header("Authorization", f"Bearer {tok}")
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            # download_url renvoyé par l'API GitHub authentifiée
+            with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
                 return resp.read().decode("utf-8", errors="replace")
         except Exception as exc:
             return f"Erreur téléchargement : {exc}"
