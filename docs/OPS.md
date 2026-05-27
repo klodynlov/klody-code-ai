@@ -81,9 +81,69 @@ python -m mlx_lm.server --model mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-
 ollama serve &
 ```
 
-Pour automatiser : créer un `LaunchAgents/com.klody.mlx.plist` et
-`com.klody.ollama.plist` (cf. `scripts/start-mlx.sh` qui peut être appelé
-depuis un LaunchAgent).
+### Démarrage automatique de MLX (LaunchAgent)
+
+Le runner self-hosted bench + l'app desktop dépendent tous deux de MLX joignable
+sur `:8080`. Pour qu'il démarre à la connexion utilisateur sans intervention :
+
+```bash
+# 1. Créer ~/Library/LaunchAgents/com.klody.mlx.plist
+cat > ~/Library/LaunchAgents/com.klody.mlx.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.klody.mlx</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/start-mlx.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/klodynlov/Projets/klody-code-ai</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key><false/>
+        <key>Crashed</key><true/>
+    </dict>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-mlx.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-mlx.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+EOF
+
+# 2. Charger (et démarrer immédiatement)
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.mlx.plist
+
+# 3. Vérifier
+launchctl print gui/$UID/com.klody.mlx | grep -E 'state|pid'
+tail -f ~/Library/Logs/klody-mlx.log
+curl -sf http://127.0.0.1:8080/v1/models | jq .
+```
+
+`KeepAlive` redémarre MLX uniquement sur crash (pas après un arrêt manuel via
+`launchctl kickstart -k`). `ThrottleInterval` évite les restart-loops si le
+modèle ne se charge pas (port pris, fichier corrompu).
+
+Pour désactiver temporairement :
+
+```bash
+launchctl bootout gui/$UID/com.klody.mlx
+```
+
+Le bundle `klody-ui.app` v2 a un fallback : si `:8080` ne répond pas au
+démarrage, Rust appelle `scripts/start-mlx.sh` directement
+(cf. `src-tauri/src/lib.rs::spawn_mlx`). Le LaunchAgent reste la voie
+canonique — l'auto-spawn Tauri sert uniquement quand le LaunchAgent est
+désactivé ou cassé.
 
 ## 3. Coverage gate
 
