@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 Difficulty = Literal["easy", "medium", "hard"]
-TaskType = Literal["edit", "refactor", "bug_fix", "feature", "explain"]
+TaskType = Literal["edit", "refactor", "bug_fix", "feature", "explain", "self_dev"]
 
 
 @dataclass
@@ -51,14 +51,14 @@ def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:
     """Dérive use_planner / use_best_of_n / max_iter depuis la classif.
 
     Règles :
-    - Planner si hard ou (medium + feature/refactor) → tâches multi-étapes
-    - Best-of-N seulement si hard
+    - Planner si hard, ou (medium + feature/refactor/self_dev) → multi-étapes
+    - Best-of-N si hard OU self_dev (changements de code critique)
     - max_iter dérivé de la difficulty
     """
     use_planner = (difficulty == "hard") or (
-        difficulty == "medium" and task_type in ("feature", "refactor")
+        difficulty == "medium" and task_type in ("feature", "refactor", "self_dev")
     )
-    use_best_of_n = difficulty == "hard"
+    use_best_of_n = difficulty == "hard" or task_type == "self_dev"
     return {
         "max_iterations": _MAX_ITER[difficulty],
         "use_planner": use_planner,
@@ -72,12 +72,12 @@ _ROUTER_SYSTEM = """\
 Tu es un router de tâches. Classifie chaque demande de coding.
 
 Réponds UNIQUEMENT par un objet JSON valide, sans markdown, sans texte avant ou après :
-{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain", "reasoning": "phrase courte"}
+{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev", "reasoning": "phrase courte"}
 
 DIFFICULTY :
 - easy   : 1 fichier, modification localisée (<30s). Rename, fix typo, add import, add docstring, add 1 test simple.
 - medium : 1-3 fichiers, refactor léger ou bug à corriger via test (<2min). Extract function, add type hints, fix failing test, add CLI arg, add logging.
-- hard   : multi-fichier, debug subtil, perf, async, architecture (>2min). Race condition, optimize O(n²), migrate sync→async, full endpoint, debug suite.
+- hard   : multi-fichier, debug subtil, perf, async, architecture (>2min). Race condition, optimize O(n²), migrate sync→async, full endpoint, debug suite, self_dev en général.
 
 TASK_TYPE :
 - edit     : rename, fix typo, format. Pas de logique nouvelle.
@@ -85,6 +85,12 @@ TASK_TYPE :
 - bug_fix  : un test échoue, un bug rapporté → corriger le code (pas le test).
 - feature  : ajouter du code nouveau (fonction, classe, endpoint, test).
 - explain  : question, lecture, analyse. Pas de modification de fichier.
+- self_dev : l'utilisateur demande à Klody de modifier SON PROPRE code source
+             (ajouter un outil à Klody, optimiser l'orchestrator, créer un nouveau
+             prompt focalisé, intégrer une lib dans le repo klody-code-ai, etc.).
+             Mots-clés : "améliore-toi", "ajoute-toi un outil", "modifie ton code",
+             "optimise tes algorithmes", "intègre une nouvelle bibliothèque dans
+             ton repo", "ajoute une fonctionnalité à Klody".
 
 Exemples :
 - "renomme `usr` en `user` dans app.py" → {"difficulty":"easy","task_type":"edit","reasoning":"rename localisé 1 fichier"}
@@ -94,6 +100,8 @@ Exemples :
 - "il y a une race condition dans worker.py" → {"difficulty":"hard","task_type":"bug_fix","reasoning":"debug async complexe"}
 - "ajoute un endpoint FastAPI complet avec test" → {"difficulty":"hard","task_type":"feature","reasoning":"multi-fichier route+model+test"}
 - "explique-moi comment fonctionne ce module" → {"difficulty":"easy","task_type":"explain","reasoning":"lecture sans modif"}
+- "ajoute-toi un outil pour compter les lignes d'un fichier" → {"difficulty":"medium","task_type":"self_dev","reasoning":"nouveau tool dans le repo Klody"}
+- "améliore tes performances de retrieval" → {"difficulty":"hard","task_type":"self_dev","reasoning":"optimisation interne Klody"}
 """
 
 
@@ -152,7 +160,7 @@ class Router:
 
         if difficulty not in ("easy", "medium", "hard"):
             return self._fallback(reason=f"invalid difficulty: {difficulty}", raw=raw)
-        if task_type not in ("edit", "refactor", "bug_fix", "feature", "explain"):
+        if task_type not in ("edit", "refactor", "bug_fix", "feature", "explain", "self_dev"):
             return self._fallback(reason=f"invalid task_type: {task_type}", raw=raw)
 
         strategy = _decide_strategy(difficulty, task_type)

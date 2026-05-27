@@ -55,10 +55,14 @@ class TestComposition:
         # Doit clairement signaler qu'on ne modifie rien
         assert ("INTERDICTION" in s) or ("JAMAIS" in s) or ("AUCUNE modification" in s)
 
-    def test_feature_mentionne_plan_et_test(self):
+    def test_feature_court_et_mentionne_action(self):
+        """Feature prompt simplifié : court, mentionne preview_code/write_file."""
         s = compose_system_prompt("feature")
-        assert "plan" in s.lower()
-        assert "test" in s.lower()
+        # Le prompt feature doit être court (≤ 2000 chars composé avec base)
+        assert len(s) < 2000
+        # Et mentionner les outils d'action
+        assert "preview_code" in s or "write_file" in s
+        assert "tool_call" in s.lower() or "outil" in s.lower()
 
     def test_refactor_mentionne_comportement(self):
         s = compose_system_prompt("refactor")
@@ -88,6 +92,6 @@ class TestCache:
 
 
 class TestAvailableTypes:
-    def test_5_types_disponibles(self):
+    def test_6_types_disponibles(self):
         types = available_task_types()
-        assert set(types) == {"edit", "refactor", "bug_fix", "feature", "explain"}
+        assert set(types) == {"edit", "refactor", "bug_fix", "feature", "explain", "self_dev"}

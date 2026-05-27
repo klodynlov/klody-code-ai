@@ -27,6 +27,7 @@ _TASK_PROMPT_FILES: dict[str, str] = {
     "bug_fix": "bug_fix.md",
     "feature": "feature.md",
     "explain": "explain.md",
+    "self_dev": "self_dev.md",
 }
 
 _BASE_FILE = "base.md"
