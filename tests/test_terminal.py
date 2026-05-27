@@ -92,16 +92,38 @@ class TestCommandSafety:
 
 class TestExecuteCommand:
     def test_commande_refusee_par_utilisateur(self, terminal, monkeypatch):
+        # Force TTY mode + Confirm renvoie False
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
         from rich.prompt import Confirm
         monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: False)
         result = terminal.execute_command("echo test", "raison test")
         assert "refusée" in result.lower()
 
     def test_commande_acceptee_par_utilisateur(self, terminal, monkeypatch):
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
         from rich.prompt import Confirm
         monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: True)
         result = terminal.execute_command("echo klody", "test unitaire")
         assert "klody" in result
+
+    def test_auto_confirm_si_non_tty(self, terminal, monkeypatch):
+        """En mode WS/API/script (sans TTY), la commande s'exécute sans demander."""
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+        result = terminal.execute_command("echo non-tty-ok", "test API")
+        assert "non-tty-ok" in result
+
+    def test_eof_renvoie_refus_pas_de_crash(self, terminal, monkeypatch):
+        """Si Confirm.ask lève EOFError (rare cas TTY étrange), pas de crash."""
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+        from rich.prompt import Confirm
+        def raise_eof(*a, **kw): raise EOFError("no stdin")
+        monkeypatch.setattr(Confirm, "ask", raise_eof)
+        result = terminal.execute_command("echo x", "")
+        assert "refusée" in result.lower() or "impossible" in result.lower()
 
     def test_commande_bloquee_sans_demander_confirmation(self, terminal, monkeypatch):
         """Les commandes dangereuses ne doivent PAS afficher le prompt."""

@@ -147,7 +147,19 @@ class Terminal:
             padding=(0, 1),
         ))
 
-        confirmed = Confirm.ask("[yellow]Exécuter cette commande ?[/yellow]", default=False)
+        # Auto-confirm en mode non-interactif (API/WS, scripts) — stdin n'a pas de TTY.
+        # Le check de sécurité au-dessus a déjà bloqué les commandes dangereuses,
+        # on peut donc auto-accepter ici. Sinon : prompt classique.
+        import sys
+        if not sys.stdin.isatty():
+            logger.info("Auto-confirm (non-TTY): %s", command)
+            confirmed = True
+        else:
+            try:
+                confirmed = Confirm.ask("[yellow]Exécuter cette commande ?[/yellow]", default=False)
+            except (EOFError, KeyboardInterrupt):
+                logger.warning("Confirmation impossible (EOF) — commande refusée par défaut: %s", command)
+                return "Commande refusée (confirmation interactive impossible)."
 
         if not confirmed:
             logger.info("Commande refusée par l'utilisateur: %s", command)
