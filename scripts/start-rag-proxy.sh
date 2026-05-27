@@ -19,7 +19,7 @@ MCP_HOST="${MCP_HOST:-127.0.0.1}"
 PROXY_PORT="${PROXY_PORT:-8081}"
 
 echo "→ Démarrage du serveur MCP LibraryBrain sur ${MCP_HOST}:${MCP_PORT}..."
-MCP_HOST="$MCP_HOST" MCP_PORT="$MCP_PORT" python "$ROOT_DIR/mcp/server.py" &
+MCP_HOST="$MCP_HOST" MCP_PORT="$MCP_PORT" python "$ROOT_DIR/klody_mcp/server.py" &
 MCP_PID=$!
 
 # Attendre que le port MCP soit disponible (max 5 secondes)

@@ -1,0 +1,5 @@
+# Tout ce qui est généré par le pipeline LoRA reste local
+*.jsonl
+adapters/
+fused/
+*.npz

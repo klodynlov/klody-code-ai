@@ -13,3 +13,7 @@ tree-sitter>=0.23.0
 tree-sitter-python>=0.23.0
 tree-sitter-javascript>=0.23.0
 tree-sitter-typescript>=0.23.0
+
+# MCP server expose (Roadmap v2 #9 — Klody-as-platform)
+# fastmcp + pytest-asyncio pour les tests d'intégration MCP
+pytest-asyncio>=0.23.0
