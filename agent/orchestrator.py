@@ -145,6 +145,9 @@ class Orchestrator:
         self._best_of_n_count = BEST_OF_N_COUNT
         self._best_of_n_force = BEST_OF_N_FORCE
         self._current_user_prompt = ""
+        # Memory utile (Roadmap v2 #8) — détection conventions projet + erreurs récurrentes.
+        self._conventions = None
+        self._error_memory = None
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -189,6 +192,22 @@ class Orchestrator:
             self._best_of_n = BestOfN(self.llm, n=self._best_of_n_count)
         return self._best_of_n
 
+    @property
+    def conventions(self):
+        """Détecteur de conventions projet (lazy)."""
+        if self._conventions is None:
+            from agent.conventions import ConventionDetector
+            self._conventions = ConventionDetector(self.file_manager.root)
+        return self._conventions
+
+    @property
+    def error_memory(self):
+        """Mémoire des erreurs récurrentes sandbox (lazy)."""
+        if self._error_memory is None:
+            from agent.error_memory import ErrorMemory
+            self._error_memory = ErrorMemory(workdir=self.file_manager.root)
+        return self._error_memory
+
     def _inject_system_prompt(self, task_type: str | None = None) -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
 
@@ -200,12 +219,25 @@ class Orchestrator:
         skills_section = format_skills_for_prompt(skills) if skills else ""
         lt_section = self.lt_memory.format_for_prompt()
         profile_section = self.profiler.get_profile_for_prompt()
+        # Conventions auto-détectées + erreurs récurrentes (Roadmap v2 #8)
+        conv_section = ""
+        err_section = ""
+        try:
+            conv_section = self.conventions.detect().format_for_prompt()
+        except Exception as exc:
+            logger.debug("Convention detection skipped: %s", exc)
+        try:
+            err_section = self.error_memory.format_for_prompt()
+        except Exception as exc:
+            logger.debug("Error memory format skipped: %s", exc)
         content = (
             f"{base_prompt}\n\n"
             f"Dossier projet actif: {PROJECT_ROOT}"
             f"{skills_section}"
             f"{lt_section}"
             f"{profile_section}"
+            f"{conv_section}"
+            f"{err_section}"
         )
 
         # Si un system message existe déjà → on le remplace (hot-swap).
@@ -264,6 +296,12 @@ class Orchestrator:
         # Lancer dans le sandbox du workdir (cwd = workdir, chemin relatif)
         rel_cmd = [c if c != full_path.name else rel_path for c in cmd]
         result = self.sandbox.run(rel_cmd, timeout=self._sandbox_timeout)
+        # Mémorise les erreurs récurrentes (Roadmap v2 #8)
+        if not result.success and result.stderr:
+            try:
+                self.error_memory.record(result.stderr, command=" ".join(rel_cmd))
+            except Exception as exc:
+                logger.debug("Error memory record skipped: %s", exc)
         report = result.format_for_llm()
         self._display_sandbox_result(report, result.success)
         return f"[sandbox auto-check]\n{report}"
