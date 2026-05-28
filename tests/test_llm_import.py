@@ -319,6 +319,27 @@ class TestImportLlmExport:
         result = import_llm_export("mon_export.json")
         assert "ERREUR" not in result
 
+    def test_meme_racine_que_write_file(self, tmp_path, monkeypatch):
+        """Régression (capture 29/05) : write_file écrit 'imports/<uuid>.json'
+        puis import_llm_export sur LE MÊME chemin disait « introuvable » car
+        IMPORTS_DIR était ancré sur la racine du code, pas sur PROJECT_ROOT.
+        Les deux outils doivent partager PROJECT_ROOT."""
+        import tools.llm_import as m
+        from tools.file_manager import FileManager
+        monkeypatch.setattr(m, "PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr(m, "IMPORTS_DIR", tmp_path / "imports")
+
+        data = [{"uuid": "x", "name": "Projet", "chat_messages": [
+            {"sender": "human", "text": "Décris le projet zouk RVC"}]}]
+        # write_file ancre sur PROJECT_ROOT, exactement comme dans l'app
+        FileManager(root=tmp_path).write_file(
+            "imports/019dfffb-1a2c-71db.json", json.dumps(data)
+        )
+        # import sur LE MÊME chemin relatif (avec le préfixe imports/)
+        result = m.import_llm_export("imports/019dfffb-1a2c-71db.json")
+        assert "ERREUR" not in result
+        assert "Projet" in result or "conversation" in result.lower()
+
 
 # ── list_imports ───────────────────────────────────────────────────────────────
 

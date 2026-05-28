@@ -6,9 +6,16 @@ Extrait les messages utilisateur pour permettre à Klody d'apprendre les pratiqu
 import json
 import re
 from pathlib import Path
-_KLODY_ROOT = Path(__file__).parent.parent
-IMPORTS_DIR = _KLODY_ROOT / "imports"
-IMPORTS_DIR.mkdir(exist_ok=True)
+
+from config import PROJECT_ROOT
+
+# Les imports vivent SOUS la racine projet (PROJECT_ROOT), exactement comme
+# tous les fichiers manipulés par write_file/list_files. Auparavant ancré sur
+# la racine du *code* (…/klody-code-ai), ce qui faisait diverger les deux :
+# l'agent écrivait dans <projet>/imports/ mais import_llm_export relisait dans
+# <code>/imports/ → « Fichier introuvable » alors que write_file disait OK.
+IMPORTS_DIR = PROJECT_ROOT / "imports"
+IMPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Taille max d'un extrait retourné au LLM
 MAX_CHARS = 12_000
@@ -205,15 +212,21 @@ def import_llm_export(path: str) -> str:
     """
     p = Path(path)
     if not p.is_absolute():
-        p = IMPORTS_DIR / path
+        # Même ancrage que write_file/list_files → relatif à PROJECT_ROOT.
+        # L'agent passe typiquement "imports/<uuid>.json" (avec le préfixe).
+        p = (PROJECT_ROOT / path).resolve()
 
     if not p.exists():
-        # Chercher dans imports/ si non trouvé
-        candidate = IMPORTS_DIR / p.name
+        # Tolérance : si on n'a reçu qu'un nom de fichier, on cherche dans imports/.
+        candidate = IMPORTS_DIR / Path(path).name
         if candidate.exists():
             p = candidate
         else:
-            available = [f.name for f in IMPORTS_DIR.iterdir() if f.suffix == ".json"]
+            available = (
+                [f.name for f in IMPORTS_DIR.iterdir() if f.suffix == ".json"]
+                if IMPORTS_DIR.exists()
+                else []
+            )
             hint = f"\nFichiers disponibles dans imports/ : {available}" if available else ""
             return f"ERREUR: Fichier introuvable — {path}{hint}"
 
