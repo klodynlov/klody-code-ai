@@ -34,6 +34,12 @@ CODE_MODEL="${MLX_CODE_MODEL:-mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit}"
 BRAIN_PORT="${MLX_PORT:-8080}"
 CODE_PORT="${MLX_CODE_PORT:-8081}"
 
+# Services satellites affichés en lecture seule dans `status` (jamais démarrés
+# ni arrêtés ici) : Ollama (fallback LLM + embeddings bge-m3) et LibraryBrain
+# (RAG). On dérive l'hôte:port depuis .env en retirant le suffixe de chemin.
+OLLAMA_ROOT="${OLLAMA_BASE_URL:-http://localhost:11434/v1}"; OLLAMA_ROOT="${OLLAMA_ROOT%/v1}"
+LB_ROOT="${LIBRARYBRAIN_URL:-http://127.0.0.1:8765/api/ask}"; LB_ROOT="${LB_ROOT%/api/ask}"
+
 LOGDIR="$ROOT/logs"; mkdir -p "$LOGDIR"
 RUNDIR="$ROOT/.run"; mkdir -p "$RUNDIR"
 
@@ -53,6 +59,14 @@ loaded_model() {
   ps -Ao args 2>/dev/null | grep "[m]lx_lm.server" | grep -- "--port $1" \
     | sed -n 's/.*--model[ =]\([^ ]*\).*/\1/p' | head -1
 }
+
+# Probes des services satellites — lecture seule, ne démarrent/arrêtent rien.
+ollama_alive() { curl -sf "$OLLAMA_ROOT/api/tags" -o /dev/null 2>/dev/null; }
+ollama_embed_model() {
+  curl -sf "$OLLAMA_ROOT/api/tags" 2>/dev/null \
+    | grep -o '"name":"[^"]*"' | sed 's/"name":"//; s/"$//' | grep -i bge | head -1
+}
+lb_alive() { curl -sf "$LB_ROOT/" -o /dev/null 2>/dev/null; }
 
 start_one() {
   local name="$1" model="$2" port="$3"
@@ -118,6 +132,19 @@ cmd_status() {
   echo "${c_dim}  RAM serveurs MLX :${c_reset}"
   ps -Ao rss,comm,args 2>/dev/null | grep "[m]lx_lm" \
     | awk '{printf "    %.1f GB  %s\n", $1/1048576, $0}' || echo "    (aucun)"
+  echo "${c_dim}  Services satellites :${c_reset}"
+  local op="${OLLAMA_ROOT##*:}" lp="${LB_ROOT##*:}"
+  if ollama_alive; then
+    local em; em="$(ollama_embed_model)"
+    printf "    %-12s :%s  ${c_grn}UP${c_reset}   %s\n" "ollama" "$op" "${em:+embed: $em}"
+  else
+    printf "    %-12s :%s  ${c_dim}down${c_reset}\n" "ollama" "$op"
+  fi
+  if lb_alive; then
+    printf "    %-12s :%s  ${c_grn}UP${c_reset}\n" "librarybrain" "$lp"
+  else
+    printf "    %-12s :%s  ${c_dim}down${c_reset}\n" "librarybrain" "$lp"
+  fi
 }
 
 ACTION="${1:-status}"
