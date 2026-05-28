@@ -132,6 +132,41 @@ def _js_script_tag(js: str) -> str:
     return f"\n<script{type_attr}>\n{js}\n</script>"
 
 
+# ── Réparation JS : const réassigné → let ─────────────────────────────────────
+# Le code généré déclare souvent en `const` une variable qu'il mute ensuite
+# (ex. `const radius = 14;` puis `radius += …` à la molette) → TypeError
+# "Assignment to constant variable" à chaque event. On rétrograde en `let` les
+# const effectivement réassignés (`let` est toujours valide là où `const` l'était).
+_CONST_DECL_RE = re.compile(r"\bconst\s+([A-Za-z_$][\w$]*)\s*=")
+_DECL_KW_RE = re.compile(r"\b(?:const|let|var)\s+$")
+# Écriture sur une variable : ++/--, ou `=` (hors == === =>), ou opérateur composé `OP=`.
+_ASSIGN_OP = r"(?:\+\+|--|(?:\*\*|<<|>>|&&|\|\||\?\?|[+\-*/%&|^])?=(?![=>]))"
+
+
+def _const_reassign_fix(js: str) -> str:
+    """Rétrograde en `let` les `const` réassignés plus loin (sinon TypeError navigateur)."""
+    names = set(_CONST_DECL_RE.findall(js))
+    if not names:
+        return js
+    reassigned: set[str] = set()
+    for name in names:
+        write_re = re.compile(r"(?<![\w$.])" + re.escape(name) + r"\s*" + _ASSIGN_OP)
+        for m in write_re.finditer(js):
+            # On ignore la déclaration elle-même (`const name =`), seule une
+            # écriture NON précédée d'un mot-clé de déclaration compte.
+            if _DECL_KW_RE.search(js[max(0, m.start() - 12) : m.start()]):
+                continue
+            reassigned.add(name)
+            break
+    if not reassigned:
+        return js
+
+    def _swap(m: re.Match) -> str:
+        return ("let" + m.group(1)) if m.group(2) in reassigned else m.group(0)
+
+    return re.sub(r"\bconst(\s+([A-Za-z_$][\w$]*)\s*=)", _swap, js)
+
+
 class _SilentHandler(SimpleHTTPRequestHandler):
     """Handler HTTP sans logs dans le terminal."""
 
@@ -361,6 +396,8 @@ def _build_document(
     html: str, css: str, js: str, scripts: list[str], styles: list[str], title: str
 ) -> tuple[str, list[str]]:
     """Assemble le document final puis complète les dépendances manquantes."""
+    # Répare le piège récurrent du JS généré : const muté → let.
+    js = _const_reassign_fix(js)
     # En mode ESM, l'import map gère les libs concernées (three…). On retire les
     # <script src> classiques de ces mêmes libs : chargés en script classique, un
     # build ESM lèverait une erreur, et on aurait un double chargement.

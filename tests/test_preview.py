@@ -11,6 +11,7 @@ from tools.preview import (
     _is_full_document,
     _build_document,
     _inject_missing_libs,
+    _const_reassign_fix,
 )
 
 
@@ -237,3 +238,62 @@ class TestEsmModules:
         preview_code("<div></div>", js="import('./x.js').then(m => m.run());", title="Dyn")
         out = _written(tmp_path)
         assert '<script type="module">' not in out
+
+
+# ── régression "Assignment to constant variable" : const muté → let ───────────
+
+class TestConstReassignFix:
+    """Le JS généré déclare souvent en `const` une variable qu'il mute ensuite
+    (ex. `const radius = 14;` puis `radius += …`) → TypeError navigateur."""
+
+    def test_const_reassigne_devient_let(self):
+        js = "const radius = 14;\nradius += 0.01;"
+        out = _const_reassign_fix(js)
+        assert "let radius = 14;" in out
+        assert "const radius" not in out
+
+    def test_const_compound_assign(self):
+        out = _const_reassign_fix("const s = 0;\ns *= 2;")
+        assert "let s = 0;" in out
+
+    def test_const_incrementé_devient_let(self):
+        out = _const_reassign_fix("const i = 0;\ni++;")
+        assert "let i = 0;" in out
+
+    def test_const_jamais_reassigné_reste_const(self):
+        js = "const PI = 3.14;\nconst area = PI * 2;"
+        out = _const_reassign_fix(js)
+        assert out == js  # aucune modification
+
+    def test_mutation_de_membre_ne_declenche_pas(self):
+        """`obj.x = 5` mute l'objet, pas le binding → const reste valide."""
+        js = "const obj = {};\nobj.x = 5;\nobj.y = 6;"
+        out = _const_reassign_fix(js)
+        assert out == js
+
+    def test_egalite_ne_declenche_pas(self):
+        """`==`, `===`, `=>` ne sont pas des réassignations."""
+        js = "const n = 1;\nif (n === 1) {}\nconst f = () => n;"
+        out = _const_reassign_fix(js)
+        assert out == js
+
+    def test_seul_le_const_mute_est_touché(self):
+        js = "const a = 1;\nconst b = 2;\na += 1;"
+        out = _const_reassign_fix(js)
+        assert "let a = 1;" in out
+        assert "const b = 2;" in out
+
+    def test_bout_en_bout_via_preview_code(self, tmp_path):
+        """Reproduit le bug maison 3D : const radius muté à la molette."""
+        js = (
+            "let rotY = 0, rotX = 0.3;\n"
+            "const radius = 14;\n"
+            "canvas.addEventListener('wheel', e => {\n"
+            "  radius += e.deltaY * 0.01;\n"
+            "  radius = Math.max(6, Math.min(25, radius));\n"
+            "});"
+        )
+        preview_code("<canvas id='house'></canvas>", js=js, title="Maison")
+        out = _written(tmp_path)
+        assert "let radius = 14;" in out
+        assert "const radius" not in out
