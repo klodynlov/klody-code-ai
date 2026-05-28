@@ -58,3 +58,6 @@ memory/
 
 # Klody cache (conventions, erreurs récurrentes — Roadmap v2 #8)
 .klody/
+
+# PID files de l'orchestrateur d'inférence locale (start-local-ai.sh)
+.run/
