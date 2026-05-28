@@ -74,6 +74,63 @@ _WARN_ONLY_MARKERS: dict[str, tuple[str, ...]] = {
     "Vue": ("vue.global", "vue.min", "vue@", "/vue/"),
 }
 
+# ── Support des modules ES ────────────────────────────────────────────────────
+# Un <script> classique ne peut pas contenir `import`/`export` (→ SyntaxError
+# "Cannot use import statement outside a module"). Le JS ESM doit être servi en
+# <script type="module">, et les imports par nom nu (`from 'three'`) exigent une
+# import map pointant vers le build ESM CDN.
+_ESM_RE = re.compile(r"^\s*(?:import(?![\w(])|export\b)", re.M)
+
+# Racine de package importée → entrées d'import map (URLs ESM CDN).
+_ESM_IMPORTMAP: dict[str, dict[str, str]] = {
+    "three": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    },
+}
+
+
+def _is_esm(js: str) -> bool:
+    """Vrai si le JS a un import/export de haut niveau (≠ import() dynamique)."""
+    return bool(js) and bool(_ESM_RE.search(js))
+
+
+def _imported_specifiers(js: str) -> set[str]:
+    """Specifiers de module importés : `from '...'` et `import '...'` (side-effect)."""
+    specs = set(re.findall(r"""from\s*['"]([^'"]+)['"]""", js))
+    specs |= set(re.findall(r"""import\s*['"]([^'"]+)['"]""", js))
+    return specs
+
+
+def _esm_managed_roots(js: str) -> set[str]:
+    """Racines de packages couvertes par l'import map (three, …)."""
+    return {
+        spec.split("/", 1)[0]
+        for spec in _imported_specifiers(js)
+        if spec.split("/", 1)[0] in _ESM_IMPORTMAP
+    }
+
+
+def _build_importmap(js: str) -> str:
+    """<script type=importmap> pour les libs ESM connues utilisées par le JS."""
+    if not _is_esm(js):
+        return ""
+    imports: dict[str, str] = {}
+    for root in _esm_managed_roots(js):
+        imports.update(_ESM_IMPORTMAP[root])
+    if not imports:
+        return ""
+    payload = json.dumps({"imports": imports}, indent=2)
+    return f'\n<script type="importmap">\n{payload}\n</script>'
+
+
+def _js_script_tag(js: str) -> str:
+    """Balise <script> du JS inline — type=module si le code est un module ES."""
+    if not js.strip():
+        return ""
+    type_attr = ' type="module"' if _is_esm(js) else ""
+    return f"\n<script{type_attr}>\n{js}\n</script>"
+
 
 class _SilentHandler(SimpleHTTPRequestHandler):
     """Handler HTTP sans logs dans le terminal."""
@@ -155,13 +212,15 @@ def _insert_before(doc: str, tag: str, snippet: str, *, fallback_end: bool) -> s
 
 def _wrap_fragment(html: str, css: str, js: str, scripts: list[str], styles: list[str], title: str) -> str:
     css_block = f"\n<style>\n{css}\n</style>" if css.strip() else ""
-    js_block = f"\n<script>\n{js}\n</script>" if js.strip() else ""
+    js_block = _js_script_tag(js)
+    # L'import map doit précéder tout <script type=module> : on la place en tête de <head>.
+    importmap = _build_importmap(js)
     return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title}</title>{_link_tags(styles)}{_script_tags(scripts)}{css_block}
+  <title>{title}</title>{importmap}{_link_tags(styles)}{_script_tags(scripts)}{css_block}
 </head>
 <body>
 {html}{js_block}
@@ -171,13 +230,13 @@ def _wrap_fragment(html: str, css: str, js: str, scripts: list[str], styles: lis
 
 def _inject_into_document(doc: str, css: str, js: str, scripts: list[str], styles: list[str]) -> str:
     """Injecte CSS/JS/scripts/styles supplémentaires dans un document HTML déjà complet."""
-    head_extra = _link_tags(styles) + _script_tags(scripts)
+    head_extra = _build_importmap(js) + _link_tags(styles) + _script_tags(scripts)
     if css.strip():
         head_extra += f"\n<style>\n{css}\n</style>"
     if head_extra:
         doc = _insert_before(doc, "</head>", head_extra, fallback_end=False)
     if js.strip():
-        doc = _insert_before(doc, "</body>", f"\n<script>\n{js}\n</script>", fallback_end=True)
+        doc = _insert_before(doc, "</body>", _js_script_tag(js), fallback_end=True)
     return doc
 
 
@@ -302,6 +361,13 @@ def _build_document(
     html: str, css: str, js: str, scripts: list[str], styles: list[str], title: str
 ) -> tuple[str, list[str]]:
     """Assemble le document final puis complète les dépendances manquantes."""
+    # En mode ESM, l'import map gère les libs concernées (three…). On retire les
+    # <script src> classiques de ces mêmes libs : chargés en script classique, un
+    # build ESM lèverait une erreur, et on aurait un double chargement.
+    if _is_esm(js):
+        roots = _esm_managed_roots(js)
+        if roots:
+            scripts = [u for u in scripts if not any(r in u.lower() for r in roots)]
     if _is_full_document(html):
         doc = _inject_into_document(html, css, js, scripts, styles)
     else:

@@ -1,5 +1,7 @@
 """Tests pour tools/preview.py — assemblage du document, dépendances CDN, feedback."""
 
+import re
+
 import pytest
 
 import tools.preview as preview_mod
@@ -177,3 +179,61 @@ class TestRegressionNestedDocument:
         # three.js déjà présent → pas réinjecté, pas d'avertissement
         assert out.count("three.min.js") == 1
         assert "⚠" not in result
+
+
+# ── régression écran noir : JS ESM (import) dans un <script> classique ────────
+
+class TestEsmModules:
+    """Le JS avec `import`/`export` doit être servi en module + import map,
+    sinon le navigateur lève 'Cannot use import statement outside a module'."""
+
+    _ESM_THREE = (
+        "import * as THREE from 'three';\n"
+        "import { OrbitControls } from 'three/addons/controls/OrbitControls.js';\n"
+        "const scene = new THREE.Scene();\n"
+        "new OrbitControls(camera, renderer.domElement);\n"
+    )
+
+    def test_import_genere_script_module(self, tmp_path):
+        preview_code("<canvas id='c'></canvas>", js=self._ESM_THREE, title="EarthESM")
+        out = _written(tmp_path)
+        assert '<script type="module">' in out
+        # le code import est conservé tel quel
+        assert "import * as THREE from 'three'" in out
+
+    def test_import_genere_importmap(self, tmp_path):
+        preview_code("<canvas id='c'></canvas>", js=self._ESM_THREE, title="EarthESM")
+        out = _written(tmp_path)
+        assert '<script type="importmap">' in out
+        assert '"three":' in out and "three.module.js" in out
+        assert '"three/addons/":' in out
+        # l'import map précède le script module (contrainte navigateur)
+        assert out.index('type="importmap"') < out.index('type="module"')
+
+    def test_three_classique_supprime_en_mode_esm(self, tmp_path):
+        """Un <script src> three classique passé avec du JS ESM est retiré
+        (un build module chargé en script classique planterait)."""
+        preview_code(
+            "<canvas id='c'></canvas>",
+            js=self._ESM_THREE,
+            scripts=["https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"],
+            title="EarthESM",
+        )
+        out = _written(tmp_path)
+        # aucun <script src="...three..."> classique (l'import map gère three)
+        assert not re.search(r'<script src="[^"]*three[^"]*"></script>', out)
+        # pas de double-injection du UMD r128 non plus
+        assert "three.js/r128" not in out
+
+    def test_js_classique_reste_script_simple(self, tmp_path):
+        """Non-régression : sans import/export, on garde un <script> classique."""
+        preview_code("<div></div>", js="const x = new THREE.Scene();", title="Classic")
+        out = _written(tmp_path)
+        assert '<script type="module">' not in out
+        assert '<script type="importmap">' not in out
+
+    def test_import_dynamique_reste_classique(self, tmp_path):
+        """import() dynamique est valide en script classique → pas de type=module."""
+        preview_code("<div></div>", js="import('./x.js').then(m => m.run());", title="Dyn")
+        out = _written(tmp_path)
+        assert '<script type="module">' not in out

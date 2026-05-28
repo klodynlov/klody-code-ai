@@ -34,9 +34,13 @@ def client(monkeypatch: pytest.MonkeyPatch):
         yield c
 
 
-def test_health_endpoint_degraded_when_llm_down(client):
+def test_health_endpoint_degraded_when_llm_down(client, monkeypatch):
     """Sans backend LLM joignable, /health doit retourner 503 + 'degraded'."""
-    # En env de test, aucun MLX/Ollama n'est up → degraded attendu.
+    # Sonde forcée à down (sinon le test dépend de l'environnement : il échouait
+    # quand un vrai MLX/Ollama tournait sur la machine de dev).
+    async def _down_probe(*_a, **_kw):
+        return False
+    monkeypatch.setattr("api.server._probe_url", _down_probe)
     r = client.get("/health")
     assert r.status_code == 503
     body = r.json()
