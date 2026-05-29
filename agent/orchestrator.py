@@ -695,6 +695,14 @@ class Orchestrator:
                 return pv_list_previews()
             if tool_name == "stop_preview_server":
                 return pv_stop_server()
+            # ─ Audio (tools/audio.py) ─────────────────────────────────────
+            if tool_name in (
+                "analyze_audio", "edit_wav", "mix_stems",
+                "generate_silence", "convert_format", "get_waveform_data",
+            ):
+                from tools import audio as _audio
+                fn = getattr(_audio, tool_name)
+                return json.dumps(fn(**tool_args), ensure_ascii=False, indent=2)
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:

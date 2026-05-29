@@ -804,7 +804,133 @@ PREVIEW_TOOLS = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS]
+AUDIO_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_audio",
+            "description": (
+                "Analyse un fichier audio : durée, BPM, tonalité estimée, "
+                "RMS/peak en dB, sample rate, nombre de canaux. Lecture seule."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin (relatif au projet ou absolu sous une racine autorisée) vers le fichier audio.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_wav",
+            "description": (
+                "Édite un fichier audio : trim (start/end), fade in/out, "
+                "normalisation. Écrit dans `output` (défaut: écrase l'original)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Fichier audio source."},
+                    "start": {"type": "number", "description": "Début en secondes (défaut 0)."},
+                    "end": {"type": "number", "description": "Fin en secondes (défaut = fin du fichier)."},
+                    "fade_in": {"type": "number", "description": "Durée du fade in en secondes."},
+                    "fade_out": {"type": "number", "description": "Durée du fade out en secondes."},
+                    "normalize": {"type": "boolean", "description": "Normaliser le peak à -1.0."},
+                    "output": {"type": "string", "description": "Chemin de sortie (défaut: écrase l'entrée)."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mix_stems",
+            "description": (
+                "Mixe plusieurs fichiers audio (stems) en un seul, avec gains "
+                "en dB optionnels par stem. Resample auto au sample rate du 1er."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Liste de chemins audio à mixer.",
+                    },
+                    "gains": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Gain en dB par stem (même longueur que `paths`). Défaut: 0 dB partout.",
+                    },
+                    "output": {"type": "string", "description": "Chemin de sortie (défaut: mixed_output.wav)."},
+                },
+                "required": ["paths"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_silence",
+            "description": "Crée un fichier de silence de la durée demandée.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {"type": "number", "description": "Durée en secondes."},
+                    "sr": {"type": "integer", "description": "Sample rate (défaut 44100)."},
+                    "output": {"type": "string", "description": "Chemin de sortie (défaut silence.wav)."},
+                },
+                "required": ["duration"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_format",
+            "description": (
+                "Convertit un fichier audio vers un autre format (wav, mp3, "
+                "flac, ogg). Utilise librosa si dispo, sinon ffmpeg en fallback."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Fichier audio source."},
+                    "target_format": {"type": "string", "description": "Format cible (wav|mp3|flac|ogg). Défaut wav."},
+                    "output": {"type": "string", "description": "Chemin de sortie (défaut: même stem, nouvelle extension)."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_waveform_data",
+            "description": (
+                "Extrait des valeurs RMS downsamplées pour visualiser la "
+                "waveform d'un fichier audio (utile pour rendu graphique)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Fichier audio source."},
+                    "num_points": {"type": "integer", "description": "Nombre de points à retourner (défaut 256)."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS]
 
 
 def get_tools() -> list[dict]:
