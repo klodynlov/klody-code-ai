@@ -384,7 +384,8 @@ MCP_TOOLS = [
                 "Récupère les conventions et patterns techniques d'un domaine spécifique. "
                 "Utilise cet outil avant de générer du code pour respecter les conventions "
                 "du projet dans ce domaine. "
-                "Domaines disponibles : symfony, nextjs, python, mlx."
+                "Domaines disponibles : symfony, nextjs, python, mlx, claude_code "
+                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent)."
             ),
             "parameters": {
                 "type": "object",
@@ -392,7 +393,7 @@ MCP_TOOLS = [
                     "domain": {
                         "type": "string",
                         "description": "Domaine technique cible",
-                        "enum": ["symfony", "nextjs", "python", "mlx"],
+                        "enum": ["symfony", "nextjs", "python", "mlx", "claude_code"],
                     },
                 },
                 "required": ["domain"],
@@ -404,10 +405,12 @@ MCP_TOOLS = [
         "function": {
             "name": "learn_from_books",
             "description": (
-                "Apprend un sujet depuis LibraryBrain et le mémorise comme compétence permanente. "
+                "Apprend un sujet et le mémorise comme compétence permanente. "
                 "Utilise cet outil quand l'utilisateur veut enrichir tes connaissances sur un sujet, "
                 "ou quand tu identifies un domaine où tu pourrais être plus compétent. "
-                "Combine recherche dans les livres + sauvegarde en skill réutilisable."
+                "Combine la recherche dans les livres (LibraryBrain) + les principes d'ingénierie "
+                "pertinents du domaine claude_code + sauvegarde en skill réutilisable. "
+                "Reste utile même si LibraryBrain est hors-ligne."
             ),
             "parameters": {
                 "type": "object",

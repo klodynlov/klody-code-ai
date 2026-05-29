@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -100,13 +101,51 @@ def _is_domain_file(path: Path) -> bool:
         return False
 
 
-def learn_from_books(topic: str, skill_name: str = "") -> str:
-    """Cherche un sujet dans LibraryBrain et sauvegarde le résultat comme skill permanente.
+def _claude_code_skills_for(topic: str, limit: int = 4) -> list[dict]:
+    """Retourne les compétences du domaine claude_code les plus pertinentes pour un sujet.
 
-    Combine search_books + save_skill en une seule action :
-    1. Recherche sémantique dans la bibliothèque
-    2. Formate le résultat comme connaissance réutilisable
-    3. Sauvegarde en tant que compétence Klody
+    Matching lexical simple : score chaque entrée par le nombre de mots du sujet (>2 lettres)
+    présents dans son titre, son contenu ou ses tags. Retourne les `limit` meilleures.
+    """
+    path = SKILLS_DIR / "claude_code.json"
+    if not _is_domain_file(path):
+        return []
+    try:
+        skills = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    words = {w for w in re.findall(r"\w+", topic.lower()) if len(w) > 2}
+    if not words:
+        return []
+
+    scored: list[tuple[int, dict]] = []
+    for s in skills:
+        haystack = f"{s.get('title', '')} {s.get('content', '')} {' '.join(s.get('tags', []))}".lower()
+        score = sum(1 for w in words if w in haystack)
+        if score:
+            scored.append((score, s))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [s for _, s in scored[:limit]]
+
+
+def _format_claude_code_skills(skills: list[dict]) -> str:
+    """Formate des compétences claude_code en bloc texte injectable dans une skill apprise."""
+    lines = ["## Principes d'ingénierie applicables (domaine claude_code)"]
+    for s in skills:
+        lines.append(f"\n### {s['title']}\n{s['content']}")
+    return "\n".join(lines)
+
+
+def learn_from_books(topic: str, skill_name: str = "") -> str:
+    """Apprend un sujet et le sauvegarde comme skill permanente.
+
+    Combine deux sources puis save_skill en une seule action :
+    1. Recherche sémantique dans LibraryBrain (livres)
+    2. Principes d'ingénierie pertinents du domaine claude_code (local)
+    3. Sauvegarde en tant que compétence Klody réutilisable
+
+    Reste utile même si LibraryBrain est hors-ligne, tant que claude_code a des entrées pertinentes.
 
     Args:
         topic: Sujet à apprendre (ex: "design patterns Python", "optimisation SQL")
@@ -114,22 +153,37 @@ def learn_from_books(topic: str, skill_name: str = "") -> str:
     """
     from tools.skills import save_skill
 
-    result = search_books(topic, limit=5)
+    book_result = search_books(topic, limit=5)
+    book_failed = book_result.startswith(("Aucun", "LibraryBrain", "Erreur"))
 
-    if result.startswith(("Aucun", "LibraryBrain", "Erreur")):
-        return f"Impossible d'apprendre sur « {topic} » : {result}"
+    cc_skills = _claude_code_skills_for(topic)
+
+    if book_failed and not cc_skills:
+        return f"Impossible d'apprendre sur « {topic} » : {book_result}"
+
+    parts: list[str] = []
+    sources: list[str] = []
+    if not book_failed:
+        parts.append(book_result)
+        sources.append("LibraryBrain")
+    if cc_skills:
+        parts.append(_format_claude_code_skills(cc_skills))
+        sources.append("domaine claude_code")
+    content = "\n\n".join(parts)
 
     name = skill_name or f"Connaissances : {topic[:50]}"
-    description = f"Appris depuis LibraryBrain — {topic}"
+    description = f"Appris depuis {' + '.join(sources)} — {topic}"
 
-    save_result = save_skill(name, description, result)
-    logger.info("[learn_from_books] Skill créée : %s", name)
+    save_result = save_skill(name, description, content)
+    logger.info("[learn_from_books] Skill créée : %s (sources: %s)", name, sources)
 
+    extra = f"\n  + {len(cc_skills)} principe(s) claude_code intégré(s)" if cc_skills else ""
     return (
         f"✅ Nouvelle connaissance acquise !\n"
         f"  Sujet : {topic}\n"
+        f"  Sources : {', '.join(sources)}{extra}\n"
         f"  {save_result}\n\n"
-        f"Contenu appris :\n{result[:1500]}"
+        f"Contenu appris :\n{content[:1500]}"
     )
 
 

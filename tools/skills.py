@@ -6,6 +6,8 @@ qui seront rechargés automatiquement à chaque démarrage.
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -14,11 +16,19 @@ from config import SKILLS_DIR
 logger = logging.getLogger(__name__)
 
 
+def _slugify(name: str) -> str:
+    """Transforme un nom en slug sûr pour un nom de fichier : ascii, minuscules,
+    accents translittérés (é→e), tout caractère non [a-z0-9-] remplacé par '_'."""
+    ascii_name = unicodedata.normalize("NFKD", name.lower()).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9-]+", "_", ascii_name).strip("_-")
+    return slug[:40].strip("_-") or "skill"
+
+
 def save_skill(name: str, description: str, content: str) -> str:
     """Sauvegarde une compétence ou un pattern utile."""
     SKILLS_DIR.mkdir(exist_ok=True)
 
-    slug = name.lower().replace(" ", "_").replace("/", "_")[:40]
+    slug = _slugify(name)
     path = SKILLS_DIR / f"{slug}.json"
 
     existed = path.exists()
