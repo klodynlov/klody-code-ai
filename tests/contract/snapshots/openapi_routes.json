@@ -18,12 +18,33 @@
       "params": [],
       "has_body": false,
       "body_required": false
+    },
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
     }
   },
   "/api/memories/{key}": {
     "DELETE": {
       "params": [
         "key"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/skills": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/skills/{slug}": {
+    "DELETE": {
+      "params": [
+        "slug"
       ],
       "has_body": false,
       "body_required": false

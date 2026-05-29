@@ -149,6 +149,77 @@ class TestMemoriesEndpoints:
         assert r.status_code == 200
         assert r.json()["ok"] is False
 
+    def test_add_memory(self, client, monkeypatch):
+        c, _ = client
+        captured = {}
+
+        class FakeLTM:
+            def list_all(self): return []
+            def remember(self, key, content, category):
+                captured.update(key=key, content=content, category=category)
+                return f"Mémorisé : [{category}] {key}"
+
+        monkeypatch.setattr("api.server.get_long_term_memory", lambda: FakeLTM())
+        r = c.post("/api/memories", json={
+            "key": "Stack Préférée", "content": "Python + FastAPI", "category": "preference",
+        })
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+        assert captured == {
+            "key": "Stack Préférée", "content": "Python + FastAPI", "category": "preference",
+        }
+
+    def test_add_memory_categorie_invalide_retombe_sur_context(self, client, monkeypatch):
+        c, _ = client
+        captured = {}
+
+        class FakeLTM:
+            def list_all(self): return []
+            def remember(self, key, content, category):
+                captured["category"] = category
+                return "Mémorisé"
+
+        monkeypatch.setattr("api.server.get_long_term_memory", lambda: FakeLTM())
+        r = c.post("/api/memories", json={"key": "k", "content": "v", "category": "n_importe_quoi"})
+        assert r.status_code == 200
+        assert captured["category"] == "context"
+
+    def test_add_memory_champs_manquants(self, client):
+        c, _ = client
+        r = c.post("/api/memories", json={"key": "", "content": ""})
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+
+class TestSkillsEndpoints:
+    def test_list(self, client, monkeypatch):
+        c, _ = client
+        fake = [
+            {"name": "Snippet FastAPI", "slug": "snippet_fastapi",
+             "description": "boot rapide", "content": "...", "updated": "2026-05-29"},
+        ]
+        monkeypatch.setattr("api.server.load_skills", lambda: fake)
+        r = c.get("/api/skills")
+        assert r.status_code == 200
+        assert r.json() == fake
+
+    def test_delete_existing(self, client, monkeypatch):
+        c, _ = client
+        monkeypatch.setattr(
+            "api.server.delete_skill",
+            lambda slug: f"Compétence « {slug} » supprimée." if slug == "known" else "introuvable",
+        )
+        r = c.delete("/api/skills/known")
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+    def test_delete_unknown(self, client, monkeypatch):
+        c, _ = client
+        monkeypatch.setattr("api.server.delete_skill", lambda slug: f"Skill '{slug}' introuvable.")
+        r = c.delete("/api/skills/ghost")
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
 
 class TestStopGeneration:
     def test_sets_stop_flag(self, client):

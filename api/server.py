@@ -26,6 +26,7 @@ from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
 from agent.long_term_memory import get_long_term_memory
 from agent.memory_extractor import extract_and_save
+from tools.skills import load_skills, delete_skill
 from api import metrics as _metrics
 
 logger = logging.getLogger(__name__)
@@ -176,10 +177,40 @@ async def list_memories():
     return get_long_term_memory().list_all()
 
 
+@app.post("/api/memories")
+async def add_memory(request: Request):
+    """Enregistre un fait (commande /remember de l'UI). {key, content, category?}."""
+    body = await request.json()
+    key = (body.get("key") or "").strip()
+    content = (body.get("content") or "").strip()
+    category = (body.get("category") or "context").strip()
+    if not key or not content:
+        return {"ok": False, "message": "key et content sont requis."}
+    if category not in ("user", "project", "preference", "context"):
+        category = "context"
+    result = get_long_term_memory().remember(key, content, category)
+    return {"ok": not result.startswith("ERREUR"), "message": result}
+
+
 @app.delete("/api/memories/{key}")
 async def delete_memory(key: str):
     result = get_long_term_memory().forget(key)
     return {"ok": "Oublié" in result, "message": result}
+
+
+# ── Skills (compétences persistantes) ───────────────────────────────────────────
+
+@app.get("/api/skills")
+async def list_skills_route():
+    """Liste les compétences enregistrées (commande /skills de l'UI)."""
+    return load_skills()
+
+
+@app.delete("/api/skills/{slug}")
+async def delete_skill_route(slug: str):
+    """Supprime une compétence par son slug."""
+    result = delete_skill(slug)
+    return {"ok": "supprimée" in result, "message": result}
 
 
 @app.get("/api/sessions/{session_id}/export")
