@@ -2,7 +2,12 @@ import difflib
 import logging
 from pathlib import Path
 
-from config import MAX_FILE_SIZE, PROJECT_ROOT
+from config import (
+    MAX_FILE_SIZE,
+    PROJECT_ROOT,
+    build_allowed_roots,
+    match_allowed_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +24,11 @@ class SandboxViolation(Exception):
 
 
 class FileManager:
-    def __init__(self, root: Path = PROJECT_ROOT):
+    def __init__(self, root: Path = PROJECT_ROOT, allowed_roots: list[Path] | None = None):
         self.root = root.resolve()
+        # Racines où la lecture/écriture est permise. `self.root` (projet courant)
+        # est toujours en tête ; les autres viennent d'ALLOWED_ROOTS ou de l'appelant.
+        self.allowed_roots = build_allowed_roots(self.root, allowed_roots)
 
     # ------------------------------------------------------------------ #
     # Validation sandbox                                                   #
@@ -28,30 +36,30 @@ class FileManager:
 
     def _validate_path(self, path: str) -> Path:
         """
-        Résout et valide un chemin relatif dans la sandbox.
-        Lève SandboxViolation si le chemin sort du sandbox.
+        Résout et valide un chemin (relatif au projet courant, ou absolu).
+        Lève SandboxViolation s'il ne tombe sous aucune racine autorisée.
         """
         if not path or not path.strip():
             raise SandboxViolation("Chemin vide non autorisé")
 
-        p = Path(path)
+        p = Path(path).expanduser()
         if p.is_absolute():
-            raise SandboxViolation(f"Chemin absolu interdit: {path}")
+            resolved = p.resolve()
+        else:
+            resolved = (self.root / p).resolve()
 
-        resolved = (self.root / p).resolve()
+        if match_allowed_root(resolved, self.allowed_roots) is None:
+            raise SandboxViolation(
+                f"Chemin hors des racines autorisées: '{path}' → '{resolved}'"
+            )
 
-        try:
-            resolved.relative_to(self.root)
-        except ValueError:
-            raise SandboxViolation(f"Chemin hors sandbox: '{path}' → '{resolved}'")
-
-        # Symlink qui pointerait hors sandbox
-        if resolved.exists() and resolved.is_symlink():
+        # Symlink qui pointerait hors des racines autorisées
+        if resolved.is_symlink():
             link_target = resolved.resolve()
-            try:
-                link_target.relative_to(self.root)
-            except ValueError:
-                raise SandboxViolation(f"Symlink sortant du sandbox: '{path}' → '{link_target}'")
+            if match_allowed_root(link_target, self.allowed_roots) is None:
+                raise SandboxViolation(
+                    f"Symlink sortant des racines autorisées: '{path}' → '{link_target}'"
+                )
 
         return resolved
 
@@ -153,7 +161,11 @@ class FileManager:
             if len(lines) >= MAX_ENTRIES:
                 truncated += 1
                 continue
-            rel = entry.relative_to(self.root)
+            base = match_allowed_root(entry, self.allowed_roots) or self.root
+            try:
+                rel = entry.relative_to(base)
+            except ValueError:
+                rel = entry
             if entry.is_dir():
                 lines.append(f"📁 {rel}/")
             else:

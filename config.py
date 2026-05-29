@@ -68,6 +68,52 @@ GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 PROJECTS_DIR: Path = Path(os.getenv("PROJECTS_DIR", str(Path.home() / "Projets"))).resolve()
 PYCHARM_CMD: str = os.getenv("PYCHARM_CMD", "/usr/local/bin/pycharm")
 
+# --- Sandbox multi-racines (lecture/écriture) ---
+# Liste de dossiers (séparés par os.pathsep, ':' sur macOS/Linux) où Klody peut
+# lire et écrire. Le projet courant (PROJECT_ROOT) est toujours autorisé même
+# absent de la liste ; tout chemin hors de ces racines est refusé. Le blocage
+# des fichiers sensibles (.env, clés, certificats) reste actif partout.
+# Défaut : PROJECT_ROOT + PROJECTS_DIR. Exemple .env :
+#   ALLOWED_ROOTS=/Users/moi/Projets:/Users/moi/work:/Users/moi/sites
+def _parse_roots(raw: str) -> list[Path]:
+    roots: list[Path] = []
+    for part in raw.split(os.pathsep):
+        part = part.strip()
+        if not part:
+            continue
+        resolved = Path(part).expanduser().resolve()
+        if resolved not in roots:
+            roots.append(resolved)
+    return roots
+
+
+ALLOWED_ROOTS: list[Path] = _parse_roots(
+    os.getenv("ALLOWED_ROOTS", os.pathsep.join([str(PROJECT_ROOT), str(PROJECTS_DIR)]))
+)
+
+
+def build_allowed_roots(primary: Path, extra: list[Path] | None = None) -> list[Path]:
+    """Racines autorisées d'un outil : `primary` en tête (toujours autorisée),
+    puis les racines `extra` (défaut ALLOWED_ROOTS), dédupliquées."""
+    primary = primary.resolve()
+    roots: list[Path] = [primary]
+    for r in (ALLOWED_ROOTS if extra is None else extra):
+        rr = Path(r).resolve()
+        if rr not in roots:
+            roots.append(rr)
+    return roots
+
+
+def match_allowed_root(resolved: Path, roots: list[Path]) -> Path | None:
+    """Première racine de `roots` contenant `resolved`, sinon None."""
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            return root
+        except ValueError:
+            continue
+    return None
+
 # --- Preview ---
 PREVIEW_DIR: Path = Path(os.getenv("PREVIEW_DIR", str(Path(__file__).parent / "_preview"))).resolve()
 PREVIEW_PORT: int = int(os.getenv("PREVIEW_PORT", 8899))

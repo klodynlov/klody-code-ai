@@ -52,7 +52,7 @@ class TestFileManagerPathTraversal:
             fm.read_file(".\\..\\windows\\system32")
 
     def test_absolute_path_rejected(self, fm):
-        with pytest.raises(SandboxViolation, match="absolu"):
+        with pytest.raises(SandboxViolation, match="hors des racines"):
             fm.read_file("/etc/passwd")
 
     def test_absolute_path_windows_rejected(self, fm):

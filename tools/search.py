@@ -3,7 +3,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from config import PROJECT_ROOT
+from config import PROJECT_ROOT, build_allowed_roots, match_allowed_root
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +12,9 @@ MAX_RESULTS = 100
 
 
 class Search:
-    def __init__(self, root: Path = PROJECT_ROOT):
+    def __init__(self, root: Path = PROJECT_ROOT, allowed_roots: list[Path] | None = None):
         self.root = root.resolve()
+        self.allowed_roots = build_allowed_roots(self.root, allowed_roots)
 
     def search_in_files(
         self,
@@ -29,11 +30,10 @@ class Search:
         if not pattern.strip():
             return "ERREUR: Pattern de recherche vide"
 
-        search_path = (self.root / path).resolve()
-        try:
-            search_path.relative_to(self.root)
-        except ValueError:
-            return f"ERREUR: Chemin hors sandbox: {path}"
+        p = Path(path).expanduser()
+        search_path = p.resolve() if p.is_absolute() else (self.root / p).resolve()
+        if match_allowed_root(search_path, self.allowed_roots) is None:
+            return f"ERREUR: Chemin hors des racines autorisées: {path}"
 
         if not search_path.exists():
             return f"ERREUR: Chemin introuvable: {path}"

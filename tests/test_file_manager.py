@@ -24,8 +24,8 @@ def sample_file(tmp_path):
 # ------------------------------------------------------------------ #
 
 class TestSandboxSecurity:
-    def test_chemin_absolu_bloque(self, sandbox):
-        with pytest.raises(SandboxViolation, match="absolu"):
+    def test_chemin_absolu_hors_racines_bloque(self, sandbox):
+        with pytest.raises(SandboxViolation, match="hors des racines"):
             sandbox._validate_path("/etc/passwd")
 
     def test_path_traversal_bloque(self, sandbox):
@@ -241,3 +241,51 @@ class TestDiffFiles:
         result = sandbox.diff_files("f1.txt", "f2.txt")
         assert "-avant" in result
         assert "+après" in result
+
+
+# ------------------------------------------------------------------ #
+# Racines autorisées multiples (multi-projets)                        #
+# ------------------------------------------------------------------ #
+
+class TestRacinesAutorisees:
+    def _two_roots(self, tmp_path):
+        a = tmp_path / "proj_a"
+        b = tmp_path / "proj_b"
+        a.mkdir()
+        b.mkdir()
+        return a, b
+
+    def test_lecture_absolue_dans_autre_racine_ok(self, tmp_path):
+        a, b = self._two_roots(tmp_path)
+        (b / "f.txt").write_text("contenu B", encoding="utf-8")
+        fm = FileManager(root=a, allowed_roots=[a, b])
+        assert fm.read_file(str(b / "f.txt")) == "contenu B"
+
+    def test_ecriture_absolue_dans_autre_racine_ok(self, tmp_path):
+        a, b = self._two_roots(tmp_path)
+        fm = FileManager(root=a, allowed_roots=[a, b])
+        fm.write_file(str(b / "sub" / "new.py"), "print('hi')")
+        assert (b / "sub" / "new.py").read_text() == "print('hi')"
+
+    def test_chemin_hors_toutes_racines_bloque(self, tmp_path):
+        a, _ = self._two_roots(tmp_path)
+        dehors = tmp_path / "dehors"
+        dehors.mkdir()
+        fm = FileManager(root=a, allowed_roots=[a])
+        with pytest.raises(SandboxViolation, match="hors des racines"):
+            fm._validate_path(str(dehors / "x.txt"))
+
+    def test_root_primaire_toujours_autorise(self, tmp_path):
+        a, _ = self._two_roots(tmp_path)
+        autre = tmp_path / "autre"
+        autre.mkdir()
+        # allowed_roots ne contient PAS `a` : il doit quand même être ajouté.
+        fm = FileManager(root=a, allowed_roots=[autre])
+        fm.write_file("dans_a.txt", "ok")
+        assert (a / "dans_a.txt").read_text() == "ok"
+
+    def test_fichier_sensible_bloque_meme_dans_racine_autorisee(self, tmp_path):
+        a, b = self._two_roots(tmp_path)
+        fm = FileManager(root=a, allowed_roots=[a, b])
+        with pytest.raises(SandboxViolation):
+            fm.write_file(str(b / ".env"), "SECRET=1")
