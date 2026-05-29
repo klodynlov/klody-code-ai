@@ -14,19 +14,19 @@ from agent.router import Router, RoutingDecision, _decide_strategy
 class TestStrategie:
     def test_easy_pas_de_planner(self):
         s = _decide_strategy("easy", "edit")
-        assert s["max_iterations"] == 3
+        assert s["max_iterations"] == 6
         assert s["use_planner"] is False
         assert s["use_best_of_n"] is False
 
     def test_hard_planner_et_best_of_n(self):
         s = _decide_strategy("hard", "bug_fix")
-        assert s["max_iterations"] == 10
+        assert s["max_iterations"] == 25
         assert s["use_planner"] is True
         assert s["use_best_of_n"] is True
 
     def test_medium_feature_active_planner(self):
         s = _decide_strategy("medium", "feature")
-        assert s["max_iterations"] == 8
+        assert s["max_iterations"] == 14
         assert s["use_planner"] is True
         assert s["use_best_of_n"] is False
 
@@ -49,7 +49,7 @@ class TestParsing:
         d = router._parse_response(raw, "renomme x en y")
         assert d.difficulty == "easy"
         assert d.task_type == "edit"
-        assert d.max_iterations == 3
+        assert d.max_iterations == 6
         assert d.use_planner is False
 
     def test_json_avec_markdown(self, router):
@@ -110,7 +110,7 @@ class TestClassifyMocked:
 
         assert d.difficulty == "easy"
         assert d.task_type == "edit"
-        assert d.max_iterations == 3
+        assert d.max_iterations == 6
 
     def test_exception_llm_renvoie_fallback(self):
         with patch("agent.router.OpenAI") as mock_openai:

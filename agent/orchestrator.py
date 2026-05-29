@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 
 from rich.console import Console
@@ -200,6 +201,35 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
     if has_enumeration and intent_count >= 1:
         return True
     return False
+
+
+# Messages courts qui poursuivent la tâche en cours plutôt que d'en lancer une
+# nouvelle ("ok", "vas-y", "c'est bon ?", "continue"…). Le `.?` tolère les
+# variantes d'apostrophe/accent (c'est / cest / c est).
+_CONTINUATION_RE = re.compile(
+    r"^(ok(ay)?|oki|d.?accord|ouais?|oui|yep|yes|go|allez|allons?[- ]?y|"
+    r"vas[- ]?y|c.?est bon|c.?est fait|c.?est ok|ca marche|ça marche|"
+    r"continue[rz]?|poursui[ts]|termine|finis|fais[- ]?(le|ça|ca)|"
+    r"envoie|parfait|nickel|super|impec(cable)?|go go|on y va)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_continuation(text: str) -> bool:
+    """Vrai si `text` est une relance courte de la tâche en cours (pas une
+    nouvelle demande). Sert au routeur à ne pas rétrograder en `easy`."""
+    t = text.strip()
+    if not t or len(t) > 40:
+        return False
+    return bool(_CONTINUATION_RE.match(t))
+
+
+# Auto-continue : quand le budget d'itérations est épuisé alors que l'agent
+# travaille encore (des tools ont été appelés dans la passe), on prolonge le
+# budget au lieu d'arrêter et de forcer l'utilisateur à relancer. Borné pour
+# éviter l'emballement sur une mauvaise piste.
+_MAX_AUTO_EXTENSIONS = 3
+_AUTO_EXTENSION_SIZE = 8
 
 
 def _format_file_tree(listing: str, root: str) -> Tree:
@@ -893,15 +923,17 @@ class Orchestrator:
         max_iter = MAX_ITERATIONS
         if self._router_enabled:
             try:
-                trimmed = user_input.strip()
-                is_short_followup = (
-                    len(trimmed) < 40
-                    and self.last_routing is not None
-                    and self.last_routing.difficulty in ("medium", "hard")
+                # Cliquet anti-rétrogradation : une relance courte ("ok", "vas-y",
+                # "c'est bon ?", "continue") poursuit la tâche en cours — on réutilise
+                # la dernière décision au lieu de re-classer le message en `easy`
+                # (ce qui rabotait le budget à 3 itérations et forçait à relancer).
+                is_continuation = (
+                    self.last_routing is not None
+                    and _is_continuation(user_input)
                 )
-                if is_short_followup:
+                if is_continuation:
                     decision = self.last_routing
-                    logger.info("Router sticky : réutilise %s/%s pour follow-up court",
+                    logger.info("Router : continuation détectée → réutilise %s/%s",
                                 decision.difficulty, decision.task_type)
                 else:
                     decision = self.router.classify(user_input)
@@ -916,7 +948,49 @@ class Orchestrator:
         # Mémoriser le prompt utilisateur courant (utilisé par Best-of-N)
         self._current_user_prompt = user_input
 
-        for iteration in range(max_iter):
+        iteration = -1
+        extensions = 0
+        tools_called_in_pass = False
+        while True:
+            iteration += 1
+            if iteration >= max_iter:
+                # Budget épuisé sans réponse finale. Auto-continue (A) : si la tâche
+                # est actionnable (elle DOIT produire des changements), que l'agent
+                # travaillait encore (tools appelés) et qu'il reste des extensions,
+                # on prolonge au lieu d'arrêter et de forcer l'utilisateur à relancer.
+                # Les tâches `explain`/`edit` ne sont pas prolongées (une boucle de
+                # lecture sans fin est un stall, pas du travail).
+                is_actionable = (
+                    self.last_routing is not None
+                    and self.last_routing.task_type
+                    in ("feature", "refactor", "self_dev", "bug_fix")
+                )
+                if is_actionable and tools_called_in_pass and extensions < _MAX_AUTO_EXTENSIONS:
+                    extensions += 1
+                    max_iter += _AUTO_EXTENSION_SIZE
+                    tools_called_in_pass = False
+                    logger.info("[auto-continue] extension %d/%d → max_iter=%d",
+                                extensions, _MAX_AUTO_EXTENSIONS, max_iter)
+                    console.print(
+                        f"\n[dim cyan]  ⟳  Tâche non terminée — budget prolongé "
+                        f"(+{_AUTO_EXTENSION_SIZE}, {extensions}/{_MAX_AUTO_EXTENSIONS})[/dim cyan]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            "Ton budget d'itérations vient d'être prolongé car la tâche "
+                            "n'est pas terminée. Continue directement l'étape en cours, "
+                            "puis conclus dès que c'est fait."
+                        ),
+                        "timestamp": None,
+                    })
+                    continue
+                console.print(
+                    f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}).[/yellow]"
+                )
+                logger.warning("Limite d'itérations: %d", max_iter)
+                break
+
             if iteration > 0:
                 console.print(
                     f"\n[dim]  ⟳  Itération {iteration + 1}/{max_iter}[/dim]"
@@ -987,6 +1061,7 @@ class Orchestrator:
                     self.memory.add_tool_result(tool_id, tool_name, result)
                     self.profiler.track_tool_usage(tool_name)
 
+                tools_called_in_pass = True
                 continue
 
             else:
@@ -1069,11 +1144,6 @@ class Orchestrator:
                         # On break après — l'utilisateur a son résultat (preview ouverte, fichier écrit, etc.)
                 break
 
-        else:
-            console.print(
-                f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}).[/yellow]"
-            )
-            logger.warning("Limite d'itérations: %d", max_iter)
         # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)
         self._anti_stall_fired = False
         self._anti_stall_iter = -1

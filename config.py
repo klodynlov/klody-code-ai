@@ -33,7 +33,7 @@ PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
 
 # --- Limites ---
 MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", 1024 * 1024))  # 1 MB
-MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 10))
+MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 25))
 MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 
