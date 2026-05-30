@@ -1,0 +1,7 @@
+{
+  "name": "Garde-fou anti-SSRF pour un fetch web",
+  "slug": "garde-fou_anti-ssrf_pour_un_fetch_web",
+  "description": "Lire le web cote agent sans exposer le reseau interne (cf. klody_mcp/web_server.py).",
+  "content": "Lecture seule (GET) + SSRF strict :\n- Schema in {http, https} uniquement (rejeter file/ftp/gopher/javascript).\n- Resoudre l'hote (socket.getaddrinfo) et REFUSER toute IP is_private|is_loopback|is_link_local|is_reserved|is_multicast|is_unspecified (gerer ipv4_mapped). 169.254.169.254 (metadonnees cloud) = cible classique -> bloquee.\n- RE-VALIDER a CHAQUE saut de redirection (allow_redirects=False, boucle manuelle, urljoin).\n- Plafonner les octets (iter_content), timeout strict, contenu binaire non extrait.\n- GOTCHA DuckDuckGo : UA contenant \"Bot\" OU un POST brut -> page anti-bot (HTTP 202 \"Select all squares containing a duck\"). Solution : GET sur https://html.duckduckgo.com/html/?q=.. + UA NAVIGATEUR (Chrome) + en-tetes Accept/Accept-Language. Resultats dans .result a.result__a (+ .result__snippet) ; href = //duckduckgo.com/l/?uddg=<URL encodee> -> decoder uddg.",
+  "updated": "2026-05-30T04:56:35.912752"
+}

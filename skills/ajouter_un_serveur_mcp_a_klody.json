@@ -1,0 +1,7 @@
+{
+  "name": "Ajouter un serveur MCP à Klody",
+  "slug": "ajouter_un_serveur_mcp_a_klody",
+  "description": "Brancher un nouveau serveur MCP (client + serveur + permanence), sans toucher au cœur.",
+  "content": "Klody est CLIENT MCP (tools/mcp_bridge.py -> MCPManager).\n\nSERVEUR (klody_mcp/<nom>_server.py, calquer gmail_server.py / web_server.py) :\n- from fastmcp import FastMCP ; from dotenv import load_dotenv ; load_dotenv() AVANT de lire les env.\n- mcp = FastMCP(\"<Nom>\") ; outils @mcp.tool() qui RETOURNENT un dict, et {\"error\": \"...\"} en cas d'echec (jamais d'exception qui remonte).\n- main() lit <NOM>_MCP_TRANSPORT (stdio|http), <NOM>_MCP_PORT, <NOM>_MCP_HOST -> mcp.run(...).\n- Script scripts/start-<nom>-mcp.sh (calquer start-gmail-mcp.sh : --http/--port/--host, source .venv, exec python -m klody_mcp.<nom>_server).\n\nCLIENT (une ligne dans .env, RIEN dans le coeur) :\n  KLODY_MCP_SERVERS={\"gmail\":\"http://127.0.0.1:8084/mcp\",\"web\":\"http://127.0.0.1:8085/mcp\"}\n- config._parse_mcp_servers parse ce JSON (tolerant). Outils exposes au LLM sous mcp__<serveur>__<outil>.\n- GOTCHA : config.MCP_SERVERS lu A L'IMPORT + cache de decouverte process-level -> apres modif de KLODY_MCP_SERVERS, REDEMARRER le backend. Serveur down au boot = ignore.\n- Verif sans reseau : import config; from tools.mcp_bridge import MCPManager; MCPManager(config.MCP_SERVERS).discover()\n- Ports MCP : 8083 klody natif, 8084 gmail, 8085 web.",
+  "updated": "2026-05-30T04:56:35.912250"
+}

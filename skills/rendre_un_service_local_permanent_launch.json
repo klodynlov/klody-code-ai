@@ -1,0 +1,7 @@
+{
+  "name": "Rendre un service local permanent (LaunchAgent macOS)",
+  "slug": "rendre_un_service_local_permanent_launch",
+  "description": "Faire survivre un service (serveur MCP, daemon) au login et le relancer s'il crashe.",
+  "content": "Plist : ~/Library/LaunchAgents/com.klody.<nom>.plist (calquer com.klody.gmail-mcp.plist). uid utilisateur = 501.\n- Label=com.klody.<nom> ; ProgramArguments=[script, \"--http\"] ; WorkingDirectory=repo (pour que load_dotenv trouve .env).\n- RunAtLoad=true ; KeepAlive={SuccessfulExit:false, Crashed:true} ; ThrottleInterval=30.\n- StandardOutPath/StandardErrorPath = ~/Library/Logs/klody-<nom>.log ; EnvironmentVariables.PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin.\n- AUCUN secret dans le plist (ils restent dans .env via WorkingDirectory).\n\nCommandes :\n  plutil -lint <plist>\n  launchctl bootout   gui/501/com.klody.<nom> 2>/dev/null || true\n  launchctl bootstrap gui/501 <plist>\n  launchctl kickstart -k gui/501/com.klody.<nom>   # (re)demarre / recharge le code\n  launchctl print     gui/501/com.klody.<nom> | grep -E \"state =|pid =\"\n- Tuer le process manuel sur le port AVANT bootstrap (conflit). Process = enfant de launchd (PPID 1).\n- Agents existants : mlx, gmail-mcp, web-mcp, localsuno-daemon, vocalbrain-ui.",
+  "updated": "2026-05-30T04:56:35.912525"
+}
