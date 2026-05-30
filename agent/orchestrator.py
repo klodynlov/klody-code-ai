@@ -16,7 +16,7 @@ def _has_markdown_safe(text: str) -> bool:
     markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
     return any(m in text for m in markers)
 
-from agent.llm import LLMClient, SYSTEM_PROMPT
+from agent.llm import LLMClient
 from agent.memory import ConversationMemory
 from agent.long_term_memory import get_long_term_memory
 from agent.prompts import compose_system_prompt
@@ -110,7 +110,6 @@ def _infer_action_from_text(content: str, user_input: str) -> dict | None:
     # 1) Web (HTML/JS/CSS) → preview_code
     has_html = "html" in blocks
     has_js = "js" in blocks
-    has_css = "css" in blocks
     if has_html or has_js:
         html = blocks.get("html", [""])[0]
         js = blocks.get("js", [""])[0]
@@ -1102,13 +1101,13 @@ class Orchestrator:
                     logger.info("[anti-stall] %s → nudge injecté (iter=%d)", cause, iteration)
                     if is_empty_response:
                         nudge = (
-                            f"Ta dernière réponse était vide. Pour cette tâche, lance "
-                            f"directement un tool concret — par exemple :\n"
-                            f"  • `preview_code(html=..., js=...)` pour une démo web/canvas/3D\n"
-                            f"  • `write_file(path, content)` pour créer un fichier\n"
-                            f"  • `find_relevant_files(query)` pour explorer le projet\n"
-                            f"Réponds maintenant avec un tool_call qui adresse la demande "
-                            f"initiale de l'utilisateur."
+                            "Ta dernière réponse était vide. Pour cette tâche, lance "
+                            "directement un tool concret — par exemple :\n"
+                            "  • `preview_code(html=..., js=...)` pour une démo web/canvas/3D\n"
+                            "  • `write_file(path, content)` pour créer un fichier\n"
+                            "  • `find_relevant_files(query)` pour explorer le projet\n"
+                            "Réponds maintenant avec un tool_call qui adresse la demande "
+                            "initiale de l'utilisateur."
                         )
                     else:
                         nudge = (
