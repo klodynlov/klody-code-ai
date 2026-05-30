@@ -60,9 +60,13 @@ class TestOwnsAndCall:
         assert not manager.owns("mcp__gmail__nope")
         assert not manager.owns("read_file")
 
-    def test_call_propage_resultat_texte(self, manager):
-        # Sans credentials, list_labels renvoie une erreur — mais en TEXTE,
-        # pas en exception : c'est exactement la propagation qu'on veut.
+    def test_call_propage_resultat_texte(self, manager, monkeypatch):
+        # On force l'absence de credentials (indépendant du .env de la machine,
+        # et sans accès réseau) : list_labels renvoie alors une erreur en TEXTE,
+        # pas en exception — c'est exactement la propagation qu'on veut.
+        import klody_mcp.gmail_server as gs
+        monkeypatch.setattr(gs, "GMAIL_ADDRESS", "")
+        monkeypatch.setattr(gs, "GMAIL_APP_PASSWORD", "")
         out = manager.call("mcp__gmail__list_labels", {})
         assert isinstance(out, str)
         assert "GMAIL_ADDRESS" in out or "error" in out.lower()
