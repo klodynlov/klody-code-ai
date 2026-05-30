@@ -7,19 +7,19 @@
 # via le LaunchAgent com.klody.api (démarrage au login + relance auto si crash).
 #
 # Le backend LLM (MLX vs Ollama) est choisi par BACKEND dans .env, lu par
-# config.py à l'import. Le serveur lit .env lui-même (load_dotenv) ; on le source
-# aussi ici par cohérence avec scripts/start-mlx.sh.
+# config.py à l'import via python-dotenv (load_dotenv).
+#
+# IMPORTANT : on ne `source .env` PAS ici. bash retirerait les guillemets des
+# valeurs JSON (ex: KLODY_MCP_SERVERS={"gmail":"..."} → {gmail:...} invalide),
+# et comme load_dotenv() n'override pas une variable déjà posée, le serveur
+# hériterait du JSON cassé. python-dotenv parse .env correctement : on le laisse
+# faire. Le wrapper se contente de fixer cwd + venv + exec.
 #
 # exec → le PID surveillé par launchd est bien le process uvicorn.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-
-# .env = source de vérité (BACKEND, MLX_*, KLODY_MCP_SERVERS, secrets…).
-set -a
-[[ -f "$ROOT/.env" ]] && source "$ROOT/.env"
-set +a
 
 # Télémétrie HF coupée (contrainte zéro-cloud), cohérent avec start-local-ai.sh.
 export HF_HUB_DISABLE_TELEMETRY=1
@@ -32,8 +32,8 @@ fi
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Klody API (FastAPI)"
-echo "  Backend LLM : ${BACKEND:-ollama}"
-echo "  URL         : http://127.0.0.1:8000"
+echo "  URL : http://127.0.0.1:8000"
+echo "  (backend LLM + .env résolus par config.py via load_dotenv)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 exec python api/server.py
