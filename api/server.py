@@ -573,24 +573,17 @@ def _build_streaming_orchestrator(
             pass
     orch._display_routing = display_routing_api
 
-    # Sandbox auto-check : wrap _auto_sandbox_check pour émettre + appeler l'original
-    original_auto_sandbox = orch._auto_sandbox_check
-
+    # Sandbox auto-check : wrap _auto_sandbox_check pour émettre l'event UI.
     def auto_sandbox_with_event(rel_path: str) -> str:
-        # Réimplémentation rapide pour intercepter le SandboxResult avant format
-        if not rel_path or not getattr(orch, "_sandbox_auto_exec", True):
+        # Réimplémentation rapide pour intercepter le SandboxResult avant format.
+        # Réutilise la résolution multi-racines de l'orchestrator (CLI/API DRY).
+        if not getattr(orch, "_sandbox_auto_exec", True):
             return ""
-        from tools.sandbox import auto_command_for
-        full_path = (orch.file_manager.root / rel_path).resolve()
-        try:
-            full_path.relative_to(orch.file_manager.root.resolve())
-        except ValueError:
+        target = orch._resolve_sandbox_target(rel_path)
+        if target is None:
             return ""
-        cmd = auto_command_for(full_path)
-        if cmd is None:
-            return ""
-        rel_cmd = [c if c != full_path.name else rel_path for c in cmd]
-        sb_result = orch.sandbox.run(rel_cmd, timeout=getattr(orch, "_sandbox_timeout", 20))
+        sandbox, rel_cmd, _root = target
+        sb_result = sandbox.run(rel_cmd, timeout=getattr(orch, "_sandbox_timeout", 20))
         if not sb_result.success and sb_result.stderr:
             try:
                 orch.error_memory.record(sb_result.stderr, command=" ".join(rel_cmd))

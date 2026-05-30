@@ -50,6 +50,7 @@ from agent.memory_extractor import extract_mid_session
 from config import (
     MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT,
     ROUTER_ENABLED, BEST_OF_N_ENABLED, BEST_OF_N_COUNT, BEST_OF_N_FORCE,
+    match_allowed_root,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,8 +284,11 @@ class Orchestrator:
         self.tools = get_tools()
         self.lt_memory = get_long_term_memory()
         self.profiler = get_profiler()
-        # Sandbox jetable (créé paresseusement à la première utilisation).
-        self._sandbox = None
+        # Sandbox jetable — un venv par racine autorisée, créé paresseusement
+        # et mis en cache (clé = racine résolue). Permet de tester/exécuter du
+        # code dans n'importe quelle racine de ALLOWED_ROOTS, pas seulement
+        # PROJECT_ROOT.
+        self._sandbox_cache: dict = {}
         self._sandbox_auto_exec = SANDBOX_AUTO_EXEC
         self._sandbox_timeout = SANDBOX_TIMEOUT
         # Router adaptatif — classifie chaque prompt avant la boucle ReAct.
@@ -313,13 +317,23 @@ class Orchestrator:
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
 
+    def _sandbox_for(self, root):
+        """SandboxRunner (venv jetable) pour une racine donnée, mis en cache.
+
+        Permet d'exécuter/tester du code dans n'importe quelle racine autorisée.
+        SandboxRunner cache déjà son venv par hash du chemin → coût minimal.
+        """
+        root = Path(root).resolve()
+        if root not in self._sandbox_cache:
+            from tools.sandbox import SandboxRunner
+            self._sandbox_cache[root] = SandboxRunner(root)
+        return self._sandbox_cache[root]
+
     @property
     def sandbox(self):
-        """SandboxRunner attaché au PROJECT_ROOT courant (lazy init)."""
-        if self._sandbox is None:
-            from tools.sandbox import SandboxRunner
-            self._sandbox = SandboxRunner(self.file_manager.root)
-        return self._sandbox
+        """SandboxRunner du PROJECT_ROOT courant (défaut). Voir _sandbox_for
+        pour le multi-racines."""
+        return self._sandbox_for(self.file_manager.root)
 
     @property
     def router(self):
@@ -459,27 +473,43 @@ class Orchestrator:
             logger.debug("Auto-preview failed: %s", exc)
             return ""
 
-    def _auto_sandbox_check(self, rel_path: str) -> str:
-        """Si rel_path est un .py exécutable, lance la commande la plus
-        pertinente dans le sandbox et retourne le rapport formaté."""
-        if not rel_path:
-            return ""
+    def _resolve_sandbox_target(self, path: str):
+        """Pour un fichier écrit (chemin relatif ou absolu), retourne le tuple
+        (sandbox, rel_cmd, root) permettant de lancer l'auto-check dans la
+        BONNE racine autorisée, ou None si aucun check n'est pertinent.
+
+        Multi-racines : le fichier peut être sous n'importe quelle racine de
+        ALLOWED_ROOTS — on exécute alors dans le venv de CETTE racine, avec un
+        chemin relatif à elle. Plus de skip silencieux hors PROJECT_ROOT.
+        Partagé entre le CLI (_auto_sandbox_check) et l'API WebSocket.
+        """
+        if not path:
+            return None
         from tools.sandbox import auto_command_for
 
-        full_path = (self.file_manager.root / rel_path).resolve()
-        # Le file_manager a déjà validé la sandbox — on re-vérifie quand même
-        try:
-            full_path.relative_to(self.file_manager.root.resolve())
-        except ValueError:
-            return ""
+        p = Path(path).expanduser()
+        full_path = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
+        root = match_allowed_root(full_path, self.file_manager.allowed_roots)
+        if root is None:
+            return None  # hors racines (ne devrait pas arriver après write_file)
 
         cmd = auto_command_for(full_path)
         if cmd is None:
-            return ""
+            return None
 
-        # Lancer dans le sandbox du workdir (cwd = workdir, chemin relatif)
-        rel_cmd = [c if c != full_path.name else rel_path for c in cmd]
-        result = self.sandbox.run(rel_cmd, timeout=self._sandbox_timeout)
+        rel = str(full_path.relative_to(root))
+        rel_cmd = [c if c != full_path.name else rel for c in cmd]
+        return self._sandbox_for(root), rel_cmd, root
+
+    def _auto_sandbox_check(self, rel_path: str) -> str:
+        """Si rel_path est un .py exécutable, lance la commande la plus
+        pertinente dans le sandbox de sa racine et retourne le rapport formaté."""
+        target = self._resolve_sandbox_target(rel_path)
+        if target is None:
+            return ""
+        sandbox, rel_cmd, _root = target
+
+        result = sandbox.run(rel_cmd, timeout=self._sandbox_timeout)
         # Mémorise les erreurs récurrentes (Roadmap v2 #8)
         if not result.success and result.stderr:
             try:
@@ -596,7 +626,15 @@ class Orchestrator:
                     tool_args.get("case_sensitive", True),
                 )
             if tool_name == "run_in_sandbox":
-                res = self.sandbox.run(
+                sandbox = self.sandbox
+                workdir = tool_args.get("workdir", "") or ""
+                if workdir.strip():
+                    p = Path(workdir).expanduser()
+                    wd = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
+                    if match_allowed_root(wd, self.file_manager.allowed_roots) is None:
+                        return f"ERREUR SÉCURITÉ: workdir hors des racines autorisées: {workdir}"
+                    sandbox = self._sandbox_for(wd)
+                res = sandbox.run(
                     tool_args["command"],
                     timeout=int(tool_args.get("timeout", 30)),
                 )

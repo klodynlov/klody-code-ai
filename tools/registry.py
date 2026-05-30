@@ -191,6 +191,14 @@ TOOLS: list[dict] = [
                         "description": "Timeout en secondes (défaut: 30)",
                         "default": 30,
                     },
+                    "workdir": {
+                        "type": "string",
+                        "description": (
+                            "Optionnel : répertoire d'exécution (relatif au projet ou "
+                            "absolu sous une racine autorisée). Par défaut le projet courant. "
+                            "Utile pour tester du code écrit dans un autre projet."
+                        ),
+                    },
                 },
                 "required": ["command"],
             },
