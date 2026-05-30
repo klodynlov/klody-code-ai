@@ -282,6 +282,23 @@ class Orchestrator:
         self.terminal = Terminal()
         self.search = Search()
         self.tools = get_tools()
+        # Client MCP : découvre les outils des serveurs MCP externes configurés
+        # (KLODY_MCP_SERVERS) et les ajoute aux outils exposés au LLM, sous des
+        # noms namespacés mcp__<serveur>__<outil>. Résilient : un serveur
+        # injoignable est simplement ignoré, ça ne casse jamais le démarrage.
+        self.mcp = None
+        try:
+            from config import MCP_SERVERS
+            if MCP_SERVERS:
+                from tools.mcp_bridge import MCPManager
+                self.mcp = MCPManager(MCP_SERVERS)
+                mcp_tools = self.mcp.discover()
+                if mcp_tools:
+                    self.tools = [*self.tools, *mcp_tools]
+                    logger.info("[MCP] %d outil(s) externe(s) ajouté(s)", len(mcp_tools))
+        except Exception as exc:
+            logger.warning("[MCP] initialisation client échouée : %s", exc)
+            self.mcp = None
         self.lt_memory = get_long_term_memory()
         self.profiler = get_profiler()
         # Sandbox jetable — un venv par racine autorisée, créé paresseusement
@@ -740,6 +757,9 @@ class Orchestrator:
                 from tools import audio as _audio
                 fn = getattr(_audio, tool_name)
                 return json.dumps(fn(**tool_args), ensure_ascii=False, indent=2)
+            # ─ Outils MCP externes (mcp__<serveur>__<outil>) ──────────────
+            if getattr(self, "mcp", None) is not None and self.mcp.owns(tool_name):
+                return self.mcp.call(tool_name, tool_args)
             return f"ERREUR: Outil inconnu '{tool_name}'"
 
         except SandboxViolation as e:

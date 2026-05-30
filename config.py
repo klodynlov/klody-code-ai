@@ -61,6 +61,30 @@ LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
+
+# --- Client MCP : serveurs externes que Klody peut CONSOMMER ---
+# Klody se connecte à ces serveurs MCP, découvre leurs outils et les expose au
+# LLM (noms namespacés mcp__<serveur>__<outil>). Format env KLODY_MCP_SERVERS :
+# un JSON {nom: cible} où cible est une URL HTTP ou un chemin de script.
+#   KLODY_MCP_SERVERS='{"gmail":"http://127.0.0.1:8084/mcp"}'
+# Vide par défaut (aucun serveur). Un serveur injoignable est ignoré au boot.
+def _parse_mcp_servers(raw: str) -> dict:
+    import json
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return {str(k): v for k, v in data.items()} if isinstance(data, dict) else {}
+    except (ValueError, TypeError):
+        logging.getLogger(__name__).warning(
+            "KLODY_MCP_SERVERS: JSON invalide, ignoré : %r", raw[:120]
+        )
+        return {}
+
+
+MCP_SERVERS: dict = _parse_mcp_servers(os.getenv("KLODY_MCP_SERVERS", ""))
+
 # --- GitHub ---
 GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 
