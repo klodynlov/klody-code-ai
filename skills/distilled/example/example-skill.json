@@ -1,0 +1,51 @@
+{
+  "skill": "Example distilled method",
+  "domain": "example",
+  "description": "Squelette neutre montrant le schéma attendu. Sert de référence et de cas de test ; à supprimer ou remplacer dès qu'un vrai skill est distillé.",
+  "source": {
+    "book": "<titre du livre>",
+    "author": "<auteur>",
+    "year": 2025
+  },
+  "principles": [
+    "Reformuler la méthode, ne jamais recopier la prose du livre.",
+    "Une étape sans consigne actionnable n'est pas une étape."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer",
+      "purpose": "Délimiter le périmètre avant d'agir.",
+      "guidelines": [
+        "Écrire en une phrase ce qu'on cherche à produire.",
+        "Lister les contraintes connues, hypothèses incluses."
+      ],
+      "pitfalls": [
+        "Commencer à exécuter avant d'avoir formulé l'objectif."
+      ]
+    },
+    {
+      "step": "Exécuter",
+      "purpose": "Produire l'artefact en suivant les consignes du cadrage.",
+      "guidelines": [
+        "Avancer par incréments vérifiables.",
+        "Couper court à toute branche qui ne sert pas l'objectif."
+      ],
+      "pitfalls": [
+        "Optimiser un détail avant que la structure tienne."
+      ]
+    },
+    {
+      "step": "Réviser",
+      "purpose": "Vérifier que l'artefact satisfait le cadrage.",
+      "guidelines": [
+        "Confronter chaque livrable à la checklist.",
+        "Préférer corriger maintenant que documenter une dette."
+      ]
+    }
+  ],
+  "checklist": [
+    "Objectif tient en une phrase.",
+    "Chaque étape a un livrable identifiable.",
+    "Aucune phrase n'est citée du livre source."
+  ]
+}
