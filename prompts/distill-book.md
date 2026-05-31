@@ -63,6 +63,22 @@ SORTIE — exactement un objet JSON conforme à `skills/distilled/schema.json`,
 rien autour (pas de ```json … ```, pas de préambule, pas de commentaire). Le
 JSON doit valider tel quel.
 
+RAPPEL SCHÉMA (à respecter au caractère près) :
+
+- Clés **obligatoires** : `skill`, `domain`, `description`, `principles`,
+  `workflow`, `checklist`. **`description` n'est jamais optionnelle** : 1 à 2
+  phrases décrivant à quoi sert la méthode (≠ titre, ≠ liste).
+- Clés **optionnelles** : `source` (`{book, author, year?}`), `vocabulary`,
+  `heuristics`, `antipatterns`, `examples`.
+- `vocabulary` est une liste d'**objets** `{"term": "...", "definition": "..."}`,
+  jamais une liste de strings. Si tu n'as pas la définition d'un terme, ne
+  l'inclus pas — n'invente pas.
+- `examples` est une liste d'`{"context": "...", "outcome": "..."}` (génériques,
+  jamais un cas réel cité du livre).
+- `skill` est un **nom humain** court (ex : "Habit loop method"), pas un slug.
+- `domain` matche `^[a-z][a-z0-9_-]{1,30}$` (minuscules, pas d'accent).
+- Toute clé hors de cette liste sera élaguée à la validation. N'en ajoute pas.
+
 Cible de chemin disque (informationnel, l'écriture est faite par l'appelant) :
 `skills/distilled/<domain>/<kebab-slug>.json` où `kebab-slug` est dérivé de
 `skill` (minuscule, ASCII, espaces → `-`, sans ponctuation).
