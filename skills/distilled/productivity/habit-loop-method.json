@@ -1,0 +1,144 @@
+{
+  "skill": "Habit loop method",
+  "domain": "productivity",
+  "description": "A systematic framework for identifying, analyzing, and rewriting automatic behaviors by manipulating the cue-routine-reward cycle and leveraging environmental design.",
+  "principles": [
+    "Map the complete habit loop before attempting change.",
+    "Isolate the underlying craving through reward experimentation.",
+    "Apply the golden rule: preserve cue and reward, replace routine.",
+    "Design the environment to make cues unavoidable and routines frictionless.",
+    "Anchor change in a keystone habit to trigger positive cascades.",
+    "Build belief through community accountability and small wins.",
+    "Automate responses using explicit implementation intentions."
+  ],
+  "workflow": [
+    {
+      "step": "Map the loop",
+      "purpose": "Understand the current automatic behavior pattern.",
+      "guidelines": [
+        "Record the cue, routine, and reward for at least three instances.",
+        "Use the five cue data points: location, time, emotional state, other people, preceding action.",
+        "Avoid assuming the routine itself is the reward."
+      ],
+      "pitfalls": [
+        "Confusing the neurological reward with the physical routine.",
+        "Ignoring subtle emotional triggers that initiate the loop."
+      ]
+    },
+    {
+      "step": "Isolate the craving",
+      "purpose": "Identify the true neurological drive behind the behavior.",
+      "guidelines": [
+        "Test different potential rewards for 15 minutes when the cue hits.",
+        "Observe which option satisfies the urge and reduces the craving.",
+        "Repeat the test to confirm the primary driver."
+      ],
+      "pitfalls": [
+        "Skipping the experimentation phase and guessing the reward.",
+        "Assuming the routine delivers the reward without verification."
+      ]
+    },
+    {
+      "step": "Apply the golden rule",
+      "purpose": "Replace the habit without breaking the neurological loop.",
+      "guidelines": [
+        "Keep the cue and reward identical to the original loop.",
+        "Design a new routine that delivers the exact same reward.",
+        "Practice the new routine consistently until it becomes automatic."
+      ],
+      "pitfalls": [
+        "Changing multiple variables simultaneously.",
+        "Abandoning the reward entirely, which breaks the loop's reinforcement."
+      ]
+    },
+    {
+      "step": "Engineer the environment",
+      "purpose": "Make cues visible and routines frictionless.",
+      "guidelines": [
+        "Place cues in high-traffic or unavoidable locations.",
+        "Remove physical or digital obstacles to the new routine.",
+        "Pre-commit to the new routine by preparing materials in advance."
+      ],
+      "pitfalls": [
+        "Relying solely on willpower instead of environmental design.",
+        "Leaving old cues in the environment to trigger fallback behaviors."
+      ]
+    },
+    {
+      "step": "Anchor with keystone habits",
+      "purpose": "Create systemic change through high-leverage behaviors.",
+      "guidelines": [
+        "Select one habit that naturally improves other areas of life.",
+        "Track progress daily to build momentum and self-efficacy.",
+        "Allow positive spillover effects to reinforce broader changes."
+      ],
+      "pitfalls": [
+        "Attempting to change multiple habits simultaneously.",
+        "Neglecting consistency during the initial adaptation phase."
+      ]
+    },
+    {
+      "step": "Build belief and community",
+      "purpose": "Sustain change through social reinforcement and shared expectations.",
+      "guidelines": [
+        "Share goals with a support group or accountability partner.",
+        "Celebrate small wins publicly to reinforce belief in change.",
+        "Participate in rituals that signal commitment to the new identity."
+      ],
+      "pitfalls": [
+        "Isolating the change process from social networks.",
+        "Underestimating the role of shared belief in overcoming resistance."
+      ]
+    }
+  ],
+  "checklist": [
+    "All three loop components (cue, routine, reward) are explicitly identified.",
+    "The underlying craving has been isolated through reward experimentation.",
+    "The new routine delivers the exact same reward as the old one.",
+    "Environmental cues are positioned to trigger the new routine automatically.",
+    "A keystone habit has been selected to support broader behavioral shifts.",
+    "A support system or accountability mechanism is in place.",
+    "Implementation intentions (If-Then plans) are written for high-risk situations."
+  ],
+  "source": {
+    "book": "Le Pouvoir des habitudes",
+    "author": "Charles Duhigg",
+    "year": 2016
+  },
+  "vocabulary": [
+    {
+      "term": "habit loop",
+      "definition": "The neurological pattern consisting of cue, routine, and reward that automates behavior."
+    },
+    {
+      "term": "keystone habit",
+      "definition": "A single behavior that, when changed, triggers widespread positive shifts in other habits."
+    },
+    {
+      "term": "craving drive",
+      "definition": "The underlying neurological anticipation that fuels the habit loop and makes it automatic."
+    },
+    {
+      "term": "willpower muscle",
+      "definition": "The concept that self-control operates like a finite resource that strengthens with repeated use."
+    }
+  ],
+  "heuristics": [
+    "If the routine changes but the cue and reward stay the same, the habit persists.",
+    "Small wins compound into systemic transformation over time."
+  ],
+  "antipatterns": [
+    "Relying on motivation instead of environmental design.",
+    "Changing the cue or reward while attempting to modify the routine."
+  ],
+  "examples": [
+    {
+      "context": "A professional struggling with afternoon slumps and unhealthy snacking.",
+      "outcome": "Identified stress as the cue, replaced vending machine trips with a 5-minute walk, maintained the reward of mental reset, and eliminated the craving-driven routine."
+    },
+    {
+      "context": "A team aiming to improve meeting efficiency and decision speed.",
+      "outcome": "Adopted a standing meeting cue, kept the reward of clear decisions, changed the routine to 15-minute focused sprints, resulting in faster resolutions and reduced fatigue."
+    }
+  ]
+}
