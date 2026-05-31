@@ -1,14 +1,25 @@
-"""RAG Proxy — middleware entre Aider et mlx-lm.
+"""RAG Proxy — middleware entre Aider/Klody et mlx-lm.
 
 Écoute sur localhost:8081 (OpenAI-compatible).
 Enrichit le system prompt avec des chunks LibraryBrain + skills domaine.
+Route le mode de raisonnement (think / no_think) selon la nature de la tâche.
 Transmet la requête enrichie à mlx-lm sur localhost:8080.
+
+Contrôle du raisonnement (Qwen3 / Qwen3.6 / autres modèles "thinking") :
+- primaire — champ `chat_template_kwargs.enable_thinking` injecté dans le body
+  forwardé ; respecté par les builds récents de mlx-lm qui propagent les kwargs
+  au gabarit de chat.
+- fallback — tag inline `/think` ou `/no_think` ajouté au message system (les
+  modèles Qwen3 le détectent dans le dernier prompt système).
+Les deux sont posés en même temps (belt-and-braces) : si l'un est ignoré par le
+build de mlx-lm en place, l'autre prend le relais.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,12 +42,29 @@ MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "2000"))
 
 DOMAIN_KEYWORDS: dict[str, list[str]] = {
     "symfony": ["symfony", "doctrine", "twig", "bundle", "entity", "repository", "php"],
-    "nextjs": ["next.js", "nextjs", "next ", "app router", "server component", "vercel", "react"],
-    "mlx": ["mlx", "lora", "quantiz", "fine-tun", "mlx-lm", "apple silicon", "mistral", "llama"],
-    "python": ["python", "pytest", "dataclass", "asyncio", "pydantic", "fastapi", "pip"],
+    "nextjs":  ["next.js", "nextjs", "next ", "app router", "server component", "vercel", "react"],
+    "mlx":     ["mlx", "lora", "quantiz", "fine-tun", "mlx-lm", "apple silicon", "mistral", "llama"],
+    "python":  ["python", "pytest", "dataclass", "asyncio", "pydantic", "fastapi", "pip"],
 }
 
-app = FastAPI(title="RAG Proxy", version="1.0.0")
+# Routage thinking — listes courtes et orthogonales. Premier match gagne.
+# Mettre les indices en minuscule, sans accents pré-supposés (on normalise).
+_THINK_KEYWORDS: tuple[str, ...] = (
+    "plan", "planifie", "planning", "architecture", "design system",
+    "refactor", "refactoring", "debug", "stacktrace", "race condition",
+    "distille", "distill", "analyse", "audit", "root cause",
+    "trade-off", "tradeoff", "compare", "choisir entre",
+    "raisonne", "explique pourquoi", "demonstration",
+)
+_NO_THINK_KEYWORDS: tuple[str, ...] = (
+    "complete", "autocomplete", "completion",
+    "renomme", "rename", "format", "lint",
+    "template", "boilerplate", "snippet", "scaffold",
+    "applique le skill", "apply skill", "applique la methode",
+    "ecris un test", "ajoute un test", "fix typo",
+)
+
+app = FastAPI(title="RAG Proxy", version="1.1.0")
 
 # — Domain detection ————————————————————————————————————————————————————————————
 
@@ -56,6 +84,78 @@ def _truncate_to_tokens(text: str, max_tokens: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + "…"
+
+# — Thinking routing ————————————————————————————————————————————————————————————
+
+
+def _normalize(text: str) -> str:
+    """Normalisation minimale pour le matching de mots-clés (accents → ASCII)."""
+    import unicodedata
+    return unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode("ascii")
+
+
+def _should_think(messages: list[dict], body: dict) -> bool:
+    """Décide si le modèle doit raisonner pour cette requête.
+
+    Priorité :
+    1. Override explicite — `body["chat_template_kwargs"]["enable_thinking"]`
+       ou `body["thinking"]` (bool). Si présent, on respecte.
+    2. Heuristique de mots-clés sur le concat (system + user) normalisé.
+       Match `_THINK_KEYWORDS`  → True
+       Match `_NO_THINK_KEYWORDS` → False
+       Aucun match → False (défaut Klody : mode rapide).
+    """
+    # 1. Override explicite
+    explicit = body.get("chat_template_kwargs", {}).get("enable_thinking")
+    if isinstance(explicit, bool):
+        return explicit
+    explicit2 = body.get("thinking")
+    if isinstance(explicit2, bool):
+        return explicit2
+
+    # 2. Heuristique
+    blob = _normalize(
+        " ".join(m.get("content", "") for m in messages if m.get("role") in ("system", "user"))
+    )
+    for kw in _THINK_KEYWORDS:
+        if kw in blob:
+            return True
+    for kw in _NO_THINK_KEYWORDS:
+        if kw in blob:
+            return False
+    return False
+
+
+_INLINE_TAG_RE = re.compile(r"(?:^|\s)/(?:think|no_think)\b", flags=re.IGNORECASE)
+
+
+def _apply_thinking_mode(body: dict, messages: list[dict], think: bool) -> list[dict]:
+    """Pose les deux contrôles sur le body et les messages.
+
+    - body : `chat_template_kwargs.enable_thinking = think` (primaire).
+    - messages : tag inline `/think` ou `/no_think` en fin de **dernier**
+      message system (fallback). Si aucun message system, on en crée un.
+
+    Le tag inline est ré-écrit même s'il existe déjà (le proxy a autorité).
+    """
+    body.setdefault("chat_template_kwargs", {})
+    body["chat_template_kwargs"]["enable_thinking"] = think
+
+    tag = "/think" if think else "/no_think"
+    out: list[dict] = []
+    last_system_idx: int | None = None
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "system":
+            last_system_idx = i
+        out.append(dict(msg))
+
+    if last_system_idx is None:
+        out.insert(0, {"role": "system", "content": tag})
+    else:
+        cleaned = _INLINE_TAG_RE.sub("", out[last_system_idx].get("content", "")).rstrip()
+        out[last_system_idx]["content"] = f"{cleaned}\n\n{tag}".lstrip()
+
+    return out
 
 # — Data sources ————————————————————————————————————————————————————————————————
 
@@ -160,9 +260,17 @@ async def chat_completions(request: Request) -> Any:
         m.get("content", "") for m in messages if m.get("role") == "user"
     )
     context = await _build_context(user_text)
-    body["messages"] = _inject_context(messages, context)
+    messages = _inject_context(messages, context)
 
-    logger.info("Forwarding to mlx-lm — context {} chars", len(context))
+    think = _should_think(messages, body)
+    messages = _apply_thinking_mode(body, messages, think)
+    body["messages"] = messages
+
+    logger.info(
+        "Forwarding to mlx-lm — context {} chars, thinking={}",
+        len(context),
+        think,
+    )
 
     is_stream = body.get("stream", False)
     async with httpx.AsyncClient(timeout=120.0) as client:
@@ -182,7 +290,7 @@ async def chat_completions(request: Request) -> Any:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "rag-proxy", "version": "1.0.0"}
+    return {"status": "ok", "service": "rag-proxy", "version": "1.1.0"}
 
 
 # — Entry point —————————————————————————————————————————————————————————————————
