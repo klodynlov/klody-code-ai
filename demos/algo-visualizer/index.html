@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Visualiseur d'algorithmes — Klody</title>
+<style>
+  :root {
+    --bg:#0f1420; --panel:#1a2233; --panel-2:#141b29; --line:#2a3650;
+    --text:#e2e8f0; --muted:#94a3b8;
+    --accent:#6ea8fe; --green:#4ade80; --orange:#fb923c; --red:#f87171; --yellow:#fde047;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    line-height:1.4;
+  }
+  header { padding:20px 24px 8px; }
+  header h1 { margin:0; font-size:20px; letter-spacing:.2px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  .tabs { display:flex; gap:6px; padding:14px 24px 0; border-bottom:1px solid var(--line); }
+  .tab {
+    background:none; border:none; color:var(--muted); font-size:14px; font-weight:600;
+    padding:10px 16px; cursor:pointer; border-bottom:2px solid transparent; border-radius:6px 6px 0 0;
+  }
+  .tab:hover { color:var(--text); background:var(--panel-2); }
+  .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .view { padding:18px 24px 40px; }
+  .view.hidden { display:none; }
+  .controls {
+    display:flex; flex-wrap:wrap; gap:18px; align-items:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px; margin-bottom:16px;
+  }
+  .ctrl { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  .ctrl span.val { color:var(--text); font-variant-numeric:tabular-nums; }
+  .ctrl input[type=range] { width:130px; accent-color:var(--accent); }
+  .ctrl select {
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:6px; padding:5px 8px; font-size:13px;
+  }
+  button.act {
+    background:var(--accent); color:#0b1120; border:none; border-radius:7px;
+    padding:8px 14px; font-size:13px; font-weight:700; cursor:pointer;
+  }
+  button.act:hover { filter:brightness(1.08); }
+  button.ghost {
+    background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:7px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  button.ghost:hover { border-color:var(--accent); }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted); margin-bottom:14px; }
+  .legend .chip { display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw { width:12px; height:12px; border-radius:3px; display:inline-block; }
+  /* ---- tris ---- */
+  .sort-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .panel.done { border-color:var(--green); }
+  .panel h3 { margin:0 0 8px; font-size:13px; display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .panel h3 .cx { color:var(--muted); font-weight:500; font-size:11px; }
+  .panel canvas { width:100%; height:170px; display:block; }
+  .panel .stats { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-top:6px; font-variant-numeric:tabular-nums; }
+  .panel .stats b { color:var(--text); font-weight:700; }
+  /* ---- graphe ---- */
+  .graph-wrap { display:grid; grid-template-columns:1fr 240px; gap:16px; align-items:start; }
+  @media (max-width:760px){ .graph-wrap { grid-template-columns:1fr; } }
+  #graph-canvas { width:100%; height:460px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+  .side { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; font-size:13px; }
+  .side h4 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+  .side .frontier { min-height:26px; display:flex; flex-wrap:wrap; gap:5px; margin-bottom:14px; }
+  .node-chip { background:var(--accent); color:#0b1120; font-weight:700; border-radius:6px; padding:2px 8px; font-size:12px; font-variant-numeric:tabular-nums; }
+  .side .info { color:var(--text); min-height:38px; font-size:12.5px; }
+  .hint { color:var(--muted); font-size:12px; margin-top:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Visualiseur d'algorithmes</h1>
+  <p>Démo du skill <code>maitriser_les_algorithmes</code> — tris comparés &amp; parcours de graphe, en direct.</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-view="sort">Tris comparés</button>
+  <button class="tab" data-view="graph">Parcours de graphe</button>
+</nav>
+
+<!-- ════════════════════ TRIS ════════════════════ -->
+<section id="sort-view" class="view">
+  <div class="controls">
+    <div class="ctrl">Taille <span class="val" id="sz-val">50</span>
+      <input type="range" id="sz" min="10" max="120" value="50" step="1"></div>
+    <div class="ctrl">Vitesse <span class="val" id="sp-val">12</span>
+      <input type="range" id="sp" min="1" max="60" value="12" step="1"></div>
+    <div class="ctrl">Distribution
+      <select id="dist">
+        <option value="random">Aléatoire</option>
+        <option value="nearly">Presque trié</option>
+        <option value="reversed">Inversé</option>
+      </select></div>
+    <button class="act" id="sort-run">Démarrer</button>
+    <button class="ghost" id="sort-regen">Régénérer</button>
+  </div>
+  <div class="legend">
+    <span class="chip"><i class="sw" style="background:var(--yellow)"></i>comparaison</span>
+    <span class="chip"><i class="sw" style="background:var(--red)"></i>échange / écriture</span>
+    <span class="chip"><i class="sw" style="background:var(--green)"></i>en place définitive</span>
+  </div>
+  <div class="sort-grid" id="sort-grid"></div>
+</section>
+
+<!-- ════════════════════ GRAPHE ════════════════════ -->
+<section id="graph-view" class="view hidden">
+  <div class="controls">
+    <div class="ctrl">Algorithme
+      <select id="g-algo">
+        <option value="bfs">BFS (largeur)</option>
+        <option value="dfs">DFS (profondeur)</option>
+        <option value="dijkstra">Dijkstra (pondéré)</option>
+      </select></div>
+    <div class="ctrl">Nœuds <span class="val" id="gn-val">10</span>
+      <input type="range" id="g-n" min="5" max="18" value="10" step="1"></div>
+    <div class="ctrl">Vitesse <span class="val" id="gsp-val">6</span>
+      <input type="range" id="g-sp" min="1" max="20" value="6" step="1"></div>
+    <button class="act" id="g-run">Démarrer</button>
+    <button class="ghost" id="g-step">Étape ›</button>
+    <button class="ghost" id="g-reset">Reset</button>
+    <button class="ghost" id="g-regen">Nouveau graphe</button>
+  </div>
+  <div class="legend">
+    <span class="chip"><i class="sw" style="background:#475569"></i>non visité</span>
+    <span class="chip"><i class="sw" style="background:var(--accent)"></i>frontière</span>
+    <span class="chip"><i class="sw" style="background:var(--orange)"></i>courant</span>
+    <span class="chip"><i class="sw" style="background:var(--green)"></i>visité / finalisé</span>
+    <span class="chip">⭕ départ</span>
+  </div>
+  <div class="graph-wrap">
+    <canvas id="graph-canvas"></canvas>
+    <div class="side">
+      <h4 id="frontier-label">File</h4>
+      <div class="frontier" id="frontier"></div>
+      <h4>Étape</h4>
+      <div class="info" id="g-info">Clique un nœud pour choisir le départ, puis « Démarrer ».</div>
+      <div class="hint" id="g-progress"></div>
+    </div>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const C = { gray:"#475569", green:"#4ade80", orange:"#fb923c", red:"#f87171",
+            yellow:"#fde047", accent:"#6ea8fe", text:"#e2e8f0", line:"#2a3650" };
+
+function fitCanvas(cv){
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.round(r.width * dpr));
+  cv.height = Math.max(1, Math.round(r.height * dpr));
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  TRIS — chaque algo est un générateur qui produit des     ║
+   ║  pas {compare|swap|write|sorted}. 5 générateurs avancent  ║
+   ║  en parallèle, un par panneau.                            ║
+   ╚══════════════════════════════════════════════════════════╝ */
+function* bubble(a){
+  const n = a.length;
+  for (let i=0; i<n-1; i++){
+    let swapped = false;
+    for (let j=0; j<n-1-i; j++){
+      yield {compare:[j, j+1]};
+      if (a[j] > a[j+1]){ [a[j],a[j+1]]=[a[j+1],a[j]]; yield {swap:[j, j+1]}; swapped=true; }
+    }
+    yield {sorted:[n-1-i]};
+    if (!swapped) break;
+  }
+}
+function* insertion(a){
+  for (let i=1; i<a.length; i++){
+    let j = i;
+    while (j > 0){
+      yield {compare:[j-1, j]};
+      if (a[j-1] > a[j]){ [a[j-1],a[j]]=[a[j],a[j-1]]; yield {swap:[j-1, j]}; j--; }
+      else break;
+    }
+  }
+}
+function* mergeSort(a, lo=0, hi=a.length-1){
+  if (lo >= hi) return;
+  const mid = (lo + hi) >> 1;
+  yield* mergeSort(a, lo, mid);
+  yield* mergeSort(a, mid+1, hi);
+  const left = a.slice(lo, mid+1), right = a.slice(mid+1, hi+1);
+  let i=0, j=0, k=lo;
+  while (i < left.length && j < right.length){
+    yield {compare:[lo+i, mid+1+j]};
+    if (left[i] <= right[j]) a[k] = left[i++];
+    else a[k] = right[j++];
+    yield {write:[k]}; k++;
+  }
+  while (i < left.length){ a[k] = left[i++]; yield {write:[k]}; k++; }
+  while (j < right.length){ a[k] = right[j++]; yield {write:[k]}; k++; }
+}
+function* quick(a, lo=0, hi=a.length-1){
+  if (lo > hi) return;
+  if (lo === hi){ yield {sorted:[lo]}; return; }
+  const pivot = a[hi];
+  let i = lo;
+  for (let j=lo; j<hi; j++){
+    yield {compare:[j, hi]};
+    if (a[j] < pivot){ if (i !== j){ [a[i],a[j]]=[a[j],a[i]]; yield {swap:[i, j]}; } i++; }
+  }
+  [a[i],a[hi]]=[a[hi],a[i]]; yield {swap:[i, hi]};
+  yield {sorted:[i]};
+  yield* quick(a, lo, i-1);
+  yield* quick(a, i+1, hi);
+}
+function* heapSort(a){
+  const n = a.length;
+  function* siftDown(root, end){
+    while (true){
+      let child = 2*root + 1;
+      if (child > end) break;
+      if (child+1 <= end){ yield {compare:[child, child+1]}; if (a[child] < a[child+1]) child++; }
+      yield {compare:[root, child]};
+      if (a[root] < a[child]){ [a[root],a[child]]=[a[child],a[root]]; yield {swap:[root, child]}; root = child; }
+      else break;
+    }
+  }
+  for (let start=(n>>1)-1; start>=0; start--) yield* siftDown(start, n-1);
+  for (let end=n-1; end>0; end--){
+    [a[0],a[end]]=[a[end],a[0]]; yield {swap:[0, end]};
+    yield {sorted:[end]};
+    yield* siftDown(0, end-1);
+  }
+  yield {sorted:[0]};
+}
+
+const SORTS = [
+  {name:"Tri à bulles",  gen:bubble,    cx:"O(n²)"},
+  {name:"Insertion",     gen:insertion, cx:"O(n²) · ~O(n) si trié"},
+  {name:"Fusion",        gen:mergeSort, cx:"O(n log n) stable"},
+  {name:"Rapide",        gen:quick,     cx:"O(n log n) moy."},
+  {name:"Tas",           gen:heapSort,  cx:"O(n log n) en place"},
+];
+
+const sortState = { algos:[], playing:false, raf:null, speed:12, size:50, dist:"random" };
+
+function makeArray(n, dist){
+  const arr = Array.from({length:n}, (_, i) => i + 1);
+  if (dist === "reversed"){ arr.reverse(); }
+  else if (dist === "nearly"){
+    for (let k=0; k<Math.max(2, Math.floor(n*0.06)); k++){
+      const i = (Math.random()*n)|0, j = (Math.random()*n)|0;
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+  } else {
+    for (let i=n-1; i>0; i--){ const j = (Math.random()*(i+1))|0; [arr[i],arr[j]]=[arr[j],arr[i]]; }
+  }
+  return arr;
+}
+
+function buildSortPanels(){
+  const grid = $("#sort-grid");
+  grid.innerHTML = "";
+  sortState.algos = SORTS.map(def => {
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    panel.innerHTML =
+      `<h3>${def.name}<span class="cx">${def.cx}</span></h3>` +
+      `<canvas></canvas>` +
+      `<div class="stats"><span>comparaisons <b class="c">0</b></span>` +
+      `<span>écritures <b class="w">0</b></span></div>`;
+    grid.appendChild(panel);
+    return {
+      def, panel,
+      canvas: panel.querySelector("canvas"),
+      ctx: null,
+      cEl: panel.querySelector(".c"),
+      wEl: panel.querySelector(".w"),
+      a: [], gen:null, done:false, comps:0, writes:0,
+      sorted:new Set(), hl:{cmp:[], chg:[]},
+    };
+  });
+}
+
+function resetSort(regen){
+  cancelAnimationFrame(sortState.raf); sortState.raf=null; sortState.playing=false;
+  $("#sort-run").textContent = "Démarrer";
+  const base = makeArray(sortState.size, sortState.dist);
+  for (const st of sortState.algos){
+    st.a = base.slice();
+    st.gen = st.def.gen(st.a);
+    st.done = false; st.comps = 0; st.writes = 0;
+    st.sorted = new Set(); st.hl = {cmp:[], chg:[]};
+    st.panel.classList.remove("done");
+    st.ctx = fitCanvas(st.canvas);
+  }
+  renderSorts(); updateSortStats();
+}
+
+function applyStep(st, s){
+  if (s.compare){ st.comps++; st.hl = {cmp:s.compare, chg:[]}; }
+  else if (s.swap){ st.writes += 2; st.hl = {cmp:[], chg:s.swap}; }
+  else if (s.write){ st.writes++; st.hl = {cmp:[], chg:s.write}; }
+  if (s.sorted){ for (const idx of s.sorted) st.sorted.add(idx); }
+}
+
+function renderSorts(){
+  for (const st of sortState.algos){
+    const ctx = st.ctx; if (!ctx) continue;
+    const r = st.canvas.getBoundingClientRect();
+    const W = r.width, H = r.height, n = st.a.length;
+    const bw = W / n;
+    ctx.clearRect(0, 0, W, H);
+    for (let i=0; i<n; i++){
+      const h = (st.a[i] / n) * (H - 4);
+      let fill = "#3b82f6aa";
+      if (st.sorted.has(i)) fill = C.green;
+      else if (st.hl.chg.includes(i)) fill = C.red;
+      else if (st.hl.cmp.includes(i)) fill = C.yellow;
+      ctx.fillStyle = fill;
+      ctx.fillRect(i*bw, H - h, Math.max(1, bw - 0.6), h);
+    }
+  }
+}
+
+function updateSortStats(){
+  for (const st of sortState.algos){
+    st.cEl.textContent = st.comps.toLocaleString("fr-FR");
+    st.wEl.textContent = st.writes.toLocaleString("fr-FR");
+  }
+}
+
+function sortTick(){
+  if (!sortState.playing){ sortState.raf = null; return; }
+  const steps = sortState.speed;
+  let allDone = true;
+  for (const st of sortState.algos){
+    for (let s=0; s<steps && !st.done; s++){
+      const nx = st.gen.next();
+      if (nx.done){
+        st.done = true;
+        for (let i=0; i<st.a.length; i++) st.sorted.add(i);
+        st.hl = {cmp:[], chg:[]};
+        st.panel.classList.add("done");
+        break;
+      }
+      applyStep(st, nx.value);
+    }
+    if (!st.done) allDone = false;
+  }
+  renderSorts(); updateSortStats();
+  if (allDone){ sortState.playing = false; sortState.raf = null; $("#sort-run").textContent = "Terminé ✓"; return; }
+  sortState.raf = requestAnimationFrame(sortTick);
+}
+
+function toggleSortRun(){
+  if (sortState.algos.every(st => st.done)){ resetSort(); }
+  sortState.playing = !sortState.playing;
+  $("#sort-run").textContent = sortState.playing ? "Pause" : "Reprendre";
+  if (sortState.playing && !sortState.raf) sortState.raf = requestAnimationFrame(sortTick);
+}
+
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  GRAPHE — graphe non orienté pondéré généré aléatoirement.║
+   ║  Chaque algo est un générateur de "snapshots" pré-calculés║
+   ║  pour permettre lecture pas-à-pas et scrubbing.           ║
+   ╚══════════════════════════════════════════════════════════╝ */
+const graphState = { g:null, steps:[], idx:0, playing:false, raf:null, acc:0, last:0,
+                     algo:"bfs", n:10, speed:6, ctx:null };
+
+function makeGraph(n){
+  const cv = $("#graph-canvas");
+  const r = cv.getBoundingClientRect();
+  const W = r.width, H = r.height, m = 36;
+  const nodes = [];
+  for (let i=0; i<n; i++){
+    let x, y, tries = 0;
+    do { x = m + Math.random()*(W-2*m); y = m + Math.random()*(H-2*m); tries++; }
+    while (tries < 80 && nodes.some(p => Math.hypot(p.x-x, p.y-y) < 78));
+    nodes.push({id:i, x, y});
+  }
+  const adj = new Map(nodes.map(nd => [nd.id, []]));
+  const edges = [];
+  const addEdge = (u, v) => {
+    if (u === v || adj.get(u).some(e => e.to === v)) return;
+    const w = 1 + ((Math.random()*9)|0);
+    adj.get(u).push({to:v, w}); adj.get(v).push({to:u, w});
+    edges.push({u, v, w});
+  };
+  for (let i=1; i<n; i++) addEdge(i, (Math.random()*i)|0);          // arbre couvrant ⇒ connexe
+  for (let i=0; i<n; i++) for (let j=i+1; j<n; j++)                 // quelques arêtes courtes en plus
+    if (Math.hypot(nodes[i].x-nodes[j].x, nodes[i].y-nodes[j].y) < 150 && Math.random() < 0.4) addEdge(i, j);
+  return {nodes, adj, edges, start:0};
+}
+
+function snapshot(o){
+  return {
+    current: (o.current ?? null),
+    frontier: [...o.frontier],
+    kind: o.kind,
+    visited: [...o.visited],
+    dist: {...o.dist},
+    edge: o.edge ?? null,
+    info: o.info ?? "",
+  };
+}
+function* bfsGen(g, start){
+  const visited = new Set([start]), dist = {[start]:0}, q = [start];
+  yield snapshot({kind:"File", frontier:q, visited, dist, info:`Init : file = [${start}]`});
+  while (q.length){
+    const u = q.shift();
+    yield snapshot({current:u, kind:"File", frontier:q, visited, dist, info:`Défile ${u}`});
+    for (const {to} of g.adj.get(u)){
+      yield snapshot({current:u, kind:"File", frontier:q, visited, dist, edge:[u,to], info:`Arête ${u}–${to}`});
+      if (!visited.has(to)){
+        visited.add(to); dist[to] = dist[u] + 1; q.push(to);
+        yield snapshot({current:u, kind:"File", frontier:q, visited, dist, edge:[u,to], info:`Découvre ${to} (dist ${dist[to]}) → enfile`});
+      }
+    }
+  }
+  yield snapshot({kind:"File", frontier:[], visited, dist, info:"Terminé ✓"});
+}
+function* dfsGen(g, start){
+  const visited = new Set(), dist = {[start]:0}, stack = [start];
+  yield snapshot({kind:"Pile", frontier:stack, visited, dist, info:`Init : pile = [${start}]`});
+  while (stack.length){
+    const u = stack.pop();
+    if (visited.has(u)) continue;
+    visited.add(u);
+    yield snapshot({current:u, kind:"Pile", frontier:stack, visited, dist, info:`Dépile et visite ${u}`});
+    for (const {to} of g.adj.get(u)){
+      yield snapshot({current:u, kind:"Pile", frontier:stack, visited, dist, edge:[u,to], info:`Arête ${u}–${to}`});
+      if (!visited.has(to)){
+        if (dist[to] === undefined) dist[to] = dist[u] + 1;
+        stack.push(to);
+        yield snapshot({current:u, kind:"Pile", frontier:stack, visited, dist, edge:[u,to], info:`Empile ${to}`});
+      }
+    }
+  }
+  yield snapshot({kind:"Pile", frontier:[], visited, dist, info:"Terminé ✓"});
+}
+function* dijkstraGen(g, start){
+  const dist = {}; g.nodes.forEach(nd => dist[nd.id] = Infinity); dist[start] = 0;
+  const visited = new Set(), pq = [start];
+  yield snapshot({kind:"File de prio.", frontier:pq, visited, dist, info:`Init : dist[${start}] = 0`});
+  while (pq.length){
+    pq.sort((a, b) => dist[a] - dist[b]);
+    const u = pq.shift();
+    if (visited.has(u)) continue;
+    visited.add(u);
+    yield snapshot({current:u, kind:"File de prio.", frontier:pq, visited, dist, info:`Extrait min ${u} (dist ${dist[u]}) → finalisé`});
+    for (const {to, w} of g.adj.get(u)){
+      if (visited.has(to)) continue;
+      yield snapshot({current:u, kind:"File de prio.", frontier:pq, visited, dist, edge:[u,to], info:`Relâche ${u}→${to} (poids ${w})`});
+      if (dist[u] + w < dist[to]){
+        dist[to] = dist[u] + w;
+        if (!pq.includes(to)) pq.push(to);
+        yield snapshot({current:u, kind:"File de prio.", frontier:pq, visited, dist, edge:[u,to], info:`Améliore dist[${to}] = ${dist[to]}`});
+      }
+    }
+  }
+  yield snapshot({kind:"File de prio.", frontier:[], visited, dist, info:"Terminé ✓"});
+}
+const GEN = { bfs:bfsGen, dfs:dfsGen, dijkstra:dijkstraGen };
+
+function buildSteps(){
+  const g = graphState.g;
+  graphState.steps = [...GEN[graphState.algo](g, g.start)];
+  graphState.idx = 0;
+}
+function nodeById(id){ return graphState.g.nodes.find(nd => nd.id === id); }
+
+function renderGraph(){
+  const g = graphState.g, ctx = graphState.ctx;
+  if (!g || !ctx) return;
+  const r = $("#graph-canvas").getBoundingClientRect();
+  const snap = graphState.steps[graphState.idx] || null;
+  ctx.clearRect(0, 0, r.width, r.height);
+
+  // arêtes
+  ctx.lineWidth = 1.5;
+  for (const e of g.edges){
+    const a = nodeById(e.u), b = nodeById(e.v);
+    const active = snap && snap.edge &&
+      ((snap.edge[0]===e.u && snap.edge[1]===e.v) || (snap.edge[0]===e.v && snap.edge[1]===e.u));
+    ctx.strokeStyle = active ? C.orange : "#33415588";
+    ctx.lineWidth = active ? 4 : 1.5;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+    ctx.fillStyle = "#0f1420"; ctx.beginPath(); ctx.arc(mx, my, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = active ? C.orange : "#7c8aa5";
+    ctx.font = "11px ui-monospace,monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(e.w), mx, my);
+  }
+  // nœuds
+  for (const nd of g.nodes){
+    let fill = C.gray;
+    if (snap){
+      if (snap.visited.includes(nd.id)) fill = C.green;
+      else if (snap.frontier.includes(nd.id)) fill = C.accent;
+      if (snap.current === nd.id) fill = C.orange;
+    }
+    if (nd.id === g.start){
+      ctx.strokeStyle = C.text; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(nd.x, nd.y, 20, 0, 7); ctx.stroke();
+    }
+    ctx.fillStyle = fill;
+    ctx.beginPath(); ctx.arc(nd.x, nd.y, 15, 0, 7); ctx.fill();
+    ctx.fillStyle = "#0b1120"; ctx.font = "bold 13px ui-monospace,monospace";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(nd.id), nd.x, nd.y);
+    const d = snap && snap.dist[nd.id];
+    if (d !== undefined && d !== Infinity && d !== null){
+      ctx.fillStyle = C.text; ctx.font = "11px ui-monospace,monospace";
+      ctx.fillText("d=" + d, nd.x, nd.y - 24);
+    }
+  }
+  // panneau latéral
+  if (snap){
+    $("#frontier-label").textContent = snap.kind;
+    const fr = $("#frontier"); fr.innerHTML = "";
+    const ordered = snap.kind.startsWith("File de") ? [...snap.frontier].sort((a,b)=>snap.dist[a]-snap.dist[b]) : snap.frontier;
+    for (const id of ordered){
+      const chip = document.createElement("span");
+      chip.className = "node-chip";
+      chip.textContent = snap.dist[id] !== undefined && snap.dist[id] !== Infinity ? `${id}(${snap.dist[id]})` : id;
+      fr.appendChild(chip);
+    }
+    $("#g-info").textContent = snap.info;
+    $("#g-progress").textContent = `Étape ${graphState.idx + 1} / ${graphState.steps.length}`;
+  }
+}
+
+function resetGraph(regen){
+  cancelAnimationFrame(graphState.raf); graphState.raf = null; graphState.playing = false;
+  $("#g-run").textContent = "Démarrer";
+  graphState.ctx = fitCanvas($("#graph-canvas"));
+  if (regen || !graphState.g) graphState.g = makeGraph(graphState.n);
+  graphState.algo = $("#g-algo").value;
+  buildSteps();
+  renderGraph();
+}
+function graphStepOnce(){
+  if (graphState.idx < graphState.steps.length - 1){ graphState.idx++; renderGraph(); return true; }
+  return false;
+}
+function graphTick(ts){
+  if (!graphState.playing){ graphState.raf = null; return; }
+  if (!graphState.last) graphState.last = ts;
+  graphState.acc += ts - graphState.last; graphState.last = ts;
+  const delay = 1000 / graphState.speed;
+  while (graphState.acc >= delay){
+    graphState.acc -= delay;
+    if (!graphStepOnce()){
+      graphState.playing = false; graphState.raf = null; $("#g-run").textContent = "Terminé ✓"; return;
+    }
+  }
+  graphState.raf = requestAnimationFrame(graphTick);
+}
+function toggleGraphRun(){
+  if (graphState.idx >= graphState.steps.length - 1){ graphState.idx = 0; }
+  graphState.playing = !graphState.playing;
+  graphState.last = 0; graphState.acc = 0;
+  $("#g-run").textContent = graphState.playing ? "Pause" : "Reprendre";
+  if (graphState.playing && !graphState.raf) graphState.raf = requestAnimationFrame(graphTick);
+}
+
+/* ══════════════════════ ÉVÉNEMENTS ══════════════════════ */
+// onglets
+document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  tab.classList.add("active");
+  const v = tab.dataset.view;
+  $("#sort-view").classList.toggle("hidden", v !== "sort");
+  $("#graph-view").classList.toggle("hidden", v !== "graph");
+  sortState.playing = false; graphState.playing = false;
+  if (v === "graph"){ resetGraph(false); } else { renderSorts(); }
+}));
+
+// tris
+$("#sz").addEventListener("input", e => { sortState.size = +e.target.value; $("#sz-val").textContent = e.target.value; resetSort(); });
+$("#sp").addEventListener("input", e => { sortState.speed = +e.target.value; $("#sp-val").textContent = e.target.value; });
+$("#dist").addEventListener("change", e => { sortState.dist = e.target.value; resetSort(); });
+$("#sort-run").addEventListener("click", toggleSortRun);
+$("#sort-regen").addEventListener("click", () => resetSort(true));
+
+// graphe
+$("#g-algo").addEventListener("change", () => resetGraph(false));
+$("#g-n").addEventListener("input", e => { graphState.n = +e.target.value; $("#gn-val").textContent = e.target.value; resetGraph(true); });
+$("#g-sp").addEventListener("input", e => { graphState.speed = +e.target.value; $("#gsp-val").textContent = e.target.value; });
+$("#g-run").addEventListener("click", toggleGraphRun);
+$("#g-step").addEventListener("click", () => { graphState.playing = false; $("#g-run").textContent = "Reprendre"; graphStepOnce(); });
+$("#g-reset").addEventListener("click", () => { graphState.idx = 0; graphState.playing = false; $("#g-run").textContent = "Démarrer"; renderGraph(); });
+$("#g-regen").addEventListener("click", () => resetGraph(true));
+$("#graph-canvas").addEventListener("click", ev => {
+  const r = ev.currentTarget.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  let best = null, bd = 1e9;
+  for (const nd of graphState.g.nodes){ const d = Math.hypot(nd.x-mx, nd.y-my); if (d < bd){ bd = d; best = nd; } }
+  if (best && bd < 22){ graphState.g.start = best.id; resetGraph(false); }
+});
+
+window.addEventListener("resize", () => {
+  for (const st of sortState.algos) st.ctx = fitCanvas(st.canvas);
+  renderSorts();
+  if (!$("#graph-view").classList.contains("hidden")){ graphState.ctx = fitCanvas($("#graph-canvas")); renderGraph(); }
+});
+
+// init
+buildSortPanels();
+resetSort();
+</script>
+</body>
+</html>
