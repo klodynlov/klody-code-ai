@@ -97,7 +97,11 @@ case "$cmd" in
     last="$(tail -n 40 "$log" 2>/dev/null)"
     written="$(printf '%s\n' "$last" | grep -oE 'skills/distilled/[^ ]+\.json' | tail -n 1)"
     if [[ -n "$written" ]]; then
-      echo "done $written"
+      # Chemin ABSOLU : la racine sandbox de Klody (config.PROJECT_ROOT) n'est pas
+      # forcément klody-code-ai — ici c'est ~/Projets (cf. .env), donc un chemin
+      # relatif serait cherché sous ~/Projets, pas sous le dépôt Klody → "Répertoire
+      # introuvable". $ROOT vient de BASH_SOURCE : toujours le dépôt Klody.
+      echo "done $ROOT/$written"
       exit 0
     fi
     if printf '%s\n' "$last" | grep -q "le distillateur a refusé"; then
