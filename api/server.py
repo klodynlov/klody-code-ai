@@ -234,6 +234,38 @@ async def export_session(session_id: str):
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Supprime définitivement le fichier de session."""
+    f = MEMORY_DIR / f"memory_{session_id}.json"
+    if not f.exists():
+        return {"ok": False, "message": "Session introuvable"}
+    try:
+        f.unlink()
+        return {"ok": True}
+    except OSError as e:
+        return {"ok": False, "message": str(e)}
+
+
+@app.post("/api/sessions/{session_id}/rename")
+async def rename_session(session_id: str, request: Request):
+    """Renomme une session (écrit le champ `title` dans le JSON)."""
+    body = await request.json()
+    title = (body.get("title") or "").strip()[:80]
+    if not title:
+        return {"ok": False, "message": "Titre vide"}
+    f = MEMORY_DIR / f"memory_{session_id}.json"
+    if not f.exists():
+        return {"ok": False, "message": "Session introuvable"}
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        data["title"] = title
+        f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "title": title}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
 @app.post("/api/stop")
 async def stop_generation():
     _stop_flag[0] = True
