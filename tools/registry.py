@@ -96,6 +96,37 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "await_distillation",
+            "description": (
+                "Attend la fin d'une distillation lancée en arrière-plan via "
+                "klody-distill.sh start, et renvoie son verdict final en UN seul "
+                "appel : 'done <chemin.json>', 'refused <raison>' ou 'error "
+                "<message>'. À utiliser À LA PLACE du polling répété de 'status' "
+                "dans la boucle : l'attente se fait côté serveur, sans consommer "
+                "d'itérations. Appel bloquant (jusqu'à ~30 min)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_id": {
+                        "type": "string",
+                        "description": "RUN_ID renvoyé par klody-distill.sh start.",
+                    },
+                    "timeout_s": {
+                        "type": "integer",
+                        "description": (
+                            "Attente max en secondes (défaut 1800). Au-delà, "
+                            "renvoie 'running' pour rappeler l'outil."
+                        ),
+                    },
+                },
+                "required": ["run_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find_symbol",
             "description": (
                 "Cherche où un symbole (fonction, classe, méthode) est défini dans "

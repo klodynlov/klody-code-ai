@@ -2,6 +2,7 @@ import contextlib
 import json
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from config import (
@@ -329,6 +330,9 @@ class Orchestrator:
         self._router_enabled = ROUTER_ENABLED
         self._router = None  # lazy
         self.last_routing = None  # dernière décision, pour debug et étapes futures
+        # Hook optionnel (None en CLI) : permet aux outils bloquants comme
+        # await_distillation d'observer une demande d'arrêt côté API.
+        self._stop_check: Callable[[], bool] | None = None
         # Retrieval code-aware (Roadmap v2 #6) — tree-sitter + embeddings.
         self._code_index = None      # symboles + références (tree-sitter)
         self._embed_index = None     # recherche sémantique (bge-m3)
@@ -679,6 +683,7 @@ class Orchestrator:
             # Terminal
             "execute_command": lambda a: self.terminal.execute_command(
                 a["command"], a.get("reason", "")),
+            "await_distillation": self._tool_await_distillation,
             # Recherche texte
             "search_in_files": lambda a: self.search.search_in_files(
                 a["pattern"], a.get("path", "."), a.get("file_pattern", ""),
@@ -765,6 +770,63 @@ class Orchestrator:
         from tools import audio as _audio
         fn = getattr(_audio, name)
         return json.dumps(fn(**a), ensure_ascii=False, indent=2)
+
+    def _tool_await_distillation(self, a: dict) -> str:
+        """Attend (côté serveur) la fin d'une distillation lancée en arrière-plan.
+
+        Évite le polling dans la boucle ReAct : au lieu de N appels `status`
+        (= N itérations = N appels LLM), on boucle ICI sur le wrapper jusqu'au
+        verdict final, en UNE seule itération. Renvoie la ligne de statut telle
+        quelle ('done <chemin>', 'refused <raison>', 'error <msg>') ou un
+        'running' explicite en cas de timeout (pour rappeler l'outil).
+        """
+        import subprocess
+        import time
+
+        run_id = (a.get("run_id") or "").strip()
+        if not run_id:
+            return "ERREUR: run_id manquant (fourni par klody-distill.sh start)."
+        try:
+            timeout_s = max(1, int(a.get("timeout_s", 1800)))
+        except (TypeError, ValueError):
+            timeout_s = 1800
+
+        script = Path(__file__).resolve().parents[1] / "scripts" / "klody-distill.sh"
+        if not script.exists():
+            return f"ERREUR: wrapper de distillation introuvable: {script}"
+
+        stop_check = getattr(self, "_stop_check", None)
+        poll_every = 5.0
+        deadline = time.monotonic() + timeout_s
+        last = "running"
+
+        while time.monotonic() < deadline:
+            if stop_check is not None and stop_check():
+                return "Attente interrompue (arrêt demandé)."
+            try:
+                res = subprocess.run(
+                    ["bash", str(script), "status", run_id],
+                    capture_output=True, text=True, timeout=15,
+                    cwd=str(script.parent.parent),
+                )
+                last = (res.stdout or "").strip() or (res.stderr or "").strip()
+            except subprocess.TimeoutExpired:
+                last = "running"  # status anormalement lent → on retente
+            if last and not last.startswith("running"):
+                return last
+            # Sleep découpé pour réagir vite à un arrêt.
+            slept = 0.0
+            while slept < poll_every:
+                if stop_check is not None and stop_check():
+                    return "Attente interrompue (arrêt demandé)."
+                time.sleep(0.5)
+                slept += 0.5
+
+        return (
+            f"running — timeout après {timeout_s}s, distillation toujours en cours. "
+            f"Rappelle await_distillation (run_id={run_id}) pour continuer d'attendre, "
+            f"ou klody-distill.sh tail {run_id} 80 pour diagnostiquer."
+        )
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
