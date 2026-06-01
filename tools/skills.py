@@ -6,8 +6,10 @@ qui seront rechargés automatiquement à chaque démarrage.
 
 import json
 import logging
+import math
 import re
 import unicodedata
+from collections import Counter
 from datetime import datetime
 
 from config import SKILLS_DIR
@@ -110,6 +112,7 @@ _STOP = {
     "mais", "plus", "tout", "tous", "fait", "faire", "comment", "peux", "moi",
     "this", "that", "veux", "vais", "puis", "quoi", "donne",
     "klody", "skill", "skills", "fichier", "fichiers", "code",  # trop fréquents → non discriminants
+    "outil", "outils", "tool", "tools",  # « code-moi un outil » n'est pas un sujet → évite le faux positif distiller_*
 }
 
 
@@ -117,19 +120,25 @@ def _skill_terms(text: str) -> set[str]:
     return {t for t in re.findall(r"[a-zà-ÿ0-9]{3,}", (text or "").lower()) if t not in _STOP}
 
 
-def _score_skill(terms: set[str], skill: dict) -> int:
-    """Score de pertinence d'un skill pour des termes de requête.
+def _term_matches(t: str, hay_str: str, hay_terms: set[str]) -> bool:
+    """Un terme de requête « touche » un skill : inclusion directe dans le texte
+    (nom+desc+slug), ou sous-chaîne bidirectionnelle ≥4 car. (gère `nextjs` ↔
+    `next_js`/`Next.js`)."""
+    return t in hay_str or any(
+        (len(h) >= 4 and h in t) or (len(t) >= 4 and t in h) for h in hay_terms
+    )
 
-    Tolère les variantes de tokenisation (`nextjs` ↔ `next_js`/`Next.js`) via
-    un matching sous-chaîne bidirectionnel (≥4 car.) en plus de l'inclusion
-    directe dans le texte du skill (nom + description + slug)."""
+
+def _matching_terms(terms: set[str], skill: dict) -> set[str]:
+    """Sous-ensemble des termes de la requête présents dans le skill."""
     hay_str = f"{skill.get('name', '')} {skill.get('description', '')} {skill.get('slug', '')}".lower()
     hay_terms = _skill_terms(hay_str)
-    score = 0
-    for t in terms:
-        if t in hay_str or any((len(h) >= 4 and h in t) or (len(t) >= 4 and t in h) for h in hay_terms):
-            score += 1
-    return score
+    return {t for t in terms if _term_matches(t, hay_str, hay_terms)}
+
+
+def _score_skill(terms: set[str], skill: dict) -> int:
+    """Overlap brut : nombre de termes de la requête présents dans le skill."""
+    return len(_matching_terms(terms, skill))
 
 
 def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]:
@@ -138,11 +147,15 @@ def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]
     - Skills de profil/règles (slug `utilisateur_*` / `conventions_*`) : toujours
       inclus (contexte permanent sur l'utilisateur).
     - Skills « how-to » (mlx, nextjs, distiller_un_livre…) : filtrés par
-      pertinence au prompt (overlap de mots-clés sur nom + description + slug),
-      seuls les `k` meilleurs avec score > 0 sont injectés. Query vide → aucun.
+      pertinence au prompt, pondérés IDF, seuls les `k` meilleurs sont injectés.
+      Query vide → aucun.
 
-    Évite d'injecter ~6k tokens de skills à chaque message quand un seul est
-    pertinent. Filtrage par mots-clés : déterministe, hors-ligne, sans embeddings.
+    Pondération IDF (déterministe, hors-ligne, sans embeddings) : un terme rare
+    dans le corpus de skills (`dijkstra`, `nextjs`) pèse fort, un terme partagé
+    par plusieurs skills (`fusion`) pèse faible. Garde-fou homonyme : un skill
+    dont le SEUL terme commun est partagé (df > 1) est rejeté — c'est ce qui
+    évite que « tri fusion » pêche le skill de distillation (« fusionner des
+    livres »). Évite aussi d'injecter ~6k tokens de skills quand un seul compte.
     """
     always, howto = [], []
     for s in skills:
@@ -150,8 +163,28 @@ def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]
     terms = _skill_terms(query)
     if not terms:
         return always
-    ranked = sorted(((_score_skill(terms, s), s) for s in howto), key=lambda x: -x[0])
-    picked = [s for score, s in ranked if score > 0][:k]
+
+    matched = [(s, _matching_terms(terms, s)) for s in howto]
+    df: Counter = Counter()
+    for _, mt in matched:
+        df.update(mt)
+    n = len(howto)
+
+    def _idf(t: str) -> float:
+        # df ∈ [1, n] ⇒ poids ∈ (0, log(n+1)] ; terme présent dans tous → ~0.
+        return math.log((1 + n) / df[t])
+
+    scored: list[tuple[float, dict]] = []
+    for s, mt in matched:
+        if not mt:
+            continue
+        # Signal trop faible : un unique terme commun, et partagé par d'autres skills.
+        if len(mt) == 1 and df[next(iter(mt))] > 1:
+            continue
+        scored.append((sum(_idf(t) for t in mt), s))
+
+    scored.sort(key=lambda x: -x[0])
+    picked = [s for _, s in scored[:k]]
     return always + picked
 
 
