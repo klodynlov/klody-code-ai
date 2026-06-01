@@ -1,0 +1,120 @@
+{
+  "skill": "Principle-based effectiveness method",
+  "domain": "leadership",
+  "description": "A structured approach to personal and interpersonal effectiveness that progresses from self-mastery to collaborative success through principle-aligned habits.",
+  "principles": [
+    "Define your vision and core values before taking action.",
+    "Prioritize important tasks over urgent distractions.",
+    "Listen empathetically to understand before seeking to be understood.",
+    "Structure agreements and interactions around mutual benefit.",
+    "Combine diverse strengths to create outcomes greater than the sum of parts.",
+    "Renew your physical, mental, emotional, and spiritual capacities regularly.",
+    "Shift from reactive dependence to proactive responsibility."
+  ],
+  "workflow": [
+    {
+      "step": "Define vision",
+      "purpose": "Establish direction and priority framework",
+      "guidelines": [
+        "Write a personal or organizational mission statement.",
+        "Identify core values that guide decision-making.",
+        "Map long-term objectives to daily priorities."
+      ],
+      "pitfalls": [
+        "Confusing urgency with importance.",
+        "Setting goals without aligning them to stated values."
+      ]
+    },
+    {
+      "step": "Align interactions",
+      "purpose": "Build trust and secure cooperative agreements",
+      "guidelines": [
+        "Listen to understand emotions and needs before responding.",
+        "Frame proposals around shared interests rather than positions.",
+        "Commit explicitly to mutually beneficial outcomes."
+      ],
+      "pitfalls": [
+        "Preparing your own speech while listening.",
+        "Focusing on short-term concessions instead of long-term trust."
+      ]
+    },
+    {
+      "step": "Co-create solutions",
+      "purpose": "Generate innovative results through collaboration",
+      "guidelines": [
+        "Encourage dissenting views to uncover blind spots.",
+        "Combine complementary strengths to cover individual weaknesses.",
+        "Iterate on ideas until a superior third alternative emerges."
+      ],
+      "pitfalls": [
+        "Forcing premature consensus.",
+        "Dismissing differences as obstacles rather than assets."
+      ]
+    },
+    {
+      "step": "Schedule renewal",
+      "purpose": "Sustain effectiveness and prevent burnout",
+      "guidelines": [
+        "Block dedicated time for physical exercise, learning, and reflection.",
+        "Review progress weekly against the mission statement.",
+        "Adjust habits based on feedback and changing circumstances."
+      ],
+      "pitfalls": [
+        "Treating renewal as optional or a reward.",
+        "Neglecting one dimension while over-investing in another."
+      ]
+    }
+  ],
+  "checklist": [
+    "Personal mission statement drafted and reviewed.",
+    "Weekly schedule prioritizes important tasks over urgent ones.",
+    "Empathic listening practiced in at least one key conversation per week.",
+    "All major agreements explicitly state mutual benefits.",
+    "Diverse perspectives actively solicited before finalizing decisions.",
+    "Dedicated time blocked weekly for physical, mental, and emotional renewal.",
+    "Reactive triggers identified and replaced with proactive response plans.",
+    "Quarterly review conducted to align actions with long-term vision."
+  ],
+  "source": {
+    "book": "Les 7 habitudes",
+    "author": "Stephen R. Covey",
+    "year": 2014
+  },
+  "vocabulary": [
+    {
+      "term": "paradigm",
+      "definition": "A mental model or way of seeing the world that shapes perception, interpretation, and behavior."
+    },
+    {
+      "term": "empathic listening",
+      "definition": "Listening with the intent to understand the speaker's frame of reference and emotions, not to reply, advise, or evaluate."
+    },
+    {
+      "term": "synergy",
+      "definition": "A collaborative outcome where combined efforts and diverse perspectives produce results greater than individual contributions."
+    },
+    {
+      "term": "circle of influence",
+      "definition": "The set of issues and actions within your direct control or ability to affect, as opposed to external concerns."
+    }
+  ],
+  "heuristics": [
+    "Focus on what you can control; accept what you cannot.",
+    "Seek the third alternative when positions conflict.",
+    "Renewal is not a reward for productivity, but a prerequisite for it."
+  ],
+  "antipatterns": [
+    "Personality ethic over character ethic: prioritizing quick fixes, techniques, and image rather than integrity and principles.",
+    "Scarcity mindset: viewing success as a zero-sum game, leading to defensive or competitive behavior."
+  ],
+  "examples": [
+    {
+      "context": "Team struggling with conflicting project deadlines and resource allocation.",
+      "outcome": "Members shift from positional bargaining to identifying shared goals, resulting in a revised timeline that meets all critical milestones without burnout."
+    },
+    {
+      "context": "Individual overwhelmed by daily operational fires and missing strategic objectives.",
+      "outcome": "Adopting importance-based scheduling and a written mission statement reduces reactive work and aligns daily tasks with long-term vision."
+    }
+  ]
+}
