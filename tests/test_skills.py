@@ -236,3 +236,74 @@ class TestSelectSkills:
         # Un unique terme mais UNIQUE au skill (df==1) reste un signal fort.
         slugs = self._slugs("explique-moi dijkstra")
         assert "maitriser_les_algorithmes" in slugs
+
+
+# ── list_skills ────────────────────────────────────────────────────────────────
+
+class TestListSkills:
+    def test_aucune_competence(self):
+        from tools.skills import list_skills
+        assert "Aucune" in list_skills()
+
+    def test_resume_contient_noms_et_compte(self, tmp_path):
+        from tools.skills import list_skills, save_skill
+        save_skill("Alpha Skill", "desc A", "c")
+        save_skill("Beta Skill", "desc B", "c")
+        out = list_skills()
+        assert "Alpha Skill" in out and "Beta Skill" in out
+        assert "2 compétence" in out
+
+
+# ── delete_skill ───────────────────────────────────────────────────────────────
+
+class TestDeleteSkill:
+    def test_supprime_existant(self, tmp_path):
+        from tools.skills import delete_skill, save_skill
+        save_skill("Jetable", "d", "c")
+        msg = delete_skill("jetable")
+        assert "supprimée" in msg
+        assert not (tmp_path / "jetable.json").exists()
+
+    def test_introuvable_donne_indice(self, tmp_path):
+        from tools.skills import delete_skill, save_skill
+        save_skill("Existe", "d", "c")
+        msg = delete_skill("nexistepas")
+        assert "introuvable" in msg
+        assert "existe" in msg  # indice listant les slugs disponibles
+
+    def test_introuvable_sans_skills(self):
+        from tools.skills import delete_skill
+        assert "introuvable" in delete_skill("rien")
+
+    def test_refuse_fichier_domaine(self, tmp_path):
+        from tools.skills import delete_skill
+        (tmp_path / "python.json").write_text(json.dumps([{"title": "t", "content": "c", "tags": []}]))
+        msg = delete_skill("python")
+        assert "ERREUR" in msg
+        assert (tmp_path / "python.json").exists()  # non supprimé (lecture seule)
+
+    def test_json_casse_supprime_quand_meme(self, tmp_path):
+        from tools.skills import delete_skill
+        (tmp_path / "casse.json").write_text("{ pas du json")
+        msg = delete_skill("casse")
+        assert "supprimée" in msg
+        assert not (tmp_path / "casse.json").exists()
+
+
+# ── _is_user_skill ─────────────────────────────────────────────────────────────
+
+class TestIsUserSkill:
+    def test_dict_est_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "s.json"; p.write_text(json.dumps({"name": "x"}))
+        assert _is_user_skill(p) is True
+
+    def test_liste_nest_pas_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "d.json"; p.write_text(json.dumps([{"title": "t"}]))
+        assert _is_user_skill(p) is False
+
+    def test_json_casse_nest_pas_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "b.json"; p.write_text("{ cassé")
+        assert _is_user_skill(p) is False
