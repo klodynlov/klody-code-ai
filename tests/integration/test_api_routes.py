@@ -22,10 +22,12 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         "services.get_librarybrain_status",
         lambda: {"running": False, "books": 0, "url": ""},
     )
-    # Isole le répertoire mémoire dans tmp_path
+    # Isole le répertoire mémoire dans tmp_path. On patche `config.MEMORY_DIR`
+    # (lu en direct par api.server ET agent.memory) plutôt qu'un nom rebindé
+    # dans api.server : un seul point de vérité, couvre les deux lecteurs.
     fake_mem_dir = tmp_path / "memory"
     fake_mem_dir.mkdir()
-    monkeypatch.setattr("api.server.MEMORY_DIR", fake_mem_dir)
+    monkeypatch.setattr("config.MEMORY_DIR", fake_mem_dir)
 
     from api.server import app
     from fastapi.testclient import TestClient

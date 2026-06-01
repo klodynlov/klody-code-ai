@@ -20,19 +20,11 @@ from fastapi.middleware.cors import CORSMiddleware
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import config
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
-from config import (
-    LIBRARYBRAIN_DIR,
-    LIBRARYBRAIN_URL,
-    LLM_MODEL,
-    MEMORY_DIR,
-    MODEL_FALLBACK,
-    OLLAMA_BASE_URL,
-    PROJECT_ROOT,
-)
 from services import ensure_librarybrain, get_librarybrain_status
 from tools.skills import delete_skill, load_skills
 
@@ -43,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
+    ensure_librarybrain(config.LIBRARYBRAIN_DIR, config.LIBRARYBRAIN_URL)
     yield
 
 
@@ -81,11 +73,10 @@ class StopGeneration(Exception):
 
 @app.get("/api/status")
 async def get_status():
-    from config import BACKEND, LLM_MODEL
     ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags")
+            r = await client.get(config.OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags")
             if r.status_code == 200:
                 ollama_ok = True
                 models = [m["name"] for m in r.json().get("models", [])]
@@ -96,11 +87,10 @@ async def get_status():
 
     # Backend MLX status si BACKEND=mlx
     mlx_ok = False
-    if BACKEND == "mlx":
+    if config.BACKEND == "mlx":
         try:
-            from config import MLX_BASE_URL
             async with httpx.AsyncClient(timeout=2.0) as client:
-                r = await client.get(MLX_BASE_URL.replace("/v1", "") + "/v1/models")
+                r = await client.get(config.MLX_BASE_URL.replace("/v1", "") + "/v1/models")
                 if r.status_code == 200:
                     mlx_ok = True
                     models = [m["id"] for m in r.json().get("data", [])]
@@ -121,13 +111,13 @@ async def get_status():
 
     return {
         "ollama": ollama_ok,
-        "model": LLM_MODEL,
+        "model": config.LLM_MODEL,
         "models": models,
-        "project": str(PROJECT_ROOT),
+        "project": str(config.PROJECT_ROOT),
         "librarybrain": get_librarybrain_status(),
         # v2 fields
-        "backend": BACKEND,
-        "backend_active": mlx_ok if BACKEND == "mlx" else ollama_ok,
+        "backend": config.BACKEND,
+        "backend_active": mlx_ok if config.BACKEND == "mlx" else ollama_ok,
         "mcp_server_active": mcp_active,
         "project_info": project_info,
     }
@@ -135,18 +125,18 @@ async def get_status():
 
 def _load_project_info() -> dict:
     """Lit .klody/conventions.json et errors.json sur le PROJECT_ROOT."""
-    info: dict = {"conventions": [], "recurrent_errors": [], "workdir": str(PROJECT_ROOT)}
+    info: dict = {"conventions": [], "recurrent_errors": [], "workdir": str(config.PROJECT_ROOT)}
     try:
         from agent.conventions import ConventionDetector
         from agent.error_memory import ErrorMemory
-        det = ConventionDetector(PROJECT_ROOT)
+        det = ConventionDetector(config.PROJECT_ROOT)
         report = det.detect()
         info["conventions"] = [
             {"name": c.name, "value": c.value, "evidence": c.evidence, "confidence": c.confidence}
             for c in report.conventions
         ]
         info["workdir"] = report.workdir
-        em = ErrorMemory(workdir=PROJECT_ROOT)
+        em = ErrorMemory(workdir=config.PROJECT_ROOT)
         info["recurrent_errors"] = [
             {"signature": sig, "count": n} for sig, n in em.recurrent(min_count=2)
         ]
@@ -160,7 +150,7 @@ def _load_project_info() -> dict:
 @app.get("/api/sessions")
 async def list_sessions():
     files = sorted(
-        MEMORY_DIR.glob("memory_*.json"),
+        config.MEMORY_DIR.glob("memory_*.json"),
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
@@ -225,7 +215,7 @@ async def delete_skill_route(slug: str):
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str):
     from fastapi.responses import PlainTextResponse
-    f = MEMORY_DIR / f"memory_{session_id}.json"
+    f = config.MEMORY_DIR / f"memory_{session_id}.json"
     if not f.exists():
         return PlainTextResponse("Session introuvable", status_code=404)
     data = json.loads(f.read_text())
@@ -246,7 +236,7 @@ async def export_session(session_id: str):
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Supprime définitivement le fichier de session."""
-    f = MEMORY_DIR / f"memory_{session_id}.json"
+    f = config.MEMORY_DIR / f"memory_{session_id}.json"
     if not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
@@ -263,7 +253,7 @@ async def rename_session(session_id: str, request: Request):
     title = (body.get("title") or "").strip()[:80]
     if not title:
         return {"ok": False, "message": "Titre vide"}
-    f = MEMORY_DIR / f"memory_{session_id}.json"
+    f = config.MEMORY_DIR / f"memory_{session_id}.json"
     if not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
@@ -306,8 +296,7 @@ _CONFIG_BOUNDS: dict[str, tuple[int, int]] = {
 
 
 def _current_config() -> dict:
-    import config as _cfg
-    return {api: getattr(_cfg, const) for api, (const, _t) in _CONFIG_KEYS.items()}
+    return {api: getattr(config, const) for api, (const, _t) in _CONFIG_KEYS.items()}
 
 
 @app.get("/api/config")
@@ -318,7 +307,6 @@ async def get_config():
 @app.post("/api/config")
 async def set_config(request: Request):
     import agent.orchestrator as _orch
-    import config as _cfg
     body = await request.json()
     updated: dict = {}
     for api, value in (body or {}).items():
@@ -335,7 +323,7 @@ async def set_config(request: Request):
                     val = max(lo, min(val, hi))
         except (ValueError, TypeError):
             continue
-        setattr(_cfg, const, val)
+        setattr(config, const, val)
         if hasattr(_orch, const):
             setattr(_orch, const, val)  # propage au module consommateur
         updated[api] = val
@@ -352,7 +340,7 @@ async def websocket_endpoint(ws: WebSocket):
 
     memory = ConversationMemory()
     # Modèle actif = celui résolu par config selon BACKEND (ollama / mlx).
-    current_model = LLM_MODEL
+    current_model = config.LLM_MODEL
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue()
 
@@ -490,7 +478,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg["type"] == "session_load":
                 sid = msg.get("session_id", "")
-                f = MEMORY_DIR / f"memory_{sid}.json"
+                f = config.MEMORY_DIR / f"memory_{sid}.json"
                 if f.exists():
                     memory = ConversationMemory.load_from_file(f)
                     await ws.send_json({
@@ -640,7 +628,6 @@ def _build_streaming_orchestrator(
             _put({"type": "stream_end"})
             # Stats par message — tokens RÉELS si le backend renvoie `usage`
             # (mlx_lm le fait via stream_options.include_usage), sinon estimation.
-            from config import CONTEXT_WINDOW
             elapsed = round(_t.perf_counter() - t0, 2)
             if usage is not None:
                 completion_toks = getattr(usage, "completion_tokens", 0) or 0
@@ -652,7 +639,7 @@ def _build_streaming_orchestrator(
                 total_toks = completion_toks
             _put({"type": "message_stats", "latency_s": elapsed,
                   "tokens": completion_toks, "prompt_tokens": prompt_toks,
-                  "total_tokens": total_toks, "context_window": CONTEXT_WINDOW,
+                  "total_tokens": total_toks, "context_window": config.CONTEXT_WINDOW,
                   "model": orch.llm.model})
 
         # Mise à jour compteur tokens (réel si dispo)
@@ -788,14 +775,14 @@ def _run_siri_query(query: str) -> str:
     Utilise une session persistante 'siri' et MODEL_FALLBACK pour la réactivité.
     """
     with _SIRI_LOCK:
-        siri_file = MEMORY_DIR / f"memory_{_SIRI_SESSION_ID}.json"
+        siri_file = config.MEMORY_DIR / f"memory_{_SIRI_SESSION_ID}.json"
         if siri_file.exists():
             memory = ConversationMemory.load_from_file(siri_file)
         else:
             memory = ConversationMemory(session_id=_SIRI_SESSION_ID)
 
         orch = Orchestrator(memory)
-        orch.llm.model = MODEL_FALLBACK
+        orch.llm.model = config.MODEL_FALLBACK
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
         def _sync_chat(messages: list[dict], tools=None) -> tuple[str, Any]:
@@ -902,25 +889,23 @@ async def health(response: Response):
     """Probe profonde : OK 200 si tous les backends critiques sont up,
     sinon 503 + détail. Utilisable par k8s liveness/readiness, cron probes, etc.
     """
-    from config import BACKEND, MLX_BASE_URL
-
     # Probes parallèles
-    ollama_url = OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
-    mlx_url = MLX_BASE_URL.replace("/v1", "") + "/v1/models"
+    ollama_url = config.OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
+    mlx_url = config.MLX_BASE_URL.replace("/v1", "") + "/v1/models"
     mcp_url = "http://127.0.0.1:8083/mcp"
 
     probes = await asyncio.gather(
         _probe_url(ollama_url),
-        _probe_url(mlx_url) if BACKEND == "mlx" else asyncio.sleep(0, result=None),
+        _probe_url(mlx_url) if config.BACKEND == "mlx" else asyncio.sleep(0, result=None),
         _probe_url(mcp_url, accept_status=(200, 405, 406)),
         return_exceptions=True,
     )
     ollama_ok = probes[0] is True
-    mlx_ok = probes[1] is True if BACKEND == "mlx" else None
+    mlx_ok = probes[1] is True if config.BACKEND == "mlx" else None
     mcp_ok = probes[2] is True
 
     # LLM principal selon BACKEND
-    llm_ok = mlx_ok if BACKEND == "mlx" else ollama_ok
+    llm_ok = mlx_ok if config.BACKEND == "mlx" else ollama_ok
 
     checks = {
         "llm_backend": "ok" if llm_ok else "down",
@@ -938,7 +923,7 @@ async def health(response: Response):
         "status": "ok" if all_ok else "degraded",
         "service": "klody-api",
         "version": "1.0.0",
-        "backend": BACKEND,
+        "backend": config.BACKEND,
         "checks": checks,
     }
 

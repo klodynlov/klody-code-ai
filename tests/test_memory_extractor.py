@@ -3,7 +3,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from agent.memory_extractor import _parse_json_facts, extract_and_save
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

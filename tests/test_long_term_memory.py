@@ -220,7 +220,7 @@ class TestPersistance:
 
 class TestConversationMemoryTitle:
     def test_titre_genere_depuis_premier_message_user(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="titretest")
         m.memory_file = tmp_path / "memory_titretest.json"
@@ -229,7 +229,7 @@ class TestConversationMemoryTitle:
         assert "Bonjour" in m.title
 
     def test_titre_contient_date(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="datetest")
         m.memory_file = tmp_path / "memory_datetest.json"
@@ -238,7 +238,7 @@ class TestConversationMemoryTitle:
         assert "/" in m.title and "—" in m.title
 
     def test_titre_tronque_a_50_chars(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="trunctest")
         m.memory_file = tmp_path / "memory_trunctest.json"
@@ -249,7 +249,7 @@ class TestConversationMemoryTitle:
         assert len(question_part) <= 53  # 50 + "…"
 
     def test_titre_non_ecrase_si_deja_defini(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="keeptest")
         m.memory_file = tmp_path / "memory_keeptest.json"
@@ -259,7 +259,7 @@ class TestConversationMemoryTitle:
         assert m.title == titre_initial
 
     def test_titre_persiste_dans_json(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="persisttitle")
         m.memory_file = tmp_path / "memory_persisttitle.json"
@@ -269,7 +269,7 @@ class TestConversationMemoryTitle:
         assert data["title"] == m.title
 
     def test_titre_charge_depuis_json(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         from agent.memory import ConversationMemory
         m = ConversationMemory(session_id="loadtitle")
         m.memory_file = tmp_path / "memory_loadtitle.json"

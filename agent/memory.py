@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional
 
 import config
-from config import MAX_MESSAGES, MEMORY_DIR
 
 from agent.dbc import invariant
 
@@ -21,7 +20,7 @@ _CONTEXT_BUDGET_RATIO = 0.8
 class ConversationMemory:
     def __init__(self, session_id: str | None = None):
         self.session_id: str = session_id or str(uuid.uuid4())[:8]
-        self.memory_file: Path = MEMORY_DIR / f"memory_{self.session_id}.json"
+        self.memory_file: Path = config.MEMORY_DIR / f"memory_{self.session_id}.json"
         self.messages: list[dict] = []
         self._created_at: str = datetime.now().isoformat()
         self.title: str = ""
@@ -119,7 +118,7 @@ class ConversationMemory:
     def load_latest(cls) -> Optional["ConversationMemory"]:
         """Charge la session la plus récente."""
         files = sorted(
-            MEMORY_DIR.glob("memory_*.json"),
+            config.MEMORY_DIR.glob("memory_*.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -175,7 +174,7 @@ class ConversationMemory:
            dump d'outil peut suffire. On garde toujours ≥1 groupe (le tour
            courant doit passer même s'il est volumineux).
         """
-        while self._count_non_system() > MAX_MESSAGES:
+        while self._count_non_system() > config.MAX_MESSAGES:
             if not self._pop_oldest_group():
                 break
 

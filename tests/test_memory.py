@@ -11,7 +11,7 @@ from agent.memory import ConversationMemory
 @pytest.fixture
 def mem(tmp_path, monkeypatch):
     """ConversationMemory avec MEMORY_DIR pointant sur tmp_path."""
-    monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+    monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
     m = ConversationMemory(session_id="testmem")
     m.memory_file = tmp_path / "memory_testmem.json"
     return m
@@ -39,7 +39,7 @@ class TestAddMessage:
 
     def test_fenetre_glissante_limite(self, mem, monkeypatch):
         """Fenêtre glissante : ne dépasse pas MAX_MESSAGES messages non-system."""
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 5)
+        monkeypatch.setattr("config.MAX_MESSAGES", 5)
         mem.messages.append({"role": "system", "content": "sys", "timestamp": None})
         for i in range(10):
             mem.add_message("user", f"Message {i}")
@@ -48,7 +48,7 @@ class TestAddMessage:
 
     def test_fenetre_glissante_conserve_system(self, mem, monkeypatch):
         """Le system prompt n'est jamais supprimé par la fenêtre glissante."""
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 3)
+        monkeypatch.setattr("config.MAX_MESSAGES", 3)
         mem.messages.insert(0, {"role": "system", "content": "sys", "timestamp": None})
         for i in range(10):
             mem.add_message("user", f"msg {i}")
@@ -67,7 +67,7 @@ class TestTokenBudget:
 
         # MAX_MESSAGES large (le trim par nombre ne doit pas intervenir) ;
         # fenêtre réduite → c'est le budget de tokens qui tranche.
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 1000)
+        monkeypatch.setattr("config.MAX_MESSAGES", 1000)
         monkeypatch.setattr(config, "CONTEXT_WINDOW", 2000)  # budget = 1600 tokens
         msg = "x" * 1000  # ~255 tokens chacun, < budget
         for _ in range(20):  # ~5100 tokens au total → doit être rogné
@@ -88,7 +88,7 @@ class TestTokenBudget:
         """Le rognage par tokens ne laisse jamais de tool result orphelin."""
         import config
 
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 1000)
+        monkeypatch.setattr("config.MAX_MESSAGES", 1000)
         monkeypatch.setattr(config, "CONTEXT_WINDOW", 200)
         big = "z" * 4000
         for i in range(8):
@@ -186,12 +186,12 @@ class TestSaveLoad:
         assert any(m["content"] == "Message persisté" for m in loaded.messages)
 
     def test_load_latest_retourne_none_si_vide(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         result = ConversationMemory.load_latest()
         assert result is None
 
     def test_load_latest_retourne_plus_recent(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         m1 = ConversationMemory(session_id="older")
         m1.memory_file = tmp_path / "memory_older.json"
         m1.add_message("user", "ancien")
