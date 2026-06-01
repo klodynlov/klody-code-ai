@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from agent.approval import requires_approval
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
@@ -343,6 +344,10 @@ async def websocket_endpoint(ws: WebSocket):
     current_model = config.LLM_MODEL
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue()
+    # Approbations en attente : id → (threading.Event, {"approved": bool}).
+    # Le thread orchestrator bloque sur l'Event ; la boucle WS le réveille à
+    # réception d'un message approval_response. Portée = cette connexion.
+    pending_approvals: dict[str, tuple] = {}
 
     # Envoyer le statut initial
     await ws.send_json({
@@ -394,7 +399,7 @@ async def websocket_endpoint(ws: WebSocket):
 
                 # Créer l'orchestrateur avec callbacks via queue
                 _stop_flag[0] = False
-                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag)
+                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag, pending_approvals)
 
                 # Liaison explicite des variables de boucle (orch/user_text/memory)
                 # comme arguments par défaut : chaque thread capture les valeurs de
@@ -430,27 +435,55 @@ async def websocket_endpoint(ws: WebSocket):
                 thread = threading.Thread(target=run_agent, daemon=True)
                 thread.start()
 
-                # Relayer les événements au client.
-                # Si la WS se déconnecte en cours de route, on stoppe immédiatement
-                # l'orchestrator pour libérer MLX/CPU (sinon il continue en fantôme).
+                # Relayer les événements ET écouter l'inbound en concurrence.
+                # Pendant un run, l'UI peut renvoyer une décision d'approbation
+                # (approval_response) qu'il faut livrer au thread orchestrator
+                # bloqué dessus, ou un message stop. La boucle attend donc le
+                # premier des deux : event sortant prêt, ou message entrant.
+                # Si la WS se déconnecte, on stoppe l'orchestrator (sinon fantôme).
+                send_task = asyncio.ensure_future(queue.get())
+                recv_task = asyncio.ensure_future(ws.receive_text())
                 try:
                     while True:
-                        event = await queue.get()
-                        await ws.send_json(event)
-                        et = event.get("type")
-                        # Métriques : observe les événements qui transitent
-                        if et == "tool_start":
-                            _metrics.tool_calls_total.labels(
-                                tool=event.get("tool", "unknown")
-                            ).inc()
-                        elif et == "anti_stall":
-                            _metrics.anti_stall_total.inc()
-                        elif et == "text_to_action":
-                            _metrics.text_to_action_total.inc()
-                        elif et == "error":
-                            _chat_status = "error"
-                        if et in ("done", "error"):
-                            break
+                        done, _ = await asyncio.wait(
+                            {send_task, recv_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if send_task in done:
+                            event = send_task.result()
+                            await ws.send_json(event)
+                            et = event.get("type")
+                            # Métriques : observe les événements qui transitent
+                            if et == "tool_start":
+                                _metrics.tool_calls_total.labels(
+                                    tool=event.get("tool", "unknown")
+                                ).inc()
+                            elif et == "anti_stall":
+                                _metrics.anti_stall_total.inc()
+                            elif et == "text_to_action":
+                                _metrics.text_to_action_total.inc()
+                            elif et == "error":
+                                _chat_status = "error"
+                            if et in ("done", "error"):
+                                break
+                            send_task = asyncio.ensure_future(queue.get())
+                        if recv_task in done:
+                            raw = recv_task.result()  # WebSocketDisconnect propagé ici
+                            try:
+                                ctrl = json.loads(raw)
+                            except (ValueError, TypeError):
+                                ctrl = {}
+                            ctype = ctrl.get("type")
+                            if ctype == "approval_response":
+                                entry = pending_approvals.get(ctrl.get("id", ""))
+                                if entry:
+                                    ev, holder = entry
+                                    holder["approved"] = bool(ctrl.get("approved"))
+                                    ev.set()
+                            elif ctype == "stop":
+                                _stop_flag[0] = True
+                            # ping / autres : ignorés tant qu'un run est en cours
+                            recv_task = asyncio.ensure_future(ws.receive_text())
                 except WebSocketDisconnect:
                     logger.info("WS déconnectée pendant génération → stop_flag set")
                     _stop_flag[0] = True
@@ -459,6 +492,18 @@ async def websocket_endpoint(ws: WebSocket):
                     _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
                     # Re-raise pour sortir proprement de la boucle while True externe
                     raise
+                finally:
+                    # Annule les tâches encore en vol avant de rendre la main à la
+                    # boucle externe (qui ré-émettra son propre receive_text()).
+                    for _t in (send_task, recv_task):
+                        if not _t.done():
+                            _t.cancel()
+                    # Draine une exception déjà settlée (évite "Task exception was
+                    # never retrieved" sur la tâche recv en cas de déconnexion).
+                    for _t in (send_task, recv_task):
+                        if _t.done() and not _t.cancelled():
+                            with suppress(Exception):
+                                _t.exception()
 
                 _metrics.chat_requests_total.labels(status=_chat_status).inc()
                 _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
@@ -528,6 +573,7 @@ def _build_streaming_orchestrator(
     queue: asyncio.Queue,
     loop: asyncio.AbstractEventLoop,
     stop_flag: list[bool] | None = None,
+    pending_approvals: dict | None = None,
 ) -> Orchestrator:
     """Crée un Orchestrator patché pour envoyer des événements dans la queue."""
     orch = Orchestrator(memory)
@@ -535,6 +581,10 @@ def _build_streaming_orchestrator(
 
     def _put(event: dict) -> None:
         asyncio.run_coroutine_threadsafe(queue.put(event), loop)
+
+    # Permet aux outils bloquants (ex. await_distillation) d'observer le stop.
+    if stop_flag is not None:
+        orch._stop_check = lambda: bool(stop_flag[0])
 
     def stream_api(
         messages: list[dict],
@@ -654,7 +704,53 @@ def _build_streaming_orchestrator(
 
     original_execute = orch._execute_tool
 
+    _approval_seq = [0]
+
+    def _request_approval(tool_name: str, tool_args: dict) -> bool:
+        """Demande la validation de l'UI et BLOQUE le thread orchestrator
+        jusqu'à la réponse. Renvoie True (autorisé) / False (refusé).
+
+        Sans canal d'approbation (CLI, tests), on ne bloque pas : comportement
+        historique conservé (le garde-fou TTY de terminal.py reste en place).
+        """
+        if pending_approvals is None:
+            return True
+        _approval_seq[0] += 1
+        approval_id = f"appr-{_approval_seq[0]}"
+        ev = threading.Event()
+        holder = {"approved": False}
+        pending_approvals[approval_id] = (ev, holder)
+        _put({
+            "type": "approval_request",
+            "id": approval_id,
+            "name": tool_name,
+            "args": tool_args,
+            "reason": tool_args.get("reason", ""),
+        })
+        # Bloque jusqu'à la décision UI ; vérifie le stop toutes les 0,5 s pour
+        # pouvoir annuler proprement (déconnexion / bouton stop). Garde-fou
+        # anti-zombie à 30 min si l'utilisateur ne répond jamais.
+        waited = 0.0
+        timeout_s = 1800.0
+        while not ev.wait(timeout=0.5):
+            waited += 0.5
+            if stop_flag is not None and stop_flag[0]:
+                pending_approvals.pop(approval_id, None)
+                raise StopGeneration()
+            if waited >= timeout_s:
+                pending_approvals.pop(approval_id, None)
+                _put({"type": "approval_timeout", "id": approval_id, "name": tool_name})
+                return False
+        pending_approvals.pop(approval_id, None)
+        return bool(holder["approved"])
+
     def execute_with_events(tool_name: str, tool_args: dict) -> str:
+        # Garde-fou humain : les actions à effet de bord requièrent validation.
+        # (and court-circuité : _request_approval n'est appelé que si gardé.)
+        if requires_approval(tool_name) and not _request_approval(tool_name, tool_args):
+            refusal = "Action refusée par l'utilisateur (non validée)."
+            _put({"type": "tool_result", "name": tool_name, "content": refusal})
+            return refusal
         _put({"type": "tool_call", "name": tool_name, "args": tool_args})
         result = original_execute(tool_name, tool_args)
         # Limiter la taille du résultat envoyé au LLM pour éviter les contextes géants
