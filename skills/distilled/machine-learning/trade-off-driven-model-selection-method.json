@@ -1,0 +1,121 @@
+{
+  "skill": "Trade-off-driven model selection method",
+  "domain": "machine-learning",
+  "description": "Méthode pour choisir et implémenter un modèle de machine learning en se guidant sur les données : visualiser distributions et relations, poser un baseline simple, aligner les hypothèses du modèle sur les caractéristiques observées, coder la logique centrale soi-même, puis arbitrer les compromis précision/vitesse/mémoire par validation croisée. Bâtir l'intuition sans boîtes noires.",
+  "principles": [
+    "Visualiser les distributions et relations des données avant tout choix algorithmique.",
+    "Privilégier la compréhension intuitive du fonctionnement interne plutôt que la mémorisation mathématique.",
+    "Évaluer les compromis (précision, vitesse, complexité) au lieu de chercher un modèle unique optimal.",
+    "Implémenter la logique centrale de l'algorithme à partir de zéro pour en internaliser les mécanismes.",
+    "Aligner explicitement les hypothèses de l'algorithme sur les caractéristiques observées des données.",
+    "Établir des baselines simples avant d'explorer des architectures complexes.",
+    "Valider la généralisation par validation croisée et analyse des modes d'échec."
+  ],
+  "workflow": [
+    {
+      "step": "Visualiser",
+      "purpose": "Révéler la structure sous-jacente des données et la pertinence des algorithmes",
+      "guidelines": [
+        "Tracer les distributions, corrélations et clusters via nuages de points, histogrammes ou grilles de paires.",
+        "Identifier les motifs non-linéaires, les valeurs aberrantes et les disparités d'échelle dictant la famille de modèles.",
+        "Cartographier les caractéristiques visuelles directement sur les contraintes algorithmiques (ex. linéaire vs arborescent)."
+      ],
+      "pitfalls": [
+        "Supposer qu'une corrélation implique une causalité ou une préparation au modèle.",
+        "Ignorer les différences de mise à l'échelle des fonctionnalités qui déforment les motifs visuels."
+      ]
+    },
+    {
+      "step": "Baseline",
+      "purpose": "Établir un plancher de performance et vérifier la cohérence de la complexité",
+      "guidelines": [
+        "Entraîner l'algorithme le plus simple applicable (ex. régression linéaire, stump de décision).",
+        "Mesurer les métriques de base sur un ensemble de validation isolé.",
+        "Documenter les limites de performance attendues basées sur le bruit inhérent aux données."
+      ],
+      "pitfalls": [
+        "Passer directement à des modèles complexes sans point de référence.",
+        "Ignorer le déséquilibre des classes ou la skewness de la cible lors de l'évaluation de base."
+      ]
+    },
+    {
+      "step": "Aligner",
+      "purpose": "Correspondre les hypothèses algorithmiques aux propriétés vérifiées des données",
+      "guidelines": [
+        "Vérifier linéarité, indépendance et hypothèses de distribution par rapport aux preuves visuelles.",
+        "Sélectionner des modèles adaptés à la parcimonie, la haute dimensionnalité ou les fonctionnalités catégorielles.",
+        "Privilégier les modèles interprétables lorsque la compréhension des fonctionnalités et le débogage sont prioritaires."
+      ],
+      "pitfalls": [
+        "Forcer des modèles linéaires sur des données fortement non-linéaires ou clusterisées.",
+        "Ignorer les exigences de mise à l'échelle pour les algorithmes basés sur la distance ou le gradient."
+      ]
+    },
+    {
+      "step": "Implémenter",
+      "purpose": "Internaliser les mécanismes via le code et le traçage étape par étape",
+      "guidelines": [
+        "Coder la logique centrale à partir de zéro en Python basique ou NumPy.",
+        "Tracer les frontières de décision, critères de division ou mises à jour de poids étape par étape.",
+        "Comparer les sorties de l'implémentation manuelle avec les bibliothèques standard."
+      ],
+      "pitfalls": [
+        "Se fier uniquement aux API haut niveau sans comprendre les mécanismes internes.",
+        "Interpréter mal les effets des hyperparamètres à cause d'implémentations opaques."
+      ]
+    },
+    {
+      "step": "Évaluer",
+      "purpose": "Valider les compromis, la stabilité et la préparation à la production",
+      "guidelines": [
+        "Comparer précision, vitesse d'inférence, consommation mémoire et temps d'entraînement.",
+        "Utiliser la validation croisée pour évaluer la stabilité sur différents sous-ensembles.",
+        "Documenter les modes d'échec, cas limites et sensibilité aux perturbations d'entrée."
+      ],
+      "pitfalls": [
+        "Optimiser la précision d'entraînement au détriment de la généralisation.",
+        "Négliger le coût computationnel et la latence pour le déploiement."
+      ]
+    }
+  ],
+  "checklist": [
+    "Les distributions et relations des données sont visualisées avant la modélisation",
+    "Un modèle baseline simple est entraîné et benchmarké",
+    "Les hypothèses algorithmiques sont explicitement vérifiées par rapport aux caractéristiques des données",
+    "La logique centrale de l'algorithme est implémentée ou tracée manuellement",
+    "Les compromis (précision, vitesse, complexité) sont comparés entre les candidats",
+    "Les métriques de validation sont calculées sur des données non vues",
+    "Les modes d'échec et cas limites sont documentés",
+    "Le choix final s'aligne sur les contraintes de production"
+  ],
+  "vocabulary": [
+    {
+      "term": "Grokking",
+      "definition": "Compréhension intuitive et profonde du fonctionnement interne d'un algorithme, au-delà de l'utilisation superficielle des API."
+    },
+    {
+      "term": "Frontière de décision",
+      "definition": "Hyperplan ou surface séparant différentes classes ou prédisant des valeurs continues dans l'espace des fonctionnalités."
+    },
+    {
+      "term": "Compromis Bias-Variance",
+      "definition": "Équilibre entre la simplicité du modèle (biais élevé, sous-apprentissage) et sa complexité (variance élevée, sur-apprentissage)."
+    }
+  ],
+  "heuristics": [
+    "Si les données semblent linéaires, commencer par des modèles linéaires ; si elles sont clusterisées, privilégier les méthodes basées sur la distance ou les arbres.",
+    "La complexité ne doit augmenter que lorsque la performance du baseline stagne.",
+    "La visualisation est obligatoire ; elle dicte le choix algorithmique et prévient les incompatibilités."
+  ],
+  "antipatterns": [
+    "Chasser la précision state-of-the-art sans considérer le coût d'inférence ou l'interprétabilité.",
+    "Sauter l'étape de visualisation pour gagner du temps, entraînant un mismatch algorithme-données.",
+    "Considérer le réglage des hyperparamètres comme un substitut à la compréhension des mécanismes algorithmiques."
+  ],
+  "examples": [
+    {
+      "context": "Prédiction de prix immobiliers avec des fonctionnalités numériques et catégorielles mixtes",
+      "outcome": "Visualisation des distributions, établissement d'un baseline linéaire, alignement sur un modèle de gradient boosting pour gérer les interactions non-linéaires, et validation des compromis entre précision et temps d'entraînement."
+    }
+  ]
+}
