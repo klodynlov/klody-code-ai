@@ -23,7 +23,7 @@ from agent.prompts import compose_system_prompt
 from tools.file_manager import FileManager, SandboxViolation
 from tools.registry import get_tools
 from tools.search import Search
-from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt
+from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt, select_skills
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills, learn_from_books as mcp_learn
 from tools.github_reader import (
@@ -321,6 +321,10 @@ class Orchestrator:
         self._best_of_n_count = BEST_OF_N_COUNT
         self._best_of_n_force = BEST_OF_N_FORCE
         self._current_user_prompt = ""
+        # Hook optionnel (posé par l'API) : reçoit la liste des skills how-to
+        # réellement injectés pour ce message → affichage UI. None en CLI.
+        self._on_skills_selected = None
+        self._injected_skill_slugs: list[str] = []
         # Memory utile (Roadmap v2 #8) — détection conventions projet + erreurs récurrentes.
         self._conventions = None
         self._error_memory = None
@@ -400,14 +404,18 @@ class Orchestrator:
             self._error_memory = ErrorMemory(workdir=self.file_manager.root)
         return self._error_memory
 
-    def _inject_system_prompt(self, task_type: str | None = None) -> None:
+    def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
 
         Si task_type est fourni, utilise le prompt focalisé correspondant
         (Roadmap v2 #5). Sinon, utilise le fallback `default.md`.
+
+        `query` (le prompt utilisateur courant) sert à n'injecter que les skills
+        pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills.
         """
         base_prompt = compose_system_prompt(task_type)
-        skills = load_skills()
+        skills = select_skills(load_skills(), query)
+        self._injected_skill_slugs = [s.get("slug", "") for s in skills]
         skills_section = format_skills_for_prompt(skills) if skills else ""
         lt_section = self.lt_memory.format_for_prompt()
         profile_section = self.profiler.get_profile_for_prompt()
@@ -439,6 +447,15 @@ class Orchestrator:
             self.memory.messages[0] = message
         else:
             self.memory.messages.insert(0, message)
+
+        # Notifie l'UI des skills « how-to » réellement injectés (hook optionnel).
+        if self._on_skills_selected:
+            howto = [s.get("name", s.get("slug", "")) for s in skills
+                     if not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))]
+            try:
+                self._on_skills_selected(howto)
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #
@@ -986,6 +1003,10 @@ class Orchestrator:
         # ET qu'on a déjà une décision plus complexe, on la réutilise pour ne pas
         # rétrograder la stratégie au milieu d'une tâche.
         max_iter = MAX_ITERATIONS
+        # Mémoriser le prompt courant tôt : sert au ranking des skills (injection
+        # par pertinence, cf. _inject_system_prompt) et à Best-of-N.
+        self._current_user_prompt = user_input
+        task_type_for_prompt: str | None = None
         if self._router_enabled:
             try:
                 # Cliquet anti-rétrogradation : une relance courte ("ok", "vas-y",
@@ -1005,13 +1026,14 @@ class Orchestrator:
                     self.last_routing = decision
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
-                # Hot-swap du system prompt selon le task_type détecté
-                self._inject_system_prompt(task_type=decision.task_type)
+                task_type_for_prompt = decision.task_type
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
-        # Mémoriser le prompt utilisateur courant (utilisé par Best-of-N)
-        self._current_user_prompt = user_input
+        # Injecte le system prompt avec les skills pertinents pour CE prompt
+        # (+ task_type si le router a tranché). Toujours exécuté → le filtrage par
+        # pertinence s'applique même quand le router est désactivé.
+        self._inject_system_prompt(task_type=task_type_for_prompt, query=user_input)
 
         iteration = -1
         extensions = 0

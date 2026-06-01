@@ -103,6 +103,59 @@ def _is_user_skill(path) -> bool:
         return False
 
 
+# Skills toujours injectés (contexte utilisateur + règles), jamais filtrés.
+_ALWAYS_PREFIXES = ("utilisateur_", "conventions_")
+_STOP = {
+    "les", "des", "une", "pour", "avec", "dans", "que", "qui", "sur", "par",
+    "est", "son", "ses", "mon", "ton", "the", "and", "for", "with", "you",
+    "mais", "plus", "tout", "tous", "fait", "faire", "comment", "peux", "moi",
+    "the", "this", "that", "veux", "vais", "puis", "quoi", "donne",
+    "klody", "skill", "skills", "fichier", "fichiers", "code",  # trop fréquents → non discriminants
+}
+
+
+def _skill_terms(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-zà-ÿ0-9]{3,}", (text or "").lower()) if t not in _STOP}
+
+
+def _score_skill(terms: set[str], skill: dict) -> int:
+    """Score de pertinence d'un skill pour des termes de requête.
+
+    Tolère les variantes de tokenisation (`nextjs` ↔ `next_js`/`Next.js`) via
+    un matching sous-chaîne bidirectionnel (≥4 car.) en plus de l'inclusion
+    directe dans le texte du skill (nom + description + slug)."""
+    hay_str = f"{skill.get('name', '')} {skill.get('description', '')} {skill.get('slug', '')}".lower()
+    hay_terms = _skill_terms(hay_str)
+    score = 0
+    for t in terms:
+        if t in hay_str or any((len(h) >= 4 and h in t) or (len(t) >= 4 and t in h) for h in hay_terms):
+            score += 1
+    return score
+
+
+def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]:
+    """Sélectionne les skills à injecter dans le prompt.
+
+    - Skills de profil/règles (slug `utilisateur_*` / `conventions_*`) : toujours
+      inclus (contexte permanent sur l'utilisateur).
+    - Skills « how-to » (mlx, nextjs, distiller_un_livre…) : filtrés par
+      pertinence au prompt (overlap de mots-clés sur nom + description + slug),
+      seuls les `k` meilleurs avec score > 0 sont injectés. Query vide → aucun.
+
+    Évite d'injecter ~6k tokens de skills à chaque message quand un seul est
+    pertinent. Filtrage par mots-clés : déterministe, hors-ligne, sans embeddings.
+    """
+    always, howto = [], []
+    for s in skills:
+        (always if str(s.get("slug", "")).startswith(_ALWAYS_PREFIXES) else howto).append(s)
+    terms = _skill_terms(query)
+    if not terms:
+        return always
+    ranked = sorted(((_score_skill(terms, s), s) for s in howto), key=lambda x: -x[0])
+    picked = [s for score, s in ranked if score > 0][:k]
+    return always + picked
+
+
 def format_skills_for_prompt(skills: list[dict]) -> str:
     """Formate les compétences pour injection dans le system prompt."""
     if not skills:

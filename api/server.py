@@ -561,6 +561,7 @@ def _build_streaming_orchestrator(
             "model": orch.llm.model,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},  # tokens réels dans le chunk final
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
@@ -570,6 +571,7 @@ def _build_streaming_orchestrator(
 
         full_content = ""
         raw_tool_calls: dict = {}
+        usage = None  # rempli par le chunk final (stream_options.include_usage)
 
         # Vérification précoce : si l'utilisateur a déjà demandé l'arrêt (WS disconnect,
         # bouton stop, etc.), on évite même de lancer le LLM call (coûteux côté MLX).
@@ -585,6 +587,8 @@ def _build_streaming_orchestrator(
                     if not silent:
                         _put({"type": "stream_end"})
                     raise StopGeneration()
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -622,14 +626,28 @@ def _build_streaming_orchestrator(
 
         if full_content and not silent:
             _put({"type": "stream_end"})
-            # Stats par message (Roadmap v2 — UI affiche latence + tokens)
+            # Stats par message — tokens RÉELS si le backend renvoie `usage`
+            # (mlx_lm le fait via stream_options.include_usage), sinon estimation.
+            from config import CONTEXT_WINDOW
             elapsed = round(_t.perf_counter() - t0, 2)
-            tokens_est = max(1, len(full_content) // 4)
+            if usage is not None:
+                completion_toks = getattr(usage, "completion_tokens", 0) or 0
+                prompt_toks = getattr(usage, "prompt_tokens", 0) or 0
+                total_toks = getattr(usage, "total_tokens", 0) or (prompt_toks + completion_toks)
+            else:
+                completion_toks = max(1, len(full_content) // 4)
+                prompt_toks = 0
+                total_toks = completion_toks
             _put({"type": "message_stats", "latency_s": elapsed,
-                  "tokens": tokens_est, "model": orch.llm.model})
+                  "tokens": completion_toks, "prompt_tokens": prompt_toks,
+                  "total_tokens": total_toks, "context_window": CONTEXT_WINDOW,
+                  "model": orch.llm.model})
 
-        # Mise à jour compteur tokens
-        orch.llm.total_tokens += len(full_content) // 4
+        # Mise à jour compteur tokens (réel si dispo)
+        orch.llm.total_tokens += (
+            (getattr(usage, "completion_tokens", 0) or 0) if usage is not None
+            else len(full_content) // 4
+        )
 
         return full_content, tool_calls
 
@@ -665,6 +683,12 @@ def _build_streaming_orchestrator(
         except Exception:
             pass
     orch._display_routing = display_routing_api
+
+    # Skills injectés par pertinence (cf. select_skills) → chip UI « skills utilisés »
+    def _emit_skills(names: list[str]) -> None:
+        if names:
+            _put({"type": "skills_used", "skills": names})
+    orch._on_skills_selected = _emit_skills
 
     # Sandbox auto-check : wrap _auto_sandbox_check pour émettre l'event UI.
     def auto_sandbox_with_event(rel_path: str) -> str:
