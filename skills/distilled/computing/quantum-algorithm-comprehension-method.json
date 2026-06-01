@@ -1,0 +1,146 @@
+{
+  "skill": "Quantum Algorithm Comprehension Method",
+  "domain": "computing",
+  "description": "A structured approach to learning, simulating, and analyzing quantum algorithms using linear algebra and circuit tracing, tailored for computer scientists.",
+  "principles": [
+    "Ground quantum concepts in linear algebra before introducing physics.",
+    "Represent all quantum states as column vectors and operations as unitary matrices.",
+    "Use Dirac notation consistently to track state evolution and measurement probabilities.",
+    "Decompose complex algorithms into elementary gate sequences.",
+    "Verify quantum circuits by tracing vector transformations step-by-step.",
+    "Map classical logic gates to their quantum equivalents to identify limitations and advantages.",
+    "Separate mathematical formalism from physical implementation during initial learning."
+  ],
+  "workflow": [
+    {
+      "step": "Establish mathematical foundation",
+      "purpose": "Build the necessary toolkit to read quantum notation without physics baggage.",
+      "guidelines": [
+        "Review vector spaces, inner products, eigenvalues, and unitary matrices.",
+        "Practice converting classical truth tables to matrix forms.",
+        "Master Dirac notation for state representation and inner products."
+      ],
+      "pitfalls": [
+        "Skipping linear algebra basics leads to confusion when gates are introduced.",
+        "Relying on physical intuition instead of mathematical rigor."
+      ]
+    },
+    {
+      "step": "Translate classical to quantum",
+      "purpose": "Bridge existing CS knowledge to quantum paradigms.",
+      "guidelines": [
+        "Map classical bits to basis states |0⟩ and |1⟩.",
+        "Convert classical gates to reversible quantum gates.",
+        "Identify where superposition enables parallelism."
+      ],
+      "pitfalls": [
+        "Assuming quantum gates behave like classical logic gates.",
+        "Ignoring reversibility requirements for quantum operations."
+      ]
+    },
+    {
+      "step": "Simulate circuit execution",
+      "purpose": "Predict algorithm behavior through deterministic matrix multiplication.",
+      "guidelines": [
+        "Write initial state vector.",
+        "Apply gate matrices left-to-right.",
+        "Compute final state and extract measurement probabilities using squared amplitudes."
+      ],
+      "pitfalls": [
+        "Forgetting normalization after operations.",
+        "Misaligning matrix dimensions for multi-qubit systems."
+      ]
+    },
+    {
+      "step": "Analyze algorithmic advantage",
+      "purpose": "Understand why quantum algorithms outperform classical counterparts.",
+      "guidelines": [
+        "Compare query complexity against classical baselines.",
+        "Identify interference patterns that amplify correct answers.",
+        "Trace how phase kickback or amplitude amplification works."
+      ],
+      "pitfalls": [
+        "Overestimating speedups without accounting for classical post-processing.",
+        "Confusing quantum parallelism with brute-force evaluation."
+      ]
+    },
+    {
+      "step": "Validate and iterate",
+      "purpose": "Ensure correctness before hardware implementation.",
+      "guidelines": [
+        "Cross-check matrix results with known algorithm outputs.",
+        "Use simulation tools for larger qubit counts.",
+        "Refactor circuit depth to minimize decoherence risks."
+      ],
+      "pitfalls": [
+        "Relying solely on intuition for multi-qubit states.",
+        "Neglecting error rates and noise models in practical deployments."
+      ]
+    }
+  ],
+  "checklist": [
+    "Linear algebra prerequisites (vectors, matrices, eigenvalues) are mastered.",
+    "All states are represented as normalized column vectors.",
+    "All gates are verified as unitary matrices.",
+    "Circuit execution is traced via sequential matrix multiplication.",
+    "Measurement probabilities are calculated using squared amplitudes.",
+    "Classical logic is correctly mapped to reversible quantum operations.",
+    "Algorithm complexity is compared against classical baselines.",
+    "Interference mechanisms are explicitly identified in the circuit design."
+  ],
+  "source": {
+    "book": "Quantum Computing for Computer Scientists",
+    "author": "Noson S. Yanofsky",
+    "year": 2018
+  },
+  "vocabulary": [
+    {
+      "term": "Dirac notation",
+      "definition": "Standard mathematical notation using bras ⟨ψ| and kets |ψ⟩ to represent quantum states and inner products."
+    },
+    {
+      "term": "Unitary matrix",
+      "definition": "A square matrix whose conjugate transpose is its inverse, preserving vector norm and representing reversible quantum gates."
+    },
+    {
+      "term": "Superposition",
+      "definition": "A quantum state that exists as a linear combination of basis states, enabling parallel representation of multiple configurations."
+    },
+    {
+      "term": "Entanglement",
+      "definition": "A correlation between qubits where the state of one cannot be described independently of the others, regardless of distance."
+    },
+    {
+      "term": "Amplitude amplification",
+      "definition": "A technique that increases the probability amplitude of desired states while suppressing undesired ones through iterative interference."
+    },
+    {
+      "term": "Phase kickback",
+      "definition": "A phenomenon where the phase of a control qubit is altered by the operation on a target qubit, enabling conditional logic in quantum circuits."
+    },
+    {
+      "term": "Reversibility",
+      "definition": "The requirement that quantum operations must be invertible, necessitating that classical irreversible gates be embedded in reversible equivalents."
+    }
+  ],
+  "heuristics": [
+    "If it is not unitary, it is not a valid quantum gate.",
+    "Trace the vector, do not guess the physics.",
+    "Classical probability adds; quantum amplitudes interfere."
+  ],
+  "antipatterns": [
+    "Mixing classical probability distributions with quantum amplitude vectors.",
+    "Assuming quantum computers evaluate all possibilities simultaneously without interference.",
+    "Designing circuits without verifying reversibility or unitarity."
+  ],
+  "examples": [
+    {
+      "context": "Designing a database search algorithm for an unstructured dataset.",
+      "outcome": "Reduced query complexity from O(N) to O(√N) by applying amplitude amplification to mark and amplify the target state."
+    },
+    {
+      "context": "Implementing a modular exponentiation routine for cryptographic analysis.",
+      "outcome": "Achieved polynomial-time execution by decomposing the operation into controlled quantum gates and leveraging phase kickback for efficient state updates."
+    }
+  ]
+}
