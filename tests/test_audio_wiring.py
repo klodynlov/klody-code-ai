@@ -129,3 +129,13 @@ class TestDispatcher:
     def test_outil_audio_inconnu_retourne_fallback(self, orch):
         out = orch._execute_tool("audio_inexistant", {})
         assert "Outil inconnu" in out
+
+    def test_table_dispatch_couvre_exactement_le_registry(self, orch):
+        """Garde-fou du refactor table de dispatch : chaque outil déclaré au
+        registry a un handler, et aucun handler n'est orphelin."""
+        from tools.registry import get_tool_names
+
+        registry = set(get_tool_names())
+        handlers = set(orch._dispatch.keys())
+        assert registry - handlers == set(), f"outils sans handler: {registry - handlers}"
+        assert handlers - registry == set(), f"handlers orphelins: {handlers - registry}"
