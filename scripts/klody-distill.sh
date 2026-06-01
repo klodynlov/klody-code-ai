@@ -9,6 +9,10 @@
 #       → écrit logs/distill/<run_id>.{log,pid,meta} en arrière-plan
 #       → stdout : RUN_ID=<id>
 #
+#   ./scripts/klody-distill.sh batch "<skill>" "<domaine>" "<titre|auteur|annee>" [livres...]
+#       → distille N livres en séquence puis fusionne en UN skill (background)
+#       → stdout : RUN_ID=<id>   (suivre avec await_distillation / status)
+#
 #   ./scripts/klody-distill.sh status <run_id>
 #       → stdout :
 #           running    (encore en cours)
@@ -68,6 +72,49 @@ case "$cmd" in
       echo "author=$author"
       echo "year=$year"
       echo "domain=$domain"
+      echo "pid=$pid"
+      echo "log=$log"
+    } > "$metaf"
+    echo "RUN_ID=$run_id"
+    ;;
+
+  batch)
+    # Distille PLUSIEURS livres puis fusionne en UN seul skill (séquentiel :
+    # mlx-lm ne traite qu'une requête à la fois). Même schéma background que
+    # `start` → status / await_distillation fonctionnent à l'identique.
+    if [[ $# -lt 3 ]]; then
+      echo "usage: klody-distill.sh batch <skill_name> <domaine> \"<titre|auteur|annee>\" [autres livres...]" >&2
+      exit 64
+    fi
+    skill="$1"; domain="$2"; shift 2
+    nbooks=$#
+
+    slug="$(echo "$skill" | tr '[:upper:]' '[:lower:]' \
+      | iconv -t ASCII//TRANSLIT 2>/dev/null \
+      | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
+    ts="$(date +%Y%m%d-%H%M%S)"
+    run_id="${ts}-${slug}"
+    log="$LOG_DIR/${run_id}.log"
+    pidf="$LOG_DIR/${run_id}.pid"
+    metaf="$LOG_DIR/${run_id}.meta"
+
+    args=( --skill "$skill" --domain "$domain" )
+    for book in "$@"; do
+      args+=( --book "$book" )
+    done
+
+    cd "$ROOT"
+    nohup "$ROOT/.venv/bin/python" scripts/distill_books_merge.py "${args[@]}" \
+      > "$log" 2>&1 &
+    pid=$!
+    echo "$pid" > "$pidf"
+    {
+      echo "run_id=$run_id"
+      echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "mode=batch"
+      echo "skill=$skill"
+      echo "domain=$domain"
+      echo "books=$nbooks"
       echo "pid=$pid"
       echo "log=$log"
     } > "$metaf"
