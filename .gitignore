@@ -30,6 +30,7 @@ logs/memory_*.json
 logs/long_term.json
 logs/user_profile.json
 logs/distill_book_last_invalid.json
+logs/distill/
 !logs/.gitkeep
 
 # macOS
