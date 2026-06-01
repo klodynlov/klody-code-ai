@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent.dbc import ensure, require
+
 logger = logging.getLogger(__name__)
 
 # Taille max stdout/stderr renvoyés à l'agent (tronqué depuis la fin —
@@ -147,6 +149,7 @@ class SandboxRunner:
         - cwd = self.workdir
         - Sortie tronquée à _MAX_OUTPUT_CHARS depuis la fin.
         """
+        require(timeout > 0, f"timeout doit être strictement positif (reçu {timeout})")
         if isinstance(command, str):
             import shlex
             cmd = shlex.split(command)
@@ -193,6 +196,7 @@ class SandboxRunner:
             stderr = (exc.stderr or b"").decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
             stderr = (stderr + f"\nTimeout après {timeout}s").lstrip()
         duration = round(time.monotonic() - t0, 2)
+        ensure(duration >= 0, "durée d'exécution non négative")
 
         return SandboxResult(
             command=cmd_str,

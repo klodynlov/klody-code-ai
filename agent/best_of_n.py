@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from agent.dbc import require
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,6 +100,7 @@ class BestOfN:
     _TEMPERATURES: ClassVar[list[float]] = [0.5, 0.8, 1.0]
 
     def __init__(self, llm_client: Any, n: int = 3, temperatures: list[float] | None = None):
+        require(n >= 1, f"Best-of-N exige au moins 1 candidat (reçu n={n})")
         self.llm = llm_client
         self.n = n
         self.temperatures = temperatures or self._TEMPERATURES[:n]

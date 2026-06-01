@@ -3,6 +3,7 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
+from agent.dbc import ensure
 from config import (
     MAX_FILE_SIZE,
     PROJECT_ROOT,
@@ -108,6 +109,8 @@ class FileManager:
             old_content = resolved.read_text(encoding="utf-8", errors="replace")
 
         resolved.write_text(content, encoding="utf-8")
+        # Postcondition : après une écriture réussie, le fichier existe bel et bien.
+        ensure(resolved.exists(), f"le fichier doit exister après write_file: {path}")
 
         action = "modifié" if existed else "créé"
         logger.info("Écriture (%s): %s (%d caractères)", action, path, len(content))

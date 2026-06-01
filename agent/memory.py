@@ -7,6 +7,8 @@ from typing import Optional
 
 from config import MAX_MESSAGES, MEMORY_DIR
 
+from agent.dbc import invariant
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,6 +128,14 @@ class ConversationMemory:
         instance.messages = data["messages"]
         instance._created_at = data["created_at"]
         instance.title = data.get("title", "")
+        # Assainit les sessions héritées : un tool result orphelin viole
+        # l'invariant ET casse l'API OpenAI/Ollama au prochain appel.
+        dropped = instance._drop_orphan_tool_results()
+        if dropped:
+            logger.warning(
+                "Session %s : %d tool result(s) orphelin(s) purgé(s) au chargement",
+                instance.session_id, dropped,
+            )
         logger.info("Session chargée: %s (%d messages)", instance.session_id, len(instance.messages))
         return instance
 
@@ -180,3 +190,40 @@ class ConversationMemory:
                     self.messages.pop(idx)
             else:
                 self.messages.pop(idx)
+
+        # Invariant de sortie : la fenêtre glissante n'orpheline jamais un
+        # tool result (suppression par groupes assistant+tools cohérents).
+        invariant(
+            not self._orphan_tool_results(),
+            "la fenêtre glissante ne doit jamais orphaner un tool result",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Invariant « pas de tool result orphelin » (Design by Contract)      #
+    # ------------------------------------------------------------------ #
+
+    def _tool_call_ids(self) -> set[str]:
+        """Ids de tous les tool_calls émis par les messages assistant."""
+        ids: set[str] = set()
+        for m in self.messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                ids.update(tc.get("id") for tc in m["tool_calls"])
+        return ids
+
+    def _orphan_tool_results(self) -> list[dict]:
+        """Messages 'tool' dont le tool_call_id ne correspond à aucun tool_call."""
+        valid = self._tool_call_ids()
+        return [
+            m for m in self.messages
+            if m.get("role") == "tool" and m.get("tool_call_id") not in valid
+        ]
+
+    def _drop_orphan_tool_results(self) -> int:
+        """Retire les tool results orphelins. Retourne le nombre purgé."""
+        valid = self._tool_call_ids()
+        before = len(self.messages)
+        self.messages = [
+            m for m in self.messages
+            if not (m.get("role") == "tool" and m.get("tool_call_id") not in valid)
+        ]
+        return before - len(self.messages)

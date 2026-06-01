@@ -91,7 +91,7 @@ class TestValidatedPath:
         # On élargit temporairement les racines pour inclure tmp_path
         original = a._AUDIO_ROOTS
         try:
-            a._AUDIO_ROOTS = original + [tmp_path]
+            a._AUDIO_ROOTS = [*original, tmp_path]
             p = a._validated_path(str(tmp_path / "futur.wav"), must_exist=False)
             assert p == str(tmp_path / "futur.wav")
         finally:
