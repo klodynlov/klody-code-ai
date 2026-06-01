@@ -221,8 +221,7 @@ class TestExtractMidSession:
     on le remet à 0 (auto-restauré par monkeypatch) avant chaque test."""
 
     def _reset(self, monkeypatch):
-        import agent.memory_extractor as me
-        monkeypatch.setattr(me, "_last_mid_extraction_count", 0)
+        monkeypatch.setattr("agent.memory_extractor._last_mid_extraction_count", 0)
 
     def test_trop_peu_de_messages(self, monkeypatch):
         self._reset(monkeypatch)
