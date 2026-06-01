@@ -1,10 +1,10 @@
 """Tests pour tools/llm_import.py — parsers ChatGPT/Claude/generic, détection techs."""
 
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -296,8 +296,8 @@ class TestImportLlmExport:
 
     def test_sortie_tronquee_a_max_chars(self, tmp_path, monkeypatch):
         """Le résultat ne doit jamais dépasser MAX_CHARS."""
-        from tools.llm_import import import_llm_export
         import tools.llm_import as m
+        from tools.llm_import import import_llm_export
         monkeypatch.setattr(m, "MAX_CHARS", 100)
         data = [{
             "uuid": "x",

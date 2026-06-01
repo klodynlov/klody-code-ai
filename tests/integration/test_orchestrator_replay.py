@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCENARIOS = [
     "01_explain_simple",
     "02_write_file_python",

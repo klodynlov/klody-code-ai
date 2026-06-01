@@ -3,20 +3,23 @@ import logging
 import re
 import time
 import uuid
-from typing import Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
-from openai import OpenAI, APIConnectionError, APITimeoutError
+from config import (
+    BACKEND,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+    MODEL_FALLBACK,
+)
+from openai import APIConnectionError, APITimeoutError, OpenAI
 from rich.console import Console
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
-from rich.live import Live
-
-from config import (
-    OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_NAME, MODEL_FALLBACK,
-    LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, BACKEND,
-)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -110,7 +113,7 @@ def _build_xml_tool_call(
     body: str,
     valid_tool_names: set[str],
     lenient: bool = False,
-) -> Optional[dict]:
+) -> dict | None:
     """Construit un tool_call OpenAI à partir d'un body XML `<parameter=...>…`.
 
     Args:
@@ -176,13 +179,13 @@ class LLMClient:
     def stream_chat(
         self,
         messages: list[dict],
-        tools: Optional[list[dict]] = None,
-        token_callback: Optional[Callable[[str], None]] = None,
+        tools: list[dict] | None = None,
+        token_callback: Callable[[str], None] | None = None,
         temperature: float = 0.1,
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
-    ) -> tuple[str, Optional[list[dict]]]:
+    ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
         - Spinner "Klody réfléchit..." avant le premier token
@@ -335,7 +338,7 @@ class LLMClient:
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
 
-    def _accumulate_tool_call(self, raw: dict, tc_chunk) -> None:
+    def _accumulate_tool_call(self, raw: dict, tc_chunk: Any) -> None:
         idx = tc_chunk.index
         if idx not in raw:
             raw[idx] = {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
@@ -369,7 +372,7 @@ class LLMClient:
 
     def _parse_text_tool_calls(
         self, content: str, valid_tool_names: set[str]
-    ) -> Optional[list[dict]]:
+    ) -> list[dict] | None:
         """
         Fallback : parse les tool calls émis comme JSON texte.
         Gère objet unique, liste, blocs ```json```,
@@ -454,7 +457,7 @@ class LLMClient:
             except json.JSONDecodeError:
                 return None
 
-        def make_call(item: dict) -> Optional[dict]:
+        def make_call(item: dict) -> dict | None:
             name = item.get("name", "")
             if name not in valid_tool_names:
                 return None
@@ -480,7 +483,7 @@ class LLMClient:
 
     def extract_mixed_tool_call(
         self, content: str, valid_tool_names: set[str]
-    ) -> tuple[str, Optional[list[dict]]]:
+    ) -> tuple[str, list[dict] | None]:
         """
         Extrait un tool call depuis un contenu mixte (texte + appel collé).
         Gère JSON (`{"name":...}`), XML-like (`<function=...>`) et format compact.

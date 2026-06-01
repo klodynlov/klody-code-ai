@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -63,10 +62,7 @@ def clone_github_repo(repo_ref: str, target_dir: str = "") -> str:
         return f"Format attendu : owner/repo — reçu : '{repo_ref}'"
     owner, repo = parts[0], parts[1]
 
-    if target_dir:
-        dest = Path(target_dir).resolve()
-    else:
-        dest = PROJECTS_DIR / repo
+    dest = Path(target_dir).resolve() if target_dir else PROJECTS_DIR / repo
 
     if dest.exists():
         return f"Le dossier {dest} existe déjà. Utilisez open_in_pycharm pour l'ouvrir."
@@ -172,7 +168,7 @@ def _template_fastapi(dest: Path, name: str, description: str) -> None:
     app_dir.mkdir()
     (app_dir / "__init__.py").write_text("")
     (app_dir / "main.py").write_text(
-        'from fastapi import FastAPI\n\napp = FastAPI(title="{name}")\n\n\n@app.get("/health")\ndef health():\n    return {{"status": "ok"}}\n'.format(name=name)
+        f'from fastapi import FastAPI\n\napp = FastAPI(title="{name}")\n\n\n@app.get("/health")\ndef health():\n    return {{"status": "ok"}}\n'
     )
     (app_dir / "config.py").write_text(
         'import os\nfrom dotenv import load_dotenv\n\nload_dotenv()\n\nDEBUG = os.getenv("DEBUG", "false").lower() == "true"\n'
@@ -202,7 +198,7 @@ def _template_cli(dest: Path, name: str, description: str) -> None:
     module = name.replace("-", "_")
     src = dest / module
     src.mkdir()
-    (src / "__init__.py").write_text(f'__version__ = "0.1.0"\n')
+    (src / "__init__.py").write_text('__version__ = "0.1.0"\n')
     (src / "cli.py").write_text(
         f'"""CLI {name}."""\nimport argparse\n\n\ndef main():\n    parser = argparse.ArgumentParser(description="{description or name}")\n    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")\n    args = parser.parse_args()\n    print("Hello from {name}!")\n\n\nif __name__ == "__main__":\n    main()\n'
     )

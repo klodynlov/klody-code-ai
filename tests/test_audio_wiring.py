@@ -5,20 +5,19 @@ le check librosa, donc on peut tester l'intégration sandbox même sans la lib.
 """
 
 import json
-import pytest
 
+import pytest
 from tools.audio import (
     AudioSandboxViolation,
     _validated_path,
     analyze_audio,
-    edit_wav,
-    mix_stems,
-    generate_silence,
     convert_format,
+    edit_wav,
+    generate_silence,
     get_waveform_data,
+    mix_stems,
 )
 from tools.registry import get_tool_names
-
 
 AUDIO_TOOL_NAMES = (
     "analyze_audio",

@@ -17,7 +17,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 from tools.file_manager import FileManager, SandboxViolation
 from tools.sandbox import SandboxRunner
 

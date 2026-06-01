@@ -1,8 +1,8 @@
 """Tests de tools/file_manager.py — sandbox, lecture, écriture, listing."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 from tools.file_manager import FileManager, SandboxViolation
 
 

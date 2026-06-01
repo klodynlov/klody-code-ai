@@ -9,24 +9,33 @@ import logging
 import re
 import sys
 import threading
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import MEMORY_DIR, MODEL_FALLBACK, MODEL_NAME, OLLAMA_BASE_URL, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL, LLM_MODEL
-from agent.memory import ConversationMemory
-from agent.orchestrator import Orchestrator
-from services import ensure_librarybrain, get_librarybrain_status
 from agent.long_term_memory import get_long_term_memory
+from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
-from tools.skills import load_skills, delete_skill
+from agent.orchestrator import Orchestrator
+from config import (
+    LIBRARYBRAIN_DIR,
+    LIBRARYBRAIN_URL,
+    LLM_MODEL,
+    MEMORY_DIR,
+    MODEL_FALLBACK,
+    OLLAMA_BASE_URL,
+    PROJECT_ROOT,
+)
+from services import ensure_librarybrain, get_librarybrain_status
+from tools.skills import delete_skill, load_skills
+
 from api import metrics as _metrics
 
 logger = logging.getLogger(__name__)
@@ -222,12 +231,12 @@ async def export_session(session_id: str):
     data = json.loads(f.read_text())
     title = data.get("title") or session_id
     msgs = [m for m in data.get("messages", []) if m.get("role") in ("user", "assistant") and m.get("content")]
-    lines = [f"# {title}", f"", f"> Session {session_id} · {len(msgs)} messages", f"", "---", ""]
+    lines = [f"# {title}", "", f"> Session {session_id} · {len(msgs)} messages", "", "---", ""]
     for m in msgs:
         if m["role"] == "user":
             lines += [f"**Vous :** {m['content']}", ""]
         else:
-            lines += [f"**Klody :**", "", m["content"], "", "---", ""]
+            lines += ["**Klody :**", "", m["content"], "", "---", ""]
     md = "\n".join(lines)
     filename = title[:40].replace("/", "-").replace(" ", "_").replace("—", "-") + ".md"
     return PlainTextResponse(md, media_type="text/markdown",
@@ -308,8 +317,8 @@ async def get_config():
 
 @app.post("/api/config")
 async def set_config(request: Request):
-    import config as _cfg
     import agent.orchestrator as _orch
+    import config as _cfg
     body = await request.json()
     updated: dict = {}
     for api, value in (body or {}).items():
@@ -399,7 +408,10 @@ async def websocket_endpoint(ws: WebSocket):
                 _stop_flag[0] = False
                 orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag)
 
-                def run_agent():
+                # Liaison explicite des variables de boucle (orch/user_text/memory)
+                # comme arguments par défaut : chaque thread capture les valeurs de
+                # SON itération, pas la dernière (correctness + silence B023).
+                def run_agent(orch=orch, user_text=user_text, memory=memory):
                     try:
                         orch.run(user_text)
                     except StopGeneration:
@@ -671,7 +683,7 @@ def _build_streaming_orchestrator(
 
     # Router : remplace _display_routing pour émettre l'event vers UI
     def display_routing_api(decision, max_iter: int) -> None:
-        try:
+        with suppress(Exception):
             _put({"type": "router_decision", "decision": {
                 "difficulty": decision.difficulty,
                 "task_type": decision.task_type,
@@ -680,8 +692,6 @@ def _build_streaming_orchestrator(
                 "use_best_of_n": decision.use_best_of_n,
                 "reasoning": decision.reasoning,
             }})
-        except Exception:
-            pass
     orch._display_routing = display_routing_api
 
     # Skills injectés par pertinence (cf. select_skills) → chip UI « skills utilisés »
@@ -702,10 +712,8 @@ def _build_streaming_orchestrator(
         sandbox, rel_cmd, _root = target
         sb_result = sandbox.run(rel_cmd, timeout=getattr(orch, "_sandbox_timeout", 20))
         if not sb_result.success and sb_result.stderr:
-            try:
+            with suppress(Exception):
                 orch.error_memory.record(sb_result.stderr, command=" ".join(rel_cmd))
-            except Exception:
-                pass
         _put({"type": "sandbox_check", "check": {
             "command": sb_result.command,
             "success": sb_result.success,
@@ -872,8 +880,8 @@ async def siri_get(q: str = ""):
 @app.get("/metrics")
 async def prometheus_metrics():
     """Endpoint scrape Prometheus — format texte standard."""
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
     from fastapi.responses import Response as FastAPIResponse
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     return FastAPIResponse(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -887,9 +895,6 @@ async def _probe_url(url: str, timeout: float = 1.5, accept_status: tuple = (200
             return r.status_code in accept_status
     except Exception:
         return False
-
-
-from fastapi import Response
 
 
 @app.get("/health")

@@ -61,7 +61,7 @@ async def _one_probe(url: str, prompt: str, timeout: float) -> dict[str, Any]:
                     break
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
                 event = json.loads(raw)
                 et = event.get("type")

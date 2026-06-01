@@ -32,7 +32,7 @@ from loguru import logger
 
 # Ajouter la racine du projet au path pour importer config
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import LIBRARYBRAIN_URL, SKILLS_DIR  # noqa: E402
+from config import LIBRARYBRAIN_URL, SKILLS_DIR
 
 # — Configuration ——————————————————————————————————————————————————————————————
 

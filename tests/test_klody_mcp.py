@@ -9,7 +9,6 @@ import asyncio
 from pathlib import Path
 
 import pytest
-
 from klody_mcp.klody_server import mcp
 
 

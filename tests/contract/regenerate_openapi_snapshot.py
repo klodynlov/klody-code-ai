@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from tests.contract.test_openapi_contract import _build_current_snapshot, SNAPSHOT
+from tests.contract.test_openapi_contract import SNAPSHOT, _build_current_snapshot
 
 
 def main() -> None:

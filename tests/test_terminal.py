@@ -1,7 +1,6 @@
 """Tests de tools/terminal.py — sécurité blocklist, confirmation, exécution."""
 
 import pytest
-
 from tools.terminal import CommandBlocked, Terminal
 
 
@@ -147,8 +146,8 @@ class TestExecuteCommand:
         assert "Code de retour: 1" in result or "1" in result
 
     def test_timeout_respecte(self, terminal, monkeypatch):
-        from rich.prompt import Confirm
         import tools.terminal as tt
+        from rich.prompt import Confirm
         monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: True)
         monkeypatch.setattr(tt, "SUBPROCESS_TIMEOUT", 1)
         result = terminal.execute_command("sleep 10", "test timeout")

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.contract.test_mcp_contract import _build_current_snapshot, SNAPSHOT
+from tests.contract.test_mcp_contract import SNAPSHOT, _build_current_snapshot
 
 
 def main() -> None:

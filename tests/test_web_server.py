@@ -6,7 +6,6 @@ la découverte des outils via MCPManager en in-process (FastMCPTransport).
 """
 
 import pytest
-
 from klody_mcp.web_server import (
     WebFetchError,
     _ddg_decode_href,
@@ -15,7 +14,6 @@ from klody_mcp.web_server import (
     _parse_ddg,
     _validate_url,
 )
-
 
 # ── Anti-SSRF : _ip_is_public ───────────────────────────────────────────────────
 

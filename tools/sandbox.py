@@ -209,11 +209,11 @@ class SandboxRunner:
             return cmd
         first = cmd[0]
         if first in ("python", "python3"):
-            return [str(self.python)] + cmd[1:]
+            return [str(self.python), *cmd[1:]]
         if first == "pytest":
-            return [str(self.python), "-m", "pytest"] + cmd[1:]
+            return [str(self.python), "-m", "pytest", *cmd[1:]]
         if first == "pip":
-            return [str(self.pip)] + cmd[1:]
+            return [str(self.pip), *cmd[1:]]
         # Sinon : commande système, on laisse tel quel
         return cmd
 

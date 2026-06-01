@@ -9,7 +9,6 @@ import threading
 import webbrowser
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from pathlib import Path
 
 from config import PREVIEW_DIR, PREVIEW_PORT, PROJECT_ROOT
 

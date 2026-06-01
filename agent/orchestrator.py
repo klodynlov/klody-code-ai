@@ -1,14 +1,72 @@
+import contextlib
 import json
 import logging
 import re
 from pathlib import Path
 
+from config import (
+    BEST_OF_N_COUNT,
+    BEST_OF_N_ENABLED,
+    BEST_OF_N_FORCE,
+    MAX_ITERATIONS,
+    PROJECT_ROOT,
+    ROUTER_ENABLED,
+    SANDBOX_AUTO_EXEC,
+    SANDBOX_TIMEOUT,
+    match_allowed_root,
+)
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+from tools.file_manager import FileManager, SandboxViolation
+from tools.github_reader import (
+    browse_repo as gh_browse_repo,
+    extract_best_practices as gh_extract_practices,
+    index_github_repo as gh_index_repo,
+    list_indexed_repos as gh_list_indexed,
+    read_github_file as gh_read_file,
+)
+from tools.llm_import import import_llm_export, list_imports
+from tools.mcp_client import (
+    get_skills as mcp_get_skills,
+    learn_from_books as mcp_learn,
+    search_books as mcp_search_books,
+)
+from tools.preview import (
+    list_previews as pv_list_previews,
+    preview_code as pv_preview_code,
+    preview_file as pv_preview_file,
+    stop_preview_server as pv_stop_server,
+)
+from tools.project_creator import (
+    clone_github_repo as pc_clone,
+    create_project as pc_create,
+    open_in_pycharm as pc_open_pycharm,
+)
+from tools.registry import get_tools
+from tools.search import Search
+from tools.skills import (
+    delete_skill,
+    format_skills_for_prompt,
+    list_skills,
+    load_skills,
+    save_skill,
+    select_skills,
+)
+from tools.terminal import CommandBlocked, Terminal
+
+from agent.llm import LLMClient
+from agent.long_term_memory import get_long_term_memory
+from agent.memory import ConversationMemory
+from agent.memory_extractor import extract_mid_session
+from agent.profiler import get_profiler
+from agent.prompts import compose_system_prompt
+
+logger = logging.getLogger(__name__)
+console = Console()
 
 
 def _has_markdown_safe(text: str) -> bool:
@@ -16,45 +74,6 @@ def _has_markdown_safe(text: str) -> bool:
     markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
     return any(m in text for m in markers)
 
-from agent.llm import LLMClient
-from agent.memory import ConversationMemory
-from agent.long_term_memory import get_long_term_memory
-from agent.prompts import compose_system_prompt
-from tools.file_manager import FileManager, SandboxViolation
-from tools.registry import get_tools
-from tools.search import Search
-from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt, select_skills
-from tools.llm_import import import_llm_export, list_imports
-from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills, learn_from_books as mcp_learn
-from tools.github_reader import (
-    browse_repo as gh_browse_repo,
-    read_github_file as gh_read_file,
-    list_indexed_repos as gh_list_indexed,
-    index_github_repo as gh_index_repo,
-    extract_best_practices as gh_extract_practices,
-)
-from tools.project_creator import (
-    clone_github_repo as pc_clone,
-    create_project as pc_create,
-    open_in_pycharm as pc_open_pycharm,
-)
-from tools.preview import (
-    preview_code as pv_preview_code,
-    preview_file as pv_preview_file,
-    list_previews as pv_list_previews,
-    stop_preview_server as pv_stop_server,
-)
-from tools.terminal import CommandBlocked, Terminal
-from agent.profiler import get_profiler
-from agent.memory_extractor import extract_mid_session
-from config import (
-    MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT,
-    ROUTER_ENABLED, BEST_OF_N_ENABLED, BEST_OF_N_COUNT, BEST_OF_N_FORCE,
-    match_allowed_root,
-)
-
-logger = logging.getLogger(__name__)
-console = Console()
 
 # Extension → lexer Pygments
 _EXT_LEXER: dict[str, str] = {
@@ -198,9 +217,7 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
         return True
     if intent_count >= 2:
         return True
-    if has_enumeration and intent_count >= 1:
-        return True
-    return False
+    return bool(has_enumeration and intent_count >= 1)
 
 
 # Messages courts qui poursuivent la tâche en cours plutôt que d'en lancer une
@@ -452,10 +469,8 @@ class Orchestrator:
         if self._on_skills_selected:
             howto = [s.get("name", s.get("slug", "")) for s in skills
                      if not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))]
-            try:
+            with contextlib.suppress(Exception):
                 self._on_skills_selected(howto)
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #

@@ -1,10 +1,10 @@
 """Tests pour tools/search.py — Search.search_in_files."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 import subprocess
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 

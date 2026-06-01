@@ -10,8 +10,9 @@ remplacement via monkeypatch.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 
 class FixtureExhausted(RuntimeError):
@@ -35,13 +36,13 @@ class FakeLLMClient:
     def stream_chat(
         self,
         messages: list[dict],
-        tools: Optional[list[dict]] = None,
-        token_callback: Optional[Callable[[str], None]] = None,
+        tools: list[dict] | None = None,
+        token_callback: Callable[[str], None] | None = None,
         temperature: float = 0.1,
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
-    ) -> tuple[str, Optional[list[dict]]]:
+    ) -> tuple[str, list[dict] | None]:
         """Compatible avec LLMClient.stream_chat — retourne (content, tool_calls)."""
         if self._cursor >= len(self.responses):
             raise FixtureExhausted(

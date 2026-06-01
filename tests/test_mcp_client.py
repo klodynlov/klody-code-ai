@@ -1,10 +1,10 @@
 """Tests pour tools/mcp_client.py — _is_domain_file, get_skills, _parse_result, search_books."""
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ── _is_domain_file ────────────────────────────────────────────────────────────
 
@@ -160,16 +160,16 @@ class TestParseResult:
 
 class TestSearchBooks:
     def test_connect_error_retourne_message_lisible(self):
-        from tools.mcp_client import search_books
         import httpx
+        from tools.mcp_client import search_books
         with patch("tools.mcp_client.httpx.Client") as mock_client:
             mock_client.return_value.__enter__.return_value.post.side_effect = httpx.ConnectError("refused")
             result = search_books("design patterns")
         assert "inaccessible" in result.lower() or "LibraryBrain" in result
 
     def test_http_error_retourne_message_lisible(self):
-        from tools.mcp_client import search_books
         import httpx
+        from tools.mcp_client import search_books
         mock_resp = MagicMock()
         mock_resp.status_code = 503
         with patch("tools.mcp_client.httpx.Client") as mock_client:

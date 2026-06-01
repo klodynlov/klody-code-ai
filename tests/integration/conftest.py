@@ -5,9 +5,9 @@ Wire un Orchestrator dont le LLM/Router sont stubés. Test = scénario figé.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterator
 
 import pytest
 

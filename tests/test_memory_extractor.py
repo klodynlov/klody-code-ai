@@ -1,11 +1,10 @@
 """Tests de agent/memory_extractor.py — extraction automatique de mémoire."""
 
 import json
-import pytest
 from unittest.mock import MagicMock, patch
 
-from agent.memory_extractor import extract_and_save, _parse_json_facts
-
+import pytest
+from agent.memory_extractor import _parse_json_facts, extract_and_save
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

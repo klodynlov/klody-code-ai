@@ -3,12 +3,11 @@ import re
 import shlex
 import subprocess
 
+from config import PROJECT_ROOT, SUBPROCESS_TIMEOUT
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.syntax import Syntax
-
-from config import PROJECT_ROOT, SUBPROCESS_TIMEOUT
 
 logger = logging.getLogger(__name__)
 console = Console()

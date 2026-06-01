@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import pytest
-
 from agent.prompts import (
-    compose_system_prompt,
-    load_prompt_file,
-    available_task_types,
     _TASK_PROMPT_FILES,
     PROMPTS_DIR,
+    available_task_types,
+    compose_system_prompt,
+    load_prompt_file,
 )
 
 

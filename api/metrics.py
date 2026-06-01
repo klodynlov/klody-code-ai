@@ -10,7 +10,7 @@ qui évite d'invasiver le code agent. Pour des métriques plus profondes
 """
 from __future__ import annotations
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 # ── Connexions WS ─────────────────────────────────────────────────────────────
 

@@ -34,9 +34,8 @@ def _detect_format(data) -> str:
                 return "claude"
             if "messages" in first:
                 return "generic_list"
-    if isinstance(data, dict):
-        if "messages" in data:
-            return "generic_dict"
+    if isinstance(data, dict) and "messages" in data:
+        return "generic_dict"
     return "unknown"
 
 

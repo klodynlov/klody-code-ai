@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConversationMemory:
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: str | None = None):
         self.session_id: str = session_id or str(uuid.uuid4())[:8]
         self.memory_file: Path = MEMORY_DIR / f"memory_{self.session_id}.json"
         self.messages: list[dict] = []
@@ -22,9 +22,9 @@ class ConversationMemory:
     # Ajout de messages                                                    #
     # ------------------------------------------------------------------ #
 
-    def add_message(self, role: str, content: str, **extra) -> None:
+    def add_message(self, role: str, content: str, **extra: object) -> None:
         """Ajoute un message et applique la fenêtre glissante."""
-        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
+        msg: dict[str, object] = {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
         msg.update(extra)
         self.messages.append(msg)
         # Auto-title from first user message

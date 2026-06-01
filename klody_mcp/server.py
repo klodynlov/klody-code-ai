@@ -6,10 +6,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import httpx
+from config import LIBRARYBRAIN_URL, SKILLS_DIR
 from fastmcp import FastMCP
 from loguru import logger
-
-from config import LIBRARYBRAIN_URL, SKILLS_DIR
 
 MCP_HOST = os.getenv("MCP_HOST", "127.0.0.1")
 MCP_PORT = int(os.getenv("MCP_PORT", "8082"))

@@ -1,5 +1,6 @@
 import difflib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 from config import (
@@ -43,10 +44,7 @@ class FileManager:
             raise SandboxViolation("Chemin vide non autorisé")
 
         p = Path(path).expanduser()
-        if p.is_absolute():
-            resolved = p.resolve()
-        else:
-            resolved = (self.root / p).resolve()
+        resolved = p.resolve() if p.is_absolute() else (self.root / p).resolve()
 
         if match_allowed_root(resolved, self.allowed_roots) is None:
             raise SandboxViolation(
@@ -147,7 +145,7 @@ class FileManager:
         }
         MAX_ENTRIES = 150
 
-        def _iter(base: Path, recurse: bool):
+        def _iter(base: Path, recurse: bool) -> Iterator[Path]:
             for entry in sorted(base.iterdir()):
                 if entry.name in _SKIP_NAMES:
                     continue
@@ -155,7 +153,7 @@ class FileManager:
                 if recurse and entry.is_dir():
                     yield from _iter(entry, recurse)
 
-        lines = []
+        lines: list[str] = []
         truncated = 0
         for entry in _iter(resolved, recursive):
             if len(lines) >= MAX_ENTRIES:

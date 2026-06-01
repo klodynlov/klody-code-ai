@@ -4,9 +4,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
 from agent.best_of_n import BestOfN, Candidate, _format_candidates_for_rerank
-
 
 # ── Candidate.summary ─────────────────────────────────────────────────────────
 

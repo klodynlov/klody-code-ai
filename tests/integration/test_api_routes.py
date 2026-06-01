@@ -27,8 +27,8 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     fake_mem_dir.mkdir()
     monkeypatch.setattr("api.server.MEMORY_DIR", fake_mem_dir)
 
-    from fastapi.testclient import TestClient
     from api.server import app
+    from fastapi.testclient import TestClient
 
     with TestClient(app) as c:
         yield c, fake_mem_dir
@@ -41,8 +41,8 @@ def config_state():
     L'endpoint mute `config` ET `agent.orchestrator` (qui a importé ces noms
     au chargement). On restaure les deux après le test pour éviter toute fuite
     d'état entre tests (les globals sont des singletons de module)."""
-    import config as cfg
     import agent.orchestrator as orch
+    import config as cfg
     from api.server import _CONFIG_KEYS
 
     consts = [const for const, _t in _CONFIG_KEYS.values()]
@@ -396,7 +396,7 @@ class TestConfigEndpoints:
         r = c.post("/api/config", json={"max_iterations": "pas-un-nombre"})
         body = r.json()
         assert "max_iterations" not in body["updated"]
-        assert cfg.MAX_ITERATIONS == before  # inchangé
+        assert before == cfg.MAX_ITERATIONS  # inchangé
 
 
 class TestWebSocketRouting:

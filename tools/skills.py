@@ -9,7 +9,6 @@ import logging
 import re
 import unicodedata
 from datetime import datetime
-from pathlib import Path
 
 from config import SKILLS_DIR
 
@@ -109,7 +108,7 @@ _STOP = {
     "les", "des", "une", "pour", "avec", "dans", "que", "qui", "sur", "par",
     "est", "son", "ses", "mon", "ton", "the", "and", "for", "with", "you",
     "mais", "plus", "tout", "tous", "fait", "faire", "comment", "peux", "moi",
-    "the", "this", "that", "veux", "vais", "puis", "quoi", "donne",
+    "this", "that", "veux", "vais", "puis", "quoi", "donne",
     "klody", "skill", "skills", "fichier", "fichiers", "code",  # trop fréquents → non discriminants
 }
 

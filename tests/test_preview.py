@@ -3,15 +3,14 @@
 import re
 
 import pytest
-
 import tools.preview as preview_mod
 from tools.preview import (
-    preview_code,
     _as_list,
-    _is_full_document,
     _build_document,
-    _inject_missing_libs,
     _const_reassign_fix,
+    _inject_missing_libs,
+    _is_full_document,
+    preview_code,
 )
 
 

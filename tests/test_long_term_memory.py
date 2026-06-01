@@ -1,9 +1,9 @@
 """Tests de agent/long_term_memory.py — mémoire inter-sessions."""
 
 import json
-import pytest
 from pathlib import Path
 
+import pytest
 from agent.long_term_memory import LongTermMemory
 
 

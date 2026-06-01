@@ -73,7 +73,7 @@ class ConventionReport:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ConventionReport":
+    def from_dict(cls, d: dict) -> ConventionReport:
         return cls(
             workdir=d["workdir"],
             detected_at=d.get("detected_at", 0.0),
@@ -136,9 +136,8 @@ def _collect_stats(root: Path) -> dict:
 
     # Files à la racine — signaux forts
     direct = {p.name for p in root.iterdir() if p.exists()}
-    if "pytest.ini" in direct or "pyproject.toml" in direct:
-        if (root / "pytest.ini").exists():
-            stats["pytest_ini"] = True
+    if ("pytest.ini" in direct or "pyproject.toml" in direct) and (root / "pytest.ini").exists():
+        stats["pytest_ini"] = True
     if "conftest.py" in direct:
         stats["conftest"] = True
     if "pyproject.toml" in direct:
@@ -334,7 +333,7 @@ def _detect_package_manager(stats: dict) -> Convention | None:
     return Convention(
         name="package_manager",
         value=pm,
-        evidence=f"détecté via lockfile/config racine",
+        evidence="détecté via lockfile/config racine",
         confidence=0.95,
     )
 
@@ -346,7 +345,7 @@ def _detect_ci(stats: dict) -> Convention | None:
     return Convention(
         name="ci",
         value=", ".join(ci),
-        evidence=f"workflows présents",
+        evidence="workflows présents",
         confidence=1.0,
     )
 
@@ -358,7 +357,7 @@ def _detect_formatters(stats: dict) -> Convention | None:
     return Convention(
         name="formatters",
         value=", ".join(sorted(set(fmts))),
-        evidence=f"config détectée — respecte ces formatters",
+        evidence="config détectée — respecte ces formatters",
         confidence=0.9,
     )
 

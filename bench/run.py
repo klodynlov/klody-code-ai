@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from bench import metrics  # noqa: E402
 from bench.framework import (  # noqa: E402
     Result,
     Task,
@@ -29,8 +30,6 @@ from bench.framework import (  # noqa: E402
     filter_tasks,
     stopwatch,
 )
-from bench import metrics  # noqa: E402
-
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 

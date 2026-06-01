@@ -33,7 +33,7 @@ import os
 import re
 import smtplib
 import ssl
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 
@@ -76,15 +76,13 @@ def _imap():
         conn.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         yield conn
     finally:
-        try:
+        with suppress(Exception):
             conn.logout()
-        except Exception:
-            pass
 
 
 def _q(mailbox: str) -> str:
     """Quote un nom de dossier IMAP (gère les espaces, ex: '[Gmail]/All Mail')."""
-    return '"%s"' % mailbox.replace('"', '\\"')
+    return '"{}"'.format(mailbox.replace('"', '\\"'))
 
 
 def _decode_header(value: str | None) -> str:
@@ -239,7 +237,7 @@ def search_emails(query: str, mailbox: str = "INBOX", limit: int = 15) -> dict:
         with _imap() as conn:
             conn.select(_q(mailbox), readonly=True)
             escaped = query.replace("\\", "\\\\").replace('"', '\\"')
-            typ, data = conn.uid("SEARCH", "X-GM-RAW", '"%s"' % escaped)
+            typ, data = conn.uid("SEARCH", "X-GM-RAW", f'"{escaped}"')
             if typ != "OK":
                 return {"error": f"Recherche échouée: {data}"}
             uids = _uids(data)
@@ -416,9 +414,9 @@ def modify_labels(
         with _imap() as conn:
             conn.select(_q(mailbox))
             for label in add:
-                conn.uid("STORE", str(uid), "+X-GM-LABELS", '"%s"' % label)
+                conn.uid("STORE", str(uid), "+X-GM-LABELS", f'"{label}"')
             for label in remove:
-                conn.uid("STORE", str(uid), "-X-GM-LABELS", '"%s"' % label)
+                conn.uid("STORE", str(uid), "-X-GM-LABELS", f'"{label}"')
         return {"uid": str(uid), "added": add, "removed": remove}
     except Exception as exc:
         logger.error("modify_labels: %s", exc, exc_info=True)

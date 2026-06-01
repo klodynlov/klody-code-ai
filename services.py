@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import subprocess
 import threading
 import time
-import logging
 from pathlib import Path
 
 import httpx

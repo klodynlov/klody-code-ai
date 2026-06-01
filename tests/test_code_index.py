@@ -4,13 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tools.code_index import (
     CodeIndex,
-    Symbol,
     Reference,
-    format_symbols,
+    Symbol,
     format_references,
+    format_symbols,
 )
 
 

@@ -87,6 +87,28 @@ jobs:
           python -m py_compile tools/skills.py
 
   # ─────────────────────────────────────────────────────────────────
+  # Qualité — lint (ruff) + typage du cœur (mypy). Config : pyproject.toml
+  # ─────────────────────────────────────────────────────────────────
+  quality:
+    name: Lint & types (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      - uses: actions/setup-python@v5
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install "ruff>=0.6" "mypy>=1.11"
+      - name: Ruff (lint)
+        run: ruff check agent/ tools/ api/ klody_mcp/ config.py main.py services.py bench/ scripts/
+      - name: Mypy (cœur typé — voir [tool.mypy].files dans pyproject.toml)
+        run: mypy
+
+  # ─────────────────────────────────────────────────────────────────
   # SAST Python — block sur HIGH severity
   # ─────────────────────────────────────────────────────────────────
   bandit:

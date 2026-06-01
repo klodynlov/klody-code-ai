@@ -22,7 +22,7 @@ from pathlib import Path
 
 # Ajouter la racine du projet au path pour importer config
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import SKILLS_DIR  # noqa: E402
+from config import SKILLS_DIR
 
 EXPORT_DIR = Path(sys.argv[1]) if len(sys.argv) > 1 else None
 
@@ -244,7 +244,7 @@ def import_conversations(export_dir: Path) -> list[Path]:
 
 def main() -> None:
     if not EXPORT_DIR or not EXPORT_DIR.exists():
-        print(f"Usage: python scripts/import-claude-export.py <dossier-export>")
+        print("Usage: python scripts/import-claude-export.py <dossier-export>")
         print(f"Dossier non trouvé: {EXPORT_DIR}")
         sys.exit(1)
 
@@ -261,8 +261,8 @@ def main() -> None:
     print(f"  {len(created)} fichier(s) skill créé(s) dans skills/")
     for p in created:
         print(f"    → {p.name}")
-    print(f"\nKlodyAI chargera ces skills au prochain démarrage.")
-    print(f"Pour vérifier : python main.py → /memory\n")
+    print("\nKlodyAI chargera ces skills au prochain démarrage.")
+    print("Pour vérifier : python main.py → /memory\n")
 
 
 if __name__ == "__main__":
