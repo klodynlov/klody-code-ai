@@ -1,8 +1,9 @@
 """Tests d'intégration des routes REST + WebSocket non couvertes par
 test_websocket.py (qui se concentre sur le handshake WS).
 
-Couvre : /api/sessions, /api/memories (GET + DELETE), /api/stop,
-/api/sessions/{id}/export, ws session_load (ok + not found), ws model_change.
+Couvre : /api/sessions (liste, suppression, renommage, export),
+/api/memories (GET + DELETE), /api/config (GET + POST, à chaud),
+/api/stop, ws session_load (ok + not found), ws model_change.
 """
 from __future__ import annotations
 
@@ -31,6 +32,28 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     with TestClient(app) as c:
         yield c, fake_mem_dir
+
+
+@pytest.fixture
+def config_state():
+    """Snapshot/restore des constantes mutées par POST /api/config.
+
+    L'endpoint mute `config` ET `agent.orchestrator` (qui a importé ces noms
+    au chargement). On restaure les deux après le test pour éviter toute fuite
+    d'état entre tests (les globals sont des singletons de module)."""
+    import config as cfg
+    import agent.orchestrator as orch
+    from api.server import _CONFIG_KEYS
+
+    consts = [const for const, _t in _CONFIG_KEYS.values()]
+    saved: dict[tuple[str, str], object] = {}
+    for const in consts:
+        saved[("cfg", const)] = getattr(cfg, const)
+        if hasattr(orch, const):
+            saved[("orch", const)] = getattr(orch, const)
+    yield
+    for (mod, const), val in saved.items():
+        setattr(cfg if mod == "cfg" else orch, const, val)
 
 
 class TestSessions:
@@ -105,6 +128,77 @@ class TestSessionExport:
         assert "Bonjour" in body and "Salut" in body
         # system/tool exclus
         assert "ignored" not in body
+
+
+class TestSessionDelete:
+    def test_delete_existing(self, client):
+        c, mem_dir = client
+        sid = "to-delete"
+        f = mem_dir / f"memory_{sid}.json"
+        f.write_text(json.dumps({"session_id": sid, "messages": []}))
+        r = c.delete(f"/api/sessions/{sid}")
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+        assert not f.exists()
+
+    def test_delete_missing(self, client):
+        c, _ = client
+        r = c.delete("/api/sessions/ghost")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert "introuvable" in body["message"].lower()
+
+
+class TestSessionRename:
+    def _make(self, mem_dir, sid="rename-me", title="Ancien titre"):
+        f = mem_dir / f"memory_{sid}.json"
+        f.write_text(json.dumps({
+            "session_id": sid,
+            "title": title,
+            "messages": [{"role": "user", "content": "salut"}],
+        }, ensure_ascii=False))
+        return f
+
+    def test_rename_existing_persists_title(self, client):
+        c, mem_dir = client
+        f = self._make(mem_dir)
+        r = c.post("/api/sessions/rename-me/rename", json={"title": "Nouveau titre"})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "title": "Nouveau titre"}
+        # Persisté sur disque, autres champs préservés
+        data = json.loads(f.read_text())
+        assert data["title"] == "Nouveau titre"
+        assert data["session_id"] == "rename-me"
+        assert data["messages"] == [{"role": "user", "content": "salut"}]
+
+    def test_rename_missing(self, client):
+        c, _ = client
+        r = c.post("/api/sessions/ghost/rename", json={"title": "X"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert "introuvable" in body["message"].lower()
+
+    def test_rename_empty_title_rejected(self, client):
+        c, mem_dir = client
+        self._make(mem_dir)
+        # Titre uniquement blanc → rejeté avant même de toucher au fichier
+        r = c.post("/api/sessions/rename-me/rename", json={"title": "   "})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is False
+        assert "vide" in body["message"].lower()
+
+    def test_rename_strips_and_truncates(self, client):
+        c, mem_dir = client
+        f = self._make(mem_dir)
+        long_title = "  " + "a" * 100 + "  "
+        r = c.post("/api/sessions/rename-me/rename", json={"title": long_title})
+        assert r.status_code == 200
+        # strip() puis tronqué à 80 caractères
+        assert r.json()["title"] == "a" * 80
+        assert json.loads(f.read_text())["title"] == "a" * 80
 
 
 class TestMemoriesEndpoints:
@@ -230,6 +324,79 @@ class TestStopGeneration:
         assert r.status_code == 200
         assert r.json() == {"ok": True}
         assert server._stop_flag[0] is True
+
+
+class TestConfigEndpoints:
+    EXPECTED_KEYS = {
+        "router_enabled", "best_of_n_enabled", "best_of_n_force",
+        "sandbox_auto_exec", "best_of_n_count", "sandbox_timeout", "max_iterations",
+    }
+
+    def test_get_returns_all_keys(self, client):
+        c, _ = client
+        r = c.get("/api/config")
+        assert r.status_code == 200
+        assert set(r.json().keys()) == self.EXPECTED_KEYS
+
+    def test_post_updates_bool_and_int(self, client, config_state):
+        c, _ = client
+        import config as cfg
+        r = c.post("/api/config", json={"router_enabled": False, "max_iterations": 10})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        assert body["updated"] == {"router_enabled": False, "max_iterations": 10}
+        assert body["config"]["router_enabled"] is False
+        assert body["config"]["max_iterations"] == 10
+        # Effet réel sur le module config…
+        assert cfg.ROUTER_ENABLED is False
+        assert cfg.MAX_ITERATIONS == 10
+        # …et GET le reflète
+        assert c.get("/api/config").json()["max_iterations"] == 10
+
+    def test_post_propagates_to_orchestrator(self, client, config_state):
+        c, _ = client
+        import agent.orchestrator as orch
+        c.post("/api/config", json={"router_enabled": False, "best_of_n_count": 5})
+        # Le module consommateur (orchestrator) est muté lui aussi → effet immédiat
+        assert orch.ROUTER_ENABLED is False
+        assert orch.BEST_OF_N_COUNT == 5
+
+    def test_post_clamps_bounds(self, client, config_state):
+        c, _ = client
+        r = c.post("/api/config", json={
+            "best_of_n_count": 99, "sandbox_timeout": 9999, "max_iterations": 0,
+        })
+        cfg2 = r.json()["config"]
+        assert cfg2["best_of_n_count"] == 8     # borné à 8
+        assert cfg2["sandbox_timeout"] == 120   # borné à 120
+        assert cfg2["max_iterations"] == 1      # borné à 1 (min)
+
+    def test_post_ignores_unknown_key(self, client, config_state):
+        c, _ = client
+        r = c.post("/api/config", json={"inexistant": 123, "router_enabled": True})
+        body = r.json()
+        assert "inexistant" not in body["updated"]
+        assert body["updated"] == {"router_enabled": True}
+
+    def test_post_bool_coercion_from_string(self, client, config_state):
+        c, _ = client
+        import config as cfg
+        c.post("/api/config", json={"router_enabled": "true"})
+        assert cfg.ROUTER_ENABLED is True
+        c.post("/api/config", json={"router_enabled": "false"})
+        assert cfg.ROUTER_ENABLED is False
+        c.post("/api/config", json={"router_enabled": "0"})
+        assert cfg.ROUTER_ENABLED is False
+
+    def test_post_invalid_int_skipped(self, client, config_state):
+        c, _ = client
+        import config as cfg
+        before = cfg.MAX_ITERATIONS
+        r = c.post("/api/config", json={"max_iterations": "pas-un-nombre"})
+        body = r.json()
+        assert "max_iterations" not in body["updated"]
+        assert cfg.MAX_ITERATIONS == before  # inchangé
 
 
 class TestWebSocketRouting:
