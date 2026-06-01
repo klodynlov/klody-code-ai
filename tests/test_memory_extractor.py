@@ -3,7 +3,11 @@
 import json
 from unittest.mock import MagicMock, patch
 
-from agent.memory_extractor import _parse_json_facts, extract_and_save
+from agent.memory_extractor import (
+    _parse_json_facts,
+    extract_and_save,
+    extract_mid_session,
+)
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -208,3 +212,53 @@ class TestExtractWithMockedLLM:
 
         cats = {r["category"] for r in result}
         assert cats == {"user", "project", "preference", "context"}
+
+
+# ── extract_mid_session — extraction proactive mid-session ────────────────────
+
+class TestExtractMidSession:
+    """Le compteur global _last_mid_extraction_count gate par intervalle ;
+    on le remet à 0 (auto-restauré par monkeypatch) avant chaque test."""
+
+    def _reset(self, monkeypatch):
+        monkeypatch.setattr("agent.memory_extractor._last_mid_extraction_count", 0)
+
+    def test_trop_peu_de_messages(self, monkeypatch):
+        self._reset(monkeypatch)
+        lt = _lt_mock()
+        assert extract_mid_session(_msgs(1), lt) == []
+        lt.remember.assert_not_called()
+
+    def test_intervalle_non_atteint(self, monkeypatch):
+        self._reset(monkeypatch)
+        lt = _lt_mock()
+        # 5 messages user < intervalle (8) depuis la dernière extraction (0)
+        assert extract_mid_session(_msgs(5), lt) == []
+        lt.remember.assert_not_called()
+
+    @patch("agent.memory_extractor.OpenAI")
+    def test_chemin_complet_sauvegarde(self, mock_openai_cls, monkeypatch):
+        self._reset(monkeypatch)
+        facts = [{"key": "pref", "content": "indentation tabs", "category": "preference"}]
+        mock_openai_cls.return_value.chat.completions.create.return_value = _llm_response(facts)
+        lt = _lt_mock()
+        result = extract_mid_session(_msgs(8), lt)  # 8 user ≥ intervalle ⇒ tourne
+        assert len(result) == 1
+        assert lt.remember.call_count == 1
+
+    @patch("agent.memory_extractor.OpenAI")
+    def test_categorie_invalide_corrigee(self, mock_openai_cls, monkeypatch):
+        self._reset(monkeypatch)
+        facts = [{"key": "k", "content": "v", "category": "n_importe_quoi"}]
+        mock_openai_cls.return_value.chat.completions.create.return_value = _llm_response(facts)
+        lt = _lt_mock()
+        result = extract_mid_session(_msgs(8), lt)
+        assert result[0]["category"] == "context"
+
+    @patch("agent.memory_extractor.OpenAI")
+    def test_erreur_llm_retourne_vide(self, mock_openai_cls, monkeypatch):
+        self._reset(monkeypatch)
+        mock_openai_cls.return_value.chat.completions.create.side_effect = Exception("timeout")
+        lt = _lt_mock()
+        assert extract_mid_session(_msgs(8), lt) == []
+        lt.remember.assert_not_called()

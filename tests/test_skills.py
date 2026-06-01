@@ -169,3 +169,141 @@ class TestFormatSkillsForPrompt:
         result = format_skills_for_prompt(skills)
         assert "### A" in result
         assert "### B" in result
+
+
+# ── select_skills (retrieval par mots-clés) ─────────────────────────────────────
+
+# Fixtures synthétiques : découplées des vrais fichiers skills/ pour que le test
+# reste vrai même si les descriptions réelles évoluent.
+_ALGOS = {
+    "name": "Maîtriser les algorithmes", "slug": "maitriser_les_algorithmes",
+    "description": "tri fusion rapide, arbres AVL rouge-noir, BFS DFS Dijkstra, insertion", "content": "",
+}
+_DISTILL = {
+    "name": "Distiller plusieurs livres en un skill", "slug": "distiller_plusieurs_livres",
+    "description": "distiller/fusionner plusieurs livres en un skill via scripts/klody-distill.sh + outil await_distillation",
+    "content": "",
+}
+_USER = {"name": "Profil", "slug": "utilisateur_profil", "description": "contexte permanent", "content": ""}
+_ALL = [_ALGOS, _DISTILL, _USER]
+
+
+class TestSelectSkills:
+    def _slugs(self, query, k=5):
+        from tools.skills import select_skills
+        return [s["slug"] for s in select_skills(_ALL, query, k=k)]
+
+    def test_query_vide_renvoie_seulement_always(self):
+        # Sans requête, on n'injecte que le contexte permanent (utilisateur_/conventions_).
+        assert self._slugs("") == ["utilisateur_profil"]
+
+    def test_always_toujours_injecte(self):
+        # Le skill profil est présent même pour une requête sans rapport.
+        assert "utilisateur_profil" in self._slugs("météo à Paris demain")
+
+    def test_match_topique_fort(self):
+        slugs = self._slugs("comment équilibrer un arbre AVL rouge-noir à l'insertion ?")
+        assert "maitriser_les_algorithmes" in slugs
+
+    def test_outil_ne_declenche_pas_distiller(self):
+        # RÉGRESSION : « code-moi un outil … » ne doit PLUS pêcher distiller_*
+        # (« outil » est un mot générique non discriminant, désormais stopword).
+        slugs = self._slugs(
+            "Crée un visualiseur d'arbres : codez un outil qui montre les rotations AVL et rouge-noir"
+        )
+        assert "maitriser_les_algorithmes" in slugs
+        assert "distiller_plusieurs_livres" not in slugs
+
+    def test_vraie_demande_distiller_toujours_selectionnee(self):
+        # Pas de sous-sélection : une vraie demande de distillation pêche bien le skill.
+        assert "distiller_plusieurs_livres" in self._slugs(
+            "distille ces livres et fusionne-les en un seul skill"
+        )
+
+    def test_outil_seul_score_zero(self):
+        from tools.skills import _score_skill, _skill_terms
+        # Un partage uniquement sur « outil » donne un score nul (mot ignoré).
+        assert _score_skill(_skill_terms("fabrique-moi un outil"), _DISTILL) == 0
+
+    def test_homonyme_fusion_terme_unique_partage_rejete(self):
+        # « fusion » est partagé par algos (tri fusion) ET distiller (fusionner) :
+        # un unique match sur ce terme partagé ne doit PAS pêcher distiller.
+        slugs = self._slugs("visualise le tri fusion")
+        assert "maitriser_les_algorithmes" in slugs   # match multi-termes (tri, fusion)
+        assert "distiller_plusieurs_livres" not in slugs
+
+    def test_terme_unique_single_match_qualifie(self):
+        # Un unique terme mais UNIQUE au skill (df==1) reste un signal fort.
+        slugs = self._slugs("explique-moi dijkstra")
+        assert "maitriser_les_algorithmes" in slugs
+
+
+# ── list_skills ────────────────────────────────────────────────────────────────
+
+class TestListSkills:
+    def test_aucune_competence(self):
+        from tools.skills import list_skills
+        assert "Aucune" in list_skills()
+
+    def test_resume_contient_noms_et_compte(self, tmp_path):
+        from tools.skills import list_skills, save_skill
+        save_skill("Alpha Skill", "desc A", "c")
+        save_skill("Beta Skill", "desc B", "c")
+        out = list_skills()
+        assert "Alpha Skill" in out and "Beta Skill" in out
+        assert "2 compétence" in out
+
+
+# ── delete_skill ───────────────────────────────────────────────────────────────
+
+class TestDeleteSkill:
+    def test_supprime_existant(self, tmp_path):
+        from tools.skills import delete_skill, save_skill
+        save_skill("Jetable", "d", "c")
+        msg = delete_skill("jetable")
+        assert "supprimée" in msg
+        assert not (tmp_path / "jetable.json").exists()
+
+    def test_introuvable_donne_indice(self, tmp_path):
+        from tools.skills import delete_skill, save_skill
+        save_skill("Existe", "d", "c")
+        msg = delete_skill("nexistepas")
+        assert "introuvable" in msg
+        assert "existe" in msg  # indice listant les slugs disponibles
+
+    def test_introuvable_sans_skills(self):
+        from tools.skills import delete_skill
+        assert "introuvable" in delete_skill("rien")
+
+    def test_refuse_fichier_domaine(self, tmp_path):
+        from tools.skills import delete_skill
+        (tmp_path / "python.json").write_text(json.dumps([{"title": "t", "content": "c", "tags": []}]))
+        msg = delete_skill("python")
+        assert "ERREUR" in msg
+        assert (tmp_path / "python.json").exists()  # non supprimé (lecture seule)
+
+    def test_json_casse_supprime_quand_meme(self, tmp_path):
+        from tools.skills import delete_skill
+        (tmp_path / "casse.json").write_text("{ pas du json")
+        msg = delete_skill("casse")
+        assert "supprimée" in msg
+        assert not (tmp_path / "casse.json").exists()
+
+
+# ── _is_user_skill ─────────────────────────────────────────────────────────────
+
+class TestIsUserSkill:
+    def test_dict_est_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "s.json"; p.write_text(json.dumps({"name": "x"}))
+        assert _is_user_skill(p) is True
+
+    def test_liste_nest_pas_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "d.json"; p.write_text(json.dumps([{"title": "t"}]))
+        assert _is_user_skill(p) is False
+
+    def test_json_casse_nest_pas_user_skill(self, tmp_path):
+        from tools.skills import _is_user_skill
+        p = tmp_path / "b.json"; p.write_text("{ cassé")
+        assert _is_user_skill(p) is False

@@ -1,0 +1,130 @@
+{
+  "skill": "Contract-driven construction method",
+  "domain": "software-engineering",
+  "description": "A systematic approach to building robust, maintainable software by explicitly defining and enforcing behavioral contracts between components.",
+  "principles": [
+    "Declare explicit contracts for all interfaces.",
+    "Enforce preconditions before execution and postconditions after.",
+    "Preserve class invariants across all operations.",
+    "Restrict inheritance to strict subtype relationships.",
+    "Isolate interfaces from implementations for independent evolution.",
+    "Validate external inputs rigorously at system boundaries.",
+    "Prioritize reuse through composition over deep inheritance hierarchies."
+  ],
+  "workflow": [
+    {
+      "step": "Define interface contracts",
+      "purpose": "Establish clear expectations before coding begins.",
+      "guidelines": [
+        "List all preconditions, postconditions, and invariants for each public method.",
+        "Document expected input ranges, state requirements, and guaranteed outputs.",
+        "Review contracts with stakeholders to align on behavioral guarantees."
+      ],
+      "pitfalls": [
+        "Vague or incomplete requirements that leave edge cases unhandled.",
+        "Over-specifying constraints that restrict legitimate usage patterns."
+      ]
+    },
+    {
+      "step": "Implement with contract enforcement",
+      "purpose": "Translate abstract contracts into executable safety checks.",
+      "guidelines": [
+        "Place precondition checks at method entry and postcondition checks at exit.",
+        "Verify invariants at the start and end of every public operation.",
+        "Use automated assertion libraries to minimize manual boilerplate."
+      ],
+      "pitfalls": [
+        "Forgetting to restore object state before exiting, breaking invariants.",
+        "Placing checks inside loops or critical paths, causing performance degradation."
+      ]
+    },
+    {
+      "step": "Design class hierarchy",
+      "purpose": "Structure reuse and polymorphism without fragility.",
+      "guidelines": [
+        "Apply inheritance only when the subclass strictly satisfies the parent contract.",
+        "Prefer composition for sharing state or behavior across unrelated classes.",
+        "Keep hierarchy depth shallow to simplify debugging and maintenance."
+      ],
+      "pitfalls": [
+        "Deep inheritance trees that amplify changes across unrelated branches.",
+        "Using subclassing to share implementation rather than behavioral substitution."
+      ]
+    },
+    {
+      "step": "Integrate and validate",
+      "purpose": "Ensure system-wide consistency and contract compliance.",
+      "guidelines": [
+        "Run full contract checks during development and testing phases.",
+        "Disable runtime checks in production builds to optimize performance.",
+        "Automate postcondition verification with integration tests for critical paths."
+      ],
+      "pitfalls": [
+        "Silent contract violations that mask defects until production.",
+        "Performance bottlenecks from unchecked assertion overhead in release builds."
+      ]
+    },
+    {
+      "step": "Refactor for openness",
+      "purpose": "Enable future extensions without breaking existing code.",
+      "guidelines": [
+        "Define abstract base classes with stable contracts for extension points.",
+        "Document how subclasses may override or extend base behavior.",
+        "Isolate volatile logic behind interfaces to limit ripple effects."
+      ],
+      "pitfalls": [
+        "Tight coupling between core modules and extension hooks.",
+        "Hidden dependencies that violate open-closed expectations."
+      ]
+    }
+  ],
+  "checklist": [
+    "All public interfaces declare explicit preconditions and postconditions.",
+    "Class invariants are verified at the start and end of every public method.",
+    "Inheritance is restricted to strict subtype relationships without state duplication.",
+    "External inputs are validated at system boundaries before internal processing.",
+    "Contract enforcement checks are disabled in production builds for performance.",
+    "Interfaces are fully decoupled from concrete implementations.",
+    "Automated tests cover postcondition verification for critical paths.",
+    "Extension points are documented and isolated from core logic."
+  ],
+  "source": {
+    "book": "Object-Oriented Software Construction",
+    "author": "Bertrand Meyer",
+    "year": 1988
+  },
+  "vocabulary": [
+    {
+      "term": "Design by Contract",
+      "definition": "A software engineering approach where components specify obligations (preconditions), guarantees (postconditions), and unchanging rules (invariants)."
+    },
+    {
+      "term": "Class Invariant",
+      "definition": "A condition that must hold true for every instance of a class throughout its lifetime, except during transient state changes."
+    },
+    {
+      "term": "Subtype Substitution",
+      "definition": "A principle ensuring that objects of a subclass can replace objects of a superclass without altering program correctness."
+    }
+  ],
+  "heuristics": [
+    "Prefer composition over inheritance for code reuse.",
+    "Fail fast: let contract violations surface immediately during development.",
+    "Keep contracts as simple as possible while remaining complete."
+  ],
+  "antipatterns": [
+    "Silent contract violations: ignoring preconditions or postconditions in production without logging.",
+    "Contract inflation: adding excessive checks that degrade performance without adding safety.",
+    "Inheritance abuse: using subclassing to share implementation rather than behavior."
+  ],
+  "examples": [
+    {
+      "context": "Building a payment processing module with external API integrations.",
+      "outcome": "Contract enforcement catches malformed requests early, preventing downstream corruption and simplifying debugging."
+    },
+    {
+      "context": "Refactoring a legacy monolithic class into a hierarchy of specialized handlers.",
+      "outcome": "Strict subtype rules prevent fragile base class issues, enabling safe parallel development."
+    }
+  ]
+}
