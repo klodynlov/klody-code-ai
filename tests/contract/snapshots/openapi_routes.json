@@ -59,7 +59,37 @@
       "body_required": false
     }
   },
+  "/api/sessions/{session_id}": {
+    "DELETE": {
+      "params": [
+        "session_id"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/sessions/{session_id}/rename": {
+    "POST": {
+      "params": [
+        "session_id"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/api/stop": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/config": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    },
     "POST": {
       "params": [],
       "has_body": false,
