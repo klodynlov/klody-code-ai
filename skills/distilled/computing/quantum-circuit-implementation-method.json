@@ -1,0 +1,122 @@
+{
+  "skill": "Quantum Circuit Implementation Method",
+  "domain": "computing",
+  "description": "A structured approach to designing, simulating, and executing quantum algorithms using modern software frameworks, bridging theoretical concepts with practical hardware constraints.",
+  "principles": [
+    "Start with classical programming fundamentals before tackling quantum logic.",
+    "Use simulators to validate circuit behavior before deploying to real hardware.",
+    "Visualize quantum circuits to debug state evolution and gate interactions.",
+    "Abstract hardware noise and calibration into error mitigation strategies.",
+    "Decompose complex algorithms into reusable quantum building blocks.",
+    "Validate probabilistic outputs through statistical sampling and repeated runs.",
+    "Map classical data structures to quantum states using appropriate encoding schemes."
+  ],
+  "workflow": [
+    {
+      "step": "Define problem scope",
+      "purpose": "Clarify whether quantum advantage is feasible and worth pursuing.",
+      "guidelines": [
+        "Assess problem complexity and identify classical bottlenecks.",
+        "Determine if quantum parallelism or interference applies to the task.",
+        "Establish a classical baseline for performance comparison."
+      ],
+      "pitfalls": [
+        "Assuming quantum computing solves all optimization problems.",
+        "Ignoring classical baselines and overestimating quantum speedup."
+      ]
+    },
+    {
+      "step": "Design quantum circuit",
+      "purpose": "Translate logical requirements into qubit operations and gate sequences.",
+      "guidelines": [
+        "Select the minimum qubit count required for the state space.",
+        "Choose a gate set compatible with the target hardware architecture.",
+        "Map classical inputs to quantum states using standard encoding."
+      ],
+      "pitfalls": [
+        "Overcomplicating circuits with unnecessary gates.",
+        "Neglecting hardware connectivity and gate fidelity limits."
+      ]
+    },
+    {
+      "step": "Implement and simulate",
+      "purpose": "Test logic in a controlled, noiseless environment before hardware submission.",
+      "guidelines": [
+        "Use framework APIs to construct and compile the circuit.",
+        "Run noiseless simulations to verify state vector evolution.",
+        "Visualize circuit diagrams and probability distributions."
+      ],
+      "pitfalls": [
+        "Relying solely on ideal simulators without accounting for measurement collapse.",
+        "Skipping visualization steps that reveal logical errors early."
+      ]
+    },
+    {
+      "step": "Execute on hardware",
+      "purpose": "Validate algorithm behavior against real quantum constraints and noise.",
+      "guidelines": [
+        "Submit jobs via cloud providers with appropriate priority and queue settings.",
+        "Monitor calibration data and device availability before submission.",
+        "Collect raw shot data for post-processing."
+      ],
+      "pitfalls": [
+        "Misinterpreting hardware noise as algorithmic failure.",
+        "Skipping calibration data review, leading to unreliable results."
+      ]
+    },
+    {
+      "step": "Analyze and iterate",
+      "purpose": "Extract meaningful results from probabilistic outputs and refine the approach.",
+      "guidelines": [
+        "Aggregate measurement frequencies over sufficient shots for statistical significance.",
+        "Apply error mitigation techniques to reduce noise impact.",
+        "Compare hardware results with classical benchmarks and adjust parameters."
+      ],
+      "pitfalls": [
+        "Overfitting to noise patterns instead of algorithmic signals.",
+        "Drawing conclusions from insufficient shots or biased sampling."
+      ]
+    }
+  ],
+  "checklist": [
+    "Problem scope defined with clear quantum advantage hypothesis.",
+    "Classical baseline established for performance comparison.",
+    "Circuit designed with minimal qubit count and verified gate sequence.",
+    "Noiseless simulation executed with successful state visualization.",
+    "Hardware job submitted with appropriate error mitigation parameters.",
+    "Measurement results aggregated over sufficient shots for statistical significance.",
+    "Output validated against expected probability distribution.",
+    "Noise artifacts distinguished from algorithmic errors."
+  ],
+  "source": {
+    "book": "Quantum Computing in Action",
+    "author": "Johan Vos",
+    "year": 2021
+  },
+  "vocabulary": [
+    {
+      "term": "qubit",
+      "definition": "Basic unit of quantum information, existing in superposition until measured."
+    },
+    {
+      "term": "shot",
+      "definition": "A single execution of a quantum circuit yielding one measurement outcome."
+    },
+    {
+      "term": "superposition",
+      "definition": "Quantum state allowing a qubit to represent multiple values simultaneously."
+    },
+    {
+      "term": "entanglement",
+      "definition": "Correlation between qubits where the state of one instantly influences another."
+    },
+    {
+      "term": "error mitigation",
+      "definition": "Techniques to reduce noise impact without full quantum error correction."
+    }
+  ],
+  "heuristics": [
+    "Prefer circuit depth optimization over qubit count when hardware connectivity is limited.",
+    "Treat quantum hardware as a noisy probabilistic oracle, not a deterministic computer."
+  ]
+}
