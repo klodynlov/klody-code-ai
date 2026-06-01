@@ -34,9 +34,9 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
 def _precision_recall_f1(y_true: list[str], y_pred: list[str], label: str) -> dict:
-    tp = sum(1 for t, p in zip(y_true, y_pred) if t == label and p == label)
-    fp = sum(1 for t, p in zip(y_true, y_pred) if t != label and p == label)
-    fn = sum(1 for t, p in zip(y_true, y_pred) if t == label and p != label)
+    tp = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t == label and p == label)
+    fp = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t != label and p == label)
+    fn = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t == label and p != label)
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
@@ -51,8 +51,8 @@ def _macro_f1(y_true: list[str], y_pred: list[str], labels: list[str]) -> tuple[
 
 def _confusion(y_true: list[str], y_pred: list[str], labels: list[str]) -> dict:
     """Matrice de confusion {true_label: {pred_label: count}}."""
-    cm: dict[str, dict[str, int]] = {l: {p: 0 for p in labels} for l in labels}
-    for t, p in zip(y_true, y_pred):
+    cm: dict[str, dict[str, int]] = {lab: dict.fromkeys(labels, 0) for lab in labels}
+    for t, p in zip(y_true, y_pred, strict=False):
         if t in cm and p in cm[t]:
             cm[t][p] += 1
     return cm
@@ -118,11 +118,11 @@ def _run_router_on_tasks(label: str | None = None) -> Path:
         "distribution_expected": dict(Counter(y_true)),
     }
 
-    print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"  ACCURACY : {accuracy:.1%}")
     print(f"  MACRO F1 : {macro_f1:.3f}  (cible roadmap : > 0.800)")
     print(f"  Latence moy. : {summary['avg_latency_per_task_s']}s/tâche")
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     # Sortie
     RESULTS_DIR.mkdir(exist_ok=True)

@@ -6,8 +6,8 @@ en texte, ce qui valide aussi la propagation d'erreur sans crash).
 """
 
 import json
-import pytest
 
+import pytest
 from tools.mcp_bridge import MCPManager, _result_to_text, _tool_to_openai_schema
 
 

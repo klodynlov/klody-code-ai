@@ -5,9 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from tools.sandbox import SandboxResult, SandboxRunner, auto_command_for
-
 
 # ── auto_command_for ──────────────────────────────────────────────────────────
 

@@ -5,15 +5,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from config import MAX_MESSAGES, MEMORY_DIR
+import config
+
+from agent.dbc import invariant
 
 logger = logging.getLogger(__name__)
 
+# Budget de contexte : on garde ~20 % de marge sous la fenêtre du modèle pour
+# la réponse en cours. CONTEXT_WINDOW est lu en direct (réglable à chaud via
+# GET/POST /api/config), d'où la lecture via le module `config`.
+_CONTEXT_BUDGET_RATIO = 0.8
+
 
 class ConversationMemory:
-    def __init__(self, session_id: Optional[str] = None):
+    def __init__(self, session_id: str | None = None):
         self.session_id: str = session_id or str(uuid.uuid4())[:8]
-        self.memory_file: Path = MEMORY_DIR / f"memory_{self.session_id}.json"
+        self.memory_file: Path = config.MEMORY_DIR / f"memory_{self.session_id}.json"
         self.messages: list[dict] = []
         self._created_at: str = datetime.now().isoformat()
         self.title: str = ""
@@ -22,9 +29,9 @@ class ConversationMemory:
     # Ajout de messages                                                    #
     # ------------------------------------------------------------------ #
 
-    def add_message(self, role: str, content: str, **extra) -> None:
+    def add_message(self, role: str, content: str, **extra: object) -> None:
         """Ajoute un message et applique la fenêtre glissante."""
-        msg = {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
+        msg: dict[str, object] = {"role": role, "content": content, "timestamp": datetime.now().isoformat()}
         msg.update(extra)
         self.messages.append(msg)
         # Auto-title from first user message
@@ -111,7 +118,7 @@ class ConversationMemory:
     def load_latest(cls) -> Optional["ConversationMemory"]:
         """Charge la session la plus récente."""
         files = sorted(
-            MEMORY_DIR.glob("memory_*.json"),
+            config.MEMORY_DIR.glob("memory_*.json"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -126,6 +133,14 @@ class ConversationMemory:
         instance.messages = data["messages"]
         instance._created_at = data["created_at"]
         instance.title = data.get("title", "")
+        # Assainit les sessions héritées : un tool result orphelin viole
+        # l'invariant ET casse l'API OpenAI/Ollama au prochain appel.
+        dropped = instance._drop_orphan_tool_results()
+        if dropped:
+            logger.warning(
+                "Session %s : %d tool result(s) orphelin(s) purgé(s) au chargement",
+                instance.session_id, dropped,
+            )
         logger.info("Session chargée: %s (%d messages)", instance.session_id, len(instance.messages))
         return instance
 
@@ -150,33 +165,95 @@ class ConversationMemory:
         }
 
     def _apply_sliding_window(self) -> None:
-        """Maintient au maximum MAX_MESSAGES messages non-system.
+        """Borne le contexte non-system par DEUX plafonds, en retirant les
+        plus anciens groupes cohérents (jamais un tool result sans son call) :
 
-        Supprime par groupes cohérents pour ne pas orphaner de tool results
-        ou séparer un échange user/assistant.
+        1. nombre de messages (MAX_MESSAGES) — garde-fou simple ;
+        2. budget de tokens estimés (CONTEXT_WINDOW) — la fenêtre du modèle se
+           sature selon la TAILLE, pas le nombre de messages : un seul gros
+           dump d'outil peut suffire. On garde toujours ≥1 groupe (le tour
+           courant doit passer même s'il est volumineux).
         """
-        non_system = [m for m in self.messages if m["role"] != "system"]
-        if len(non_system) <= MAX_MESSAGES:
-            return
-
-        while len([m for m in self.messages if m["role"] != "system"]) > MAX_MESSAGES:
-            # Trouver le premier message non-system
-            idx = next((i for i, m in enumerate(self.messages) if m["role"] != "system"), None)
-            if idx is None:
+        while self._count_non_system() > config.MAX_MESSAGES:
+            if not self._pop_oldest_group():
                 break
 
-            role = self.messages[idx]["role"]
+        budget = int(config.CONTEXT_WINDOW * _CONTEXT_BUDGET_RATIO)
+        while self._total_estimated_tokens() > budget and self._count_non_system() > 1:
+            if not self._pop_oldest_group():
+                break
 
-            if role == "user":
-                # Supprimer le user + tout ce qui suit jusqu'au prochain user (assistant + tools)
+        # Invariant de sortie : la fenêtre glissante n'orpheline jamais un
+        # tool result (suppression par groupes assistant+tools cohérents).
+        invariant(
+            not self._orphan_tool_results(),
+            "la fenêtre glissante ne doit jamais orphaner un tool result",
+        )
+
+    def _count_non_system(self) -> int:
+        return sum(1 for m in self.messages if m["role"] != "system")
+
+    def _pop_oldest_group(self) -> bool:
+        """Retire le plus ancien groupe non-system cohérent : un message user
+        et tout ce qui le suit jusqu'au prochain user, ou un assistant à
+        tool_calls et ses tool results. Retourne False si rien à retirer."""
+        idx = next((i for i, m in enumerate(self.messages) if m["role"] != "system"), None)
+        if idx is None:
+            return False
+        role = self.messages[idx]["role"]
+        if role == "user":
+            self.messages.pop(idx)
+            while idx < len(self.messages) and self.messages[idx]["role"] not in ("system", "user"):
                 self.messages.pop(idx)
-                while idx < len(self.messages) and self.messages[idx]["role"] != "system" and self.messages[idx]["role"] != "user":
-                    self.messages.pop(idx)
-            elif role == "assistant" and self.messages[idx].get("tool_calls"):
-                # Assistant avec tool_calls : supprimer l'assistant + les tool results associés
-                tc_ids = {tc["id"] for tc in self.messages[idx].get("tool_calls", [])}
+        elif role == "assistant" and self.messages[idx].get("tool_calls"):
+            tc_ids = {tc["id"] for tc in self.messages[idx].get("tool_calls", [])}
+            self.messages.pop(idx)
+            while (idx < len(self.messages) and self.messages[idx]["role"] == "tool"
+                   and self.messages[idx].get("tool_call_id") in tc_ids):
                 self.messages.pop(idx)
-                while idx < len(self.messages) and self.messages[idx]["role"] == "tool" and self.messages[idx].get("tool_call_id") in tc_ids:
-                    self.messages.pop(idx)
-            else:
-                self.messages.pop(idx)
+        else:
+            self.messages.pop(idx)
+        return True
+
+    @staticmethod
+    def _estimate_tokens(message: dict) -> int:
+        """Coût approximatif en tokens (~4 chars/token, convention du projet) :
+        contenu texte + nom et arguments des tool_calls, + surcoût de structure."""
+        chars = len(message.get("content") or "")
+        for tc in message.get("tool_calls") or []:
+            fn = tc.get("function", {})
+            chars += len(fn.get("name", "")) + len(fn.get("arguments", ""))
+        return chars // 4 + 4
+
+    def _total_estimated_tokens(self) -> int:
+        return sum(self._estimate_tokens(m) for m in self.messages)
+
+    # ------------------------------------------------------------------ #
+    # Invariant « pas de tool result orphelin » (Design by Contract)      #
+    # ------------------------------------------------------------------ #
+
+    def _tool_call_ids(self) -> set[str]:
+        """Ids de tous les tool_calls émis par les messages assistant."""
+        ids: set[str] = set()
+        for m in self.messages:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                ids.update(tc.get("id") for tc in m["tool_calls"])
+        return ids
+
+    def _orphan_tool_results(self) -> list[dict]:
+        """Messages 'tool' dont le tool_call_id ne correspond à aucun tool_call."""
+        valid = self._tool_call_ids()
+        return [
+            m for m in self.messages
+            if m.get("role") == "tool" and m.get("tool_call_id") not in valid
+        ]
+
+    def _drop_orphan_tool_results(self) -> int:
+        """Retire les tool results orphelins. Retourne le nombre purgé."""
+        valid = self._tool_call_ids()
+        before = len(self.messages)
+        self.messages = [
+            m for m in self.messages
+            if not (m.get("role") == "tool" and m.get("tool_call_id") not in valid)
+        ]
+        return before - len(self.messages)

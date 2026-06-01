@@ -6,12 +6,24 @@ import logging
 import sys
 from pathlib import Path
 
+from agent.long_term_memory import get_long_term_memory
+from agent.memory import ConversationMemory
+from agent.memory_extractor import extract_and_save
+from agent.orchestrator import Orchestrator
+from config import (
+    LIBRARYBRAIN_DIR,
+    LIBRARYBRAIN_URL,
+    MEMORY_DIR,
+    MODEL_NAME,
+    PREVIEW_DIR,
+    PREVIEW_PORT,
+    PROJECT_ROOT,
+)
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
-
 from rich import box
 from rich.align import Align
 from rich.console import Console
@@ -19,12 +31,6 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
-
-from config import MEMORY_DIR, MODEL_NAME, PROJECT_ROOT, LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL, PREVIEW_DIR, PREVIEW_PORT
-from agent.memory import ConversationMemory
-from agent.orchestrator import Orchestrator
-from agent.long_term_memory import get_long_term_memory
-from agent.memory_extractor import extract_and_save
 from services import ensure_librarybrain, get_librarybrain_status
 
 logger = logging.getLogger(__name__)

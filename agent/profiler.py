@@ -15,8 +15,6 @@ import json
 import logging
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import Optional
 
 from config import LOG_DIR
 
@@ -139,9 +137,12 @@ class UserProfiler:
             suggestions.append(f"🔄 Pattern récurrent détecté : **{pattern}** — je peux créer une compétence pour accélérer")
 
         # 4. Suggérer preview pour les requêtes web
-        if "web" in analysis["categories"] and "preview" not in analysis["categories"]:
-            if self.request_categories.get("web", 0) >= 3:
-                suggestions.append("👁 Je peux générer un aperçu live dans le navigateur — dis « avec aperçu »")
+        if (
+            "web" in analysis["categories"]
+            and "preview" not in analysis["categories"]
+            and self.request_categories.get("web", 0) >= 3
+        ):
+            suggestions.append("👁 Je peux générer un aperçu live dans le navigateur — dis « avec aperçu »")
 
         return suggestions[:3]
 
@@ -213,16 +214,15 @@ class UserProfiler:
                 found.append(name)
         return found or ["general"]
 
-    def _match_skill(self, user_input: str, analysis: dict, skills: list[dict]) -> Optional[dict]:
+    def _match_skill(self, user_input: str, analysis: dict, skills: list[dict]) -> dict | None:
         """Trouve une skill pertinente pour la requête actuelle."""
         if not skills:
             return None
 
         input_lower = user_input.lower()
         techs_lower = {t.lower() for t in analysis.get("techs", [])}
-        cats = set(analysis.get("categories", []))
 
-        best: Optional[dict] = None
+        best: dict | None = None
         best_score = 0
 
         for skill in skills:
@@ -252,7 +252,7 @@ class UserProfiler:
 
         return best
 
-    def _detect_recurring_pattern(self) -> Optional[str]:
+    def _detect_recurring_pattern(self) -> str | None:
         """Détecte les séquences de catégories récurrentes."""
         if len(self.recent_categories) < 6:
             return None

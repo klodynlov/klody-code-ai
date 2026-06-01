@@ -9,7 +9,6 @@ Couvre les 4 formats émis par les modèles + cas mixtes (texte + appel) :
 import json
 
 import pytest
-
 from agent.llm import LLMClient
 
 
@@ -252,6 +251,7 @@ class TestBackendSwitch:
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://test-ollama:11434/v1")
         monkeypatch.setenv("MLX_BASE_URL", "http://test-mlx:8080/v1")
         import importlib
+
         import config
         importlib.reload(config)
         assert config.LLM_BASE_URL == "http://test-ollama:11434/v1"
@@ -263,6 +263,7 @@ class TestBackendSwitch:
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://test-ollama:11434/v1")
         monkeypatch.setenv("MLX_BASE_URL", "http://test-mlx:8080/v1")
         import importlib
+
         import config
         importlib.reload(config)
         assert config.LLM_BASE_URL == "http://test-mlx:8080/v1"

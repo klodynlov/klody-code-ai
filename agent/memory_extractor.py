@@ -10,8 +10,8 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from config import MODEL_FALLBACK, OLLAMA_API_KEY, OLLAMA_BASE_URL
 from openai import OpenAI
-from config import OLLAMA_BASE_URL, OLLAMA_API_KEY, MODEL_FALLBACK
 
 if TYPE_CHECKING:
     from agent.long_term_memory import LongTermMemory
@@ -47,7 +47,7 @@ _last_mid_extraction_count: int = 0
 
 def extract_mid_session(
     messages: list[dict],
-    lt_memory: "LongTermMemory",
+    lt_memory: LongTermMemory,
     model: str = MODEL_FALLBACK,
 ) -> list[dict]:
     """Extraction proactive mid-session : tourne toutes les _MID_SESSION_INTERVAL
@@ -114,7 +114,7 @@ def extract_mid_session(
 
 def extract_and_save(
     messages: list[dict],
-    lt_memory: "LongTermMemory",
+    lt_memory: LongTermMemory,
     model: str = MODEL_FALLBACK,
 ) -> list[dict]:
     """

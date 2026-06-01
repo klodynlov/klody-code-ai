@@ -25,7 +25,9 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, ClassVar
+
+from agent.dbc import require
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,7 @@ class Candidate:
     idx: int  # 0-indexé
     temperature: float
     content: str
-    tool_calls: Optional[list[dict]]
+    tool_calls: list[dict] | None
     latency_s: float = 0.0
 
     def summary(self) -> str:
@@ -95,9 +97,10 @@ class BestOfN:
     # pousse Qwen3-Coder à produire systématiquement des plans textuels sans
     # tool_call. T=0.5/0.8/1.0 maximise les chances qu'au moins UN candidat
     # émette un tool_call, ce qui déclenche l'override actionnable dans rerank().
-    _TEMPERATURES = [0.5, 0.8, 1.0]
+    _TEMPERATURES: ClassVar[list[float]] = [0.5, 0.8, 1.0]
 
-    def __init__(self, llm_client, n: int = 3, temperatures: Optional[list[float]] = None):
+    def __init__(self, llm_client: Any, n: int = 3, temperatures: list[float] | None = None):
+        require(n >= 1, f"Best-of-N exige au moins 1 candidat (reçu n={n})")
         self.llm = llm_client
         self.n = n
         self.temperatures = temperatures or self._TEMPERATURES[:n]
@@ -105,7 +108,7 @@ class BestOfN:
         while len(self.temperatures) < n:
             self.temperatures.append(0.7)
 
-    def generate_candidates(self, messages: list[dict], tools: Optional[list[dict]] = None) -> list[Candidate]:
+    def generate_candidates(self, messages: list[dict], tools: list[dict] | None = None) -> list[Candidate]:
         """Lance N appels LLM silencieux, retourne les candidats."""
         import time
         cands: list[Candidate] = []
@@ -208,7 +211,7 @@ class BestOfN:
 
         return 0, "fallback: unable to parse rerank response"
 
-    def best(self, messages: list[dict], tools: Optional[list[dict]], user_prompt: str) -> tuple[Candidate, list[Candidate], str]:
+    def best(self, messages: list[dict], tools: list[dict] | None, user_prompt: str) -> tuple[Candidate, list[Candidate], str]:
         """Pipeline complet : generate → rerank → retourne le gagnant.
 
         Returns:

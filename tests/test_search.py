@@ -1,10 +1,8 @@
 """Tests pour tools/search.py — Search.search_in_files."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 import subprocess
 
+import pytest
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -123,7 +121,6 @@ class TestTimeout:
     def test_timeout_retourne_message_erreur(self, searcher, monkeypatch):
         """subprocess.TimeoutExpired doit renvoyer un message lisible."""
         import tools.search as sm
-        original_run = sm.subprocess.run
 
         def mock_run(*args, **kwargs):
             raise subprocess.TimeoutExpired(cmd=args[0], timeout=15)

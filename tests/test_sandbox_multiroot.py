@@ -6,9 +6,9 @@ Aucune exécution réelle de venv : on teste la résolution (_resolve_sandbox_ta
 _sandbox_for, dispatch run_in_sandbox).
 """
 
-import pytest
 from pathlib import Path
 
+import pytest
 from agent.orchestrator import Orchestrator
 from tools.file_manager import FileManager
 

@@ -1,9 +1,9 @@
 """Tests pour tools/skills.py — save_skill, load_skills, format_skills_for_prompt."""
 
 import json
-import pytest
 from pathlib import Path
 
+import pytest
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ class TestLoadSkills:
         assert result == []
 
     def test_charge_skills_dict(self, tmp_path):
-        from tools.skills import save_skill, load_skills
+        from tools.skills import load_skills, save_skill
         save_skill("A", "desc A", "contenu A")
         save_skill("B", "desc B", "contenu B")
         result = load_skills()
@@ -107,7 +107,7 @@ class TestLoadSkills:
         assert result == []
 
     def test_champs_requis_presents(self, tmp_path):
-        from tools.skills import save_skill, load_skills
+        from tools.skills import load_skills, save_skill
         save_skill("Test", "desc", "contenu")
         skills = load_skills()
         assert len(skills) == 1
@@ -116,7 +116,7 @@ class TestLoadSkills:
             assert field in s
 
     def test_ordre_alphabetique(self, tmp_path):
-        from tools.skills import save_skill, load_skills
+        from tools.skills import load_skills, save_skill
         save_skill("Zebra", "d", "c")
         save_skill("Alpha", "d", "c")
         save_skill("Milieu", "d", "c")
@@ -125,7 +125,7 @@ class TestLoadSkills:
 
     def test_melange_dict_et_liste(self, tmp_path):
         """Doit charger seulement les dicts, ignorer les listes."""
-        from tools.skills import save_skill, load_skills
+        from tools.skills import load_skills, save_skill
         save_skill("User skill", "d", "c")
         (tmp_path / "python.json").write_text(json.dumps([{"title": "t", "content": "c", "tags": []}]))
         result = load_skills()

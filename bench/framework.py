@@ -5,14 +5,14 @@ import dataclasses
 import importlib
 import pkgutil
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import ClassVar, Iterable
+from typing import ClassVar
+
+_REGISTRY: dict[str, type[Task]] = {}
 
 
-_REGISTRY: dict[str, type["Task"]] = {}
-
-
-def register(cls: type["Task"]) -> type["Task"]:
+def register(cls: type[Task]) -> type[Task]:
     """Décorateur d'auto-enregistrement des tâches."""
     if not cls.id:
         raise ValueError(f"Task {cls.__name__} sans id")

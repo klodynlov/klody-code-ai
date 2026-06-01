@@ -20,10 +20,18 @@ tree-sitter-typescript>=0.23.0
 # fastmcp + pytest-asyncio pour les tests d'intégration MCP
 pytest-asyncio>=0.23.0
 
+# Serveur MCP Web (klody_mcp/web_server.py — fetch_url + web_search)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
 # Qualité & sécurité (Vague 1 — durcissement CI)
 pytest-cov>=5.0.0
 bandit>=1.7.9
 pip-audit>=2.7.3
+
+# Qualité (lint + typage — job CI `quality`)
+ruff>=0.6
+mypy>=1.11
 
 # Monitoring (Vague 4 — observabilité)
 prometheus-client>=0.21.0

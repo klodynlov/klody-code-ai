@@ -6,7 +6,6 @@ import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from tools.github_reader import (
     _parse_owner_repo,
     browse_repo,
@@ -15,7 +14,6 @@ from tools.github_reader import (
     list_indexed_repos,
     read_github_file,
 )
-
 
 # ── _parse_owner_repo ──────────────────────────────────────────────────────
 

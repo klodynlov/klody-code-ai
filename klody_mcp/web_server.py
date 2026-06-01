@@ -103,7 +103,7 @@ def _validate_url(url: str) -> str:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise WebFetchError(f"Résolution DNS échouée pour {host!r}: {exc}") from exc
-    ips = {info[4][0] for info in infos}
+    ips = {str(info[4][0]) for info in infos}
     if not ips:
         raise WebFetchError(f"Aucune IP résolue pour {host!r}.")
     for ip in ips:
@@ -195,7 +195,7 @@ def _parse_ddg(html_str: str, limit: int) -> list[dict]:
         results.append(
             {
                 "title": a.get_text(" ", strip=True),
-                "url": _ddg_decode_href(a.get("href", "")),
+                "url": _ddg_decode_href(str(a.get("href", "") or "")),
                 "snippet": snip.get_text(" ", strip=True) if snip else "",
             }
         )
@@ -232,7 +232,7 @@ def fetch_url(url: str, max_chars: int = MAX_CHARS) -> dict:
         return {"error": str(exc)}
     except requests.RequestException as exc:
         return {"error": f"Échec réseau: {exc}"}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("fetch_url: %s", exc, exc_info=True)
         return {"error": str(exc)}
 
@@ -311,7 +311,7 @@ def web_search(query: str, limit: int = SEARCH_RESULTS) -> dict:
         return {"count": len(results), "results": results}
     except requests.RequestException as exc:
         return {"error": f"Échec réseau: {exc}"}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.error("web_search: %s", exc, exc_info=True)
         return {"error": str(exc)}
 

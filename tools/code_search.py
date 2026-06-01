@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import httpx
 
@@ -84,7 +83,7 @@ def _embed_batch(texts: list[str], timeout: float = 60.0) -> list[list[float]]:
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     if na == 0 or nb == 0:
@@ -103,7 +102,7 @@ class EmbeddingIndex:
     def __init__(self, project_root: Path):
         self.root: Path = Path(project_root).resolve()
         self._index: dict[str, FileEmbedding] = {}
-        self._available: Optional[bool] = None  # None = pas encore testé
+        self._available: bool | None = None  # None = pas encore testé
 
     def is_available(self) -> bool:
         """Vérifie qu'Ollama répond et que bge-m3 est dispo (lazy, cache)."""
@@ -167,7 +166,7 @@ class EmbeddingIndex:
             batch = to_update[i:i + batch_size]
             texts = [t[2] for t in batch]
             vecs = _embed_batch(texts)
-            for (rel, mtime, content), vec in zip(batch, vecs):
+            for (rel, mtime, content), vec in zip(batch, vecs, strict=False):
                 if not vec:
                     continue
                 self._index[rel] = FileEmbedding(

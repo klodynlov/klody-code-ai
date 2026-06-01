@@ -56,7 +56,7 @@ def install_patches():
     original = klody_llm.LLMClient.stream_chat
 
     def patched(self, messages, tools=None, *args, **kwargs):
-        content, tool_calls = original(self, messages, tools=tools, *args, **kwargs)
+        content, tool_calls = original(self, messages, *args, tools=tools, **kwargs)
         m = _CURRENT
         if m is not None:
             m.iterations += 1

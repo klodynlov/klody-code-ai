@@ -62,7 +62,7 @@ def analyze_audio(path: str) -> dict:
         rms = float(np.mean(librosa.feature.rms(y=y)[0]))
         
         # BPM
-        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        tempo, _beats = librosa.beat.beat_track(y=y, sr=sr)
         bpm = float(tempo) if isinstance(tempo, (int, float, np.floating)) else float(np.mean(tempo))
         
         # Key estimation (chroma)
@@ -95,9 +95,9 @@ def analyze_audio(path: str) -> dict:
         return {"error": str(e)}
 
 
-def edit_wav(path: str, start: float = None, end: float = None,
-             fade_in: float = None, fade_out: float = None,
-             normalize: bool = False, output: str = None) -> dict:
+def edit_wav(path: str, start: float | None = None, end: float | None = None,
+             fade_in: float | None = None, fade_out: float | None = None,
+             normalize: bool = False, output: str | None = None) -> dict:
     """Édition basique d'un fichier audio.
     
     Args:
@@ -157,7 +157,7 @@ def edit_wav(path: str, start: float = None, end: float = None,
         return {"error": str(e)}
 
 
-def mix_stems(paths: list[str], gains: list[float] = None, output: str = None) -> dict:
+def mix_stems(paths: list[str], gains: list[float] | None = None, output: str | None = None) -> dict:
     """Mixe plusieurs fichiers audio ensemble.
     
     Args:
@@ -232,7 +232,7 @@ def generate_silence(duration: float, sr: int = 44100, output: str = "silence.wa
         return {"error": str(e)}
 
 
-def convert_format(path: str, target_format: str = "wav", output: str = None) -> dict:
+def convert_format(path: str, target_format: str = "wav", output: str | None = None) -> dict:
     """Convertit un fichier audio vers un format cible.
     
     Utilise ffmpeg en fallback.

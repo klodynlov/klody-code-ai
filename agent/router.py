@@ -12,12 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, asdict
-from typing import Literal, Optional
+from dataclasses import asdict, dataclass
+from typing import Literal
 
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from openai import OpenAI
-
-from config import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,7 @@ Exemples :
 class Router:
     """Router LLM léger qui classifie une demande coding."""
 
-    def __init__(self, model: Optional[str] = None):
+    def __init__(self, model: str | None = None):
         self.model = model or LLM_MODEL
         self.client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
@@ -165,8 +164,8 @@ class Router:
 
         strategy = _decide_strategy(difficulty, task_type)
         return RoutingDecision(
-            difficulty=difficulty,  # type: ignore[arg-type]
-            task_type=task_type,    # type: ignore[arg-type]
+            difficulty=difficulty,
+            task_type=task_type,
             reasoning=reasoning,
             raw_response=raw,
             **strategy,

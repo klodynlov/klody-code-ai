@@ -9,14 +9,12 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-
 from tools.code_search import (
     EmbeddingIndex,
     SearchHit,
     _cosine,
     format_hits,
 )
-
 
 # ── Cosine ─────────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,9 @@
 import difflib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
+from agent.dbc import ensure
 from config import (
     MAX_FILE_SIZE,
     PROJECT_ROOT,
@@ -43,10 +45,7 @@ class FileManager:
             raise SandboxViolation("Chemin vide non autorisé")
 
         p = Path(path).expanduser()
-        if p.is_absolute():
-            resolved = p.resolve()
-        else:
-            resolved = (self.root / p).resolve()
+        resolved = p.resolve() if p.is_absolute() else (self.root / p).resolve()
 
         if match_allowed_root(resolved, self.allowed_roots) is None:
             raise SandboxViolation(
@@ -110,6 +109,8 @@ class FileManager:
             old_content = resolved.read_text(encoding="utf-8", errors="replace")
 
         resolved.write_text(content, encoding="utf-8")
+        # Postcondition : après une écriture réussie, le fichier existe bel et bien.
+        ensure(resolved.exists(), f"le fichier doit exister après write_file: {path}")
 
         action = "modifié" if existed else "créé"
         logger.info("Écriture (%s): %s (%d caractères)", action, path, len(content))
@@ -147,7 +148,7 @@ class FileManager:
         }
         MAX_ENTRIES = 150
 
-        def _iter(base: Path, recurse: bool):
+        def _iter(base: Path, recurse: bool) -> Iterator[Path]:
             for entry in sorted(base.iterdir()):
                 if entry.name in _SKIP_NAMES:
                     continue
@@ -155,7 +156,7 @@ class FileManager:
                 if recurse and entry.is_dir():
                     yield from _iter(entry, recurse)
 
-        lines = []
+        lines: list[str] = []
         truncated = 0
         for entry in _iter(resolved, recursive):
             if len(lines) >= MAX_ENTRIES:

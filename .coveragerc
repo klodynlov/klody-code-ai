@@ -8,20 +8,14 @@ omit =
     */lora/*
     */bench/*
     */imports/*
-    # api/server.py reste exclu : la couverture du chemin WS chat
-    # (orchestrator wrappé + streaming événementiel) demanderait des
-    # mocks LLM lourds non encore en place. Routes REST + WS handshake
-    # déjà couvertes par tests/integration/{test_websocket,test_api_routes}.py.
-    # À réintégrer quand un FakeLLMClient compatible OpenAI streaming
-    # sera branché à _build_streaming_orchestrator.
-    api/server.py
+    # api/server.py est désormais DANS le scope : le chemin WS chat est couvert
+    # par tests/integration/test_websocket_chat.py (faux client OpenAI streaming
+    # branché à _build_streaming_orchestrator) en plus des routes REST.
 
 [report]
-# Gate à 70% : valeur réaliste avec orchestrator + profiler réintégrés au
-# scope (mais api/server.py encore exclu — voir omit ci-dessus). Cible
-# d'évolution : 75% une fois que le chemin WS chat sera testable via un
-# FakeLLMClient compatible OpenAI streaming.
-fail_under = 70
+# Gate à 75% : atteint après réintégration d'api/server.py au scope (chemin WS
+# chat couvert par test_websocket_chat.py). Total mesuré ~75.5%.
+fail_under = 75
 precision = 1
 show_missing = True
 skip_covered = False

@@ -17,14 +17,14 @@ rebuild, < 1s pour un repo de quelques centaines de fichiers).
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import Any
 
 try:
-    import tree_sitter
-    import tree_sitter_python
     import tree_sitter_javascript
+    import tree_sitter_python
     import tree_sitter_typescript
     from tree_sitter import Language, Parser
     _AVAILABLE = True
@@ -109,7 +109,7 @@ def _extract_python(src: bytes, rel_path: str) -> tuple[list[Symbol], list[Refer
     syms: list[Symbol] = []
     refs: list[Reference] = []
 
-    def walk(node, parent_class: str = "") -> None:
+    def walk(node: Any, parent_class: str = "") -> None:
         # Définitions
         if node.type == "function_definition":
             name_node = node.child_by_field_name("name")
@@ -171,7 +171,7 @@ def _extract_javascript_like(src: bytes, rel_path: str, lang_key: str) -> tuple[
     syms: list[Symbol] = []
     refs: list[Reference] = []
 
-    def walk(node, parent_class: str = "") -> None:
+    def walk(node: Any, parent_class: str = "") -> None:
         if node.type in ("function_declaration", "method_definition", "arrow_function"):
             name_node = node.child_by_field_name("name")
             if name_node:

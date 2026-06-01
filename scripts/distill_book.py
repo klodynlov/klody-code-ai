@@ -26,7 +26,6 @@ import re
 import sys
 import unicodedata
 from pathlib import Path
-from typing import Any
 
 import httpx
 import jsonschema

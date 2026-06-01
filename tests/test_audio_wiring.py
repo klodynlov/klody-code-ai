@@ -5,20 +5,19 @@ le check librosa, donc on peut tester l'intégration sandbox même sans la lib.
 """
 
 import json
-import pytest
 
+import pytest
 from tools.audio import (
     AudioSandboxViolation,
     _validated_path,
     analyze_audio,
-    edit_wav,
-    mix_stems,
-    generate_silence,
     convert_format,
+    edit_wav,
+    generate_silence,
     get_waveform_data,
+    mix_stems,
 )
 from tools.registry import get_tool_names
-
 
 AUDIO_TOOL_NAMES = (
     "analyze_audio",
@@ -92,7 +91,7 @@ class TestValidatedPath:
         # On élargit temporairement les racines pour inclure tmp_path
         original = a._AUDIO_ROOTS
         try:
-            a._AUDIO_ROOTS = original + [tmp_path]
+            a._AUDIO_ROOTS = [*original, tmp_path]
             p = a._validated_path(str(tmp_path / "futur.wav"), must_exist=False)
             assert p == str(tmp_path / "futur.wav")
         finally:
@@ -130,3 +129,13 @@ class TestDispatcher:
     def test_outil_audio_inconnu_retourne_fallback(self, orch):
         out = orch._execute_tool("audio_inexistant", {})
         assert "Outil inconnu" in out
+
+    def test_table_dispatch_couvre_exactement_le_registry(self, orch):
+        """Garde-fou du refactor table de dispatch : chaque outil déclaré au
+        registry a un handler, et aucun handler n'est orphelin."""
+        from tools.registry import get_tool_names
+
+        registry = set(get_tool_names())
+        handlers = set(orch._dispatch.keys())
+        assert registry - handlers == set(), f"outils sans handler: {registry - handlers}"
+        assert handlers - registry == set(), f"handlers orphelins: {handlers - registry}"

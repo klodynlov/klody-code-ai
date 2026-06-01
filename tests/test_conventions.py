@@ -4,21 +4,19 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from agent.conventions import (
     Convention,
     ConventionDetector,
     ConventionReport,
     _collect_stats,
-    _detect_test_framework,
     _detect_async_style,
-    _detect_type_hints,
-    _detect_logging_style,
-    _detect_frameworks,
-    _detect_package_manager,
     _detect_ci,
+    _detect_frameworks,
+    _detect_logging_style,
+    _detect_package_manager,
+    _detect_test_framework,
+    _detect_type_hints,
 )
-
 
 # ── Mini repos en fixture ─────────────────────────────────────────────────────
 

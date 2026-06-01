@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from tools.project_creator import (
     _find_pycharm,
     clone_github_repo,
@@ -14,7 +13,6 @@ from tools.project_creator import (
     list_templates,
     open_in_pycharm,
 )
-
 
 # ── _find_pycharm ──────────────────────────────────────────────────────────
 

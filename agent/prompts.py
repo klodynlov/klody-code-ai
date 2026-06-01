@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ def load_prompt_file(filename: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def compose_system_prompt(task_type: Optional[str] = None) -> str:
+def compose_system_prompt(task_type: str | None = None) -> str:
     """Compose le system prompt selon le task_type.
 
     Args:

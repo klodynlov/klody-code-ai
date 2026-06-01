@@ -9,7 +9,7 @@ import pytest
 
 # Importer la fonction directement (le script n'est pas un module standard)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "lora"))
-from collect_sessions import _extract_pairs  # noqa: E402
+from collect_sessions import _extract_pairs
 
 
 class TestExtractPairs:

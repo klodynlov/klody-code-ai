@@ -1,14 +1,72 @@
+import contextlib
 import json
 import logging
 import re
 from pathlib import Path
 
+from config import (
+    BEST_OF_N_COUNT,
+    BEST_OF_N_ENABLED,
+    BEST_OF_N_FORCE,
+    MAX_ITERATIONS,
+    PROJECT_ROOT,
+    ROUTER_ENABLED,
+    SANDBOX_AUTO_EXEC,
+    SANDBOX_TIMEOUT,
+    match_allowed_root,
+)
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+from tools.file_manager import FileManager, SandboxViolation
+from tools.github_reader import (
+    browse_repo as gh_browse_repo,
+    extract_best_practices as gh_extract_practices,
+    index_github_repo as gh_index_repo,
+    list_indexed_repos as gh_list_indexed,
+    read_github_file as gh_read_file,
+)
+from tools.llm_import import import_llm_export, list_imports
+from tools.mcp_client import (
+    get_skills as mcp_get_skills,
+    learn_from_books as mcp_learn,
+    search_books as mcp_search_books,
+)
+from tools.preview import (
+    list_previews as pv_list_previews,
+    preview_code as pv_preview_code,
+    preview_file as pv_preview_file,
+    stop_preview_server as pv_stop_server,
+)
+from tools.project_creator import (
+    clone_github_repo as pc_clone,
+    create_project as pc_create,
+    open_in_pycharm as pc_open_pycharm,
+)
+from tools.registry import get_tools
+from tools.search import Search
+from tools.skills import (
+    delete_skill,
+    format_skills_for_prompt,
+    list_skills,
+    load_skills,
+    save_skill,
+    select_skills,
+)
+from tools.terminal import CommandBlocked, Terminal
+
+from agent.llm import LLMClient
+from agent.long_term_memory import get_long_term_memory
+from agent.memory import ConversationMemory
+from agent.memory_extractor import extract_mid_session
+from agent.profiler import get_profiler
+from agent.prompts import compose_system_prompt
+
+logger = logging.getLogger(__name__)
+console = Console()
 
 
 def _has_markdown_safe(text: str) -> bool:
@@ -16,45 +74,6 @@ def _has_markdown_safe(text: str) -> bool:
     markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
     return any(m in text for m in markers)
 
-from agent.llm import LLMClient
-from agent.memory import ConversationMemory
-from agent.long_term_memory import get_long_term_memory
-from agent.prompts import compose_system_prompt
-from tools.file_manager import FileManager, SandboxViolation
-from tools.registry import get_tools
-from tools.search import Search
-from tools.skills import save_skill, load_skills, list_skills, delete_skill, format_skills_for_prompt, select_skills
-from tools.llm_import import import_llm_export, list_imports
-from tools.mcp_client import search_books as mcp_search_books, get_skills as mcp_get_skills, learn_from_books as mcp_learn
-from tools.github_reader import (
-    browse_repo as gh_browse_repo,
-    read_github_file as gh_read_file,
-    list_indexed_repos as gh_list_indexed,
-    index_github_repo as gh_index_repo,
-    extract_best_practices as gh_extract_practices,
-)
-from tools.project_creator import (
-    clone_github_repo as pc_clone,
-    create_project as pc_create,
-    open_in_pycharm as pc_open_pycharm,
-)
-from tools.preview import (
-    preview_code as pv_preview_code,
-    preview_file as pv_preview_file,
-    list_previews as pv_list_previews,
-    stop_preview_server as pv_stop_server,
-)
-from tools.terminal import CommandBlocked, Terminal
-from agent.profiler import get_profiler
-from agent.memory_extractor import extract_mid_session
-from config import (
-    MAX_ITERATIONS, PROJECT_ROOT, SANDBOX_AUTO_EXEC, SANDBOX_TIMEOUT,
-    ROUTER_ENABLED, BEST_OF_N_ENABLED, BEST_OF_N_COUNT, BEST_OF_N_FORCE,
-    match_allowed_root,
-)
-
-logger = logging.getLogger(__name__)
-console = Console()
 
 # Extension → lexer Pygments
 _EXT_LEXER: dict[str, str] = {
@@ -198,9 +217,7 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
         return True
     if intent_count >= 2:
         return True
-    if has_enumeration and intent_count >= 1:
-        return True
-    return False
+    return bool(has_enumeration and intent_count >= 1)
 
 
 # Messages courts qui poursuivent la tâche en cours plutôt que d'en lancer une
@@ -452,10 +469,8 @@ class Orchestrator:
         if self._on_skills_selected:
             howto = [s.get("name", s.get("slug", "")) for s in skills
                      if not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))]
-            try:
+            with contextlib.suppress(Exception):
                 self._on_skills_selected(howto)
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #
@@ -637,144 +652,127 @@ class Orchestrator:
             body = body[:300] + "\n[...]\n" + body[-280:]
         console.print(Panel(body, title=f"[{style}]{title}[/{style}]", border_style=style))
 
+    # ------------------------------------------------------------------ #
+    # Dispatch des outils (table nom → handler, vs ancienne chaîne de if) #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def _dispatch(self) -> dict:
+        """Table {nom_outil: handler(args) -> str}, construite paresseusement.
+
+        Les handlers capturent `self` mais ne déréférencent ses attributs (
+        file_manager, terminal…) qu'à l'appel — l'instance peut donc être
+        partiellement initialisée (tests de routage)."""
+        table = self.__dict__.get("_dispatch_table")
+        if table is None:
+            table = self._build_dispatch()
+            self.__dict__["_dispatch_table"] = table
+        return table
+
+    def _build_dispatch(self) -> dict:
+        d = {
+            # Fichiers
+            "read_file": lambda a: self.file_manager.read_file(a["path"]),
+            "write_file": lambda a: self.file_manager.write_file(a["path"], a["content"]),
+            "list_files": lambda a: self.file_manager.list_files(
+                a.get("path", "."), a.get("recursive", False)),
+            # Terminal
+            "execute_command": lambda a: self.terminal.execute_command(
+                a["command"], a.get("reason", "")),
+            # Recherche texte
+            "search_in_files": lambda a: self.search.search_in_files(
+                a["pattern"], a.get("path", "."), a.get("file_pattern", ""),
+                a.get("case_sensitive", True)),
+            # Sandbox + code-aware (logique multi-étapes → méthodes dédiées)
+            "run_in_sandbox": self._tool_run_in_sandbox,
+            "find_symbol": self._tool_find_symbol,
+            "find_references": self._tool_find_references,
+            "find_relevant_files": self._tool_find_relevant_files,
+            # Skills
+            "list_skills": lambda a: list_skills(),
+            "delete_skill": lambda a: delete_skill(a["slug"]),
+            "save_skill": lambda a: save_skill(a["name"], a["description"], a["content"]),
+            # Imports LLM
+            "import_llm_export": lambda a: import_llm_export(a["path"]),
+            "list_imports": lambda a: list_imports(),
+            # LibraryBrain (MCP interne)
+            "search_books": lambda a: mcp_search_books(a["query"], a.get("limit", 3)),
+            "get_skills": lambda a: mcp_get_skills(a["domain"]),
+            "learn_from_books": lambda a: mcp_learn(a["topic"], a.get("skill_name", "")),
+            # Mémoire long-terme
+            "remember_fact": lambda a: self.lt_memory.remember(
+                a["key"], a["content"], a.get("category", "context")),
+            "forget_fact": lambda a: self.lt_memory.forget(a["key"]),
+            # GitHub
+            "browse_repo": lambda a: gh_browse_repo(
+                a["repo"], a.get("path", ""), a.get("recursive", False)),
+            "read_github_file": lambda a: gh_read_file(a["repo"], a["path"]),
+            "list_indexed_repos": lambda a: gh_list_indexed(),
+            "index_github_repo": lambda a: gh_index_repo(a["repo"]),
+            "extract_best_practices": lambda a: gh_extract_practices(a["repo"]),
+            # Projets
+            "clone_github_repo": lambda a: pc_clone(a["repo"], a.get("target_dir", "")),
+            "create_project": lambda a: pc_create(
+                a["name"], a.get("template", "python"), a.get("description", ""),
+                a.get("inspired_by", "")),
+            "open_in_pycharm": lambda a: pc_open_pycharm(a["project_path"]),
+            # Preview web
+            "preview_code": lambda a: pv_preview_code(
+                a["html"], a.get("css", ""), a.get("js", ""), a.get("title", "Preview"),
+                a.get("scripts"), a.get("styles")),
+            "preview_file": lambda a: pv_preview_file(a["path"]),
+            "list_previews": lambda a: pv_list_previews(),
+            "stop_preview_server": lambda a: pv_stop_server(),
+        }
+        # Audio : 6 outils, même handler paramétré par le nom (n=_name fige la
+        # valeur de boucle dans le défaut → pas de closure tardive).
+        for _name in (
+            "analyze_audio", "edit_wav", "mix_stems",
+            "generate_silence", "convert_format", "get_waveform_data",
+        ):
+            d[_name] = lambda a, n=_name: self._tool_audio(n, a)
+        return d
+
+    def _tool_run_in_sandbox(self, a: dict) -> str:
+        sandbox = self.sandbox
+        workdir = a.get("workdir", "") or ""
+        if workdir.strip():
+            p = Path(workdir).expanduser()
+            wd = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
+            if match_allowed_root(wd, self.file_manager.allowed_roots) is None:
+                return f"ERREUR SÉCURITÉ: workdir hors des racines autorisées: {workdir}"
+            sandbox = self._sandbox_for(wd)
+        res = sandbox.run(a["command"], timeout=int(a.get("timeout", 30)))
+        return res.format_for_llm()
+
+    def _tool_find_symbol(self, a: dict) -> str:
+        from tools.code_index import format_symbols
+        return format_symbols(self.code_index.find_symbol(a["name"]))
+
+    def _tool_find_references(self, a: dict) -> str:
+        from tools.code_index import format_references
+        return format_references(self.code_index.find_references(a["name"]))
+
+    def _tool_find_relevant_files(self, a: dict) -> str:
+        from tools.code_search import format_hits
+        hits = self.embed_index.search(a["query"], k=int(a.get("k", 5)))
+        if not hits and not self.embed_index.is_available():
+            return ("Recherche sémantique indisponible : Ollama ou "
+                    "bge-m3 introuvable. Utilise find_symbol ou search_in_files.")
+        return format_hits(hits)
+
+    def _tool_audio(self, name: str, a: dict) -> str:
+        from tools import audio as _audio
+        fn = getattr(_audio, name)
+        return json.dumps(fn(**a), ensure_ascii=False, indent=2)
+
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
+        handler = self._dispatch.get(tool_name)
         try:
-            if tool_name == "read_file":
-                return self.file_manager.read_file(tool_args["path"])
-            if tool_name == "write_file":
-                return self.file_manager.write_file(tool_args["path"], tool_args["content"])
-            if tool_name == "list_files":
-                return self.file_manager.list_files(
-                    tool_args.get("path", "."), tool_args.get("recursive", False)
-                )
-            if tool_name == "execute_command":
-                return self.terminal.execute_command(
-                    tool_args["command"], tool_args.get("reason", "")
-                )
-            if tool_name == "search_in_files":
-                return self.search.search_in_files(
-                    tool_args["pattern"],
-                    tool_args.get("path", "."),
-                    tool_args.get("file_pattern", ""),
-                    tool_args.get("case_sensitive", True),
-                )
-            if tool_name == "run_in_sandbox":
-                sandbox = self.sandbox
-                workdir = tool_args.get("workdir", "") or ""
-                if workdir.strip():
-                    p = Path(workdir).expanduser()
-                    wd = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
-                    if match_allowed_root(wd, self.file_manager.allowed_roots) is None:
-                        return f"ERREUR SÉCURITÉ: workdir hors des racines autorisées: {workdir}"
-                    sandbox = self._sandbox_for(wd)
-                res = sandbox.run(
-                    tool_args["command"],
-                    timeout=int(tool_args.get("timeout", 30)),
-                )
-                return res.format_for_llm()
-            if tool_name == "find_symbol":
-                from tools.code_index import format_symbols
-                syms = self.code_index.find_symbol(tool_args["name"])
-                return format_symbols(syms)
-            if tool_name == "find_references":
-                from tools.code_index import format_references
-                refs = self.code_index.find_references(tool_args["name"])
-                return format_references(refs)
-            if tool_name == "find_relevant_files":
-                from tools.code_search import format_hits
-                hits = self.embed_index.search(
-                    tool_args["query"],
-                    k=int(tool_args.get("k", 5)),
-                )
-                if not hits and not self.embed_index.is_available():
-                    return ("Recherche sémantique indisponible : Ollama ou "
-                            "bge-m3 introuvable. Utilise find_symbol ou search_in_files.")
-                return format_hits(hits)
-            if tool_name == "list_skills":
-                return list_skills()
-            if tool_name == "delete_skill":
-                return delete_skill(tool_args["slug"])
-            if tool_name == "save_skill":
-                return save_skill(
-                    tool_args["name"],
-                    tool_args["description"],
-                    tool_args["content"],
-                )
-            if tool_name == "import_llm_export":
-                return import_llm_export(tool_args["path"])
-            if tool_name == "list_imports":
-                return list_imports()
-            if tool_name == "search_books":
-                return mcp_search_books(
-                    tool_args["query"], tool_args.get("limit", 3)
-                )
-            if tool_name == "get_skills":
-                return mcp_get_skills(tool_args["domain"])
-            if tool_name == "learn_from_books":
-                return mcp_learn(
-                    tool_args["topic"],
-                    tool_args.get("skill_name", ""),
-                )
-            if tool_name == "remember_fact":
-                return self.lt_memory.remember(
-                    tool_args["key"],
-                    tool_args["content"],
-                    tool_args.get("category", "context"),
-                )
-            if tool_name == "forget_fact":
-                return self.lt_memory.forget(tool_args["key"])
-            if tool_name == "browse_repo":
-                return gh_browse_repo(
-                    tool_args["repo"],
-                    tool_args.get("path", ""),
-                    tool_args.get("recursive", False),
-                )
-            if tool_name == "read_github_file":
-                return gh_read_file(tool_args["repo"], tool_args["path"])
-            if tool_name == "list_indexed_repos":
-                return gh_list_indexed()
-            if tool_name == "index_github_repo":
-                return gh_index_repo(tool_args["repo"])
-            if tool_name == "extract_best_practices":
-                return gh_extract_practices(tool_args["repo"])
-            if tool_name == "clone_github_repo":
-                return pc_clone(
-                    tool_args["repo"], tool_args.get("target_dir", "")
-                )
-            if tool_name == "create_project":
-                return pc_create(
-                    tool_args["name"],
-                    tool_args.get("template", "python"),
-                    tool_args.get("description", ""),
-                    tool_args.get("inspired_by", ""),
-                )
-            if tool_name == "open_in_pycharm":
-                return pc_open_pycharm(tool_args["project_path"])
-            if tool_name == "preview_code":
-                return pv_preview_code(
-                    tool_args["html"],
-                    tool_args.get("css", ""),
-                    tool_args.get("js", ""),
-                    tool_args.get("title", "Preview"),
-                    tool_args.get("scripts"),
-                    tool_args.get("styles"),
-                )
-            if tool_name == "preview_file":
-                return pv_preview_file(tool_args["path"])
-            if tool_name == "list_previews":
-                return pv_list_previews()
-            if tool_name == "stop_preview_server":
-                return pv_stop_server()
-            # ─ Audio (tools/audio.py) ─────────────────────────────────────
-            if tool_name in (
-                "analyze_audio", "edit_wav", "mix_stems",
-                "generate_silence", "convert_format", "get_waveform_data",
-            ):
-                from tools import audio as _audio
-                fn = getattr(_audio, tool_name)
-                return json.dumps(fn(**tool_args), ensure_ascii=False, indent=2)
-            # ─ Outils MCP externes (mcp__<serveur>__<outil>) ──────────────
+            if handler is not None:
+                return handler(tool_args)
+            # Outils MCP externes (mcp__<serveur>__<outil>)
             if getattr(self, "mcp", None) is not None and self.mcp.owns(tool_name):
                 return self.mcp.call(tool_name, tool_args)
             return f"ERREUR: Outil inconnu '{tool_name}'"

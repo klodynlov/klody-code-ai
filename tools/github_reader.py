@@ -6,10 +6,8 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from typing import Optional
 
 import httpx
-
 from config import GITHUB_TOKEN, LIBRARYBRAIN_URL
 
 logger = logging.getLogger(__name__)
@@ -18,7 +16,7 @@ _API = "https://api.github.com"
 _LB_BASE = LIBRARYBRAIN_URL.rsplit("/api/", 1)[0] if "/api/" in LIBRARYBRAIN_URL else ""
 
 
-def _gh_get(url: str, token: str = "", timeout: int = 15) -> Optional[dict | list]:
+def _gh_get(url: str, token: str = "", timeout: int = 15) -> dict | list | None:
     req = urllib.request.Request(url)
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")

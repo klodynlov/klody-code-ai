@@ -45,7 +45,7 @@ def clear_discovery_cache() -> None:
     _DISCOVERY_CACHE.clear()
 
 
-def _run_async(coro) -> Any:
+def _run_async(coro: Any) -> Any:
     """Exécute une coroutine depuis du code synchrone, de façon robuste.
 
     Utilise un thread dédié avec sa propre boucle d'événements : évite le
@@ -57,7 +57,7 @@ def _run_async(coro) -> Any:
     def _runner() -> None:
         try:
             box["result"] = asyncio.run(coro)
-        except BaseException as exc:  # noqa: BLE001 — on re-raise côté appelant
+        except Exception as exc:
             box["error"] = exc
 
     t = threading.Thread(target=_runner, daemon=True)

@@ -27,8 +27,8 @@ def client(monkeypatch: pytest.MonkeyPatch):
         lambda: {"running": False, "books": 0, "url": ""},
     )
 
-    from fastapi.testclient import TestClient
     from api.server import app
+    from fastapi.testclient import TestClient
 
     with TestClient(app) as c:
         yield c

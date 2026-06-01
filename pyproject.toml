@@ -1,0 +1,76 @@
+# Configuration qualité (lint + typage) — source de vérité partagée CLI + CI.
+# Voir le job `quality` dans .github/workflows/ci.yml.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts"]
+
+[tool.ruff.lint]
+# E/F = pyflakes+pycodestyle, I = isort, UP = pyupgrade, B = bugbear,
+# SIM = simplifications, RUF = règles ruff.
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",    # longueur de ligne (gérée au jugé, beaucoup de prompts/strings longs)
+    "RUF001",  # caractères unicode « ambigus » → faux positifs sur le français (’ … — « »)
+    "RUF002",  # idem dans les docstrings
+    "RUF003",  # idem dans les commentaires
+]
+
+[tool.ruff.lint.isort]
+# Regroupe les `import ... as ...` d'un même module en un seul bloc parenthésé
+# (évite 10 lignes `from tools.github_reader import (x as y)` séparées).
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests : on tolère les imports non triés et les asserts/strings libres.
+"tests/**" = ["E402", "F401", "B011"]
+
+[tool.mypy]
+python_version = "3.11"
+# CŒUR TYPÉ — gate stricte en CI. Adoption progressive de mypy : on garde
+# vert un noyau de modules critiques (sécurité, sandbox, mémoire, RAG, routing,
+# LLM, MCP) et on l'élargit fichier par fichier. Les modules encore non typés
+# (orchestrator, api/server, conventions, klody_server, github_reader, preview,
+# skills, llm_import, audio, gmail_server, klody_mcp/server) constituent le
+# backlog de typage — à intégrer ici au fur et à mesure.
+files = [
+    "config.py",
+    "services.py",
+    "agent/dbc.py",
+    "agent/llm.py",
+    "agent/memory.py",
+    "agent/long_term_memory.py",
+    "agent/memory_extractor.py",
+    "agent/error_memory.py",
+    "agent/profiler.py",
+    "agent/prompts.py",
+    "agent/router.py",
+    "agent/best_of_n.py",
+    "tools/file_manager.py",
+    "tools/terminal.py",
+    "tools/sandbox.py",
+    "tools/search.py",
+    "tools/code_search.py",
+    "tools/code_index.py",
+    "tools/mcp_bridge.py",
+    "tools/mcp_client.py",
+    "tools/project_creator.py",
+    "tools/registry.py",
+    "klody_mcp/web_server.py",
+    "api/metrics.py",
+]
+# Adoption incrémentale : on ne reporte que les erreurs des modules listés
+# dans `files`. Les modules suivis par import mais pas encore typés (skills,
+# orchestrator…) sont analysés en silence (pas d'erreur remontée).
+follow_imports = "silent"
+# Beaucoup de libs (mlx, fastmcp, bs4, tree_sitter…) sans stubs → on n'exige
+# pas leurs types, mais on vérifie tout NOTRE code.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+# On vérifie le corps des fonctions typées et on interdit les signatures
+# partiellement typées dans le cœur.
+check_untyped_defs = true
+disallow_incomplete_defs = true

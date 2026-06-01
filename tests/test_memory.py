@@ -2,16 +2,16 @@
 
 import json
 import os
-import pytest
 from pathlib import Path
 
+import pytest
 from agent.memory import ConversationMemory
 
 
 @pytest.fixture
 def mem(tmp_path, monkeypatch):
     """ConversationMemory avec MEMORY_DIR pointant sur tmp_path."""
-    monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+    monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
     m = ConversationMemory(session_id="testmem")
     m.memory_file = tmp_path / "memory_testmem.json"
     return m
@@ -39,7 +39,7 @@ class TestAddMessage:
 
     def test_fenetre_glissante_limite(self, mem, monkeypatch):
         """Fenêtre glissante : ne dépasse pas MAX_MESSAGES messages non-system."""
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 5)
+        monkeypatch.setattr("config.MAX_MESSAGES", 5)
         mem.messages.append({"role": "system", "content": "sys", "timestamp": None})
         for i in range(10):
             mem.add_message("user", f"Message {i}")
@@ -48,11 +48,58 @@ class TestAddMessage:
 
     def test_fenetre_glissante_conserve_system(self, mem, monkeypatch):
         """Le system prompt n'est jamais supprimé par la fenêtre glissante."""
-        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 3)
+        monkeypatch.setattr("config.MAX_MESSAGES", 3)
         mem.messages.insert(0, {"role": "system", "content": "sys", "timestamp": None})
         for i in range(10):
             mem.add_message("user", f"msg {i}")
         assert any(m["role"] == "system" for m in mem.messages)
+
+
+# ------------------------------------------------------------------ #
+# Budget de tokens (en plus du plafond par nombre de messages)         #
+# ------------------------------------------------------------------ #
+
+class TestTokenBudget:
+    def test_gros_messages_declenchent_le_trim_tokens(self, mem, monkeypatch):
+        """Même SOUS le plafond de messages, un contexte volumineux est rogné
+        pour rester sous CONTEXT_WINDOW * ratio (messages < budget → converge)."""
+        import config
+
+        # MAX_MESSAGES large (le trim par nombre ne doit pas intervenir) ;
+        # fenêtre réduite → c'est le budget de tokens qui tranche.
+        monkeypatch.setattr("config.MAX_MESSAGES", 1000)
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 2000)  # budget = 1600 tokens
+        msg = "x" * 1000  # ~255 tokens chacun, < budget
+        for _ in range(20):  # ~5100 tokens au total → doit être rogné
+            mem.add_message("user", msg)
+        budget = int(config.CONTEXT_WINDOW * 0.8)
+        assert mem._total_estimated_tokens() <= budget
+        assert 1 <= mem._count_non_system() < 20  # rognage effectif
+
+    def test_dernier_groupe_toujours_conserve(self, mem, monkeypatch):
+        """Un unique message plus gros que le budget n'est PAS supprimé."""
+        import config
+
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 50)  # budget = 40 tokens
+        mem.add_message("user", "y" * 8000)  # ~2000 tokens, > budget
+        assert mem._count_non_system() == 1
+
+    def test_trim_tokens_preserve_l_invariant(self, mem, monkeypatch):
+        """Le rognage par tokens ne laisse jamais de tool result orphelin."""
+        import config
+
+        monkeypatch.setattr("config.MAX_MESSAGES", 1000)
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 200)
+        big = "z" * 4000
+        for i in range(8):
+            cid = f"c{i}"
+            mem.add_tool_call_message([{
+                "id": cid, "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+            }])
+            mem.add_tool_result(cid, "read_file", big)
+            mem.add_message("user", "suite")  # déclenche _apply_sliding_window
+        assert mem._orphan_tool_results() == []
 
 
 # ------------------------------------------------------------------ #
@@ -139,12 +186,12 @@ class TestSaveLoad:
         assert any(m["content"] == "Message persisté" for m in loaded.messages)
 
     def test_load_latest_retourne_none_si_vide(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         result = ConversationMemory.load_latest()
         assert result is None
 
     def test_load_latest_retourne_plus_recent(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("agent.memory.MEMORY_DIR", tmp_path)
+        monkeypatch.setattr("config.MEMORY_DIR", tmp_path)
         m1 = ConversationMemory(session_id="older")
         m1.memory_file = tmp_path / "memory_older.json"
         m1.add_message("user", "ancien")

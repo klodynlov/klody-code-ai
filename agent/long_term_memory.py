@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from config import MEMORY_DIR

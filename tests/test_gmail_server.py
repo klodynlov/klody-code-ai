@@ -4,7 +4,6 @@ from email.header import Header
 from email.message import EmailMessage
 from unittest.mock import MagicMock
 
-
 # ── _decode_header ───────────────────────────────────────────────────────────
 
 class TestDecodeHeader:
