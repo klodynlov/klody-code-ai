@@ -272,6 +272,67 @@ async def stop_generation():
     return {"ok": True}
 
 
+# ── Config runtime (réglages live, sans redémarrage) ─────────────────────────
+
+# Réglages modifiables à chaud. Clé API → (constante config, type).
+# La mutation porte sur `config` ET `agent.orchestrator` : ce dernier a importé
+# ces noms au chargement et les recopie en attributs d'instance à chaque requête
+# (un nouvel Orchestrator est créé par message), donc l'effet est immédiat dès
+# le message suivant. Non persisté : réinitialisé au redémarrage (source = .env).
+_CONFIG_KEYS: dict[str, tuple[str, type]] = {
+    "router_enabled": ("ROUTER_ENABLED", bool),
+    "best_of_n_enabled": ("BEST_OF_N_ENABLED", bool),
+    "best_of_n_force": ("BEST_OF_N_FORCE", bool),
+    "sandbox_auto_exec": ("SANDBOX_AUTO_EXEC", bool),
+    "best_of_n_count": ("BEST_OF_N_COUNT", int),
+    "sandbox_timeout": ("SANDBOX_TIMEOUT", int),
+    "max_iterations": ("MAX_ITERATIONS", int),
+}
+
+_CONFIG_BOUNDS: dict[str, tuple[int, int]] = {
+    "BEST_OF_N_COUNT": (2, 8),
+    "SANDBOX_TIMEOUT": (1, 120),
+    "MAX_ITERATIONS": (1, 100),
+}
+
+
+def _current_config() -> dict:
+    import config as _cfg
+    return {api: getattr(_cfg, const) for api, (const, _t) in _CONFIG_KEYS.items()}
+
+
+@app.get("/api/config")
+async def get_config():
+    return _current_config()
+
+
+@app.post("/api/config")
+async def set_config(request: Request):
+    import config as _cfg
+    import agent.orchestrator as _orch
+    body = await request.json()
+    updated: dict = {}
+    for api, value in (body or {}).items():
+        if api not in _CONFIG_KEYS:
+            continue
+        const, typ = _CONFIG_KEYS[api]
+        try:
+            if typ is bool:
+                val: Any = value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "on")
+            else:
+                val = int(value)
+                lo, hi = _CONFIG_BOUNDS.get(const, (None, None))
+                if lo is not None:
+                    val = max(lo, min(val, hi))
+        except (ValueError, TypeError):
+            continue
+        setattr(_cfg, const, val)
+        if hasattr(_orch, const):
+            setattr(_orch, const, val)  # propage au module consommateur
+        updated[api] = val
+    return {"ok": True, "updated": updated, "config": _current_config()}
+
+
 # ── WebSocket ────────────────────────────────────────────────────────────────
 
 @app.websocket("/api/ws")
