@@ -63,6 +63,7 @@ cryptography==48.0.0
     #   authlib
     #   joserfc
     #   pyjwt
+    #   secretstorage
 cyclonedx-python-lib==11.7.0
     # via pip-audit
 cyclopts==4.16.1
@@ -119,6 +120,10 @@ jaraco-context==6.1.2
     # via keyring
 jaraco-functools==4.5.0
     # via keyring
+jeepney==0.9.0
+    # via
+    #   keyring
+    #   secretstorage
 jiter==0.15.0
     # via openai
 joserfc==1.6.8
@@ -272,6 +277,8 @@ rpds-py==0.30.0
     #   referencing
 ruff==0.15.15
     # via -r requirements.txt
+secretstorage==3.5.0
+    # via keyring
 sniffio==1.3.1
     # via openai
 sortedcontainers==2.4.0
