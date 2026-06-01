@@ -56,6 +56,53 @@ class TestAddMessage:
 
 
 # ------------------------------------------------------------------ #
+# Budget de tokens (en plus du plafond par nombre de messages)         #
+# ------------------------------------------------------------------ #
+
+class TestTokenBudget:
+    def test_gros_messages_declenchent_le_trim_tokens(self, mem, monkeypatch):
+        """Même SOUS le plafond de messages, un contexte volumineux est rogné
+        pour rester sous CONTEXT_WINDOW * ratio (messages < budget → converge)."""
+        import config
+
+        # MAX_MESSAGES large (le trim par nombre ne doit pas intervenir) ;
+        # fenêtre réduite → c'est le budget de tokens qui tranche.
+        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 1000)
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 2000)  # budget = 1600 tokens
+        msg = "x" * 1000  # ~255 tokens chacun, < budget
+        for _ in range(20):  # ~5100 tokens au total → doit être rogné
+            mem.add_message("user", msg)
+        budget = int(config.CONTEXT_WINDOW * 0.8)
+        assert mem._total_estimated_tokens() <= budget
+        assert 1 <= mem._count_non_system() < 20  # rognage effectif
+
+    def test_dernier_groupe_toujours_conserve(self, mem, monkeypatch):
+        """Un unique message plus gros que le budget n'est PAS supprimé."""
+        import config
+
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 50)  # budget = 40 tokens
+        mem.add_message("user", "y" * 8000)  # ~2000 tokens, > budget
+        assert mem._count_non_system() == 1
+
+    def test_trim_tokens_preserve_l_invariant(self, mem, monkeypatch):
+        """Le rognage par tokens ne laisse jamais de tool result orphelin."""
+        import config
+
+        monkeypatch.setattr("agent.memory.MAX_MESSAGES", 1000)
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 200)
+        big = "z" * 4000
+        for i in range(8):
+            cid = f"c{i}"
+            mem.add_tool_call_message([{
+                "id": cid, "type": "function",
+                "function": {"name": "read_file", "arguments": "{}"},
+            }])
+            mem.add_tool_result(cid, "read_file", big)
+            mem.add_message("user", "suite")  # déclenche _apply_sliding_window
+        assert mem._orphan_tool_results() == []
+
+
+# ------------------------------------------------------------------ #
 # Messages tool calls                                                  #
 # ------------------------------------------------------------------ #
 
