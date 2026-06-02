@@ -29,6 +29,21 @@ LLM_BASE_URL: str = MLX_BASE_URL if BACKEND == "mlx" else OLLAMA_BASE_URL
 LLM_API_KEY: str  = MLX_API_KEY  if BACKEND == "mlx" else OLLAMA_API_KEY
 LLM_MODEL: str    = MLX_MODEL    if BACKEND == "mlx" else MODEL_NAME
 
+# MLX — modèle CODE dédié. Les tâches de code (edit/refactor/bug_fix/feature/
+# self_dev) sont routées dessus : un modèle coder émet de bien meilleurs gros
+# blocs de code qu'un généraliste (cf. orchestrator._route_model). Serveur
+# mlx_lm.server séparé sur son propre port. MLX_CODE_MODEL vide → routage
+# désactivé, tout reste sur LLM_MODEL.
+MLX_CODE_MODEL: str    = os.getenv("MLX_CODE_MODEL", "")
+MLX_CODE_PORT: str     = os.getenv("MLX_CODE_PORT", "8081")
+MLX_CODE_BASE_URL: str = os.getenv("MLX_CODE_BASE_URL", f"http://localhost:{MLX_CODE_PORT}/v1")
+MLX_CODE_API_KEY: str  = os.getenv("MLX_CODE_API_KEY", MLX_API_KEY)
+
+# Modèle code actif (backend mlx uniquement ; vide en ollama ou si non configuré).
+CODE_MODEL: str    = MLX_CODE_MODEL if BACKEND == "mlx" else ""
+CODE_BASE_URL: str = MLX_CODE_BASE_URL
+CODE_API_KEY: str  = MLX_CODE_API_KEY
+
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
 
