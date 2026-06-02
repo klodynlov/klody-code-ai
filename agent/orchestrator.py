@@ -260,6 +260,22 @@ _AUTO_EXTENSION_SIZE = 8
 # généraliste, meilleur en conversation/explication.
 _CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
 
+# Prompt SLIM pour le modèle coder. Qwen3-Coder est un modèle de COMPLÉTION :
+# sous le gros prompt agentique de Klody (~12k tok) il dégénère (sortie « ``` »).
+# Avec ce prompt court, il sort le code complet en markdown ```html, que le
+# text-to-action fallback (_infer_action_from_text) transforme en preview_code.
+_CODER_SLIM_PROMPT = (
+    "Tu es un générateur de code expert. Réponds en français, très concis.\n\n"
+    "Quand on te demande une page web, une visualisation ou une animation : "
+    "génère le code COMPLET et AUTONOME dans UN SEUL bloc ```html (DOCTYPE + "
+    "HTML + <style> + <script> inclus, directement ouvrable au navigateur). "
+    "TOUT le JavaScript doit être écrit — jamais de coquille vide, jamais de "
+    "placeholder « // à compléter ». Si tu utilises une lib externe (Three.js, "
+    "Chart.js, d3…), ajoute son <script src=…CDN…>.\n\n"
+    "Pour du code non-web : réponds avec le code complet dans un bloc "
+    "```<langage>. Le code d'abord, explication minimale."
+)
+
 
 def _format_file_tree(listing: str, root: str) -> Tree:
     """Convertit la sortie texte de list_files en Rich Tree."""
@@ -408,12 +424,14 @@ class Orchestrator:
         client est sur un modèle qui n'est NI le généraliste NI le code — i.e.
         un choix manuel dans le sélecteur de l'UI, qu'on ne doit pas écraser.
         """
+        self._code_model_active = False
         if not CODE_MODEL:
             return
         if self.llm.model not in (LLM_MODEL, CODE_MODEL):
             return
         if task_type in _CODE_TASK_TYPES:
             self.llm.switch_to(CODE_MODEL, CODE_BASE_URL, CODE_API_KEY)
+            self._code_model_active = True  # → _inject_system_prompt utilise le prompt slim
         else:
             self.llm.switch_to(LLM_MODEL, LLM_BASE_URL, LLM_API_KEY)
 
@@ -466,32 +484,41 @@ class Orchestrator:
         `query` (le prompt utilisateur courant) sert à n'injecter que les skills
         pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills.
         """
-        base_prompt = compose_system_prompt(task_type)
-        skills = select_skills(load_skills(), query)
-        self._injected_skill_slugs = [s.get("slug", "") for s in skills]
-        skills_section = format_skills_for_prompt(skills) if skills else ""
-        lt_section = self.lt_memory.format_for_prompt()
-        profile_section = self.profiler.get_profile_for_prompt()
-        # Conventions auto-détectées + erreurs récurrentes (Roadmap v2 #8)
-        conv_section = ""
-        err_section = ""
-        try:
-            conv_section = self.conventions.detect().format_for_prompt()
-        except Exception as exc:
-            logger.debug("Convention detection skipped: %s", exc)
-        try:
-            err_section = self.error_memory.format_for_prompt()
-        except Exception as exc:
-            logger.debug("Error memory format skipped: %s", exc)
-        content = (
-            f"{base_prompt}\n\n"
-            f"Dossier projet actif: {PROJECT_ROOT}"
-            f"{skills_section}"
-            f"{lt_section}"
-            f"{profile_section}"
-            f"{conv_section}"
-            f"{err_section}"
-        )
+        if getattr(self, "_code_model_active", False):
+            # Modèle coder : prompt SLIM. Sous le gros prompt agentique il
+            # dégénère ; en complétion il sort du code markdown ```html complet,
+            # capté par le text-to-action fallback → preview_code. Pas de skills/
+            # mémoire/conventions (inutiles et déstabilisants pour un coder).
+            content = _CODER_SLIM_PROMPT
+            skills: list[dict] = []
+            self._injected_skill_slugs = []
+        else:
+            base_prompt = compose_system_prompt(task_type)
+            skills = select_skills(load_skills(), query)
+            self._injected_skill_slugs = [s.get("slug", "") for s in skills]
+            skills_section = format_skills_for_prompt(skills) if skills else ""
+            lt_section = self.lt_memory.format_for_prompt()
+            profile_section = self.profiler.get_profile_for_prompt()
+            # Conventions auto-détectées + erreurs récurrentes (Roadmap v2 #8)
+            conv_section = ""
+            err_section = ""
+            try:
+                conv_section = self.conventions.detect().format_for_prompt()
+            except Exception as exc:
+                logger.debug("Convention detection skipped: %s", exc)
+            try:
+                err_section = self.error_memory.format_for_prompt()
+            except Exception as exc:
+                logger.debug("Error memory format skipped: %s", exc)
+            content = (
+                f"{base_prompt}\n\n"
+                f"Dossier projet actif: {PROJECT_ROOT}"
+                f"{skills_section}"
+                f"{lt_section}"
+                f"{profile_section}"
+                f"{conv_section}"
+                f"{err_section}"
+            )
 
         # Si un system message existe déjà → on le remplace (hot-swap).
         # Sinon → on l'insère en tête.

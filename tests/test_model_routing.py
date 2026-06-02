@@ -64,6 +64,7 @@ class TestRouteModel:
         o = _fake_orch("general-35b")
         Orchestrator._route_model(o, "feature")
         o.llm.switch_to.assert_called_once_with("coder-30b", "http://localhost:8081/v1", "mlx")
+        assert o._code_model_active is True  # → prompt slim
 
     def test_bug_fix_et_refactor_aussi(self, monkeypatch):
         _set_models(monkeypatch)
@@ -77,6 +78,7 @@ class TestRouteModel:
         o = _fake_orch("coder-30b")  # on était sur le coder
         Orchestrator._route_model(o, "explain")
         o.llm.switch_to.assert_called_once_with("general-35b", "http://localhost:8080/v1", "mlx")
+        assert o._code_model_active is False  # → prompt agentique normal
 
     def test_no_op_si_pas_de_modele_code(self, monkeypatch):
         _set_models(monkeypatch, code="")
@@ -90,3 +92,23 @@ class TestRouteModel:
         o = _fake_orch("un-modele-choisi-a-la-main")
         Orchestrator._route_model(o, "feature")
         o.llm.switch_to.assert_not_called()
+        assert o._code_model_active is False
+
+
+# ── Prompt slim injecté quand le coder est actif ──────────────────────────────
+
+
+class TestSlimPromptCoder:
+    def test_coder_actif_injecte_un_prompt_slim(self):
+        o = MagicMock()
+        o._code_model_active = True
+        o.memory.messages = []
+        o._on_skills_selected = None
+        Orchestrator._inject_system_prompt(o, task_type="feature", query="une horloge")
+        sysmsg = o.memory.messages[0]
+        assert sysmsg["role"] == "system"
+        assert "générateur de code" in sysmsg["content"]
+        assert "```html" in sysmsg["content"]
+        # Slim = bien plus court que le prompt agentique géant (~12k tokens).
+        assert len(sysmsg["content"]) < 2000
+        assert o._injected_skill_slugs == []
