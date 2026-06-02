@@ -2,6 +2,7 @@ import contextlib
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from config import (
     LLM_BASE_URL,
     LLM_MODEL,
     MAX_ITERATIONS,
+    PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
     ROUTER_ENABLED,
     SANDBOX_AUTO_EXEC,
@@ -65,6 +67,7 @@ from tools.skills import (
 )
 from tools.terminal import CommandBlocked, Terminal
 
+from agent import preview_errors
 from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -178,6 +181,36 @@ def _infer_action_from_text(content: str, user_input: str) -> dict | None:
         }
 
     return None
+
+
+# ── Boucle de feedback preview : erreurs JS runtime → correction ──────────────
+_MAX_PREVIEW_FIX = 2       # passes de correction auto max par requête
+_PREVIEW_POLL_S = 0.2      # granularité du polling du tampon d'erreurs
+
+
+def _extract_preview_url(result: str) -> str | None:
+    """Extrait l'URL d'un retour preview_code/preview_file (ligne « URL : … »)."""
+    m = re.search(r"URL\s*:\s*(\S+)", result or "")
+    return m.group(1) if m else None
+
+
+def _preview_fix_nudge(url: str, errors: list, attempt: int) -> str:
+    """Message correctif injecté quand la preview lève des erreurs JS au runtime."""
+    filename = url.rsplit("/", 1)[-1]
+    lines = []
+    for e in errors[:8]:
+        loc = f"  → {e.src}" if getattr(e, "src", "") else ""
+        lines.append(f"  • [{e.label}] {e.msg}{loc}")
+    listing = "\n".join(lines)
+    return (
+        f"⚠ La preview que tu viens de générer (`{filename}`) lève "
+        f"{len(errors)} erreur(s) JS À L'EXÉCUTION dans le navigateur "
+        f"(tentative {attempt}/{_MAX_PREVIEW_FIX}) :\n{listing}\n\n"
+        "Ces erreurs ne sont PAS visibles dans le source mais cassent la page. "
+        "Corrige la cause (souvent un type de nœud/structure non géré, une variable "
+        "undefined, un mauvais sélecteur) et régénère la page COMPLÈTE via preview_code. "
+        "Ne réponds pas en texte : appelle preview_code avec le code corrigé."
+    )
 
 
 def _looks_like_unfinished_plan(content: str | None) -> bool:
@@ -631,6 +664,78 @@ class Orchestrator:
         report = result.format_for_llm()
         self._display_sandbox_result(report, result.success)
         return f"[sandbox auto-check]\n{report}"
+
+    def _await_preview_errors(self, url: str, since: float) -> list:
+        """Attend (borné) les erreurs JS runtime de la preview `url`.
+
+        Poll le tampon alimenté par le beacon de l'overlay (navigateur → backend) :
+        retourne la liste d'erreurs si la page plante, [] si elle se charge
+        proprement (ping « ok ») ou si le délai expire. Inactif si timeout<=0
+        (défaut hors live → aucun test ne bloque).
+        """
+        timeout = PREVIEW_FEEDBACK_TIMEOUT_S
+        if timeout <= 0 or not url:
+            return []
+        filename = url.rsplit("/", 1)[-1]
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            errs = [
+                e
+                for r in preview_errors.recent(since=since)
+                if r.url.endswith(filename)
+                for e in r.errors
+            ]
+            if errs:
+                return errs
+            if any(x.url.endswith(filename) for x in preview_errors.loaded(since=since)):
+                return []  # chargée proprement → conclure tôt
+            time.sleep(_PREVIEW_POLL_S)
+        return []
+
+    def _check_preview_feedback(self, url: str | None, since: float) -> None:
+        """Relance une passe de correction si la preview plante au runtime.
+
+        Plafonné à _MAX_PREVIEW_FIX passes/requête. Le nudge est injecté comme
+        message user → l'itération suivante régénère via preview_code.
+        """
+        if not url:
+            return
+        attempts = getattr(self, "_preview_fix_attempts", 0)
+        if attempts >= _MAX_PREVIEW_FIX:
+            return
+        errors = self._await_preview_errors(url, since)
+        if not errors:
+            return
+        self._preview_fix_attempts = attempts + 1
+        logger.info(
+            "[preview-feedback] %d erreur(s) JS runtime → correction %d/%d",
+            len(errors), self._preview_fix_attempts, _MAX_PREVIEW_FIX,
+        )
+        console.print(Panel(
+            f"[bold]La preview lève {len(errors)} erreur(s) JS à l'exécution.[/bold]\n"
+            f"Je renvoie les erreurs à Klody pour correction "
+            f"({self._preview_fix_attempts}/{_MAX_PREVIEW_FIX}).",
+            title="[yellow]🔁 Boucle de feedback preview[/yellow]",
+            border_style="yellow", padding=(0, 1),
+        ))
+        self.memory.messages.append({
+            "role": "user",
+            "content": _preview_fix_nudge(url, errors, self._preview_fix_attempts),
+            "timestamp": None,
+        })
+        # Rendre la boucle visible côté UI (klody-ui PreviewFeedbackChip).
+        emit = getattr(self, "_emit", None)
+        if emit is not None:
+            emit({
+                "type": "preview_feedback",
+                "url": url,
+                "count": len(errors),
+                "attempt": self._preview_fix_attempts,
+                "max": _MAX_PREVIEW_FIX,
+                "errors": [
+                    {"label": e.label, "msg": e.msg, "src": e.src} for e in errors[:8]
+                ],
+            })
 
     def _should_run_best_of_n(self, iteration: int) -> bool:
         """Faut-il lancer Best-of-N à cette itération ?
@@ -1143,6 +1248,7 @@ class Orchestrator:
         # Mémoriser le prompt courant tôt : sert au ranking des skills (injection
         # par pertinence, cf. _inject_system_prompt) et à Best-of-N.
         self._current_user_prompt = user_input
+        self._preview_fix_attempts = 0  # boucle de feedback preview (reset/requête)
         task_type_for_prompt: str | None = None
         if self._router_enabled:
             try:
@@ -1259,6 +1365,8 @@ class Orchestrator:
                     for tc in tool_calls
                 ])
 
+                _preview_url: str | None = None
+                _preview_since = 0.0
                 for tc in tool_calls:
                     tool_name = tc["function"]["name"]
                     tool_id = tc["id"]
@@ -1280,11 +1388,19 @@ class Orchestrator:
                         + (f"  {args_preview}" if args_preview else "")
                     )
 
+                    # Horodatage AVANT exécution → ne capter que les erreurs de CETTE preview.
+                    if tool_name in ("preview_code", "preview_file"):
+                        _preview_since = time.time()
                     result = self._execute_and_display(tool_name, tool_args)
                     self.memory.add_tool_result(tool_id, tool_name, result)
                     self.profiler.track_tool_usage(tool_name)
+                    if tool_name in ("preview_code", "preview_file"):
+                        _preview_url = _extract_preview_url(result)
 
                 tools_called_in_pass = True
+                # Boucle de feedback : si la preview plante au runtime, on relance
+                # une passe de correction (no-op si pas de preview ou timeout désactivé).
+                self._check_preview_feedback(_preview_url, _preview_since)
                 continue
 
             else:
@@ -1358,13 +1474,23 @@ class Orchestrator:
                             title="[yellow]🔧 Text-to-action fallback[/yellow]",
                             border_style="yellow", padding=(0, 1),
                         ))
+                        _t2a_result = ""
+                        _t2a_since = time.time()
                         try:
-                            result = self._execute_and_display(inferred["name"], inferred["args"])
+                            _t2a_result = self._execute_and_display(inferred["name"], inferred["args"])
                             self.memory.add_message("assistant",
-                                f"[Système] Tool fallback exécuté : {inferred['name']}\n{result[:300]}")
+                                f"[Système] Tool fallback exécuté : {inferred['name']}\n{_t2a_result[:300]}")
                         except Exception as exc:
                             logger.warning("Text-to-action exec failed: %s", exc)
-                        # On break après — l'utilisateur a son résultat (preview ouverte, fichier écrit, etc.)
+                        # Boucle de feedback : une preview qui plante au runtime → on
+                        # relance une passe de correction au lieu de conclure.
+                        if inferred["name"] in ("preview_code", "preview_file"):
+                            _before = getattr(self, "_preview_fix_attempts", 0)
+                            self._check_preview_feedback(_extract_preview_url(_t2a_result), _t2a_since)
+                            if getattr(self, "_preview_fix_attempts", 0) > _before:
+                                self._t2a_fired = False  # ré-autorise le fallback à la régénération
+                                continue
+                        # On break après — l'utilisateur a son résultat (preview, fichier…).
                 break
 
         # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)

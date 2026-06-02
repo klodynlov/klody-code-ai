@@ -12,6 +12,7 @@ import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
@@ -21,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from agent import preview_errors
 from agent.approval import requires_approval
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -594,6 +596,10 @@ def _build_streaming_orchestrator(
     if stop_flag is not None:
         orch._stop_check = lambda: bool(stop_flag[0])
 
+    # Permet à l'orchestrateur d'émettre des événements custom vers l'UI
+    # (ex. preview_feedback — boucle de correction des previews qui plantent).
+    orch._emit = _put
+
     def stream_api(
         messages: list[dict],
         tools=None,
@@ -964,6 +970,31 @@ async def siri_get(q: str = ""):
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(None, _run_siri_query, query)
     return {"response": response, "session_id": _SIRI_SESSION_ID}
+
+
+# ── Boucle feedback preview (erreurs JS runtime du code généré) ─────────────────
+
+@app.post("/api/preview_error")
+async def preview_error(request: Request) -> Response:
+    """Beacon de l'overlay de preview : erreurs JS runtime OU ping « chargé OK ».
+
+    Reçu en text/plain (navigator.sendBeacon → pas de preflight CORS). On parse
+    en JSON tolérant, on bufferise (agent.preview_errors) et on compte. Best-effort :
+    jamais 500 — un beacon raté ne doit pas polluer la console du navigateur.
+    L'URL est décodée (location.href encode les accents du nom de fichier).
+    """
+    try:
+        data = json.loads(await request.body() or b"{}")
+        url = unquote(str(data.get("url", "")))
+        errors = data.get("errors", [])
+        if isinstance(errors, list) and errors:
+            preview_errors.record(url, errors)
+            _metrics.preview_js_errors_total.inc(len(errors))
+        elif data.get("ok"):
+            preview_errors.mark_loaded(url)
+    except Exception as exc:  # pragma: no cover - beacon best-effort
+        logger.debug("Beacon preview_error invalide: %s", exc)
+    return Response(status_code=204)
 
 
 # ── Metrics Prometheus ─────────────────────────────────────────────────────────

@@ -358,7 +358,25 @@ _ERROR_OVERLAY = """
   }
   function escapeHtml(s){ return String(s).replace(/[&<>]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
-  function add(label, msg, src){ entries.push({label:label, msg:msg, src:src}); render(); }
+  // Beacon → backend Klody (boucle de feedback). text/plain + sendBeacon = requête
+  // « simple » : pas de preflight CORS, fire-and-forget. On n'envoie que le NOUVEAU.
+  var _api = (window.__KLODY_API_ORIGIN__ || 'http://localhost:8000');
+  var _sent = 0, _timer = null;
+  function flushErrors(){
+    _timer = null;
+    if (entries.length <= _sent) return;
+    var batch = entries.slice(_sent); _sent = entries.length;
+    try {
+      var body = JSON.stringify({ url: location.href, errors: batch });
+      var blob = new Blob([body], { type: 'text/plain' });
+      if (!(navigator.sendBeacon && navigator.sendBeacon(_api + '/api/preview_error', blob))) {
+        fetch(_api + '/api/preview_error', { method:'POST', body: body, keepalive:true, mode:'no-cors' });
+      }
+    } catch(_){ }
+  }
+  function scheduleFlush(){ if (!_timer) _timer = setTimeout(flushErrors, 700); }
+  window.addEventListener('pagehide', flushErrors);
+  function add(label, msg, src){ entries.push({label:label, msg:msg, src:src}); render(); scheduleFlush(); }
   window.addEventListener('error', function(ev){
     var src = ev.filename ? ev.filename + ':' + ev.lineno + ':' + ev.colno : '';
     add('Error', (ev.message || ev.error || 'unknown'), src);
@@ -373,6 +391,20 @@ _ERROR_OVERLAY = """
     catch(_){ }
     return _ce.apply(console, arguments);
   };
+  // Ping « chargé proprement » : si, peu après le load, aucune erreur n'a été
+  // captée, on le signale au backend → il conclut vite au lieu d'attendre le timeout.
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      if (entries.length) return;
+      try {
+        var okBody = JSON.stringify({ url: location.href, ok: true });
+        var okBlob = new Blob([okBody], { type: 'text/plain' });
+        if (!(navigator.sendBeacon && navigator.sendBeacon(_api + '/api/preview_error', okBlob))) {
+          fetch(_api + '/api/preview_error', { method:'POST', body: okBody, keepalive:true, mode:'no-cors' });
+        }
+      } catch(_){ }
+    }, 500);
+  });
 })();
 </script>"""
 
