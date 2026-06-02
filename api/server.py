@@ -349,12 +349,20 @@ async def websocket_endpoint(ws: WebSocket):
     # réception d'un message approval_response. Portée = cette connexion.
     pending_approvals: dict[str, tuple] = {}
 
-    # Envoyer le statut initial
-    await ws.send_json({
-        "type": "session_init",
-        "session_id": memory.session_id,
-        "model": current_model,
-    })
+    # Envoyer le statut initial. Le client (WebSocket natif WKWebView, app
+    # packagée) tombe parfois juste après le handshake : sans garde, le
+    # WebSocketDisconnect remonte HORS du endpoint en exception ASGI non gérée
+    # (le try/finally qui décrémente ws_active est porté par la boucle plus
+    # bas, pas par cet envoi) → traceback + fuite du gauge ws_active.
+    try:
+        await ws.send_json({
+            "type": "session_init",
+            "session_id": memory.session_id,
+            "model": current_model,
+        })
+    except WebSocketDisconnect:  # pragma: no cover - chemin d'erreur réseau
+        _metrics.ws_active.dec()
+        return
 
     # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
     try:
