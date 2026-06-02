@@ -12,6 +12,7 @@ import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
@@ -971,18 +972,22 @@ async def siri_get(q: str = ""):
 
 @app.post("/api/preview_error")
 async def preview_error(request: Request) -> Response:
-    """Beacon de l'overlay de preview : erreurs JS runtime du code généré.
+    """Beacon de l'overlay de preview : erreurs JS runtime OU ping « chargé OK ».
 
     Reçu en text/plain (navigator.sendBeacon → pas de preflight CORS). On parse
     en JSON tolérant, on bufferise (agent.preview_errors) et on compte. Best-effort :
     jamais 500 — un beacon raté ne doit pas polluer la console du navigateur.
+    L'URL est décodée (location.href encode les accents du nom de fichier).
     """
     try:
         data = json.loads(await request.body() or b"{}")
+        url = unquote(str(data.get("url", "")))
         errors = data.get("errors", [])
         if isinstance(errors, list) and errors:
-            preview_errors.record(str(data.get("url", "")), errors)
+            preview_errors.record(url, errors)
             _metrics.preview_js_errors_total.inc(len(errors))
+        elif data.get("ok"):
+            preview_errors.mark_loaded(url)
     except Exception as exc:  # pragma: no cover - beacon best-effort
         logger.debug("Beacon preview_error invalide: %s", exc)
     return Response(status_code=204)

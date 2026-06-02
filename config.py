@@ -159,6 +159,10 @@ def match_allowed_root(resolved: Path, roots: list[Path]) -> Path | None:
 # --- Preview ---
 PREVIEW_DIR: Path = Path(os.getenv("PREVIEW_DIR", str(Path(__file__).parent / "_preview"))).resolve()
 PREVIEW_PORT: int = int(os.getenv("PREVIEW_PORT", 8899))
+# Boucle de feedback : délai (s) d'attente des erreurs JS runtime après une
+# preview avant de relancer une passe de correction. 0 = désactivé (défaut, sûr
+# pour les tests). À activer en live via .env (ex. 3.0). Cf. agent.preview_errors.
+PREVIEW_FEEDBACK_TIMEOUT_S: float = float(os.getenv("PREVIEW_FEEDBACK_TIMEOUT_S", "0"))
 
 # --- Chemins ---
 _ROOT: Path = Path(__file__).parent

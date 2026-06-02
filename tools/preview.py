@@ -391,6 +391,20 @@ _ERROR_OVERLAY = """
     catch(_){ }
     return _ce.apply(console, arguments);
   };
+  // Ping « chargé proprement » : si, peu après le load, aucune erreur n'a été
+  // captée, on le signale au backend → il conclut vite au lieu d'attendre le timeout.
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      if (entries.length) return;
+      try {
+        var okBody = JSON.stringify({ url: location.href, ok: true });
+        var okBlob = new Blob([okBody], { type: 'text/plain' });
+        if (!(navigator.sendBeacon && navigator.sendBeacon(_api + '/api/preview_error', okBlob))) {
+          fetch(_api + '/api/preview_error', { method:'POST', body: okBody, keepalive:true, mode:'no-cors' });
+        }
+      } catch(_){ }
+    }, 500);
+  });
 })();
 </script>"""
 

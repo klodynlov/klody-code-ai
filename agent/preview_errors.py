@@ -39,8 +39,20 @@ class PreviewErrorReport:
     ts: float
 
 
+@dataclass(frozen=True)
+class PreviewLoad:
+    """Signal « preview chargée sans erreur » (ping propre de l'overlay).
+
+    Permet à l'agent de conclure « RAS » tôt au lieu d'attendre le timeout.
+    """
+
+    url: str
+    ts: float
+
+
 _lock = threading.Lock()
 _reports: list[PreviewErrorReport] = []
+_loads: list[PreviewLoad] = []
 
 
 def _clean(value: object) -> str:
@@ -82,12 +94,36 @@ def recent(url: str | None = None, *, since: float | None = None) -> list[Previe
     return items
 
 
+def mark_loaded(url: str, *, now: float | None = None) -> None:
+    """Marque une preview comme chargée proprement (ping de l'overlay, 0 erreur)."""
+    load = PreviewLoad(url=_clean(url), ts=time.time() if now is None else now)
+    with _lock:
+        _loads.append(load)
+        if len(_loads) > _MAX_REPORTS:
+            del _loads[: len(_loads) - _MAX_REPORTS]
+
+
+def loaded(url: str | None = None, *, since: float | None = None) -> list[PreviewLoad]:
+    """Pings « chargé proprement » récents, filtrables par url/ts."""
+    with _lock:
+        items = list(_loads)
+    if url is not None:
+        items = [x for x in items if x.url == url]
+    if since is not None:
+        items = [x for x in items if x.ts >= since]
+    return items
+
+
 def clear(url: str | None = None) -> None:
     """Vide le tampon — tout, ou seulement une url (reset de boucle / tests)."""
     with _lock:
         if url is None:
             _reports.clear()
+            _loads.clear()
         else:
             kept = [r for r in _reports if r.url != url]
             _reports.clear()
             _reports.extend(kept)
+            kept_loads = [x for x in _loads if x.url != url]
+            _loads.clear()
+            _loads.extend(kept_loads)

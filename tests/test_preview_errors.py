@@ -71,6 +71,23 @@ class TestStore:
         preview_errors.record("u", [{"msg": "ok"}, "pas un dict", 42], now=1.0)  # type: ignore[list-item]
         assert len(preview_errors.recent()[0].errors) == 1
 
+    def test_mark_loaded_et_loaded(self):
+        preview_errors.mark_loaded("http://x/a.html", now=5.0)
+        loads = preview_errors.loaded()
+        assert len(loads) == 1
+        assert loads[0].url == "http://x/a.html"
+
+    def test_loaded_filtre_url_et_since(self):
+        preview_errors.mark_loaded("http://x/a.html", now=1.0)
+        preview_errors.mark_loaded("http://x/b.html", now=2.0)
+        assert [x.url for x in preview_errors.loaded("http://x/b.html")] == ["http://x/b.html"]
+        assert len(preview_errors.loaded(since=1.5)) == 1
+
+    def test_clear_vide_aussi_les_loads(self):
+        preview_errors.mark_loaded("u", now=1.0)
+        preview_errors.clear()
+        assert preview_errors.loaded() == []
+
 
 # ── Endpoint beacon (POST /api/preview_error) ─────────────────────────────────
 
@@ -109,6 +126,25 @@ class TestBeaconEndpoint:
         assert r.status_code == 204
         assert preview_errors.recent() == []
 
+    def test_ping_ok_marque_charge(self):
+        body = json.dumps({"url": "http://localhost:8899/x.html", "ok": True})
+        r = self.client.post("/api/preview_error", content=body, headers={"Content-Type": "text/plain"})
+        assert r.status_code == 204
+        assert len(preview_errors.loaded("http://localhost:8899/x.html")) == 1
+        assert preview_errors.recent() == []  # aucune erreur enregistrée
+
+    def test_url_accentuee_est_decodee(self):
+        # location.href encode les accents → le backend décode pour matcher le slug.
+        body = json.dumps({
+            "url": "http://localhost:8899/d%C3%A9mo.html",
+            "errors": [{"label": "Error", "msg": "x", "src": ""}],
+        })
+        r = self.client.post("/api/preview_error", content=body, headers={"Content-Type": "text/plain"})
+        assert r.status_code == 204
+        reps = preview_errors.recent()
+        assert len(reps) == 1
+        assert reps[0].url == "http://localhost:8899/démo.html"
+
 
 # ── L'overlay injecté contient bien le beacon ─────────────────────────────────
 
@@ -121,3 +157,6 @@ def test_overlay_contient_le_beacon():
     # On n'envoie que le nouveau (anti double-comptage) et on flush au pagehide.
     assert "_sent" in _ERROR_OVERLAY
     assert "pagehide" in _ERROR_OVERLAY
+    # Ping « chargé proprement » (tranche 2) pour conclure vite sans erreur.
+    assert "ok: true" in _ERROR_OVERLAY
+    assert "'load'" in _ERROR_OVERLAY
