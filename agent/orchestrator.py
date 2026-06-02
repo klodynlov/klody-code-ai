@@ -737,6 +737,24 @@ class Orchestrator:
                 ],
             })
 
+    def _should_run_best_of_n(self, iteration: int) -> bool:
+        """Faut-il lancer Best-of-N à cette itération ?
+
+        Best-of-N (N candidats + rerank) n'a de sens qu'à la 1ère itération
+        d'une tâche hard. On le DÉSACTIVE quand le coder dédié est routé (prompt
+        slim) : ses N candidats sont tous actionnables et le reranker garde le
+        plus rapide — générer N en séquence triple la latence pour récupérer ce
+        qu'une passe unique aurait produit (~230 s → ~75 s sur le cas AVL).
+        BEST_OF_N_FORCE (éval A/B) ne ressuscite pas Best-of-N sur le coder.
+        """
+        if iteration != 0 or not self._best_of_n_enabled:
+            return False
+        if getattr(self, "_code_model_active", False):
+            return False
+        if self._best_of_n_force:
+            return True
+        return self.last_routing is not None and self.last_routing.use_best_of_n
+
     def _run_best_of_n(self, messages: list[dict]) -> tuple[str, list[dict] | None]:
         """Génère N candidats, sélectionne le meilleur, affiche le résultat retenu.
 
@@ -1312,13 +1330,10 @@ class Orchestrator:
 
             messages = self.memory.get_messages_for_api()
 
-            # Best-of-N (Roadmap v2 #7) : activé uniquement à la 1ère itération
-            # des tâches hard, où la stratégie initiale est critique.
-            # Override BEST_OF_N_FORCE pour l'éval A/B.
-            use_bon = iteration == 0 and self._best_of_n_enabled and (
-                self._best_of_n_force
-                or (self.last_routing is not None and self.last_routing.use_best_of_n)
-            )
+            # Best-of-N (Roadmap v2 #7) : 1ère itération des tâches hard, où la
+            # stratégie initiale est critique. Désactivé quand le coder dédié
+            # est routé (cf. _should_run_best_of_n).
+            use_bon = self._should_run_best_of_n(iteration)
             # Anti-stall escalation : si on vient d'injecter un nudge à l'itération
             # précédente et que le LLM a encore produit du texte sans action, on
             # FORCE tool_choice="required" pour le prochain tour — pas le choix.
