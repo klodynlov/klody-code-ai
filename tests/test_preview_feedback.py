@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import agent.orchestrator as orch
 from agent import preview_errors
-from agent.orchestrator import Orchestrator, _extract_preview_url, _preview_fix_nudge
 
 PREVIEW_RESULT = (
     "Aperçu créé avec succès !\n"
@@ -20,17 +19,17 @@ PREVIEW_RESULT = (
 
 class TestExtractUrl:
     def test_extrait_url(self):
-        assert _extract_preview_url(PREVIEW_RESULT) == "http://localhost:8899/demo.html"
+        assert orch._extract_preview_url(PREVIEW_RESULT) == "http://localhost:8899/demo.html"
 
     def test_aucune_url(self):
-        assert _extract_preview_url("pas d'url ici") is None
-        assert _extract_preview_url("") is None
+        assert orch._extract_preview_url("pas d'url ici") is None
+        assert orch._extract_preview_url("") is None
 
 
 class TestNudge:
     def test_message_correctif(self):
         errs = [SimpleNamespace(label="Error", msg="Cannot read 'toString'", src="demo.html:572:37")]
-        msg = _preview_fix_nudge("http://localhost:8899/demo.html", errs, 1)
+        msg = orch._preview_fix_nudge("http://localhost:8899/demo.html", errs, 1)
         assert "demo.html" in msg
         assert "tentative 1" in msg
         assert "Cannot read 'toString'" in msg
@@ -38,8 +37,8 @@ class TestNudge:
         assert "preview_code" in msg
 
 
-def _bare_orch() -> Orchestrator:
-    o = Orchestrator.__new__(Orchestrator)
+def _bare_orch() -> orch.Orchestrator:
+    o = orch.Orchestrator.__new__(orch.Orchestrator)
     o.memory = SimpleNamespace(messages=[])
     return o
 
