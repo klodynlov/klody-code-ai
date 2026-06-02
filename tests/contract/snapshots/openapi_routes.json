@@ -110,6 +110,13 @@
       "body_required": false
     }
   },
+  "/api/preview_error": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/metrics": {
     "GET": {
       "params": [],

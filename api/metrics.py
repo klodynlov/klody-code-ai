@@ -54,3 +54,10 @@ text_to_action_total = Counter(
     "klody_text_to_action_total",
     "Activations du fallback text-to-action (extraction code depuis texte)",
 )
+
+# ── Boucle de feedback preview (erreurs JS runtime navigateur → backend) ────────
+
+preview_js_errors_total = Counter(
+    "klody_preview_js_errors_total",
+    "Erreurs JS runtime de preview remontées par l'overlay (beacon navigateur)",
+)

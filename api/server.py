@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
+from agent import preview_errors
 from agent.approval import requires_approval
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -964,6 +965,27 @@ async def siri_get(q: str = ""):
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(None, _run_siri_query, query)
     return {"response": response, "session_id": _SIRI_SESSION_ID}
+
+
+# ── Boucle feedback preview (erreurs JS runtime du code généré) ─────────────────
+
+@app.post("/api/preview_error")
+async def preview_error(request: Request) -> Response:
+    """Beacon de l'overlay de preview : erreurs JS runtime du code généré.
+
+    Reçu en text/plain (navigator.sendBeacon → pas de preflight CORS). On parse
+    en JSON tolérant, on bufferise (agent.preview_errors) et on compte. Best-effort :
+    jamais 500 — un beacon raté ne doit pas polluer la console du navigateur.
+    """
+    try:
+        data = json.loads(await request.body() or b"{}")
+        errors = data.get("errors", [])
+        if isinstance(errors, list) and errors:
+            preview_errors.record(str(data.get("url", "")), errors)
+            _metrics.preview_js_errors_total.inc(len(errors))
+    except Exception as exc:  # pragma: no cover - beacon best-effort
+        logger.debug("Beacon preview_error invalide: %s", exc)
+    return Response(status_code=204)
 
 
 # ── Metrics Prometheus ─────────────────────────────────────────────────────────
