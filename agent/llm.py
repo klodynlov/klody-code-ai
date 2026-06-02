@@ -176,6 +176,19 @@ class LLMClient:
         # Compteur de tokens approximatif (session courante)
         self.total_tokens: int = 0
 
+    def switch_to(self, model: str, base_url: str, api_key: str) -> None:
+        """Bascule le client sur un autre modèle/endpoint (ex: modèle code dédié).
+
+        Mutation EN PLACE (on ne remplace pas l'objet LLMClient) pour que les
+        détenteurs d'une référence — notamment Best-of-N — voient le changement.
+        No-op si le modèle est déjà actif (évite de recréer le client OpenAI).
+        """
+        if model == self.model:
+            return
+        self.model = model
+        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        logger.info("LLM basculé sur le modèle '%s' (%s)", model, base_url)
+
     def stream_chat(
         self,
         messages: list[dict],

@@ -9,6 +9,12 @@ from config import (
     BEST_OF_N_COUNT,
     BEST_OF_N_ENABLED,
     BEST_OF_N_FORCE,
+    CODE_API_KEY,
+    CODE_BASE_URL,
+    CODE_MODEL,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
     MAX_ITERATIONS,
     PROJECT_ROOT,
     ROUTER_ENABLED,
@@ -249,6 +255,11 @@ def _is_continuation(text: str) -> bool:
 _MAX_AUTO_EXTENSIONS = 3
 _AUTO_EXTENSION_SIZE = 8
 
+# Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
+# Orchestrator._route_model). `explain` en est exclu : il reste sur le
+# généraliste, meilleur en conversation/explication.
+_CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
+
 
 def _format_file_tree(listing: str, root: str) -> Tree:
     """Convertit la sortie texte de list_files en Rich Tree."""
@@ -384,6 +395,27 @@ class Orchestrator:
             from agent.router import Router
             self._router = Router()
         return self._router
+
+    def _route_model(self, task_type: str) -> None:
+        """Bascule `self.llm` entre le généraliste et le modèle code selon la
+        tâche classée par le router.
+
+        - Tâche de code (cf. _CODE_TASK_TYPES) → modèle coder (CODE_MODEL) :
+          il génère de bien meilleurs gros blocs de code.
+        - Sinon (`explain`) → généraliste (LLM_MODEL).
+
+        No-op si aucun modèle code n'est configuré (CODE_MODEL vide), ou si le
+        client est sur un modèle qui n'est NI le généraliste NI le code — i.e.
+        un choix manuel dans le sélecteur de l'UI, qu'on ne doit pas écraser.
+        """
+        if not CODE_MODEL:
+            return
+        if self.llm.model not in (LLM_MODEL, CODE_MODEL):
+            return
+        if task_type in _CODE_TASK_TYPES:
+            self.llm.switch_to(CODE_MODEL, CODE_BASE_URL, CODE_API_KEY)
+        else:
+            self.llm.switch_to(LLM_MODEL, LLM_BASE_URL, LLM_API_KEY)
 
     @property
     def code_index(self):
@@ -1087,6 +1119,8 @@ class Orchestrator:
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
                 task_type_for_prompt = decision.task_type
+                # Routage modèle : tâche de code → modèle coder, sinon généraliste.
+                self._route_model(decision.task_type)
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
