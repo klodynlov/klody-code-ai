@@ -119,3 +119,36 @@ class TestCheckFeedback:
         o._check_preview_feedback(None, since=0.0)
         assert o._preview_fix_attempts == 0
         assert o.memory.messages == []
+
+
+class TestEmitEvent:
+    """Événement preview_feedback poussé vers l'UI (tranche 3 / PreviewFeedbackChip)."""
+
+    def setup_method(self):
+        preview_errors.clear()
+
+    def test_emet_preview_feedback(self, monkeypatch):
+        monkeypatch.setattr(orch, "PREVIEW_FEEDBACK_TIMEOUT_S", 1.0)
+        preview_errors.record(URL, [{"label": "Error", "msg": "boom", "src": "demo.html:1:1"}], now=100.0)
+        events: list = []
+        o = _bare_orch()
+        o._preview_fix_attempts = 0
+        o._emit = events.append
+        o._check_preview_feedback(URL, since=0.0)
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["type"] == "preview_feedback"
+        assert ev["count"] == 1
+        assert ev["attempt"] == 1
+        assert ev["max"] == 2
+        assert ev["url"] == URL
+        assert ev["errors"][0]["msg"] == "boom"
+
+    def test_pas_d_emit_sans_erreur(self, monkeypatch):
+        monkeypatch.setattr(orch, "PREVIEW_FEEDBACK_TIMEOUT_S", 0.3)
+        events: list = []
+        o = _bare_orch()
+        o._preview_fix_attempts = 0
+        o._emit = events.append
+        o._check_preview_feedback(URL, since=0.0)
+        assert events == []

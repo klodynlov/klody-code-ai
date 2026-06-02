@@ -596,6 +596,10 @@ def _build_streaming_orchestrator(
     if stop_flag is not None:
         orch._stop_check = lambda: bool(stop_flag[0])
 
+    # Permet à l'orchestrateur d'émettre des événements custom vers l'UI
+    # (ex. preview_feedback — boucle de correction des previews qui plantent).
+    orch._emit = _put
+
     def stream_api(
         messages: list[dict],
         tools=None,

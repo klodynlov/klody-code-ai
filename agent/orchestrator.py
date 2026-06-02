@@ -723,6 +723,19 @@ class Orchestrator:
             "content": _preview_fix_nudge(url, errors, self._preview_fix_attempts),
             "timestamp": None,
         })
+        # Rendre la boucle visible côté UI (klody-ui PreviewFeedbackChip).
+        emit = getattr(self, "_emit", None)
+        if emit is not None:
+            emit({
+                "type": "preview_feedback",
+                "url": url,
+                "count": len(errors),
+                "attempt": self._preview_fix_attempts,
+                "max": _MAX_PREVIEW_FIX,
+                "errors": [
+                    {"label": e.label, "msg": e.msg, "src": e.src} for e in errors[:8]
+                ],
+            })
 
     def _run_best_of_n(self, messages: list[dict]) -> tuple[str, list[dict] | None]:
         """Génère N candidats, sélectionne le meilleur, affiche le résultat retenu.
