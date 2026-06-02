@@ -4,6 +4,7 @@ Les tâches de code (edit/refactor/bug_fix/feature/self_dev) sont routées vers 
 modèle coder dédié ; `explain` reste sur le généraliste. Voir config.CODE_MODEL.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agent.llm import LLMClient
@@ -112,3 +113,49 @@ class TestSlimPromptCoder:
         # Slim = bien plus court que le prompt agentique géant (~12k tokens).
         assert len(sysmsg["content"]) < 2000
         assert o._injected_skill_slugs == []
+
+
+# ── Best-of-N coupé quand le coder est routé ──────────────────────────────────
+
+
+def _bon_orch(*, enabled=True, force=False, coder=False, use_bon=True) -> Orchestrator:
+    """Orchestrateur nu (sans __init__) avec juste les attributs lus par
+    _should_run_best_of_n."""
+    o = Orchestrator.__new__(Orchestrator)
+    o._best_of_n_enabled = enabled
+    o._best_of_n_force = force
+    o._code_model_active = coder
+    o.last_routing = SimpleNamespace(use_best_of_n=use_bon)
+    return o
+
+
+class TestBestOfNSkipCoder:
+    def test_bon_actif_tache_hard_hors_coder(self):
+        o = _bon_orch(use_bon=True)
+        assert o._should_run_best_of_n(0) is True
+        assert o._should_run_best_of_n(1) is False  # uniquement la 1ère itération
+
+    def test_bon_coupe_quand_coder_actif(self):
+        o = _bon_orch(coder=True, use_bon=True)
+        assert o._should_run_best_of_n(0) is False  # ← le cœur du fix
+
+    def test_force_ne_ressuscite_pas_bon_sur_coder(self):
+        o = _bon_orch(coder=True, force=True, use_bon=True)
+        assert o._should_run_best_of_n(0) is False
+
+    def test_bon_off_si_globalement_desactive(self):
+        o = _bon_orch(enabled=False, use_bon=True)
+        assert o._should_run_best_of_n(0) is False
+
+    def test_bon_off_si_routing_sans_best_of_n(self):
+        o = _bon_orch(use_bon=False)
+        assert o._should_run_best_of_n(0) is False
+
+    def test_force_relance_bon_hors_coder(self):
+        o = _bon_orch(force=True, use_bon=False)
+        assert o._should_run_best_of_n(0) is True
+
+    def test_pas_de_routing_pas_de_bon(self):
+        o = _bon_orch(use_bon=True)
+        o.last_routing = None
+        assert o._should_run_best_of_n(0) is False
