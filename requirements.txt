@@ -1,6 +1,6 @@
 openai>=1.35.0
 rich>=15.0.0
-python-dotenv>=1.0.1
+python-dotenv>=1.2.2
 prompt_toolkit>=3.0.52
 pytest>=9.0.3
 fastmcp>=2.0.0
