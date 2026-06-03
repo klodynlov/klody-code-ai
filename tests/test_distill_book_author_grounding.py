@@ -11,7 +11,6 @@ avec httpx.Client mocké.
 from __future__ import annotations
 
 import httpx
-import scripts.distill_book as db
 from scripts.distill_book import (
     _apply_grounded_source,
     _pick_source_from_sources,
@@ -75,17 +74,17 @@ def test_apply_grounded_is_noop_when_none() -> None:
 
 def _patch_librarybrain(monkeypatch, *, payload=None, exc=None) -> None:
     class _Resp:
-        def raise_for_status(self) -> None: ...
+        def raise_for_status(self) -> None: pass
         def json(self): return payload
     class _Client:
-        def __init__(self, *a, **k) -> None: ...
+        def __init__(self, *a, **k) -> None: pass
         def __enter__(self): return self
         def __exit__(self, *a) -> bool: return False
         def post(self, *a, **k):
             if exc:
                 raise exc
             return _Resp()
-    monkeypatch.setattr(db.httpx, "Client", _Client)
+    monkeypatch.setattr("scripts.distill_book.httpx.Client", _Client)
 
 
 def test_resolve_source_grounds_from_librarybrain(monkeypatch) -> None:
