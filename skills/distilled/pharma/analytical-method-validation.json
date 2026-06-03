@@ -1,0 +1,132 @@
+{
+  "skill": "Analytical Method Validation",
+  "domain": "pharma",
+  "description": "A systematic framework for planning, executing, and documenting analytical method validation to ensure regulatory compliance, data integrity, and fitness for purpose.",
+  "principles": [
+    "Define validation scope and acceptance criteria before experimentation begins.",
+    "Demonstrate specificity and accuracy to prove the method isolates the target analyte.",
+    "Establish precision and linearity across the full intended concentration range.",
+    "Verify robustness by testing deliberate, small variations in method parameters.",
+    "Run system suitability checks before and after every analytical sequence.",
+    "Document all raw data, deviations, and calculations with full traceability.",
+    "Treat validation as a lifecycle activity, not a one-time compliance checkbox."
+  ],
+  "workflow": [
+    {
+      "step": "Define",
+      "purpose": "Establish scope, regulatory alignment, and measurable success criteria.",
+      "guidelines": [
+        "Map the intended method use to required ICH parameters.",
+        "Draft a formal validation protocol with clear acceptance thresholds.",
+        "Identify reference standards, matrices, and equipment requirements.",
+        "Secure stakeholder approval before any testing begins."
+      ],
+      "pitfalls": [
+        "Setting acceptance criteria after data collection.",
+        "Ignoring regulatory context or intended use case.",
+        "Vague scope that leaves critical parameters undefined."
+      ]
+    },
+    {
+      "step": "Design",
+      "purpose": "Structure experiments to efficiently cover all validation parameters.",
+      "guidelines": [
+        "Use orthogonal or factorial designs to minimize runs while maximizing coverage.",
+        "Prepare certified reference materials and spiked matrices for accuracy checks.",
+        "Plan system suitability tests to monitor instrument stability.",
+        "Allocate sufficient replicates for statistical confidence."
+      ],
+      "pitfalls": [
+        "Overlapping experiments without clear parameter separation.",
+        "Neglecting matrix effects or interferences.",
+        "Insufficient replicates leading to unreliable statistics."
+      ]
+    },
+    {
+      "step": "Execute",
+      "purpose": "Generate reliable, reproducible data under controlled conditions.",
+      "guidelines": [
+        "Follow the approved protocol without unapproved deviations.",
+        "Log all deviations, environmental changes, or instrument anomalies immediately.",
+        "Run system suitability checks before and after sample sequences.",
+        "Maintain strict chain of custody for all samples and standards."
+      ],
+      "pitfalls": [
+        "Uncontrolled environmental or operational variables.",
+        "Skipping system suitability to save time.",
+        "Adjusting parameters mid-run to force acceptable results."
+      ]
+    },
+    {
+      "step": "Evaluate",
+      "purpose": "Statistically assess results against predefined criteria.",
+      "guidelines": [
+        "Apply appropriate statistical tests for each parameter (e.g., ANOVA, regression).",
+        "Calculate confidence intervals and review residual plots for bias.",
+        "Document pass/fail status for every validation parameter.",
+        "Investigate outliers rigorously before exclusion."
+      ],
+      "pitfalls": [
+        "Misapplying statistical methods to non-linear or non-normal data.",
+        "Ignoring outliers without documented justification.",
+        "Conflating precision with accuracy or specificity."
+      ]
+    },
+    {
+      "step": "Report",
+      "purpose": "Create an auditable, regulatory-ready validation summary.",
+      "guidelines": [
+        "Structure the report according to ICH or internal SOP templates.",
+        "Include direct references to raw data, calculations, and protocol versions.",
+        "State clear conclusions and fitness-for-purpose statements.",
+        "Archive all documents with version control and access restrictions."
+      ],
+      "pitfalls": [
+        "Incomplete traceability between results and raw data.",
+        "Omitting negative results or failed parameters.",
+        "Vague conclusions that leave regulatory reviewers uncertain."
+      ]
+    }
+  ],
+  "checklist": [
+    "Validation protocol approved and signed before experimentation.",
+    "All acceptance criteria defined and statistically justified.",
+    "System suitability criteria met for every analytical sequence.",
+    "Specificity and accuracy demonstrated with blank and spiked matrices.",
+    "Linearity range covers intended concentrations with validated statistics.",
+    "Robustness tested via deliberate parameter variations.",
+    "All raw data, calculations, and deviations fully archived.",
+    "Validation report reviewed, approved, and version-controlled."
+  ],
+  "source": {
+    "book": "Method Validation in Pharmaceutical Analysis - A Guide to Best Practice",
+    "author": "Joachim Ermer, John H. McB. Miller (eds.)"
+  },
+  "vocabulary": [
+    {
+      "term": "ICH Q2",
+      "definition": "International guideline defining validation parameters, statistical approaches, and acceptance criteria for analytical methods."
+    },
+    {
+      "term": "System Suitability",
+      "definition": "Pre-run checks ensuring the analytical system performs within specified limits before sample analysis begins."
+    },
+    {
+      "term": "Robustness",
+      "definition": "Measure of a method's capacity to remain unaffected by small, deliberate variations in experimental parameters."
+    },
+    {
+      "term": "LOD/LOQ",
+      "definition": "Limit of Detection and Limit of Quantification; lowest concentrations reliably detected or quantified with acceptable precision."
+    },
+    {
+      "term": "Accuracy",
+      "definition": "Closeness of test results to the true value, typically assessed via recovery studies using spiked samples."
+    }
+  ],
+  "heuristics": [
+    "Define criteria before data exists; never adjust targets to fit results.",
+    "Validate the entire workflow, not just the instrument or software.",
+    "If a parameter cannot be statistically justified, the method is not fit for purpose."
+  ]
+}

