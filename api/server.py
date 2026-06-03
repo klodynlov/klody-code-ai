@@ -503,17 +503,17 @@ async def websocket_endpoint(ws: WebSocket):
                     # Re-raise pour sortir proprement de la boucle while True externe
                     raise
                 finally:
-                    # Annule les tâches encore en vol avant de rendre la main à la
-                    # boucle externe (qui ré-émettra son propre receive_text()).
+                    # Annule les tâches encore en vol PUIS attend leur unwind avant de
+                    # rendre la main à la boucle externe. cancel() est asynchrone : sans
+                    # await, l'ancien receive_text() reste enregistré comme waiter et le
+                    # prochain receive_text() de la boucle externe lève "cannot call recv
+                    # while another coroutine is already waiting for the next message".
+                    # gather(return_exceptions=True) draine aussi les exceptions settlées
+                    # (évite "Task exception was never retrieved").
                     for _t in (send_task, recv_task):
                         if not _t.done():
                             _t.cancel()
-                    # Draine une exception déjà settlée (évite "Task exception was
-                    # never retrieved" sur la tâche recv en cas de déconnexion).
-                    for _t in (send_task, recv_task):
-                        if _t.done() and not _t.cancelled():
-                            with suppress(Exception):
-                                _t.exception()
+                    await asyncio.gather(send_task, recv_task, return_exceptions=True)
 
                 _metrics.chat_requests_total.labels(status=_chat_status).inc()
                 _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
