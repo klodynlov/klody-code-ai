@@ -137,12 +137,21 @@ def _repair(data: dict, schema: dict) -> dict:
       `{term, definition: ""}`. L'item sera rejeté ensuite par le schéma si la
       définition reste vide (minLength=4), forçant l'auteur du prompt à corriger
       plutôt qu'à inventer ici.
+    - `source.year` à `null` → clé retirée. Le modèle met `null` quand l'année
+      est inconnue (cf. prompt), mais le schéma veut un entier *ou* l'absence de
+      la clé (year est optionnel). Sans ça, tout livre sans millésime connu
+      échoue à la validation alors que le reste du JSON est conforme.
     - `principles`/`checklist` : déduplique en gardant l'ordre.
     """
     allowed_top = set(schema.get("properties", {}).keys())
     extra = {k: data.pop(k) for k in list(data) if k not in allowed_top}
     if extra:
         logger.warning("clés hors-schéma élaguées : {}", sorted(extra))
+
+    src = data.get("source")
+    if isinstance(src, dict) and src.get("year") is None and "year" in src:
+        src.pop("year")
+        logger.warning("source.year=null retiré (clé optionnelle ; le schéma exige un entier)")
 
     vocab = data.get("vocabulary")
     if isinstance(vocab, list) and vocab and all(isinstance(v, str) for v in vocab):

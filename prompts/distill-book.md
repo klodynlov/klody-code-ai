@@ -69,7 +69,8 @@ RAPPEL SCHÉMA (à respecter au caractère près) :
   `workflow`, `checklist`. **`description` n'est jamais optionnelle** : 1 à 2
   phrases décrivant à quoi sert la méthode (≠ titre, ≠ liste).
 - Clés **optionnelles** : `source` (`{book, author, year?}`), `vocabulary`,
-  `heuristics`, `antipatterns`, `examples`.
+  `heuristics`, `antipatterns`, `examples`. Si l'année est inconnue, **omets**
+  la clé `year` — ne mets jamais `"year": null` (le schéma exige un entier).
 - `vocabulary` est une liste d'**objets** `{"term": "...", "definition": "..."}`,
   jamais une liste de strings. Si tu n'as pas la définition d'un terme, ne
   l'inclus pas — n'invente pas.
