@@ -38,15 +38,12 @@ _BLOCKED_SUBSTRINGS: list[str] = [
     "zsh -c ",
     "fish -c ",
     "dash -c ",
-    # Interpréteurs one-liner (injection de code)
-    "python -c ",
-    "python3 -c ",
-    "python2 -c ",
-    "ruby -e ",
-    "perl -e ",
-    "node -e ",
-    "node --eval ",
-    "php -r ",
+    # NB : les one-liners d'interpréteur (python -c, python3 -c, ruby/perl -e,
+    # node -e/--eval, php -r) ne sont VOLONTAIREMENT pas bloqués. Klody est un
+    # outil local/offline mono-utilisateur où l'agent peut déjà exécuter du code
+    # arbitraire via `python fichier.py`, `python -m …`, etc. — les bloquer
+    # n'ajoutait aucune sécurité réelle, juste des faux positifs récurrents
+    # (l'agent s'en servait légitimement pour inspecter du JSON). Ne pas réajouter.
     # Fuite de variables d'environnement (tokens, clés API)
     "printenv",
     # Outils réseau offensifs
