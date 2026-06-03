@@ -14,7 +14,6 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-
 from scripts.distill_book import _repair
 
 ROOT = Path(__file__).resolve().parents[1]

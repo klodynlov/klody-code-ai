@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -37,6 +38,8 @@ SCHEMA_PATH = ROOT / "skills" / "distilled" / "schema.json"
 DISTILLED_DIR = ROOT / "skills" / "distilled"
 
 PROXY_URL = "http://127.0.0.1:8081/v1/chat/completions"
+# LibraryBrain (métadonnées livres) — même variable/défaut que config.LIBRARYBRAIN_URL.
+LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 DEFAULT_TIMEOUT = 600.0   # le thinking + RAG + génération peuvent prendre du temps
 DEFAULT_MAX_TOKENS = 8192
 # Modèle MLX par défaut (cerveau). Override possible via --model si besoin.
@@ -171,9 +174,115 @@ def _repair(data: dict, schema: dict) -> dict:
     return data
 
 
+def _norm_title(text: str) -> str:
+    """Titre normalisé pour comparaison : minuscule, ASCII, ponctuation → espaces."""
+    ascii_text = (
+        unicodedata.normalize("NFKD", text)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text).strip()
+
+
+# Mots vides ignorés pour comparer des titres (EN + FR).
+_TITLE_STOPWORDS = frozenset({
+    "a", "an", "the", "of", "to", "in", "on", "for", "and", "or", "with",
+    "de", "des", "du", "la", "le", "les", "un", "une", "et",
+})
+
+
+def _title_words(text: str) -> set[str]:
+    """Mots significatifs d'un titre (normalisés, sans mots vides ni mono-lettres)."""
+    return {w for w in _norm_title(text).split() if len(w) > 1 and w not in _TITLE_STOPWORDS}
+
+
+def _title_overlap(requested: str, candidate: str) -> float:
+    """Coefficient de recouvrement (Szymkiewicz–Simpson) sur les mots significatifs :
+    |∩| / min(|req|, |cand|). Robuste aux sous-titres : si un titre est sous-ensemble
+    de l'autre → 1.0 (ex. « Method Validation… » vs « Method Validation… - A Guide »).
+    Renvoie 0.0 si l'un des deux n'a aucun mot significatif.
+    """
+    req = _title_words(requested)
+    cand = _title_words(candidate)
+    if not req or not cand:
+        return 0.0
+    return len(req & cand) / min(len(req), len(cand))
+
+
+def _pick_source_from_sources(title: str, sources: list[dict]) -> dict | None:
+    """Parmi les sources LibraryBrain ({title, author, …}), choisit le livre dont
+    le titre recouvre le mieux `title` et renvoie {book, author} ancrés.
+
+    Conservateur : exige un recouvrement ≥ 0.6, au moins 2 mots significatifs en
+    commun, ET un auteur non vide — sinon None (le livre trouvé n'est probablement
+    pas celui demandé → on ne réécrit pas la source à l'aveugle).
+    """
+    req_words = _title_words(title)
+    best: dict | None = None
+    best_overlap = 0.0
+    for s in sources:
+        cand_title = (s.get("title") or "").strip()
+        author = (s.get("author") or "").strip()
+        if not cand_title or not author:
+            continue
+        cand_words = _title_words(cand_title)
+        if not req_words or not cand_words:
+            continue
+        shared = len(req_words & cand_words)
+        if shared < 2:
+            continue
+        overlap = shared / min(len(req_words), len(cand_words))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best = {"book": cand_title, "author": author}
+    return best if best is not None and best_overlap >= 0.6 else None
+
+
+def _resolve_source(title: str, *, timeout: float = 8.0) -> dict | None:
+    """Interroge LibraryBrain pour ancrer {book, author} sur des métadonnées
+    réelles plutôt que sur ce que le modèle a inventé (il hallucine souvent
+    l'auteur quand l'utilisateur n'en fournit pas).
+
+    Renvoie None — et on garde la valeur du modèle — si LibraryBrain est
+    injoignable, ne trouve rien, ou ne matche pas franchement le titre.
+    """
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(LIBRARYBRAIN_URL, json={"query": title, "limit": 5})
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # injoignable, HTTP error, JSON invalide…
+        logger.warning("LibraryBrain injoignable pour l'ancrage auteur ({}) — valeur du modèle conservée", exc)
+        return None
+    if not data.get("found"):
+        logger.info("LibraryBrain n'a pas trouvé « {} » — auteur du modèle conservé", title)
+        return None
+    return _pick_source_from_sources(title, data.get("sources", []))
+
+
+def _apply_grounded_source(data: dict, grounded: dict | None) -> dict:
+    """Réécrit source.book/author avec les valeurs ancrées (LibraryBrain).
+
+    No-op si `grounded` est None. Préserve source.year (LibraryBrain ne l'expose
+    pas). Loggue le remplacement quand l'auteur du modèle différait — c'est là
+    qu'on attrape l'hallucination.
+    """
+    if not grounded:
+        return data
+    src = data.setdefault("source", {})
+    old_author = src.get("author")
+    if old_author and old_author != grounded["author"]:
+        logger.warning("auteur ancré sur LibraryBrain : « {} » → « {} »", old_author, grounded["author"])
+    src["book"] = grounded["book"]
+    src["author"] = grounded["author"]
+    return data
+
+
 def distill(*, title: str, author: str, year: int | None, domain: str,
             dry_run: bool = False, max_tokens: int = DEFAULT_MAX_TOKENS,
-            timeout: float = DEFAULT_TIMEOUT, model: str = DEFAULT_MODEL) -> int:
+            timeout: float = DEFAULT_TIMEOUT, model: str = DEFAULT_MODEL,
+            ground_source: bool = True) -> int:
     template = PROMPT_PATH.read_text(encoding="utf-8")
     prompt = _build_prompt(template, title=title, author=author, year=year, domain=domain)
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -213,6 +322,13 @@ def distill(*, title: str, author: str, year: int | None, domain: str,
         return 2
 
     data = _repair(data, schema)
+
+    # Ancrage de la source sur LibraryBrain : remplace l'auteur (souvent halluciné
+    # par le modèle, surtout quand l'utilisateur n'a pas fourni de --author fiable)
+    # par la métadonnée réelle du livre. Sans effet si désactivé, ou si LibraryBrain
+    # est injoignable / ne confirme pas le titre (on garde alors la valeur du modèle).
+    if ground_source:
+        data = _apply_grounded_source(data, _resolve_source(title))
 
     # Validation schéma
     try:
@@ -255,12 +371,14 @@ def main() -> int:
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--model",   default=DEFAULT_MODEL)
+    parser.add_argument("--no-ground-source", action="store_false", dest="ground_source",
+                        help="ne pas ancrer source.author sur LibraryBrain (garde --author tel quel)")
     args = parser.parse_args()
 
     return distill(
         title=args.title, author=args.author, year=args.year, domain=args.domain,
         dry_run=args.dry_run, max_tokens=args.max_tokens, timeout=args.timeout,
-        model=args.model,
+        model=args.model, ground_source=args.ground_source,
     )
 
 
