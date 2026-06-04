@@ -59,6 +59,15 @@
       "body_required": false
     }
   },
+  "/api/files/{name}": {
+    "GET": {
+      "params": [
+        "name"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/api/sessions/{session_id}": {
     "DELETE": {
       "params": [

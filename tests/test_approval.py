@@ -17,6 +17,13 @@ def test_side_effect_tools_require_approval():
         assert requires_approval(name), f"devrait être gardé : {name}"
 
 
+def test_generate_excel_n_est_pas_garde():
+    # Choix produit : l'Excel est confiné à _downloads/ (nom basenamé, jamais
+    # d'écrasement d'un fichier projet) et l'utilisateur l'a explicitement
+    # demandé → pas d'approbation. Cf. agent/approval.py.
+    assert not requires_approval("generate_excel")
+
+
 def test_read_only_tools_pass():
     for name in [
         "read_file", "list_files", "search_in_files", "find_symbol",

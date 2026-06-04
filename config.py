@@ -170,8 +170,13 @@ LOG_DIR: Path = _ROOT / "logs"
 LOG_FILE: Path = LOG_DIR / "agent.log"
 MEMORY_DIR: Path = LOG_DIR
 SKILLS_DIR: Path = _ROOT / "skills"
+# Artefacts générés téléchargeables (Excel, etc.), servis par l'API sur
+# /api/files/<nom>. Dossier dédié et gitignoré : on n'y sert QUE des fichiers
+# produits par les outils, jamais des fichiers du projet.
+DOWNLOADS_DIR: Path = Path(os.getenv("DOWNLOADS_DIR", str(_ROOT / "_downloads"))).resolve()
 
 LOG_DIR.mkdir(exist_ok=True)
+DOWNLOADS_DIR.mkdir(exist_ok=True)
 
 # --- Logging : fichier uniquement, ne pas polluer le terminal Rich ---
 logging.basicConfig(
