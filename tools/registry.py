@@ -1022,6 +1022,78 @@ DOCUMENT_TOOLS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_text_file",
+            "description": (
+                "Génère un fichier TEXTE ou CODE téléchargeable par l'utilisateur "
+                "(.txt, .md, .csv, .json, .xml, .html, .css, .js, .ts, .tsx, .jsx, "
+                ".py, .php, .sql, .yaml, .rtf…). Utilise cet outil dès qu'on te demande "
+                "de « générer » ou « télécharger » un fichier de ce type. Passe le "
+                "CONTENU complet en texte — n'écris pas de code pour le construire. "
+                "L'extension est déduite du nom (ramenée à .txt si inconnue). Renvoie une "
+                "URL de téléchargement (un bouton apparaît dans l'UI). Pour PLUSIEURS "
+                "fichiers d'un coup (mini-projet, dossier), utilise plutôt bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nom du fichier avec extension (ex: 'notes.md', 'app.py', 'data.csv').",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu texte intégral du fichier.",
+                    },
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bundle_zip",
+            "description": (
+                "Regroupe plusieurs fichiers texte/code dans une archive .zip "
+                "téléchargeable. Idéal pour livrer un mini-projet ou un dossier complet "
+                "(ex: une app React / Next.js / Symfony) en un seul téléchargement. "
+                "Fournis la liste des fichiers avec leur chemin relatif et leur contenu ; "
+                "les sous-dossiers sont conservés (ex: 'src/App.tsx'). Renvoie une URL de "
+                "téléchargement (un bouton apparaît dans l'UI)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nom de l'archive (ex: 'mon-projet.zip'). L'extension .zip est forcée.",
+                    },
+                    "files": {
+                        "type": "array",
+                        "description": "Fichiers à archiver (au moins un).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Chemin relatif dans l'archive (ex: 'src/App.tsx', 'README.md').",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Contenu texte du fichier.",
+                                },
+                            },
+                            "required": ["name", "content"],
+                        },
+                    },
+                },
+                "required": ["filename", "files"],
+            },
+        },
+    },
 ]
 
 TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS]

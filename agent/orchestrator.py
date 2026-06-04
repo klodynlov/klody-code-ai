@@ -912,6 +912,8 @@ class Orchestrator:
             "stop_preview_server": lambda a: pv_stop_server(),
             # Documents téléchargeables
             "generate_excel": self._tool_generate_excel,
+            "generate_text_file": self._tool_generate_text_file,
+            "bundle_zip": self._tool_bundle_zip,
         }
         # Audio : 6 outils, même handler paramétré par le nom (n=_name fige la
         # valeur de boucle dans le défaut → pas de closure tardive).
@@ -955,25 +957,45 @@ class Orchestrator:
         fn = getattr(_audio, name)
         return json.dumps(fn(**a), ensure_ascii=False, indent=2)
 
-    def _tool_generate_excel(self, a: dict) -> str:
-        """Génère un .xlsx téléchargeable et surface un bouton de download côté UI.
+    def _emit_file_ready(self, result: dict, kind: str) -> None:
+        """Surface un bouton de téléchargement côté UI pour un artefact généré.
 
         L'event `file_ready` n'est émis que dans le contexte API/WS (où `_emit`
         est injecté par _build_streaming_orchestrator) ; en CLI/tests il est
         simplement absent et l'URL reste dans le résultat JSON renvoyé au LLM.
         """
+        if result.get("status") != "ok":
+            return
+        emit = getattr(self, "_emit", None)
+        if emit is not None:
+            emit({
+                "type": "file_ready",
+                "filename": result["filename"],
+                "download_url": result["download_url"],
+                "size": result.get("size", 0),
+                "kind": kind,
+            })
+
+    def _tool_generate_excel(self, a: dict) -> str:
+        """Génère un classeur .xlsx téléchargeable."""
         from tools.excel import generate_excel
         result = generate_excel(a.get("filename", "export.xlsx"), a.get("sheets"))
-        if result.get("status") == "ok":
-            emit = getattr(self, "_emit", None)
-            if emit is not None:
-                emit({
-                    "type": "file_ready",
-                    "filename": result["filename"],
-                    "download_url": result["download_url"],
-                    "size": result.get("size", 0),
-                    "kind": "xlsx",
-                })
+        self._emit_file_ready(result, "xlsx")
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _tool_generate_text_file(self, a: dict) -> str:
+        """Génère un fichier texte/code (.txt, .md, .py, .csv…) téléchargeable."""
+        from tools.documents import generate_text_file
+        result = generate_text_file(a.get("filename", "document.txt"), a.get("content", ""))
+        kind = Path(result.get("filename", "")).suffix.lstrip(".").lower() or "txt"
+        self._emit_file_ready(result, kind)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _tool_bundle_zip(self, a: dict) -> str:
+        """Regroupe plusieurs fichiers dans une archive .zip téléchargeable."""
+        from tools.archive import bundle_zip
+        result = bundle_zip(a.get("filename", "archive.zip"), a.get("files"))
+        self._emit_file_ready(result, "zip")
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     def _tool_await_distillation(self, a: dict) -> str:
