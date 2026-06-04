@@ -107,6 +107,15 @@ def test_extension_forcee(downloads):
     assert generate_excel("rapport", [{"rows": [["x"]]}])["filename"] == "rapport.xlsx"
 
 
+def test_nom_accentue_preserve(downloads):
+    # Appli FR : les lettres accentuées ne doivent pas être remplacées par des « _ ».
+    res = generate_excel("résumé février.xlsx", [{"rows": [["x"]]}])
+    assert res["status"] == "ok"
+    assert res["filename"] == "résumé février.xlsx"
+    assert res["download_url"] == "/api/files/résumé février.xlsx"
+    assert Path(res["path"]).exists()
+
+
 def test_anti_traversee_de_chemin(downloads):
     res = generate_excel("../../../etc/passwd.xlsx", [{"rows": [["x"]]}])
     assert res["status"] == "ok"

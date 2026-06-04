@@ -34,8 +34,12 @@ _MAX_ROWS = 100_000
 _MAX_COLS = 1_000
 _MAX_COL_WIDTH = 60
 
-# Caractères interdits dans un nom de fichier → on n'en garde qu'un sous-ensemble sûr.
-_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._ -]+")
+# Caractères interdits dans un nom de fichier → on n'en garde qu'un sous-ensemble
+# sûr. `\w` (mode Unicode par défaut) garde les lettres accentuées : appli FR, on
+# ne veut pas mutiler « résumé.xlsx » en « r_sum_.xlsx ». La protection
+# anti-traversée ne repose PAS sur cette regex (cosmétique) mais sur
+# `Path(...).name` + `resolve()` + vérif du dossier parent dans `generate_excel`.
+_UNSAFE_NAME = re.compile(r"[^\w.\- ]+")
 # Caractères interdits par Excel dans un titre d'onglet.
 _UNSAFE_SHEET = re.compile(r"[\[\]:*?/\\]")
 
