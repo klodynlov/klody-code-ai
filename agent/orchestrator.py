@@ -1317,10 +1317,36 @@ class Orchestrator:
                         "timestamp": None,
                     })
                     continue
+                # Budget épuisé sans auto-continue (tâche non-actionable type
+                # `explain`, ou extensions épuisées) : NE PAS break-er en silence.
+                # Sinon l'utilisateur ne voit plus rien après le dernier tool result
+                # et DOIT relancer pour obtenir une réponse (symptôme « il s'arrête,
+                # je suis obligé de le relancer »). On FORCE une réponse finale : un
+                # appel LLM SANS outils, qui oblige le modèle à conclure avec ce qu'il
+                # a déjà au lieu de retenter un tool. Même stream_chat → streamé à l'UI.
                 console.print(
-                    f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}).[/yellow]"
+                    f"\n[yellow]  ⚠  Limite d'itérations atteinte ({max_iter}) — "
+                    f"synthèse de la réponse finale.[/yellow]"
                 )
-                logger.warning("Limite d'itérations: %d", max_iter)
+                logger.warning("Limite d'itérations: %d → réponse finale forcée", max_iter)
+                self.memory.messages.append({
+                    "role": "user",
+                    "content": (
+                        "Tu as atteint la limite d'outils pour ce tour. N'appelle plus "
+                        "aucun outil : rédige maintenant ta réponse finale à l'utilisateur "
+                        "à partir de ce que tu as déjà recueilli. Si tu n'as pas trouvé ce "
+                        "qui était demandé, dis-le clairement et donne la meilleure réponse "
+                        "possible avec tes connaissances."
+                    ),
+                    "timestamp": None,
+                })
+                final_content, _ = self.llm.stream_chat(
+                    self.memory.get_messages_for_api(), tools=None,
+                )
+                if final_content:
+                    self.memory.add_message("assistant", final_content)
+                else:
+                    logger.warning("Réponse finale forcée vide (cap %d)", max_iter)
                 break
 
             if iteration > 0:

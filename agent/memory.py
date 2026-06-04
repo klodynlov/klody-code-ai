@@ -11,10 +11,17 @@ from agent.dbc import invariant
 
 logger = logging.getLogger(__name__)
 
-# Budget de contexte : on garde ~20 % de marge sous la fenêtre du modèle pour
-# la réponse en cours. CONTEXT_WINDOW est lu en direct (réglable à chaud via
-# GET/POST /api/config), d'où la lecture via le module `config`.
-_CONTEXT_BUDGET_RATIO = 0.8
+# Budget de contexte des MESSAGES = CONTEXT_WINDOW − réserve outils − réserve
+# réponse. Le prompt réel envoyé au modèle inclut, EN PLUS des messages, les
+# schémas d'outils (~8k, passés hors `messages`) et doit laisser de quoi générer
+# la réponse. Borner les messages sur CONTEXT_WINDOW seul (ancien ratio 0.8)
+# ignorait ces deux postes → la fenêtre se saturait (jauge ~32k/32.8k) et la
+# génération n'avait plus de place. Lu via `config` car réglable à chaud.
+def _message_budget() -> int:
+    return max(
+        2048,
+        config.CONTEXT_WINDOW - config.CONTEXT_TOOLS_RESERVE - config.CONTEXT_RESPONSE_RESERVE,
+    )
 
 
 class ConversationMemory:
@@ -50,6 +57,10 @@ class ConversationMemory:
             "tool_calls": tool_calls,
             "timestamp": datetime.now().isoformat(),
         })
+        # Une boucle ReAct enchaîne jusqu'à MAX_ITERATIONS tours d'outils SANS
+        # repasser par add_message : sans borne ici, le contexte gonfle librement
+        # pendant un seul tour utilisateur (cf. session molécule 3D saturée).
+        self._apply_sliding_window()
         self.save()
 
     def add_tool_result(self, tool_call_id: str, name: str, content: str) -> None:
@@ -61,6 +72,7 @@ class ConversationMemory:
             "content": content,
             "timestamp": datetime.now().isoformat(),
         })
+        self._apply_sliding_window()
         self.save()
 
     # ------------------------------------------------------------------ #
@@ -173,21 +185,32 @@ class ConversationMemory:
            sature selon la TAILLE, pas le nombre de messages : un seul gros
            dump d'outil peut suffire. On garde toujours ≥1 groupe (le tour
            courant doit passer même s'il est volumineux).
+
+        Appelé sur CHAQUE ajout, y compris les tool calls/results intermédiaires
+        d'un tour ReAct. Contrat exprimé en relatif (« ne CRÉE pas d'orphelin »)
+        plutôt qu'en absolu : un message tool peut être ajouté avant son call
+        (entrée malformée, séquence en cours de construction) ; le rognage ne doit
+        pas faire échouer la génération sur cet état transitoire — il doit juste
+        ne jamais aggraver les choses.
         """
+        orphans_before = len(self._orphan_tool_results())
+
         while self._count_non_system() > config.MAX_MESSAGES:
             if not self._pop_oldest_group():
                 break
 
-        budget = int(config.CONTEXT_WINDOW * _CONTEXT_BUDGET_RATIO)
+        budget = _message_budget()
         while self._total_estimated_tokens() > budget and self._count_non_system() > 1:
             if not self._pop_oldest_group():
                 break
 
-        # Invariant de sortie : la fenêtre glissante n'orpheline jamais un
-        # tool result (suppression par groupes assistant+tools cohérents).
+        # Invariant de sortie : le rognage (par groupes assistant+tools cohérents)
+        # ne crée jamais de NOUVEL orphelin. Détecte une régression de
+        # _pop_oldest_group (call retiré sans ses results) sans planter sur un
+        # orphelin préexistant.
         invariant(
-            not self._orphan_tool_results(),
-            "la fenêtre glissante ne doit jamais orphaner un tool result",
+            len(self._orphan_tool_results()) <= orphans_before,
+            "la fenêtre glissante ne doit jamais créer de tool result orphelin",
         )
 
     def _count_non_system(self) -> int:

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from agent.memory import ConversationMemory
+from agent.memory import ConversationMemory, _message_budget
 
 
 @pytest.fixture
@@ -62,19 +62,21 @@ class TestAddMessage:
 class TestTokenBudget:
     def test_gros_messages_declenchent_le_trim_tokens(self, mem, monkeypatch):
         """Même SOUS le plafond de messages, un contexte volumineux est rogné
-        pour rester sous CONTEXT_WINDOW * ratio (messages < budget → converge)."""
+        pour rester sous le budget messages (= CW − réserves outils/réponse)."""
         import config
 
         # MAX_MESSAGES large (le trim par nombre ne doit pas intervenir) ;
-        # fenêtre réduite → c'est le budget de tokens qui tranche.
+        # fenêtre + réserves réduites → c'est le budget de tokens qui tranche.
         monkeypatch.setattr("config.MAX_MESSAGES", 1000)
-        monkeypatch.setattr(config, "CONTEXT_WINDOW", 2000)  # budget = 1600 tokens
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 6000)
+        monkeypatch.setattr(config, "CONTEXT_TOOLS_RESERVE", 2000)
+        monkeypatch.setattr(config, "CONTEXT_RESPONSE_RESERVE", 1000)  # budget = 3000 tokens
         msg = "x" * 1000  # ~255 tokens chacun, < budget
-        for _ in range(20):  # ~5100 tokens au total → doit être rogné
+        for _ in range(30):  # ~7650 tokens au total → doit être rogné
             mem.add_message("user", msg)
-        budget = int(config.CONTEXT_WINDOW * 0.8)
+        budget = _message_budget()
         assert mem._total_estimated_tokens() <= budget
-        assert 1 <= mem._count_non_system() < 20  # rognage effectif
+        assert 1 <= mem._count_non_system() < 30  # rognage effectif
 
     def test_dernier_groupe_toujours_conserve(self, mem, monkeypatch):
         """Un unique message plus gros que le budget n'est PAS supprimé."""
@@ -100,6 +102,58 @@ class TestTokenBudget:
             mem.add_tool_result(cid, "read_file", big)
             mem.add_message("user", "suite")  # déclenche _apply_sliding_window
         assert mem._orphan_tool_results() == []
+
+    def test_tour_react_outils_seuls_est_rogne(self, mem, monkeypatch):
+        """Régression : un tour ReAct enchaîne add_tool_call_message /
+        add_tool_result (jusqu'à MAX_ITERATIONS fois) SANS repasser par
+        add_message. Avant le fix ces deux méthodes ne rognaient pas → le
+        contexte gonflait sans borne sur un seul tour (session molécule 3D
+        saturée à 32k/32.8k). Désormais elles appliquent aussi la fenêtre."""
+        import config
+
+        monkeypatch.setattr("config.MAX_MESSAGES", 1000)
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 6000)
+        monkeypatch.setattr(config, "CONTEXT_TOOLS_RESERVE", 2000)
+        monkeypatch.setattr(config, "CONTEXT_RESPONSE_RESERVE", 1000)  # budget = 3000
+        big = "d" * 4000  # ~1004 tokens par result
+        for i in range(15):  # ~15k tokens de tool results seuls → doit rogner
+            cid = f"c{i}"
+            mem.add_tool_call_message([{
+                "id": cid, "type": "function",
+                "function": {"name": "run_in_sandbox", "arguments": "{}"},
+            }])
+            mem.add_tool_result(cid, "run_in_sandbox", big)
+        assert mem._total_estimated_tokens() <= _message_budget()
+        assert mem._orphan_tool_results() == []
+
+
+class TestContextBudgetReserves:
+    """Le budget messages doit réserver la place du prompt RÉEL = messages +
+    schémas d'outils (envoyés hors `messages`) + génération de la réponse.
+    Borner sur CONTEXT_WINDOW seul saturait la fenêtre (jauge ~32k/32.8k) et
+    ne laissait plus de place pour répondre → génération bloquée."""
+
+    def test_prompt_reel_tient_sous_la_fenetre(self, monkeypatch):
+        import config
+
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 32768)
+        monkeypatch.setattr(config, "CONTEXT_TOOLS_RESERVE", 8192)
+        monkeypatch.setattr(config, "CONTEXT_RESPONSE_RESERVE", 4096)
+        budget = _message_budget()
+        # messages (au max du budget) + schémas d'outils ⩽ fenêtre du modèle,
+        # avec assez de marge restante pour générer la réponse.
+        prompt_reel_max = budget + config.CONTEXT_TOOLS_RESERVE
+        assert prompt_reel_max <= config.CONTEXT_WINDOW
+        assert config.CONTEXT_WINDOW - prompt_reel_max >= config.CONTEXT_RESPONSE_RESERVE
+
+    def test_plancher_budget(self, monkeypatch):
+        """Réserves > fenêtre → budget plancher (jamais négatif ni nul)."""
+        import config
+
+        monkeypatch.setattr(config, "CONTEXT_WINDOW", 4000)
+        monkeypatch.setattr(config, "CONTEXT_TOOLS_RESERVE", 8192)
+        monkeypatch.setattr(config, "CONTEXT_RESPONSE_RESERVE", 4096)
+        assert _message_budget() >= 2048
 
 
 # ------------------------------------------------------------------ #

@@ -1,6 +1,6 @@
 {
   "name": "max_iterations_cap",
-  "description": "Le LLM appelle un tool en boucle (read_file→read_file→read_file…). L'orchestrator doit arrêter à max_iter=3 sans crasher.",
+  "description": "Le LLM appelle un tool en boucle (read_file→read_file→read_file…) sur une tâche `explain`. À max_iter=3 l'orchestrator NE doit PAS s'arrêter en silence (symptôme « il s'arrête, je dois le relancer ») : il force une réponse finale via un appel LLM SANS outils, qui doit être streamée et persistée.",
   "user_prompt": "Lis pi.txt jusqu'à comprendre.",
   "seed_files": {
     "pi.txt": "3.14159265358979\n"
@@ -40,12 +40,16 @@
           "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}
         }
       ]
+    },
+    {
+      "content": "D'après pi.txt, π commence par 3.14159265358979."
     }
   ],
   "expectations": {
-    "min_llm_calls": 3,
-    "max_llm_calls": 3,
-    "tool_calls_invoked": ["read_file", "read_file", "read_file"]
+    "min_llm_calls": 4,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["read_file", "read_file", "read_file"],
+    "final_content_contains": ["3.14159265358979"]
   },
   "max_iterations": 3
 }
