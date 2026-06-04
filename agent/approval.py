@@ -26,6 +26,10 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     # Production d'artefacts audio sur le disque
     "edit_wav", "mix_stems", "generate_silence", "convert_format",
 })
+# NB : generate_excel / generate_text_file / bundle_zip ne sont PAS gardés — leurs
+# artefacts sont confinés à DOWNLOADS_DIR (nom basenamé, aucune écriture possible
+# hors de ce dossier) et l'utilisateur les a explicitement demandés. Les garde-fous
+# anti-traversée vivent dans tools/excel.py, tools/documents.py et tools/archive.py.
 
 # Outils MCP : on classe par le VERBE DE TÊTE du nom (mcp__serveur__verbe_objet).
 # C'est plus fiable qu'une recherche de sous-chaîne : « list_labels » (lecture)

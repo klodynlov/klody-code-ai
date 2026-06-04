@@ -50,6 +50,9 @@ logs/distill/
 _preview/
 preview/
 
+# Artefacts générés téléchargeables (Excel, etc.)
+_downloads/
+
 # Bench results (locaux, gros JSON)
 bench/results/*.json
 bench/results/*.md

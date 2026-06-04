@@ -236,6 +236,32 @@ async def export_session(session_id: str):
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+@app.get("/api/files/{name}")
+async def download_file(name: str):
+    """Sert un artefact généré (Excel, texte, zip…) depuis config.DOWNLOADS_DIR.
+
+    Anti-traversée : le chemin servi n'est JAMAIS construit à partir de l'entrée.
+    On réduit `name` à un basename, puis on cherche une correspondance EXACTE
+    parmi les fichiers réellement présents dans le dossier de téléchargements ; le
+    `Path` passé à FileResponse provient donc de `iterdir()` (de confiance), pas
+    de l'utilisateur. Renvoie le binaire en pièce jointe (téléchargement direct).
+    """
+    from fastapi.responses import FileResponse, PlainTextResponse
+    requested = Path(name).name
+    base = config.DOWNLOADS_DIR.resolve()
+    match = next(
+        (p for p in base.iterdir() if p.is_file() and p.name == requested),
+        None,
+    ) if base.is_dir() else None
+    if match is None:
+        return PlainTextResponse("Fichier introuvable", status_code=404)
+    media = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if match.suffix.lower() == ".xlsx" else "application/octet-stream"
+    )
+    return FileResponse(match, filename=match.name, media_type=media)
+
+
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Supprime définitivement le fichier de session."""

@@ -969,7 +969,134 @@ AUDIO_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS]
+DOCUMENT_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_excel",
+            "description": (
+                "Génère un classeur Excel (.xlsx) téléchargeable par l'utilisateur. "
+                "Utilise cet outil dès qu'on te demande un fichier Excel, un tableur, "
+                "un export en .xlsx ou « télécharge-moi un Excel ». Fournis les données "
+                "structurées en feuilles (onglets) : chaque feuille a des en-têtes de "
+                "colonnes et des lignes. NE produis PAS le binaire toi-même et n'écris "
+                "pas de code Python — passe les données, l'outil construit le fichier et "
+                "renvoie une URL de téléchargement (un bouton apparaît dans l'UI)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nom du fichier (ex: 'ventes_2026.xlsx'). L'extension .xlsx est forcée.",
+                    },
+                    "sheets": {
+                        "type": "array",
+                        "description": "Feuilles du classeur (au moins une).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Nom de l'onglet (ex: 'Ventes'). Défaut: Feuille1, 2…",
+                                },
+                                "columns": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "En-têtes de colonnes (ligne 1, mise en gras + figée).",
+                                },
+                                "rows": {
+                                    "type": "array",
+                                    "items": {"type": "array"},
+                                    "description": (
+                                        "Lignes de données : une liste de valeurs par ligne, "
+                                        "alignées sur 'columns'."
+                                    ),
+                                },
+                            },
+                            "required": ["rows"],
+                        },
+                    },
+                },
+                "required": ["filename", "sheets"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_text_file",
+            "description": (
+                "Génère un fichier TEXTE ou CODE téléchargeable par l'utilisateur "
+                "(.txt, .md, .csv, .json, .xml, .html, .css, .js, .ts, .tsx, .jsx, "
+                ".py, .php, .sql, .yaml, .rtf…). Utilise cet outil dès qu'on te demande "
+                "de « générer » ou « télécharger » un fichier de ce type. Passe le "
+                "CONTENU complet en texte — n'écris pas de code pour le construire. "
+                "L'extension est déduite du nom (ramenée à .txt si inconnue). Renvoie une "
+                "URL de téléchargement (un bouton apparaît dans l'UI). Pour PLUSIEURS "
+                "fichiers d'un coup (mini-projet, dossier), utilise plutôt bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nom du fichier avec extension (ex: 'notes.md', 'app.py', 'data.csv').",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu texte intégral du fichier.",
+                    },
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bundle_zip",
+            "description": (
+                "Regroupe plusieurs fichiers texte/code dans une archive .zip "
+                "téléchargeable. Idéal pour livrer un mini-projet ou un dossier complet "
+                "(ex: une app React / Next.js / Symfony) en un seul téléchargement. "
+                "Fournis la liste des fichiers avec leur chemin relatif et leur contenu ; "
+                "les sous-dossiers sont conservés (ex: 'src/App.tsx'). Renvoie une URL de "
+                "téléchargement (un bouton apparaît dans l'UI)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Nom de l'archive (ex: 'mon-projet.zip'). L'extension .zip est forcée.",
+                    },
+                    "files": {
+                        "type": "array",
+                        "description": "Fichiers à archiver (au moins un).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": "Chemin relatif dans l'archive (ex: 'src/App.tsx', 'README.md').",
+                                },
+                                "content": {
+                                    "type": "string",
+                                    "description": "Contenu texte du fichier.",
+                                },
+                            },
+                            "required": ["name", "content"],
+                        },
+                    },
+                },
+                "required": ["filename", "files"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS]
 
 
 def get_tools() -> list[dict]:
