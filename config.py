@@ -53,6 +53,14 @@ MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 25))
 MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 # Fenêtre de contexte du modèle (tokens) — sert à la jauge de contexte de l'UI.
 CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", 32768))
+# Réserves soustraites de CONTEXT_WINDOW pour borner la fenêtre glissante des
+# messages. Le prompt RÉEL envoyé au modèle = system + messages + SCHÉMAS D'OUTILS
+# (passés à part, ~8k pour 38 outils internes + MCP) ; il faut EN PLUS laisser de
+# quoi GÉNÉRER la réponse (max_tokens). Sans ces réserves, un long échange sature
+# la fenêtre (jauge ~32k/32.8k) → plus de place pour répondre → génération vide/
+# bloquée et WS qui lâche. budget_messages = CONTEXT_WINDOW − TOOLS − RESPONSE.
+CONTEXT_TOOLS_RESERVE: int = int(os.getenv("CONTEXT_TOOLS_RESERVE", 8192))
+CONTEXT_RESPONSE_RESERVE: int = int(os.getenv("CONTEXT_RESPONSE_RESERVE", 4096))
 SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 
 # --- Sandbox (Roadmap v2 #3) ---
