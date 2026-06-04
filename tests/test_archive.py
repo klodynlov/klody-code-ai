@@ -6,11 +6,9 @@ montage que tests/test_excel.py.
 import io
 import json
 import zipfile
-from pathlib import Path
 
 import pytest
 
-import tools.archive as archive
 from tools.archive import bundle_zip
 from tools.registry import get_tool_names
 
@@ -19,7 +17,7 @@ from tools.registry import get_tool_names
 def downloads(tmp_path, monkeypatch):
     d = tmp_path / "_downloads"
     d.mkdir()
-    monkeypatch.setattr(archive, "DOWNLOADS_DIR", d)
+    monkeypatch.setattr("tools.archive.DOWNLOADS_DIR", d)
     monkeypatch.setattr("config.DOWNLOADS_DIR", d)
     return d
 
@@ -106,7 +104,7 @@ def test_entrees_non_dict_ignorees(downloads):
 
 
 def test_taille_max_nettoie(downloads, monkeypatch):
-    monkeypatch.setattr(archive, "_MAX_TOTAL_BYTES", 10)
+    monkeypatch.setattr("tools.archive._MAX_TOTAL_BYTES", 10)
     res = bundle_zip("big.zip", [{"name": "a.txt", "content": "x" * 50}])
     assert "error" in res
     assert not (downloads / "big.zip").exists()   # fichier partiel nettoyé

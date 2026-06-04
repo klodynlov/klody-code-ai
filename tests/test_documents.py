@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-import tools.documents as documents
 from tools.documents import generate_text_file
 from tools.registry import get_tool_names
 
@@ -17,7 +16,7 @@ from tools.registry import get_tool_names
 def downloads(tmp_path, monkeypatch):
     d = tmp_path / "_downloads"
     d.mkdir()
-    monkeypatch.setattr(documents, "DOWNLOADS_DIR", d)
+    monkeypatch.setattr("tools.documents.DOWNLOADS_DIR", d)
     monkeypatch.setattr("config.DOWNLOADS_DIR", d)
     return d
 
@@ -87,7 +86,7 @@ def test_anti_traversee(downloads):
 
 
 def test_contenu_trop_volumineux(downloads, monkeypatch):
-    monkeypatch.setattr(documents, "_MAX_BYTES", 10)
+    monkeypatch.setattr("tools.documents._MAX_BYTES", 10)
     assert "error" in generate_text_file("big.txt", "x" * 50)
 
 

@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-import tools.excel as excel
 from tools.excel import generate_excel
 from tools.registry import get_tool_names
 
@@ -21,7 +20,7 @@ openpyxl = pytest.importorskip("openpyxl")
 def downloads(tmp_path, monkeypatch):
     d = tmp_path / "_downloads"
     d.mkdir()
-    monkeypatch.setattr(excel, "DOWNLOADS_DIR", d)
+    monkeypatch.setattr("tools.excel.DOWNLOADS_DIR", d)
     monkeypatch.setattr("config.DOWNLOADS_DIR", d)
     return d
 
@@ -149,7 +148,7 @@ def test_sans_donnees_renvoie_erreur(downloads):
 
 
 def test_openpyxl_absent_degrade_proprement(downloads, monkeypatch):
-    monkeypatch.setattr(excel, "HAS_OPENPYXL", False)
+    monkeypatch.setattr("tools.excel.HAS_OPENPYXL", False)
     assert "openpyxl" in generate_excel("x.xlsx", [{"rows": [["a"]]}])["error"]
 
 
