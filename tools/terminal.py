@@ -161,6 +161,16 @@ class Terminal:
             logger.info("Commande refusée par l'utilisateur: %s", command)
             return "Commande refusée par l'utilisateur."
 
+        # Commande détachée (se termine par un `&` isolé, pas `&&`) : la lancer
+        # SANS capturer ses pipes. Sinon le process serveur backgroundé hérite
+        # des descripteurs de capture et subprocess.run bloque jusqu'au timeout
+        # en attendant un EOF qui n'arrive jamais (cf. sessions : lancement du
+        # proxy RAG `… &` → Timeout 30s systématique, Klody ne pouvait jamais
+        # démarrer un service en arrière-plan).
+        stripped = command.rstrip()
+        if stripped.endswith("&") and not stripped.endswith("&&"):
+            return self._run_detached(command)
+
         logger.info("Exécution: %s", command)
 
         try:
@@ -199,3 +209,30 @@ class Terminal:
         except Exception as e:
             logger.error("Erreur subprocess '%s': %s", command, e)
             return f"ERREUR: {e}"
+
+    def _run_detached(self, command: str) -> str:
+        """Lance une commande backgroundée (`… &`) détachée, sans bloquer.
+
+        Pipes branchés sur /dev/null (la redirection éventuelle de la commande,
+        ex. `> log 2>&1`, reste appliquée par le shell), nouvelle session
+        (start_new_session) pour survivre à la fin du tour. On ne wait/communicate
+        PAS : la fonction rend la main immédiatement."""
+        try:
+            proc = subprocess.Popen(  # nosec B602
+                command,
+                shell=True,
+                cwd=self.cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as e:
+            logger.error("Erreur lancement détaché '%s': %s", command, e)
+            return f"ERREUR: {e}"
+        logger.info("Lancé en arrière-plan (PID %d): %s", proc.pid, command)
+        return (
+            f"Lancé en arrière-plan (PID {proc.pid}). La commande tourne détachée ; "
+            "vérifie son état avec une commande de poll (ex. `curl … /health`, `pgrep`, "
+            "ou lis son fichier de log si tu en as redirigé la sortie)."
+        )
