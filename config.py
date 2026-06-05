@@ -82,6 +82,16 @@ BEST_OF_N_COUNT: int = int(os.getenv("BEST_OF_N_COUNT", 3))
 # pas classifiées hard).
 BEST_OF_N_FORCE: bool = os.getenv("BEST_OF_N_FORCE", "false").lower() in ("1", "true", "yes", "on")
 
+# --- Routeur de skills sémantique (OPTIONNEL, cf. tools/skill_router.py) ---
+# OFF par défaut : Klody reste offline-first (select_skills, IDF déterministe,
+# zéro dépendance réseau). À ON, l'injection des skills couche A passe par
+# SkillRouter (embeddings Ollama + juge LLM, avec repli automatique sur
+# select_skills si un endpoint est indisponible). N'active rien au démarrage
+# tant que le flag vaut 0.
+SKILLS_ROUTER_ENABLED: bool = os.getenv("SKILLS_ROUTER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Sous-flag : utiliser le juge LLM en plus des embeddings (sinon rang cosinus seul).
+SKILLS_ROUTER_JUDGE: bool = os.getenv("SKILLS_ROUTER_JUDGE", "true").lower() in ("1", "true", "yes", "on")
+
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain

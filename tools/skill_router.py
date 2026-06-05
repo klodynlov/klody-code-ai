@@ -115,8 +115,9 @@ class SkillRouter:
         """Sélectionne les skills couche A à injecter.
 
         Garantit en tête les skills permanents (utilisateur_/conventions_).
-        Dégrade : embeddings → juge LLM → select_skills (IDF). Jamais d'exception
-        propagée : tout échec retombe sur select_skills.
+        Dégrade : embeddings → juge LLM → select_skills (IDF). Les échecs réseau
+        (httpx) sont captés en interne et convertis en repli sur select_skills ;
+        l'appelant (orchestrator) garde en plus un try/except de sûreté.
         """
         skills = load_skills()
         if not skills:
@@ -154,7 +155,7 @@ class SkillRouter:
 
         chosen = chosen[:k]
         logger.info(
-            "skill_router.select: query=%r\\n  ranked=%s\\n  candidates=%s\\n  chosen=%s",
+            "skill_router.select: query=%r\n  ranked=%s\n  candidates=%s\n  chosen=%s",
             user_request,
             [(round(sc, 3), s.get("slug")) for sc, s in ranked[: self.prefilter_top_k]],
             [s.get("slug") for s in candidates],
@@ -219,7 +220,7 @@ class SkillRouter:
     def _judge(self, user_request: str, candidates: list[dict], k: int) -> list[dict]:
         """Demande au LLM principal de trancher. [] si échec → on garde le rang."""
         by_slug = {str(s.get("slug", "")): s for s in candidates}
-        menu = "\\n".join(
+        menu = "\n".join(
             f"- {s.get('slug')}: {s.get('description', '')}" for s in candidates
         )
         system = (
@@ -230,7 +231,7 @@ class SkillRouter:
             "choisis un skill 'distiller_*' QUE si la requête mentionne explicitement "
             "un livre, un auteur ou une distillation. Aucun texte hors du JSON."
         )
-        user = f"MENU:\\n{menu}\\n\\nREQUÊTE:\\n{user_request}\\n\\nJSON:"
+        user = f"MENU:\n{menu}\n\nREQUÊTE:\n{user_request}\n\nJSON:"
         content = self._chat(system, user)
         slugs = _parse_slug_list(content, valid=set(by_slug))
         return [by_slug[s] for s in slugs if s in by_slug]
@@ -289,7 +290,7 @@ def _parse_slug_list(content: str, valid: set[str]) -> list[str]:
     """Extrait une liste JSON de slugs valides de la réponse LLM (robuste)."""
     content = (content or "").strip()
     content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.MULTILINE).strip()
-    m = re.search(r"\\[.*?\\]", content, re.DOTALL)
+    m = re.search(r"\[.*?\]", content, re.DOTALL)
     if m:
         try:
             arr = json.loads(m.group(0))
