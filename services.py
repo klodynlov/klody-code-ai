@@ -65,10 +65,19 @@ def _start_process(lb_path: Path) -> subprocess.Popen | None:
 
 
 def _watchdog() -> None:
-    """Surveille LibraryBrain toutes les 15s et le redémarre si nécessaire."""
+    """Surveille LibraryBrain toutes les 15s et le redémarre si nécessaire.
+
+    Budget de _MAX_RESTARTS tentatives CONSÉCUTIVES. Une fois épuisé, on
+    signale l'abandon UNE SEULE fois puis on bascule en surveillance passive :
+    plus aucun redémarrage, et surtout plus aucun log (avant ce correctif, la
+    branche « abandon » se ré-exécutait toutes les 15s et noyait agent.log —
+    ~300 lignes par session morte). Le budget se réarme automatiquement si le
+    service redevient joignable (reprise manuelle), pour ne pas rester aveugle.
+    """
     global _librarybrain_proc
 
     lb_path = Path(_librarybrain_dir)
+    abandoned = False  # budget épuisé ET abandon déjà signalé
 
     while not _watchdog_stop.is_set():
         _watchdog_stop.wait(15)
@@ -79,7 +88,17 @@ def _watchdog() -> None:
         reachable = _is_up(_librarybrain_base_url)
         _librarybrain_status["up"] = reachable
 
-        if not reachable and _librarybrain_status["restarts"] < _MAX_RESTARTS:
+        if reachable:
+            # Service sain : réarme le budget (les échecs comptés doivent être
+            # CONSÉCUTIFS) et lève l'abandon si on l'avait déclaré.
+            if _librarybrain_status["restarts"] or abandoned:
+                logger.info("[LibraryBrain] De nouveau joignable — surveillance réarmée.")
+                _librarybrain_status["restarts"] = 0
+                abandoned = False
+            continue
+
+        # Injoignable.
+        if _librarybrain_status["restarts"] < _MAX_RESTARTS:
             # Processus mort ou injoignable — tenter un redémarrage
             if _librarybrain_proc and not alive:
                 logger.warning("[LibraryBrain] Processus mort (code=%s) — redémarrage…",
@@ -98,8 +117,15 @@ def _watchdog() -> None:
                         logger.info("[LibraryBrain] Redémarrage réussi (tentative %d)",
                                     _librarybrain_status["restarts"])
                         break
-        elif not reachable and _librarybrain_status["restarts"] >= _MAX_RESTARTS:
-            logger.error("[LibraryBrain] %d redémarrages échoués — abandon.", _MAX_RESTARTS)
+        elif not abandoned:
+            # Budget épuisé : on signale l'abandon UNE fois puis on reste en
+            # surveillance passive (ni redémarrage, ni spam).
+            abandoned = True
+            logger.error(
+                "[LibraryBrain] %d redémarrages consécutifs échoués — abandon "
+                "(surveillance passive, reprise auto si le service revient).",
+                _MAX_RESTARTS,
+            )
 
 
 def _stop_librarybrain() -> None:

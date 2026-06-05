@@ -137,3 +137,43 @@ class TestSandboxRunner:
         result = runner.run(["python", "noisy.py"], timeout=10)
         # 3000 chars max + petit overhead du format
         assert len(result.stdout) <= 3000
+
+    def test_commande_str_guillemets_non_fermes_pas_de_crash(self, runner):
+        """Un guillemet non fermé (souvent un script collé à la place d'une
+        commande) ne doit PAS lever ValueError — message actionnable à la place."""
+        result = runner.run("echo 'unterminated", timeout=5)
+        assert result.success is False
+        assert result.exit_code == 1
+        assert "non analysable" in result.stderr
+        # Pas besoin de venv : la garde court avant ensure_venv().
+        assert not runner.venv_dir.exists()
+
+    @pytest.mark.slow
+    def test_timeout_dumpe_la_pile_python(self, runner, tmp_path):
+        """Au timeout, un script Python bloqué doit renvoyer la pile faulthandler
+        (où ça coince) et non un timeout opaque — cf. deadlock session 419676b5."""
+        hang = tmp_path / "hang.py"
+        # Lock non-réentrant ré-acquis → deadlock permanent.
+        hang.write_text(
+            "import threading\nlock = threading.Lock()\nlock.acquire()\nlock.acquire()\n",
+            encoding="utf-8",
+        )
+        if not runner.ensure_venv():
+            pytest.skip("venv non disponible")
+        result = runner.run(["python", "hang.py"], timeout=4)
+        assert result.timed_out is True
+        assert result.exit_code == 124
+        assert "most recent call first" in result.stderr  # dump faulthandler
+        assert "hang.py" in result.stderr
+
+    @pytest.mark.slow
+    def test_stdin_devnull_input_ne_pend_pas(self, runner, tmp_path):
+        """input() sans TTY doit échouer vite (EOFError) au lieu de pendre
+        jusqu'au timeout — stdin est branché sur /dev/null."""
+        asks = tmp_path / "asks.py"
+        asks.write_text("x = input('? ')\nprint(x)\n", encoding="utf-8")
+        if not runner.ensure_venv():
+            pytest.skip("venv non disponible")
+        result = runner.run(["python", "asks.py"], timeout=10)
+        assert result.timed_out is False
+        assert "EOFError" in result.stderr
