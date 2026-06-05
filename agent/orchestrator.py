@@ -22,6 +22,8 @@ from config import (
     ROUTER_ENABLED,
     SANDBOX_AUTO_EXEC,
     SANDBOX_TIMEOUT,
+    SKILLS_ROUTER_ENABLED,
+    SKILLS_ROUTER_JUDGE,
     match_allowed_root,
 )
 from rich.console import Console
@@ -409,6 +411,8 @@ class Orchestrator:
         # Memory utile (Roadmap v2 #8) — détection conventions projet + erreurs récurrentes.
         self._conventions = None
         self._error_memory = None
+        # Routeur de skills sémantique optionnel (lazy, opt-in, cache embeddings).
+        self._skill_router = None
         # Anti-stall : 1 nudge max par run() pour débloquer un plan annoncé sans action.
         self._anti_stall_fired = False
         self._anti_stall_iter = -1
@@ -508,6 +512,19 @@ class Orchestrator:
             self._error_memory = ErrorMemory(workdir=self.file_manager.root)
         return self._error_memory
 
+    def _get_skill_router(self):
+        """Routeur de skills sémantique optionnel (lazy, opt-in).
+
+        Singleton par orchestrateur : préserve le cache d'embeddings des
+        descriptions de skills entre les tours ReAct (sinon on le reperdrait à
+        chaque _inject_system_prompt → 1 embed/skill par tour). N'est instancié
+        que si SKILLS_ROUTER_ENABLED ; sinon ce chemin n'est jamais pris.
+        """
+        if self._skill_router is None:
+            from tools.skill_router import SkillRouter
+            self._skill_router = SkillRouter(use_llm_judge=SKILLS_ROUTER_JUDGE)
+        return self._skill_router
+
     def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
 
@@ -527,7 +544,17 @@ class Orchestrator:
             self._injected_skill_slugs = []
         else:
             base_prompt = compose_system_prompt(task_type)
-            skills = select_skills(load_skills(), query)
+            if SKILLS_ROUTER_ENABLED:
+                # Routeur sémantique opt-in. select() ne lève jamais (repli
+                # interne sur select_skills) ; le try/except couvre en plus un
+                # éventuel échec d'import du module → zéro régression possible.
+                try:
+                    skills = self._get_skill_router().select(query, k=5)
+                except Exception as exc:
+                    logger.debug("skill_router KO → select_skills (IDF): %s", exc)
+                    skills = select_skills(load_skills(), query)
+            else:
+                skills = select_skills(load_skills(), query)
             self._injected_skill_slugs = [s.get("slug", "") for s in skills]
             skills_section = format_skills_for_prompt(skills) if skills else ""
             lt_section = self.lt_memory.format_for_prompt()
