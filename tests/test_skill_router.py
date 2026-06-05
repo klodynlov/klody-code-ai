@@ -7,7 +7,6 @@ ne lève JAMAIS et, dès qu'un maillon sémantique manque, retombe EXACTEMENT su
 """
 
 import pytest
-import tools.skill_router as sr_mod
 from tools.skill_router import SkillRouter, _cosine, _parse_slug_list
 from tools.skills import select_skills
 
@@ -30,7 +29,7 @@ SKILLS = [
 @pytest.fixture
 def patched_skills(monkeypatch):
     """load_skills() (lié dans le module skill_router) renvoie le jeu de test."""
-    monkeypatch.setattr(sr_mod, "load_skills", lambda: list(SKILLS))
+    monkeypatch.setattr("tools.skill_router.load_skills", lambda: list(SKILLS))
     return SKILLS
 
 

@@ -297,6 +297,8 @@ def _parse_slug_list(content: str, valid: set[str]) -> list[str]:
             if isinstance(arr, list):
                 return [str(x).strip() for x in arr if str(x).strip() in valid]
         except (ValueError, TypeError):
+            # JSON malformé dans la réponse du juge → on bascule sur le repli
+            # par sous-chaîne ci-dessous (best-effort, jamais bloquant).
             pass
     return [s for s in valid if s in content]
 
