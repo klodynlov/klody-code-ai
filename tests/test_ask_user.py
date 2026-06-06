@@ -91,6 +91,37 @@ class TestToolAskUser:
         Orchestrator._tool_ask_user(o, {"question": "Q ?", "options": ["a", "", "  ", "b"]})
         assert captured["opts"] == ["a", "b"]
 
+    def test_options_chaine_json_normalisee(self):
+        """Régression « ça bloque » (sessions 04:46/04:50) : Qwen sérialise
+        parfois `options` en CHAÎNE JSON au lieu d'une liste. Itérer la chaîne
+        donnerait des caractères isolés → carte illisible. On doit récupérer la
+        vraie liste."""
+        captured = {}
+
+        def fake_ask(question, options, allow_free_text):
+            captured["opts"] = options
+            return "Trier"
+
+        o = SimpleNamespace(_ask_user=fake_ask)
+        Orchestrator._tool_ask_user(
+            o,
+            {"question": "Q ?", "options": '["Trier", "Chercher", "Autre / je ne sais pas"]'},
+        )
+        assert captured["opts"] == ["Trier", "Chercher", "Autre / je ne sais pas"]
+
+    def test_options_chaine_multiligne_decoupee_par_lignes(self):
+        """Une chaîne qui n'est pas du JSON ne doit JAMAIS être éclatée en
+        caractères : multi-lignes → une option par ligne."""
+        captured = {}
+
+        def fake_ask(question, options, allow_free_text):
+            captured["opts"] = options
+            return "x"
+
+        o = SimpleNamespace(_ask_user=fake_ask)
+        Orchestrator._tool_ask_user(o, {"question": "Q ?", "options": "Trier\nChercher"})
+        assert captured["opts"] == ["Trier", "Chercher"]
+
     def test_allow_free_text_transmis(self):
         captured = {}
 
@@ -100,6 +131,20 @@ class TestToolAskUser:
 
         o = SimpleNamespace(_ask_user=fake_ask)
         Orchestrator._tool_ask_user(o, {"question": "Q ?", "options": ["a"], "allow_free_text": False})
+        assert captured["free"] is False
+
+    def test_allow_free_text_chaine_false_coercee(self):
+        """`bool("false")` vaut True en Python : une chaîne "false" passée par le
+        modèle ne doit pas inverser l'intention (sinon la saisie libre reste
+        ouverte alors que le skill voulait la fermer)."""
+        captured = {}
+
+        def fake_ask(question, options, allow_free_text):
+            captured["free"] = allow_free_text
+            return "a"
+
+        o = SimpleNamespace(_ask_user=fake_ask)
+        Orchestrator._tool_ask_user(o, {"question": "Q ?", "options": ["a"], "allow_free_text": "false"})
         assert captured["free"] is False
 
 
@@ -126,6 +171,66 @@ class TestToolsForRun:
         o = SimpleNamespace(tools=[_FAKE_TOOL])  # pas de _interactive_skill_active
         tools = Orchestrator._tools_for_run(o)
         assert all(t["function"]["name"] != "ask_user" for t in tools)
+
+
+# ── Détection du skill interactif (_detect_interactive_skill) ─────────────────
+
+
+# Skill QCM factice : description riche en déclencheurs → contient des mots
+# génériques (« liste », « projet ») qui causaient le faux positif.
+_QCM_SKILL = {
+    "name": "Concevoir un algorithme pas à pas",
+    "slug": "concevoir_un_algorithme_pas_a_pas",
+    "description": "Guide interactif pour concevoir l'algorithme au cœur d'un "
+    "projet · quelle structure de données (tableau, liste, pile) · profiler "
+    "le besoin",
+    "interactive": True,
+}
+
+
+class TestDetectInteractiveSkill:
+    """Le QCM ne doit s'activer que si la requête recoupe l'IDENTITÉ du skill
+    (nom/slug), jamais sur de simples mots génériques de sa description — sinon
+    « liste les fichiers du projet » lancerait un questionnaire hors-sujet."""
+
+    def _patch(self, monkeypatch, skills):
+        import agent.orchestrator as orch
+        monkeypatch.setattr(orch, "load_skills", lambda: skills)
+        monkeypatch.setattr(orch, "select_skills", lambda _sk, _q: skills)
+
+    def test_actif_quand_la_requete_recoupe_le_nom(self, monkeypatch):
+        self._patch(monkeypatch, [_QCM_SKILL])
+        o = SimpleNamespace()
+        assert Orchestrator._detect_interactive_skill(
+            o, "aide moi a concevoir l'algorithme d'un jeu 2D"
+        ) is True
+
+    def test_inactif_quand_match_seulement_sur_la_description(self, monkeypatch):
+        """Régression du faux positif : « liste » et « projet » sont dans la
+        description du QCM mais pas dans son nom → pas de QCM."""
+        self._patch(monkeypatch, [_QCM_SKILL])
+        o = SimpleNamespace()
+        assert Orchestrator._detect_interactive_skill(
+            o, "liste les fichiers du projet"
+        ) is False
+
+    def test_inactif_quand_skill_de_tete_non_interactif(self, monkeypatch):
+        howto = {
+            "name": "Garde-fou anti-SSRF pour un fetch web",
+            "slug": "anti_ssrf",
+            "description": "valider une URL avant de la requêter",
+        }
+        self._patch(monkeypatch, [howto])
+        o = SimpleNamespace()
+        assert Orchestrator._detect_interactive_skill(o, "corrige le bug ssrf") is False
+
+    def test_always_on_ignores_puis_evalue_le_premier_howto(self, monkeypatch):
+        profil = {"name": "Profil utilisateur", "slug": "utilisateur_klody", "description": ""}
+        self._patch(monkeypatch, [profil, _QCM_SKILL])
+        o = SimpleNamespace()
+        assert Orchestrator._detect_interactive_skill(
+            o, "concevoir un algorithme pas à pas"
+        ) is True
 
 
 # ── Garde-fous ────────────────────────────────────────────────────────────────
