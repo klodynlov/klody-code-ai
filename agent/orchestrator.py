@@ -60,6 +60,8 @@ from tools.project_creator import (
 from tools.registry import ASK_USER_TOOL, get_tools
 from tools.search import Search
 from tools.skills import (
+    _matching_terms,
+    _skill_terms,
     delete_skill,
     format_skills_for_prompt,
     list_skills,
@@ -317,6 +319,42 @@ def _skill_is_interactive(skill: dict) -> bool:
     blob = (skill.get("content") or "").lower()
     return sum(marker in blob for marker in _INTERACTIVE_SKILL_MARKERS) >= 2
 
+
+def _normalize_ask_user_options(raw) -> list[str]:
+    """Normalise le paramètre `options` d'ask_user en vraie liste de chaînes.
+
+    Certains modèles (Qwen-Coder notamment) sérialisent le tableau en CHAÎNE
+    JSON — `'["a","b"]'` — au lieu d'une vraie liste. Itérer cette chaîne
+    donnerait des caractères isolés → carte aux boutons illisibles (« ça
+    bloque », cf. sessions 04:46/04:50). On récupère donc la liste réelle :
+    JSON d'abord, sinon découpe par lignes, sinon option unique."""
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+        except (ValueError, TypeError):
+            parsed = s.splitlines() if "\n" in s else [s]
+        raw = parsed if isinstance(parsed, list) else [str(parsed)]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(o).strip() for o in raw if str(o).strip()]
+
+
+def _coerce_bool_arg(value, default: bool = True) -> bool:
+    """Convertit un argument d'outil en booléen, en tolérant les chaînes.
+
+    `bool("false")` vaut True en Python : un modèle qui passe `"false"` (chaîne)
+    plutôt que le booléen JSON inverserait silencieusement l'intention."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "non", "")
+    return bool(value)
+
 # Prompt SLIM pour le modèle coder. Qwen3-Coder est un modèle de COMPLÉTION :
 # sous le gros prompt agentique de Klody (~12k tok) il dégénère (sortie « ``` »).
 # Avec ce prompt court, il sort le code complet en markdown ```html, que le
@@ -511,16 +549,28 @@ class Orchestrator:
         `utilisateur_`/`conventions_`, toujours renvoyés en tête). Si oui, le
         run reste sur le généraliste avec prompt complet (sinon le coder-slim
         n'injecterait aucun skill) et l'anti-stall / text-to-action se taisent
-        (le skill répond en posant des questions, pas en lançant un tool)."""
+        (le skill répond en posant des questions, pas en lançant un tool).
+
+        Garde-fou anti-faux-positif : un skill interactif DÉTOURNE le tour (il
+        pose des questions au lieu d'agir). On ne l'active donc que si la requête
+        recoupe l'IDENTITÉ du skill (nom + slug), pas seulement des mots
+        génériques de sa description. Sans ça, « liste les fichiers du projet »
+        matcherait « concevoir un algorithme » via {liste, projet} (présents dans
+        la longue liste de déclencheurs) et lancerait un QCM hors-sujet."""
         try:
             skills = select_skills(load_skills(), query)
         except Exception as exc:  # détection best-effort, jamais bloquante
             logger.debug("Détection skill interactif ignorée : %s", exc)
             return False
+        terms = _skill_terms(query)
         for s in skills:
             if str(s.get("slug", "")).startswith(("utilisateur_", "conventions_")):
                 continue
-            return _skill_is_interactive(s)
+            if not _skill_is_interactive(s):
+                return False
+            # Recoupe-t-on l'identité (nom/slug), pas juste la description ?
+            identity = {"name": s.get("name", ""), "slug": s.get("slug", ""), "description": ""}
+            return bool(_matching_terms(terms, identity))
         return False
 
     @property
@@ -1146,8 +1196,8 @@ class Orchestrator:
         question = (a.get("question") or "").strip()
         if not question:
             return "ERREUR: 'question' manquante pour ask_user."
-        options = [str(o) for o in (a.get("options") or []) if str(o).strip()]
-        allow_free_text = bool(a.get("allow_free_text", True))
+        options = _normalize_ask_user_options(a.get("options"))
+        allow_free_text = _coerce_bool_arg(a.get("allow_free_text", True))
         if not options and not allow_free_text:
             # Carte sans issue : ni choix cliquable, ni saisie libre.
             return ("ERREUR: ask_user requiert au moins une option non vide, "
@@ -1443,14 +1493,17 @@ class Orchestrator:
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
                 task_type_for_prompt = decision.task_type
-                # Skill interactif (QCM) : seulement pertinent pour une tâche
-                # routée vers le coder — c'est LÀ que le coder-slim « avale » le
-                # skill et que l'anti-stall force un tool. Gater sur
-                # _CODE_TASK_TYPES écarte les faux positifs (ex. « liste les
-                # fichiers du projet » matche « projet » mais n'est pas du code).
-                self._interactive_skill_active = (
-                    decision.task_type in _CODE_TASK_TYPES
-                    and self._detect_interactive_skill(user_input)
+                # Skill interactif (QCM) : actif dès que le skill how-to routé #1
+                # est interactif, QUEL QUE SOIT le task_type. Une demande de
+                # conception (« aide-moi à concevoir l'algorithme de mon jeu »)
+                # est classée `explain`, PAS `feature` — gater sur
+                # _CODE_TASK_TYPES privait justement le QCM de l'outil `ask_user`
+                # (questions déversées en texte au lieu de cartes cliquables,
+                # cf. session 04:46). Les faux positifs sont déjà écartés en
+                # amont par select_skills (filtre de pertinence IDF : un skill
+                # non pertinent n'atteint jamais la tête de liste).
+                self._interactive_skill_active = self._detect_interactive_skill(
+                    user_input
                 )
                 # Routage modèle : tâche de code → modèle coder, sinon généraliste.
                 # Un skill interactif force le généraliste (le coder-slim
