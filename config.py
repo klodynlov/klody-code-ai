@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 
+import httpx  # déjà tiré comme dépendance par openai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -43,6 +44,16 @@ MLX_CODE_API_KEY: str  = os.getenv("MLX_CODE_API_KEY", MLX_API_KEY)
 CODE_MODEL: str    = MLX_CODE_MODEL if BACKEND == "mlx" else ""
 CODE_BASE_URL: str = MLX_CODE_BASE_URL
 CODE_API_KEY: str  = MLX_CODE_API_KEY
+
+# --- Timeouts client LLM ---
+# Le défaut du SDK OpenAI (timeout=600 s, max_retries=2) ferait attendre jusqu'à
+# ~30 min si le serveur d'inférence local (MLX/Ollama) se fige. On coupe vite à la
+# connexion et on ne retente PAS une génération en silence (un retry = re-générer
+# tout le tour, coûteux et invisible). `read` reste large : c'est l'attente
+# INTER-chunk pendant le stream (prefill d'un gros prompt + tokens), pas la durée
+# totale de la génération — un long code ne déclenche donc pas de coupure.
+LLM_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
+LLM_MAX_RETRIES: int = 0
 
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()

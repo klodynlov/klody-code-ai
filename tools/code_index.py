@@ -17,6 +17,7 @@ rebuild, < 1s pour un repo de quelques centaines de fichiers).
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -234,19 +235,16 @@ class CodeIndex:
     # -- Indexation -------------------------------------------------------- #
 
     def _iter_source_files(self) -> Iterator[Path]:
-        for path in self.root.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in _EXT_TO_LANG:
-                continue
-            # Skip si un parent est dans _SKIP_DIRS
-            try:
-                rel_parts = path.relative_to(self.root).parts
-            except ValueError:
-                continue
-            if any(p in _SKIP_DIRS for p in rel_parts[:-1]):
-                continue
-            yield path
+        # os.walk + élagage EN PLACE de dirnames : on ne DESCEND jamais dans
+        # _SKIP_DIRS (.venv, node_modules…). L'ancien `rglob("*")` parcourait et
+        # stat-ait tout l'arbre — y compris des milliers de fichiers de .venv —
+        # avant de les filtrer après coup. Ici ils sont coupés à la racine.
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for fname in filenames:
+                if Path(fname).suffix not in _EXT_TO_LANG:
+                    continue
+                yield Path(dirpath) / fname
 
     def refresh(self) -> int:
         """Re-indexe les fichiers ajoutés/modifiés. Retourne le nb d'updates."""

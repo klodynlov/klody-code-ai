@@ -15,7 +15,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_HTTP_TIMEOUT, LLM_MAX_RETRIES, LLM_MODEL
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,12 @@ class Router:
 
     def __init__(self, model: str | None = None):
         self.model = model or LLM_MODEL
-        self.client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+        self.client = OpenAI(
+            base_url=LLM_BASE_URL,
+            api_key=LLM_API_KEY,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
+        )
 
     def classify(self, user_prompt: str) -> RoutingDecision:
         """Appelle le LLM et retourne une RoutingDecision.

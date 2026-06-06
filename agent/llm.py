@@ -10,6 +10,8 @@ from config import (
     BACKEND,
     LLM_API_KEY,
     LLM_BASE_URL,
+    LLM_HTTP_TIMEOUT,
+    LLM_MAX_RETRIES,
     LLM_MODEL,
     MODEL_FALLBACK,
 )
@@ -171,6 +173,8 @@ class LLMClient:
         self.client = OpenAI(
             base_url=LLM_BASE_URL,
             api_key=LLM_API_KEY,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
         )
         self._backend = BACKEND
         # Compteur de tokens approximatif (session courante)
@@ -186,7 +190,12 @@ class LLMClient:
         if model == self.model:
             return
         self.model = model
-        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
+        )
         logger.info("LLM basculé sur le modèle '%s' (%s)", model, base_url)
 
     def stream_chat(
