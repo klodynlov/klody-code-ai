@@ -13,6 +13,16 @@ import pytest
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _no_preview_bind(monkeypatch):
+    """Empêche le lifespan FastAPI de binder le VRAI port 8899 pendant les tests
+    d'intégration : TestClient(app) déclenche le pré-démarrage du serveur d'aperçu.
+    On le neutralise (no-op) pour éviter un port réel ouvert / un flake / une
+    attente de retry si 8899 est déjà pris."""
+    monkeypatch.setattr("tools.preview._ensure_server", lambda: "http://localhost:8899")
+    monkeypatch.setattr("tools.preview._stop_server", lambda: None)
+
+
 @pytest.fixture
 def project_root(tmp_path: Path) -> Path:
     """PROJECT_ROOT isolé par test."""

@@ -38,8 +38,20 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Pré-démarre le serveur d'aperçu (best-effort, HORS event loop) pour que :8899
+    # soit debout dès le boot de l'API. Sinon il ne repart qu'au 1er appel d'outil
+    # preview, et tout onglet d'aperçu déjà ouvert reste en « connection refused »
+    # (le serveur est un thread démon DANS ce process, donc tué à chaque restart API).
+    try:
+        from tools.preview import _ensure_server
+        await asyncio.get_running_loop().run_in_executor(None, _ensure_server)
+    except Exception as exc:  # ne JAMAIS bloquer le boot de l'API pour la preview
+        logger.warning("[Preview] pré-démarrage ignoré: %s", exc)
     ensure_librarybrain(config.LIBRARYBRAIN_DIR, config.LIBRARYBRAIN_URL)
     yield
+    with suppress(Exception):  # arrêt propre (SIGTERM uvicorn ; pas sur kickstart -k)
+        from tools.preview import _stop_server
+        _stop_server()
 
 
 app = FastAPI(title="KlodyAI API", version="1.0.0", lifespan=lifespan)

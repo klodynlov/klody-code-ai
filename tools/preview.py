@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import atexit
+import html
 import json
 import logging
+import os
 import re
 import threading
+import time
+import unicodedata
 import webbrowser
+from contextlib import suppress
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
@@ -16,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 _server: HTTPServer | None = None
 _thread: threading.Thread | None = None
+# Sérialise _ensure_server/_stop_server : le pré-démarrage du lifespan API et le
+# 1er appel d'un outil preview peuvent le déclencher quasi simultanément → un
+# seul bind, et pas de course à l'arrêt.
+_lock = threading.Lock()
+_atexit_registered = False  # _stop_server enregistré une seule fois
 
 # Librairies front courantes : URL CDN connue + détection d'usage + marqueurs
 # permettant de savoir si la lib est déjà incluse dans le document.
@@ -167,40 +177,142 @@ def _const_reassign_fix(js: str) -> str:
 
 
 class _SilentHandler(SimpleHTTPRequestHandler):
-    """Handler HTTP sans logs dans le terminal."""
+    """Handler HTTP sans logs dans le terminal, tolérant à l'extension .html."""
 
     def log_message(self, format: str, *args: object) -> None:
         logger.debug(format, *args)
 
+    def send_head(self):
+        # Tolérance d'extension : si la ressource demandée n'existe pas telle
+        # quelle mais que « <chemin>.html » existe, on sert ce dernier. Rend la
+        # preview robuste quand l'URL perd son « .html » en chemin — recopie
+        # manuelle, réécriture de l'URL par le modèle dans sa réponse, ouverture
+        # OS d'une URL accentuée… — au lieu du 404 sec de http.server.
+        fs_path = self.translate_path(self.path)
+        if not os.path.exists(fs_path) and os.path.isfile(fs_path + ".html"):
+            raw, sep, query = self.path.partition("?")
+            if not raw.endswith(".html"):
+                self.path = raw + ".html" + sep + query
+        return super().send_head()
+
 
 def _stop_server() -> None:
+    """Arrête le serveur d'aperçu (idempotent, thread-safe)."""
     global _server, _thread
-    if _server:
-        _server.shutdown()
-        _server = None
-        _thread = None
-        logger.info("[Preview] Serveur arrêté")
+    with _lock:
+        srv, thr, _server, _thread = _server, _thread, None, None
+    if srv is None:
+        return
+    # shutdown() bloque tant que serve_forever tourne → ne l'appeler que si le
+    # thread est vivant (sinon server_close suffit et on évite un blocage si
+    # serve_forever n'a jamais démarré / est déjà mort). Hors lock : peut bloquer.
+    if thr is not None and thr.is_alive():
+        srv.shutdown()
+    srv.server_close()  # ferme le fd d'écoute → libère le port
+    logger.info("[Preview] Serveur arrêté")
 
 
 def _ensure_server() -> str:
-    """Démarre le serveur HTTP si besoin. Retourne l'URL de base."""
-    global _server, _thread
+    """Démarre le serveur HTTP si besoin (idempotent, thread-safe). Retourne l'URL de base.
 
-    if _server is not None:
-        return f"http://localhost:{PREVIEW_PORT}"
+    Best-effort : ne lève JAMAIS — un échec de bind ne doit casser ni le boot de
+    l'API (pré-démarrage du lifespan) ni un appel d'outil. SO_REUSEADDR (actif par
+    défaut sur HTTPServer) couvre déjà TIME_WAIT ; le court retry ne couvre que la
+    fenêtre où l'ancien process API n'a pas encore relâché le socket lors d'un
+    restart rapide. Si le thread serve_forever est mort, on re-binde proprement.
+    """
+    global _server, _thread, _atexit_registered
+    base = f"http://localhost:{PREVIEW_PORT}"
 
-    handler = partial(_SilentHandler, directory=str(PREVIEW_DIR))
-    _server = HTTPServer(("127.0.0.1", PREVIEW_PORT), handler)
-    _thread = threading.Thread(target=_server.serve_forever, daemon=True, name="preview-http")
-    _thread.start()
-    atexit.register(_stop_server)
-    logger.info("[Preview] Serveur démarré sur le port %d → %s", PREVIEW_PORT, PREVIEW_DIR)
-    return f"http://localhost:{PREVIEW_PORT}"
+    # Disponible seulement si le thread tourne encore (sinon serveur zombie).
+    if _server is not None and _thread is not None and _thread.is_alive():
+        return base
+
+    with _lock:
+        if _server is not None and _thread is not None and _thread.is_alive():
+            return base
+        # Serveur présent mais thread mort (serve_forever a crashé) → on nettoie
+        # avant de re-binder pour ne pas rester sur un zombie.
+        if _server is not None:
+            with suppress(Exception):
+                _server.server_close()
+            _server = _thread = None
+
+        handler = partial(_SilentHandler, directory=str(PREVIEW_DIR))
+        last_err: OSError | None = None
+        for _attempt in range(3):
+            try:
+                _server = HTTPServer(("127.0.0.1", PREVIEW_PORT), handler)
+                break
+            except OSError as exc:
+                last_err = exc
+                time.sleep(0.3)
+        if _server is None:
+            logger.warning("[Preview] bind du port %d impossible: %s", PREVIEW_PORT, last_err)
+            return base  # jamais d'exception ; un prochain appel réessaiera
+
+        _thread = threading.Thread(
+            target=_server.serve_forever, daemon=True, name="preview-http"
+        )
+        _thread.start()
+        if not _atexit_registered:  # une seule fois, même après plusieurs restarts
+            atexit.register(_stop_server)
+            _atexit_registered = True
+        logger.info("[Preview] Serveur démarré sur le port %d → %s", PREVIEW_PORT, PREVIEW_DIR)
+        return base
+
+
+_SLUG_MAXLEN = 60
+
+# Titres trop génériques → on préfère le `title` appelant plutôt que de faire
+# converger tous les documents vers document.html / untitled.html.
+_GENERIC_TITLES = frozenset({"", "document", "untitled", "page", "preview"})
 
 
 def _slugify(name: str) -> str:
-    slug = re.sub(r"[^\w\-.]", "_", name.strip().lower())
-    return slug or "preview"
+    """Nom de fichier sûr et lisible : translittération ASCII (les accents ne
+    survivent pas → URLs robustes), découpe sur frontière de mot (jamais en plein
+    mot), longueur bornée. Repli « preview » si rien d'exploitable."""
+    ascii_name = (
+        unicodedata.normalize("NFKD", name or "")
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    words = re.findall(r"[a-z0-9]+", ascii_name)
+    if not words:
+        return "preview"
+    out = words[0][:_SLUG_MAXLEN]  # borne dure, même pour un 1er mot géant
+    for w in words[1:]:
+        if len(out) + 1 + len(w) > _SLUG_MAXLEN:
+            break
+        out += "_" + w
+    return out or "preview"
+
+
+def _extract_doc_title(doc: str) -> str | None:
+    """Titre lisible extrait de la balise <title> du <head> (fait autorité pour le
+    nom de fichier). On se limite au <head> : un <title> de SVG inline (icône a11y)
+    dans le <body> ne doit pas voler le nom. None si absente ou vide."""
+    head = re.search(r"<head[^>]*>(.*?)</head>", doc, re.IGNORECASE | re.DOTALL)
+    scope = head.group(1) if head else doc.split("<body", 1)[0]
+    m = re.search(r"<title[^>]*>(.*?)</title>", scope, re.IGNORECASE | re.DOTALL)
+    if not m:
+        return None
+    title = html.unescape(m.group(1)).strip()
+    return title or None
+
+
+def _unique_filename(slug: str) -> str:
+    """`<slug>.html`, suffixé -2/-3… si déjà présent dans PREVIEW_DIR : jamais
+    d'écrasement silencieux d'un aperçu précédent."""
+    if not (PREVIEW_DIR / f"{slug}.html").exists():
+        return f"{slug}.html"
+    for n in range(2, 1000):
+        cand = f"{slug}-{n}.html"
+        if not (PREVIEW_DIR / cand).exists():
+            return cand
+    return f"{slug}-{1000}.html"  # garde-fou théorique
 
 
 def _as_list(value) -> list[str]:
@@ -405,6 +517,44 @@ _ERROR_OVERLAY = """
       } catch(_){ }
     }, 500);
   });
+  // Self-heal : le serveur d'aperçu (:8899) est un thread DANS l'API ; un restart
+  // de l'API le tue, et un onglet déjà ouvert reste figé en « connection refused »
+  // même une fois le serveur revenu. On sonde la page (HEAD same-origin) au retour
+  // au premier plan / réseau ; après une panne DÉTECTÉE, on recharge dès qu'elle
+  // répond. Anti-boucle : on borne les reloads RAPPROCHÉS (fenêtre 30s), pas le
+  // nombre de restarts sur la vie de l'onglet — sinon le self-heal mourrait après
+  // quelques restarts légitimes. Pas de polling continu (parasiterait les démos).
+  var _healKey = '__klody_heal', _outage = false, _backoff = 0, _inflight = false, _timer = null, _banner = null;
+  function _healState(){ try { return JSON.parse(sessionStorage.getItem(_healKey)) || {n:0,ts:0}; } catch(_){ return {n:0,ts:0}; } }
+  // Plafonné seulement si 5+ reloads dans une fenêtre de 30s (reflapping serré) ;
+  // une panne résolue depuis > 30s ne compte plus.
+  function _capped(){ var s=_healState(); return (Date.now()-s.ts <= 30000) && s.n >= 5; }
+  function _bumpReload(){ var s=_healState(); var n=(Date.now()-s.ts>30000)?1:s.n+1; try { sessionStorage.setItem(_healKey, JSON.stringify({n:n,ts:Date.now()})); } catch(_){ } }
+  function _setBanner(text, color){
+    if (!_banner){
+      _banner = document.createElement('div');
+      _banner.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;'+
+        'font:12px/1.4 monospace;padding:8px 14px;text-align:center;background:#0f2a1a;color:#cfe7d8;';
+      (document.body || document.documentElement).appendChild(_banner);
+    }
+    _banner.textContent = text;
+    _banner.style.borderBottom = '2px solid ' + color;
+  }
+  function _scheduleHeal(){
+    if (_timer || _capped()) return;       // une seule chaîne de backoff active
+    _backoff = Math.min((_backoff*2)||1000, 8000);
+    _timer = setTimeout(function(){ _timer=null; _heal(); }, _backoff + Math.random()*400);
+  }
+  function _heal(){
+    if (_inflight) return;                  // garde in-flight : une sonde à la fois
+    if (_capped()){ _setBanner('⚠ Aperçu hors-ligne — rechargez manuellement (⌘R / Ctrl-R)', '#dc3545'); return; }
+    _inflight = true;
+    fetch(location.pathname, { method:'HEAD', cache:'no-store' })
+      .then(function(){ _inflight=false; if (_outage){ _bumpReload(); setTimeout(function(){ location.reload(); }, 300); } })
+      .catch(function(){ _inflight=false; _outage=true; _setBanner('⟳ Aperçu hors-ligne — reconnexion automatique…', '#28a745'); _scheduleHeal(); });
+  }
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) _heal(); });
+  window.addEventListener('online', _heal);
 })();
 </script>"""
 
@@ -468,8 +618,16 @@ def preview_code(
         html, css, js, _as_list(scripts), _as_list(styles), title
     )
 
-    slug = _slugify(title)
-    filename = f"{slug}.html"
+    # Nom dérivé du <title> du document (lisible : « Hello World » → hello_world)
+    # plutôt que du prompt tronqué passé en `title`. Repli sur `title` si le doc
+    # n'a pas de titre exploitable. Dédup pour ne pas écraser un aperçu existant.
+    raw_title = _extract_doc_title(full_html)
+    if raw_title is None or raw_title.strip().lower() in _GENERIC_TITLES:
+        raw_title = title
+    slug = _slugify(raw_title)
+    if slug == "index":  # ne pas détourner la racine servie par http.server
+        slug = "index_page"
+    filename = _unique_filename(slug)
     out_path = PREVIEW_DIR / filename
     out_path.write_text(full_html, encoding="utf-8")
     logger.info("[Preview] Fichier écrit: %s (%d o)", out_path, len(full_html))
