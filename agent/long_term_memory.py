@@ -32,6 +32,13 @@ _CATEGORY_LABELS = {
     "context":    "Contexte général",
 }
 
+# Cap d'injection dans le system prompt, PAR catégorie. L'extracteur auto empile
+# surtout en "context" (des centaines d'entrées) : tout injecter coûtait ~7 000
+# tokens À CHAQUE TOUR (la moitié du budget de contexte). On ne garde que les N
+# plus RÉCENTES par catégorie ; rien n'est supprimé du disque, juste non injecté.
+# Le profil curé (skills `utilisateur_*`) reste, lui, la source de référence.
+_MAX_ENTRIES_PER_CATEGORY = 15
+
 
 class LongTermMemory:
     def __init__(self) -> None:
@@ -94,9 +101,19 @@ class LongTermMemory:
             items = by_cat.get(cat, [])
             if not items:
                 continue
+            # Cap par catégorie : on garde les plus RÉCENTES (updated_at desc).
+            # Le reste demeure sur disque, juste pas injecté dans le prompt.
+            hidden = 0
+            if len(items) > _MAX_ENTRIES_PER_CATEGORY:
+                hidden = len(items) - _MAX_ENTRIES_PER_CATEGORY
+                items = sorted(
+                    items, key=lambda e: e.get("updated_at", ""), reverse=True
+                )[:_MAX_ENTRIES_PER_CATEGORY]
             lines.append(f"**{_CATEGORY_LABELS[cat]}** :")
             for item in sorted(items, key=lambda e: e["key"]):
                 lines.append(f"- {item['key']} : {item['content']}")
+            if hidden:
+                lines.append(f"_(+{hidden} faits plus anciens, non affichés)_")
             lines.append("")
 
         lines.append(

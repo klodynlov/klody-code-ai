@@ -10,7 +10,13 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from config import MODEL_FALLBACK, OLLAMA_API_KEY, OLLAMA_BASE_URL
+from config import (
+    LLM_HTTP_TIMEOUT,
+    LLM_MAX_RETRIES,
+    MODEL_FALLBACK,
+    OLLAMA_API_KEY,
+    OLLAMA_BASE_URL,
+)
 from openai import OpenAI
 
 if TYPE_CHECKING:
@@ -79,7 +85,12 @@ def extract_mid_session(
     conversation = "\n".join(convo_lines)
 
     try:
-        client = OpenAI(base_url=OLLAMA_BASE_URL, api_key=OLLAMA_API_KEY)
+        client = OpenAI(
+            base_url=OLLAMA_BASE_URL,
+            api_key=OLLAMA_API_KEY,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
+        )
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -150,7 +161,12 @@ def extract_and_save(
     conversation = "\n".join(convo_lines)
 
     try:
-        client = OpenAI(base_url=OLLAMA_BASE_URL, api_key=OLLAMA_API_KEY)
+        client = OpenAI(
+            base_url=OLLAMA_BASE_URL,
+            api_key=OLLAMA_API_KEY,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
+        )
         response = client.chat.completions.create(
             model=model,
             messages=[
