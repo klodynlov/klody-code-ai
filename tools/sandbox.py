@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -151,8 +154,24 @@ class SandboxRunner:
         """
         require(timeout > 0, f"timeout doit être strictement positif (reçu {timeout})")
         if isinstance(command, str):
-            import shlex
-            cmd = shlex.split(command)
+            try:
+                cmd = shlex.split(command)
+            except ValueError as exc:
+                # Guillemets non équilibrés : typiquement un SCRIPT multi-ligne
+                # passé à run_in_sandbox au lieu d'une commande shell. On ne
+                # laisse pas l'exception remonter (traceback non géré côté
+                # orchestrator) — on rend un message actionnable.
+                return SandboxResult(
+                    command=command[:200],
+                    exit_code=1,
+                    stdout="",
+                    stderr=(
+                        f"commande shell non analysable ({exc}). run_in_sandbox attend "
+                        "une COMMANDE (ex. `python script.py`), pas un script. Écris ton "
+                        "code avec write_file puis lance `python <fichier>.py`."
+                    ),
+                    duration_s=0.0,
+                )
         else:
             cmd = list(command)
 
@@ -176,25 +195,53 @@ class SandboxRunner:
         cmd = self._rewrite_to_venv(cmd)
         cmd_str = " ".join(cmd)
 
+        # PYTHONFAULTHANDLER=1 : sur SIGABRT, l'interpréteur dumpe la pile de
+        # TOUS les threads sur stderr. Au timeout, on s'en sert pour montrer à
+        # l'agent OÙ le code est resté coincé (deadlock, boucle infinie, I/O
+        # bloquante) plutôt qu'un opaque « Timeout après Ns » qu'il ne peut pas
+        # diagnostiquer (cf. session 419676b5 : deadlock sur threading.Lock
+        # non-réentrant, l'agent a bouclé write→run→timeout sans jamais voir
+        # la cause). stdin=DEVNULL : un input() ou une lecture bloquante échoue
+        # immédiatement (EOFError) au lieu de pendre jusqu'au timeout.
+        env = dict(os.environ, PYTHONFAULTHANDLER="1")
+        is_python = Path(cmd[0]).name.startswith(("python", "pytest"))
+
         t0 = time.monotonic()
         timed_out = False
+        proc = subprocess.Popen(
+            cmd,
+            cwd=self.workdir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            errors="replace",
+            env=env,
+        )
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=self.workdir,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            stdout = proc.stdout
-            stderr = proc.stderr
+            stdout, stderr = proc.communicate(timeout=timeout)
             exit_code = proc.returncode
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             timed_out = True
             exit_code = 124  # convention shell
-            stdout = (exc.stdout or b"").decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-            stderr = (exc.stderr or b"").decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-            stderr = (stderr + f"\nTimeout après {timeout}s").lstrip()
+            if is_python:
+                # Déclenche le dump faulthandler (pile de tous les threads sur
+                # stderr) puis laisse un court instant au process pour l'écrire.
+                try:
+                    proc.send_signal(signal.SIGABRT)
+                    stdout, stderr = proc.communicate(timeout=5)
+                except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                    proc.kill()
+                    stdout, stderr = proc.communicate()
+            else:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+            hint = (f"Timeout après {timeout}s — le programme n'a pas rendu la main "
+                    "(deadlock, boucle infinie ou I/O bloquante ?).")
+            if is_python and "most recent call first" in (stderr or ""):
+                hint += " Pile capturée ci-dessus (faulthandler) : repère la dernière " \
+                        "frame de TON code pour localiser le blocage."
+            stderr = ((stderr or "") + "\n" + hint).strip()
         duration = round(time.monotonic() - t0, 2)
         ensure(duration >= 0, "durée d'exécution non négative")
 

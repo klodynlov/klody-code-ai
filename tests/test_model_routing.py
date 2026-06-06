@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from agent.llm import LLMClient
-from agent.orchestrator import Orchestrator
+from agent.orchestrator import Orchestrator, _skill_is_interactive
 
 # ── LLMClient.switch_to ───────────────────────────────────────────────────────
 
@@ -94,6 +94,58 @@ class TestRouteModel:
         Orchestrator._route_model(o, "feature")
         o.llm.switch_to.assert_not_called()
         assert o._code_model_active is False
+
+    def test_force_generalist_garde_le_generaliste_sur_tache_code(self, monkeypatch):
+        # Skill interactif (QCM) : même une tâche « feature » reste sur le
+        # généraliste (prompt complet → skill injecté), pas de coder-slim.
+        _set_models(monkeypatch)
+        o = _fake_orch("general-35b")
+        Orchestrator._route_model(o, "feature", force_generalist=True)
+        o.llm.switch_to.assert_called_once_with("general-35b", "http://localhost:8080/v1", "mlx")
+        assert o._code_model_active is False
+
+
+# ── Détection d'un skill interactif (QCM) ─────────────────────────────────────
+
+
+class TestSkillInteractif:
+    def test_drapeau_explicite(self):
+        assert _skill_is_interactive({"interactive": True, "content": ""}) is True
+
+    def test_deux_marqueurs_dans_le_contenu_suffisent(self):
+        s = {"content": "Étape 1 — Profilage par QCM. Chaque question à choix multiple."}
+        assert _skill_is_interactive(s) is True
+
+    def test_un_seul_marqueur_insuffisant(self):
+        assert _skill_is_interactive({"content": "réponds à ce questionnaire"}) is False
+
+    def test_howto_statique_non_interactif(self):
+        s = {"content": "## Principes directeurs\nFais ceci, vérifie cela, évite l'autre."}
+        assert _skill_is_interactive(s) is False
+
+
+class TestDetectInteractiveSkill:
+    def test_top_skill_interactif_detecte(self, monkeypatch):
+        # L'always-on est ignoré ; le 1er how-to (interactif) déclenche True.
+        fake = [
+            {"slug": "utilisateur_profil", "content": "qcm à choix multiple"},
+            {"slug": "concevoir_un_algorithme_pas_a_pas", "interactive": True, "content": "x"},
+        ]
+        monkeypatch.setattr("agent.orchestrator.load_skills", lambda: fake)
+        monkeypatch.setattr("agent.orchestrator.select_skills", lambda _s, _q: fake)
+        assert Orchestrator._detect_interactive_skill(MagicMock(), "concevoir un algo") is True
+
+    def test_top_skill_statique_non_detecte(self, monkeypatch):
+        fake = [{"slug": "mixage_mastering", "content": "## Principes directeurs"}]
+        monkeypatch.setattr("agent.orchestrator.load_skills", lambda: fake)
+        monkeypatch.setattr("agent.orchestrator.select_skills", lambda _s, _q: fake)
+        assert Orchestrator._detect_interactive_skill(MagicMock(), "mixe ce morceau") is False
+
+    def test_robuste_si_selection_echoue(self, monkeypatch):
+        def _boom():
+            raise RuntimeError("catalogue KO")
+        monkeypatch.setattr("agent.orchestrator.load_skills", _boom)
+        assert Orchestrator._detect_interactive_skill(MagicMock(), "x") is False
 
 
 # ── Prompt slim injecté quand le coder est actif ──────────────────────────────

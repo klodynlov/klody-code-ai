@@ -169,3 +169,29 @@ class TestExecuteCommand:
         result = terminal.execute_command("printf '%0.s-' {1..200}", "test troncature")
         assert len(result) <= 50 + len("\n… [sortie tronquée — ")  + 30  # marge message
         assert "tronquée" in result or len(result) <= 50
+
+    def test_commande_detachee_rend_la_main_sans_bloquer(self, terminal, monkeypatch):
+        """Une commande backgroundée (`… &`) est lancée détachée et rend la main
+        immédiatement — sans capturer ses pipes → plus de timeout fantôme (cf.
+        lancement du proxy RAG `… &` qui timeoutait à 30s)."""
+        import time
+
+        from rich.prompt import Confirm
+        monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: True)
+        # Cible par chaîne → pas besoin d'importer le module (évite le mélange
+        # import / from-import que CodeQL signale).
+        monkeypatch.setattr("tools.terminal.SUBPROCESS_TIMEOUT", 30)  # si on bloquait, ~30s
+        t0 = time.monotonic()
+        result = terminal.execute_command("sleep 30 &", "lancer un service")
+        elapsed = time.monotonic() - t0
+        assert elapsed < 5, f"doit rendre la main vite (a pris {elapsed:.1f}s)"
+        assert "arrière-plan" in result
+        assert "PID" in result
+
+    def test_double_ampersand_n_est_pas_traite_comme_background(self, terminal, monkeypatch):
+        """`a && b` est une séquence, PAS une commande détachée."""
+        from rich.prompt import Confirm
+        monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: True)
+        result = terminal.execute_command("echo a && echo b", "séquence")
+        assert "arrière-plan" not in result
+        assert "a" in result and "b" in result

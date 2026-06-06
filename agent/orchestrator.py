@@ -295,6 +295,28 @@ _AUTO_EXTENSION_SIZE = 8
 # généraliste, meilleur en conversation/explication.
 _CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
 
+# Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
+# l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
+# skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
+# skill) ni avec l'anti-stall (qui force un tool alors que le skill doit poser
+# ses questions en texte et attendre). Cf. session 419676b5 : skill QCM
+# `concevoir_un_algorithme_pas_a_pas` routé #1 mais jamais déclenché.
+_INTERACTIVE_SKILL_MARKERS = (
+    "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
+)
+
+
+def _skill_is_interactive(skill: dict) -> bool:
+    """Le skill est-il un guide INTERACTIF (QCM) plutôt qu'une fiche statique ?
+
+    Vrai si le drapeau explicite `interactive: true` est présent, ou si ≥2
+    marqueurs apparaissent dans le contenu (un how-to classique n'en contient
+    pas plusieurs à la fois)."""
+    if skill.get("interactive") is True:
+        return True
+    blob = (skill.get("content") or "").lower()
+    return sum(marker in blob for marker in _INTERACTIVE_SKILL_MARKERS) >= 2
+
 # Prompt SLIM pour le modèle coder. Qwen3-Coder est un modèle de COMPLÉTION :
 # sous le gros prompt agentique de Klody (~12k tok) il dégénère (sortie « ``` »).
 # Avec ce prompt court, il sort le code complet en markdown ```html, que le
@@ -419,6 +441,9 @@ class Orchestrator:
         # Text-to-action : 1 fallback max par run() pour extraire un tool_call
         # depuis un content texte+markdown si le LLM refuse d'appeler tool natifs.
         self._t2a_fired = False
+        # Skill interactif (QCM) actif pour le run courant : neutralise la
+        # bascule coder-slim, l'anti-stall et le text-to-action (cf. run()).
+        self._interactive_skill_active = False
 
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
@@ -449,13 +474,17 @@ class Orchestrator:
             self._router = Router()
         return self._router
 
-    def _route_model(self, task_type: str) -> None:
+    def _route_model(self, task_type: str, *, force_generalist: bool = False) -> None:
         """Bascule `self.llm` entre le généraliste et le modèle code selon la
         tâche classée par le router.
 
         - Tâche de code (cf. _CODE_TASK_TYPES) → modèle coder (CODE_MODEL) :
           il génère de bien meilleurs gros blocs de code.
         - Sinon (`explain`) → généraliste (LLM_MODEL).
+
+        `force_generalist` : reste sur le généraliste même pour une tâche de
+        code. Sert aux skills interactifs (QCM), qui ont besoin du prompt
+        complet (le coder-slim n'injecte aucun skill) et d'un mode dialogue.
 
         No-op si aucun modèle code n'est configuré (CODE_MODEL vide), ou si le
         client est sur un modèle qui n'est NI le généraliste NI le code — i.e.
@@ -466,11 +495,29 @@ class Orchestrator:
             return
         if self.llm.model not in (LLM_MODEL, CODE_MODEL):
             return
-        if task_type in _CODE_TASK_TYPES:
+        if task_type in _CODE_TASK_TYPES and not force_generalist:
             self.llm.switch_to(CODE_MODEL, CODE_BASE_URL, CODE_API_KEY)
             self._code_model_active = True  # → _inject_system_prompt utilise le prompt slim
         else:
             self.llm.switch_to(LLM_MODEL, LLM_BASE_URL, LLM_API_KEY)
+
+    def _detect_interactive_skill(self, query: str) -> bool:
+        """Le skill le plus pertinent pour cette requête est-il un guide
+        INTERACTIF (QCM) ? On regarde le 1er skill how-to routé (hors always-on
+        `utilisateur_`/`conventions_`, toujours renvoyés en tête). Si oui, le
+        run reste sur le généraliste avec prompt complet (sinon le coder-slim
+        n'injecterait aucun skill) et l'anti-stall / text-to-action se taisent
+        (le skill répond en posant des questions, pas en lançant un tool)."""
+        try:
+            skills = select_skills(load_skills(), query)
+        except Exception as exc:  # détection best-effort, jamais bloquante
+            logger.debug("Détection skill interactif ignorée : %s", exc)
+            return False
+        for s in skills:
+            if str(s.get("slug", "")).startswith(("utilisateur_", "conventions_")):
+                continue
+            return _skill_is_interactive(s)
+        return False
 
     @property
     def code_index(self):
@@ -1321,6 +1368,9 @@ class Orchestrator:
         # par pertinence, cf. _inject_system_prompt) et à Best-of-N.
         self._current_user_prompt = user_input
         self._preview_fix_attempts = 0  # boucle de feedback preview (reset/requête)
+        # Défaut : pas de skill interactif (réévalué dans le bloc routeur).
+        self._interactive_skill_active = False
+
         task_type_for_prompt: str | None = None
         if self._router_enabled:
             try:
@@ -1342,8 +1392,22 @@ class Orchestrator:
                 max_iter = min(decision.max_iterations, MAX_ITERATIONS)
                 self._display_routing(decision, max_iter)
                 task_type_for_prompt = decision.task_type
+                # Skill interactif (QCM) : seulement pertinent pour une tâche
+                # routée vers le coder — c'est LÀ que le coder-slim « avale » le
+                # skill et que l'anti-stall force un tool. Gater sur
+                # _CODE_TASK_TYPES écarte les faux positifs (ex. « liste les
+                # fichiers du projet » matche « projet » mais n'est pas du code).
+                self._interactive_skill_active = (
+                    decision.task_type in _CODE_TASK_TYPES
+                    and self._detect_interactive_skill(user_input)
+                )
                 # Routage modèle : tâche de code → modèle coder, sinon généraliste.
-                self._route_model(decision.task_type)
+                # Un skill interactif force le généraliste (le coder-slim
+                # n'injecte aucun skill, le QCM serait perdu).
+                self._route_model(
+                    decision.task_type,
+                    force_generalist=self._interactive_skill_active,
+                )
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
@@ -1515,12 +1579,17 @@ class Orchestrator:
                     self.last_routing is not None
                     and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
                 )
+                # Un skill interactif (QCM) répond LÉGITIMEMENT en texte (il pose
+                # ses questions et attend) : ne pas confondre avec un plan annoncé
+                # sans action. On garde toutefois le filet « réponse vide », qui
+                # reste un vrai stall même en mode interactif.
+                interactive = getattr(self, "_interactive_skill_active", False)
                 stalled = (
                     actionable_mode
                     and not getattr(self, "_anti_stall_fired", False)
                     and iteration < max_iter - 1
                     and (
-                        _looks_like_unfinished_plan(content)
+                        (_looks_like_unfinished_plan(content) and not interactive)
                         or is_empty_response
                     )
                 )
@@ -1561,6 +1630,9 @@ class Orchestrator:
                     and self.last_routing is not None
                     and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
                     and not getattr(self, "_t2a_fired", False)
+                    # Skill interactif : sa réponse texte EST le livrable (questions
+                    # du QCM) — ne pas la détourner en exécution de code.
+                    and not getattr(self, "_interactive_skill_active", False)
                 ):
                     inferred = _infer_action_from_text(content, self._current_user_prompt)
                     if inferred:
@@ -1595,6 +1667,7 @@ class Orchestrator:
         self._anti_stall_fired = False
         self._anti_stall_iter = -1
         self._t2a_fired = False
+        self._interactive_skill_active = False
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
