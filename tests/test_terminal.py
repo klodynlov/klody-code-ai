@@ -176,10 +176,11 @@ class TestExecuteCommand:
         lancement du proxy RAG `… &` qui timeoutait à 30s)."""
         import time
 
-        import tools.terminal as tt
         from rich.prompt import Confirm
         monkeypatch.setattr(Confirm, "ask", lambda *a, **kw: True)
-        monkeypatch.setattr(tt, "SUBPROCESS_TIMEOUT", 30)  # si on bloquait, ~30s
+        # Cible par chaîne → pas besoin d'importer le module (évite le mélange
+        # import / from-import que CodeQL signale).
+        monkeypatch.setattr("tools.terminal.SUBPROCESS_TIMEOUT", 30)  # si on bloquait, ~30s
         t0 = time.monotonic()
         result = terminal.execute_command("sleep 30 &", "lancer un service")
         elapsed = time.monotonic() - t0
