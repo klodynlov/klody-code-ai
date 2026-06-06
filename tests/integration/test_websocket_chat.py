@@ -98,6 +98,9 @@ class _Completions:
             # Appel non-streaming (routeur désactivé ici, mais l'extracteur
             # mémoire de fond peut appeler) → complétion benigne, non bloquante.
             return _Completion("")
+        # Capture les messages envoyés au modèle → permet de vérifier qu'une
+        # réponse ask_user a bien été réinjectée dans le contexte (tool result).
+        FakeOpenAI.captured.append(params.get("messages") or [])
         turn = self._turns[min(self._i, len(self._turns) - 1)]
         self._i += 1
         return iter(turn)
@@ -112,9 +115,18 @@ class FakeOpenAI:
     """Remplace agent.llm.OpenAI : ignore base_url/api_key, joue un script."""
 
     _turns: ClassVar[list] = []
+    captured: ClassVar[list] = []  # messages passés au modèle à chaque tour streamé
 
     def __init__(self, *args, **kwargs) -> None:
+        FakeOpenAI.captured = []
         self.chat = _Chat(list(FakeOpenAI._turns))
+
+
+def _tool_messages(captured: list) -> list[str]:
+    """Contenus des messages role=tool vus dans le dernier tour capturé."""
+    if not captured:
+        return []
+    return [m.get("content", "") for m in captured[-1] if m.get("role") == "tool"]
 
 
 # --------------------------------------------------------------------------- #
@@ -197,3 +209,102 @@ class TestChatRoundTrip:
             tc = next(e for e in events if e["type"] == "tool_call")
             assert tc.get("name") == "list_skills"
             assert types[-1] == "done"
+
+
+class TestInteractiveQuestionRoundTrip:
+    """ask_user : le tour se met en pause (question_request), l'UI renvoie le
+    choix (question_response), l'agent reprend avec la réponse en tool_result.
+    C'est la mécanique « questions une-à-une » des skills QCM."""
+
+    def test_question_reponse_round_trip(self, chat_client):
+        import json
+
+        # Tour 1 : le LLM pose UNE question via ask_user ; tour 2 : il conclut.
+        FakeOpenAI._turns = [
+            _tool_turn(
+                "call_q",
+                "ask_user",
+                json.dumps({
+                    "question": "Quel type de jeu ?",
+                    "options": ["Plateforme", "Tir"],
+                }),
+            ),
+            _text_turn("Parfait, on part sur un platformer"),
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "aide-moi à concevoir mon jeu"})
+
+            # L'agent bloque sur la question : on draine jusqu'à question_request.
+            events = _drain_until(ws, "question_request")
+            q = events[-1]
+            assert q["question"] == "Quel type de jeu ?"
+            assert q["options"] == ["Plateforme", "Tir"]
+            assert q.get("allow_free_text") is True
+
+            # ask_user n'émet PAS de tool_call/tool_result UI (canal dédié).
+            types = [e["type"] for e in events]
+            assert "tool_call" not in types and "tool_result" not in types
+
+            # L'UI répond → débloque le thread orchestrator.
+            ws.send_json({"type": "question_response", "id": q["id"], "answer": "Plateforme"})
+
+            tail = _drain_until(ws, "done")
+            assert tail[-1]["type"] == "done"
+            # La réponse revient au modèle via un tool result réinjecté en contexte.
+            assert any("Plateforme" in c for c in _tool_messages(FakeOpenAI.captured))
+
+    def test_questions_posees_une_a_une(self, chat_client):
+        """Cœur du feature : 3 ask_user successifs sont posés UN À UN (la 2e
+        question n'est émise qu'après la réponse à la 1re), puis synthèse. Vérifie
+        que la boucle ReAct enchaîne Q1→réponse→Q2→réponse→Q3→réponse→conclusion."""
+        import json
+
+        FakeOpenAI._turns = [
+            _tool_turn("q1", "ask_user", json.dumps({"question": "Nature ?", "options": ["Trier", "Chercher"]})),
+            _tool_turn("q2", "ask_user", json.dumps({"question": "Entrées ?", "options": ["Liste", "Graphe"]})),
+            _tool_turn("q3", "ask_user", json.dumps({"question": "Volume ?", "options": ["Petit", "Grand"]})),
+            _text_turn("Fiche de besoin synthétisée"),
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "conçois mon algo pas à pas"})
+
+            seen = []
+            for expected, answer in [("Nature ?", "Trier"), ("Entrées ?", "Liste"), ("Volume ?", "Petit")]:
+                ev = _drain_until(ws, "question_request")[-1]
+                assert ev["question"] == expected, f"questions hors séquence : {ev['question']}"
+                seen.append(ev["question"])
+                ws.send_json({"type": "question_response", "id": ev["id"], "answer": answer})
+
+            tail = _drain_until(ws, "done")
+            assert len(seen) == 3  # les trois questions ont bien été posées séparément
+            assert tail[-1]["type"] == "done"
+            # Les 3 réponses ont été réinjectées au modèle (contexte du tour final).
+            tools = _tool_messages(FakeOpenAI.captured)
+            assert any("Trier" in c for c in tools)
+            assert any("Liste" in c for c in tools)
+            assert any("Petit" in c for c in tools)
+
+    def test_double_reponse_ignoree(self, chat_client):
+        """Idempotence : une 2e question_response pour le même id (double-clic /
+        message tardif) ne corrompt pas la réponse déjà livrée."""
+        import json
+
+        FakeOpenAI._turns = [
+            _tool_turn("q1", "ask_user", json.dumps({"question": "Choix ?", "options": ["A", "B"]})),
+            _text_turn("ok"),
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "demande"})
+            ev = _drain_until(ws, "question_request")[-1]
+            # Première réponse (retenue) puis doublon (ignoré).
+            ws.send_json({"type": "question_response", "id": ev["id"], "answer": "A"})
+            ws.send_json({"type": "question_response", "id": ev["id"], "answer": "B"})
+            tail = _drain_until(ws, "done")
+            assert tail[-1]["type"] == "done"
+            # Seule la 1re réponse ("A") est retenue ; le doublon "B" est ignoré.
+            tools = _tool_messages(FakeOpenAI.captured)
+            assert any("Réponse de l'utilisateur : A" in c for c in tools)
+            assert not any("Réponse de l'utilisateur : B" in c for c in tools)
