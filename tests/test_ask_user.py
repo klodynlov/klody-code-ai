@@ -194,9 +194,10 @@ class TestDetectInteractiveSkill:
     « liste les fichiers du projet » lancerait un questionnaire hors-sujet."""
 
     def _patch(self, monkeypatch, skills):
-        import agent.orchestrator as orch
-        monkeypatch.setattr(orch, "load_skills", lambda: skills)
-        monkeypatch.setattr(orch, "select_skills", lambda _sk, _q: skills)
+        # Cibles en chaîne → pas de second import de agent.orchestrator
+        # (évite l'avertissement CodeQL « import + import from » sur ce module).
+        monkeypatch.setattr("agent.orchestrator.load_skills", lambda: skills)
+        monkeypatch.setattr("agent.orchestrator.select_skills", lambda _sk, _q: skills)
 
     def test_actif_quand_la_requete_recoupe_le_nom(self, monkeypatch):
         self._patch(monkeypatch, [_QCM_SKILL])
