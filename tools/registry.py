@@ -1099,6 +1099,53 @@ DOCUMENT_TOOLS: list[dict] = [
 TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS]
 
 
+# Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
+# Exposition conditionnelle : l'orchestrateur ne l'ajoute aux outils proposés au
+# modèle que lorsqu'un skill INTERACTIF (QCM) est actif (_interactive_skill_active).
+# Hors de ce cas, l'agent reste autonome (pas de questions sur une tâche de code).
+# Le round-trip (pause du tour → carte cliquable côté UI → réponse) décalque la
+# plomberie d'approbation humaine (cf. api/server.py _request_approval).
+ASK_USER_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "ask_user",
+        "description": (
+            "Pose UNE question à choix multiples à l'utilisateur et attend sa réponse "
+            "(une fenêtre interactive cliquable s'affiche). À n'utiliser que pour cadrer "
+            "un besoin (profilage QCM d'un skill interactif). Règle stricte : UNE seule "
+            "question par appel ; attends la réponse avant de poser la suivante. Ne "
+            "déverse jamais plusieurs questions d'un coup."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "La question, formulée clairement et de façon autonome.",
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Les choix proposés (un par entrée, ex. 'Trier / ordonner'). "
+                        "Inclure une option « Autre / je ne sais pas » quand pertinent."
+                    ),
+                },
+                "allow_free_text": {
+                    "type": "boolean",
+                    "description": (
+                        "Autoriser une réponse libre en plus des options (défaut true). "
+                        "Affiche un champ « Autre… » sous les boutons."
+                    ),
+                    "default": True,
+                },
+            },
+            "required": ["question", "options"],
+        },
+    },
+}
+
+
 def get_tools() -> list[dict]:
     return TOOLS
 

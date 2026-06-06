@@ -57,7 +57,7 @@ from tools.project_creator import (
     create_project as pc_create,
     open_in_pycharm as pc_open_pycharm,
 )
-from tools.registry import get_tools
+from tools.registry import ASK_USER_TOOL, get_tools
 from tools.search import Search
 from tools.skills import (
     delete_skill,
@@ -417,6 +417,10 @@ class Orchestrator:
         # Hook optionnel (None en CLI) : permet aux outils bloquants comme
         # await_distillation d'observer une demande d'arrêt côté API.
         self._stop_check: Callable[[], bool] | None = None
+        # Hook optionnel (posé par l'API, None en CLI) : ouvre une question
+        # interactive (carte cliquable côté UI), bloque le tour jusqu'à la
+        # réponse et la renvoie. Utilisé par l'outil ask_user (skills QCM).
+        self._ask_user: Callable[[str, list[str], bool], str] | None = None
         # Retrieval code-aware (Roadmap v2 #6) — tree-sitter + embeddings.
         self._code_index = None      # symboles + références (tree-sitter)
         self._embed_index = None     # recherche sémantique (bge-m3)
@@ -940,6 +944,8 @@ class Orchestrator:
             "execute_command": lambda a: self.terminal.execute_command(
                 a["command"], a.get("reason", "")),
             "await_distillation": self._tool_await_distillation,
+            # Question interactive (skills QCM) — exposé conditionnellement
+            "ask_user": self._tool_ask_user,
             # Recherche texte
             "search_in_files": lambda a: self.search.search_in_files(
                 a["pattern"], a.get("path", "."), a.get("file_pattern", ""),
@@ -1128,6 +1134,51 @@ class Orchestrator:
             f"Rappelle await_distillation (run_id={run_id}) pour continuer d'attendre, "
             f"ou klody-distill.sh tail {run_id} 80 pour diagnostiquer."
         )
+
+    def _tool_ask_user(self, a: dict) -> str:
+        """Pose UNE question à choix multiples à l'utilisateur et attend sa réponse.
+
+        En mode API/UI, `self._ask_user` (posé par le serveur) ouvre une carte
+        cliquable, met le tour en pause sur un Event et renvoie le choix. Sans
+        canal (CLI/tests), on ne bloque PAS : on dégrade en demandant au modèle
+        de poser la question en texte avec ses options et d'attendre (le QCM
+        continue de fonctionner en mode dialogue, comme avant l'outil)."""
+        question = (a.get("question") or "").strip()
+        if not question:
+            return "ERREUR: 'question' manquante pour ask_user."
+        options = [str(o) for o in (a.get("options") or []) if str(o).strip()]
+        allow_free_text = bool(a.get("allow_free_text", True))
+        if not options and not allow_free_text:
+            # Carte sans issue : ni choix cliquable, ni saisie libre.
+            return ("ERREUR: ask_user requiert au moins une option non vide, "
+                    "ou allow_free_text=true pour une réponse libre.")
+
+        ask = getattr(self, "_ask_user", None)
+        if ask is None:
+            # Pas de canal interactif (CLI/tests) : repli texte.
+            opts = "\n".join(f"  - {o}" for o in options) if options else ""
+            return (
+                "(Mode non-interactif : pas de fenêtre cliquable disponible.) "
+                "Pose cette question à l'utilisateur EN TEXTE, avec ses options, "
+                "puis attends sa réponse avant de continuer.\n"
+                f"Question : {question}" + (f"\nOptions :\n{opts}" if opts else "")
+            )
+        answer = ask(question, options, allow_free_text)
+        answer = (answer or "").strip()
+        if not answer:
+            return "L'utilisateur n'a pas répondu (aucun choix). Reformule ou propose de passer."
+        return f"Réponse de l'utilisateur : {answer}"
+
+    def _tools_for_run(self) -> list[dict]:
+        """Outils proposés au modèle pour le tour courant.
+
+        `ask_user` n'est exposé QUE pour un skill interactif (QCM) : ailleurs,
+        l'agent reste autonome et ne doit pas pouvoir interrompre une tâche de
+        code par des questions. Le handler existe en permanence dans le dispatch
+        (inoffensif), mais l'outil reste invisible au modèle hors de ce mode."""
+        if getattr(self, "_interactive_skill_active", False):
+            return [*self.tools, ASK_USER_TOOL]
+        return self.tools
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
@@ -1494,8 +1545,11 @@ class Orchestrator:
 
             # Best-of-N (Roadmap v2 #7) : 1ère itération des tâches hard, où la
             # stratégie initiale est critique. Désactivé quand le coder dédié
-            # est routé (cf. _should_run_best_of_n).
-            use_bon = self._should_run_best_of_n(iteration)
+            # est routé (cf. _should_run_best_of_n) et pour un skill interactif
+            # (un Q&A ne doit pas générer N candidats, et BoN n'expose pas ask_user).
+            use_bon = self._should_run_best_of_n(iteration) and not getattr(
+                self, "_interactive_skill_active", False
+            )
             # Anti-stall escalation : si on vient d'injecter un nudge à l'itération
             # précédente et que le LLM a encore produit du texte sans action, on
             # FORCE tool_choice="required" pour le prochain tour — pas le choix.
@@ -1511,7 +1565,7 @@ class Orchestrator:
                 content, tool_calls = self._run_best_of_n(messages)
             else:
                 content, tool_calls = self.llm.stream_chat(
-                    messages, tools=self.tools, tool_choice=tool_choice,
+                    messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                 )
 
             if tool_calls:

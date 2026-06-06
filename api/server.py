@@ -376,6 +376,10 @@ async def websocket_endpoint(ws: WebSocket):
     # Le thread orchestrator bloque sur l'Event ; la boucle WS le réveille à
     # réception d'un message approval_response. Portée = cette connexion.
     pending_approvals: dict[str, tuple] = {}
+    # Questions interactives en attente : id → (threading.Event, {"answer": str}).
+    # Même mécanique que les approbations : l'outil ask_user bloque le tour sur
+    # l'Event, la boucle WS le réveille à réception d'un question_response.
+    pending_questions: dict[str, tuple] = {}
 
     # Envoyer le statut initial. Le client (WebSocket natif WKWebView, app
     # packagée) tombe parfois juste après le handshake : sans garde, le
@@ -435,7 +439,7 @@ async def websocket_endpoint(ws: WebSocket):
 
                 # Créer l'orchestrateur avec callbacks via queue
                 _stop_flag[0] = False
-                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag, pending_approvals)
+                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag, pending_approvals, pending_questions)
 
                 # Liaison explicite des variables de boucle (orch/user_text/memory)
                 # comme arguments par défaut : chaque thread capture les valeurs de
@@ -516,6 +520,17 @@ async def websocket_endpoint(ws: WebSocket):
                                     ev, holder = entry
                                     holder["approved"] = bool(ctrl.get("approved"))
                                     ev.set()
+                            elif ctype == "question_response":
+                                entry = pending_questions.get(ctrl.get("id", ""))
+                                if entry:
+                                    ev, holder = entry
+                                    # Idempotence : on ignore une réponse en double /
+                                    # tardive (l'Event déjà armé) et on coerce None→""
+                                    # (un client mal formé pourrait envoyer answer:null,
+                                    # str(None) donnerait le littéral "None").
+                                    if not ev.is_set():
+                                        holder["answer"] = str(ctrl.get("answer") or "")
+                                        ev.set()
                             elif ctype == "stop":
                                 _stop_flag[0] = True
                             # ping / autres : ignorés tant qu'un run est en cours
@@ -610,6 +625,7 @@ def _build_streaming_orchestrator(
     loop: asyncio.AbstractEventLoop,
     stop_flag: list[bool] | None = None,
     pending_approvals: dict | None = None,
+    pending_questions: dict | None = None,
 ) -> Orchestrator:
     """Crée un Orchestrator patché pour envoyer des événements dans la queue."""
     orch = Orchestrator(memory)
@@ -784,6 +800,47 @@ def _build_streaming_orchestrator(
         pending_approvals.pop(approval_id, None)
         return bool(holder["approved"])
 
+    _question_seq = [0]
+
+    def _request_user_choice(question: str, options: list[str], allow_free_text: bool = True) -> str:
+        """Ouvre une question interactive côté UI (carte cliquable) et BLOQUE le
+        thread orchestrator jusqu'à la réponse. Renvoie le choix (ou texte libre).
+
+        Décalque _request_approval : Event + holder, réveillé par la boucle WS à
+        réception d'un question_response. Sans canal (CLI/tests), renvoie ""
+        (l'outil ask_user dégrade alors en repli texte)."""
+        if pending_questions is None:
+            return ""
+        _question_seq[0] += 1
+        question_id = f"q-{_question_seq[0]}"
+        ev = threading.Event()
+        holder = {"answer": ""}
+        pending_questions[question_id] = (ev, holder)
+        _put({
+            "type": "question_request",
+            "id": question_id,
+            "question": question,
+            "options": options,
+            "allow_free_text": allow_free_text,
+        })
+        # Bloque jusqu'à la réponse UI ; check stop toutes les 0,5 s ; garde-fou
+        # anti-zombie à 30 min si l'utilisateur ne répond jamais.
+        waited = 0.0
+        timeout_s = 1800.0
+        while not ev.wait(timeout=0.5):
+            waited += 0.5
+            if stop_flag is not None and stop_flag[0]:
+                pending_questions.pop(question_id, None)
+                raise StopGeneration()
+            if waited >= timeout_s:
+                pending_questions.pop(question_id, None)
+                _put({"type": "question_timeout", "id": question_id})
+                return ""
+        pending_questions.pop(question_id, None)
+        return str(holder["answer"])
+
+    orch._ask_user = _request_user_choice
+
     def execute_with_events(tool_name: str, tool_args: dict) -> str:
         # Garde-fou humain : les actions à effet de bord requièrent validation.
         # (and court-circuité : _request_approval n'est appelé que si gardé.)
@@ -791,13 +848,18 @@ def _build_streaming_orchestrator(
             refusal = "Action refusée par l'utilisateur (non validée)."
             _put({"type": "tool_result", "name": tool_name, "content": refusal})
             return refusal
-        _put({"type": "tool_call", "name": tool_name, "args": tool_args})
+        # ask_user a son propre canal UI (question_request → carte cliquable) : on
+        # n'émet PAS de tool_call/tool_result pour lui (sinon doublon + bande passante).
+        emit_ui = tool_name != "ask_user"
+        if emit_ui:
+            _put({"type": "tool_call", "name": tool_name, "args": tool_args})
         result = original_execute(tool_name, tool_args)
         # Limiter la taille du résultat envoyé au LLM pour éviter les contextes géants
         MAX_RESULT = 3000
         truncated = result[:MAX_RESULT] + f"\n… [tronqué, {len(result) - MAX_RESULT} chars supplémentaires]" if len(result) > MAX_RESULT else result
         preview = truncated[:600] + "…" if len(truncated) > 600 else truncated
-        _put({"type": "tool_result", "name": tool_name, "content": preview})
+        if emit_ui:
+            _put({"type": "tool_result", "name": tool_name, "content": preview})
         return truncated
 
     orch._execute_tool = execute_with_events

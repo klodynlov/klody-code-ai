@@ -132,10 +132,17 @@ class TestDispatcher:
 
     def test_table_dispatch_couvre_exactement_le_registry(self, orch):
         """Garde-fou du refactor table de dispatch : chaque outil déclaré au
-        registry a un handler, et aucun handler n'est orphelin."""
+        registry a un handler, et aucun handler n'est orphelin.
+
+        Exception : `ask_user` a un handler permanent mais N'EST PAS dans
+        get_tools() (exposition conditionnelle aux skills interactifs, cf.
+        Orchestrator._tools_for_run). Il est donc attendu hors du registry."""
         from tools.registry import get_tool_names
+
+        # Outils à handler permanent mais exposés conditionnellement (hors registry global).
+        _CONDITIONAL = {"ask_user"}
 
         registry = set(get_tool_names())
         handlers = set(orch._dispatch.keys())
         assert registry - handlers == set(), f"outils sans handler: {registry - handlers}"
-        assert handlers - registry == set(), f"handlers orphelins: {handlers - registry}"
+        assert handlers - registry == _CONDITIONAL, f"handlers orphelins: {handlers - registry - _CONDITIONAL}"
