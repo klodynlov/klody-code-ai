@@ -330,10 +330,10 @@ def entrainer_voix(nom_modele: str, epochs: int = 300) -> dict:
     RVC_LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = RVC_LOG_DIR / f"{nom}_train.log"
     code = (
-        "import sys; sys.path.insert(0, %r)\n"
+        f"import sys; sys.path.insert(0, {str(LOCALSUNO_DIR)!r})\n"
         "from training.rvc_trainer import train_rvc_model\n"
-        "train_rvc_model(model_name=%r, total_epoch=%d)\n"
-    ) % (str(LOCALSUNO_DIR), nom, int(epochs))
+        f"train_rvc_model(model_name={nom!r}, total_epoch={int(epochs)})\n"
+    )
     try:
         with open(log_path, "w") as lf:
             subprocess.Popen(
