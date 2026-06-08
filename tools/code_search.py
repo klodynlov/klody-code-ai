@@ -10,6 +10,7 @@ Rebuild incrémental : on ne re-embed que les fichiers modifiés (cache mtime).
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,11 @@ _SKIP_DIRS = frozenset({
 
 # Taille max d'un chunk de fichier (en chars) avant troncation
 _MAX_CHUNK_CHARS = 4000
+
+# Garde-fou anti-emballement : nombre max de fichiers indexés. PROJECT_ROOT peut
+# être un dossier large (ex. ~/Projets) ; sans plafond, un premier build
+# embarquerait des milliers de fichiers. Au-delà, on s'arrête (avec un warning).
+_MAX_INDEX_FILES = 1500
 
 
 @dataclass
@@ -118,18 +124,16 @@ class EmbeddingIndex:
         return self._available
 
     def _iter_source_files(self):
-        for path in self.root.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in _INDEXABLE_EXT:
-                continue
-            try:
-                rel_parts = path.relative_to(self.root).parts
-            except ValueError:
-                continue
-            if any(p in _SKIP_DIRS for p in rel_parts[:-1]):
-                continue
-            yield path
+        # os.walk + élagage IN-PLACE de dirnames : on ne DESCEND jamais dans les
+        # dossiers ignorés (node_modules, .venv, .git…). `rglob("*")` les
+        # énumérait avant de les filtrer — sur une grosse racine (~/Projets, avec
+        # des node_modules partout) c'était un coût de parcours énorme à chaque
+        # refresh, donc à chaque recherche.
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+            for fn in filenames:
+                if Path(fn).suffix in _INDEXABLE_EXT:
+                    yield Path(dirpath) / fn
 
     def refresh(self, batch_size: int = 16) -> int:
         """Re-indexe les fichiers ajoutés/modifiés. Retourne nb d'updates."""
@@ -140,6 +144,13 @@ class EmbeddingIndex:
         to_update: list[tuple[str, float, str]] = []  # (rel, mtime, content)
         seen: set[str] = set()
         for path in self._iter_source_files():
+            if len(seen) >= _MAX_INDEX_FILES:
+                logger.warning(
+                    "[EmbeddingIndex] plafond de %d fichiers atteint sous %s — "
+                    "le reste est ignoré (réduis la racine ou _MAX_INDEX_FILES)",
+                    _MAX_INDEX_FILES, self.root,
+                )
+                break
             try:
                 mtime = path.stat().st_mtime
                 rel = str(path.relative_to(self.root))
@@ -224,3 +235,26 @@ def format_hits(hits: list[SearchHit]) -> str:
         lines.append(f"  • [{h.score:.3f}] {h.rel_path}")
         lines.append(f"      {h.preview[:100]}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------- #
+# Singleton par racine                                                         #
+# ---------------------------------------------------------------------------- #
+
+_INDEX_CACHE: dict[str, EmbeddingIndex] = {}
+
+
+def get_embedding_index(project_root: Path | str) -> EmbeddingIndex:
+    """Index partagé (process-level) par racine de projet.
+
+    L'Orchestrator est recréé à CHAQUE message (cf. api.server : `Orchestrator`
+    dans la boucle WebSocket). Si l'index vivait dans l'instance, il serait
+    reconstruit de zéro à chaque tour (≈ tous les fichiers ré-embeddés). Ce cache
+    le fait SURVIVRE entre les tours : build une fois, puis refresh incrémental.
+    Bénéficie aussi à l'outil find_relevant_files (même latence évitée)."""
+    key = str(Path(project_root).resolve())
+    idx = _INDEX_CACHE.get(key)
+    if idx is None:
+        idx = EmbeddingIndex(Path(key))
+        _INDEX_CACHE[key] = idx
+    return idx

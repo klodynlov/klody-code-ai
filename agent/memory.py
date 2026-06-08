@@ -8,6 +8,7 @@ from typing import Optional
 import config
 
 from agent.dbc import invariant
+from agent.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,12 @@ class ConversationMemory:
             "title": self.title,
             "created_at": self._created_at,
             "updated_at": datetime.now().isoformat(),
-            "messages": self.messages,
+            # On retire les clés privées éphémères (cache de tokens `_tok*`) : elles
+            # n'ont pas à être persistées et seront recalculées au besoin.
+            "messages": [
+                {k: v for k, v in m.items() if not k.startswith("_")}
+                for m in self.messages
+            ],
         }
         try:
             self.memory_file.write_text(
@@ -240,13 +246,29 @@ class ConversationMemory:
 
     @staticmethod
     def _estimate_tokens(message: dict) -> int:
-        """Coût approximatif en tokens (~4 chars/token, convention du projet) :
-        contenu texte + nom et arguments des tool_calls, + surcoût de structure."""
-        chars = len(message.get("content") or "")
+        """Coût en tokens : contenu + nom/arguments des tool_calls + surcoût de
+        structure (+4 : rôle et délimiteurs). Comptage exact via le tokenizer du
+        modèle si disponible (cf. agent/tokens), sinon repli ~chars/4.
+
+        Le résultat est mis en cache dans le message (clé privée `_tok`, invalidée
+        si la taille du contenu change). La fenêtre glissante somme ce coût à
+        CHAQUE ajout, sur ≤ MAX_MESSAGES messages : sans cache, autant d'encodages
+        par ajout → O(n²) par tour. Les clés `_tok*` sont retirées à la
+        sauvegarde (cf. save) et jamais transmises à l'API."""
+        text = message.get("content") or ""
+        parts = [text]
         for tc in message.get("tool_calls") or []:
             fn = tc.get("function", {})
-            chars += len(fn.get("name", "")) + len(fn.get("arguments", ""))
-        return chars // 4 + 4
+            parts.append(fn.get("name", ""))
+            parts.append(fn.get("arguments", ""))
+        blob = "".join(parts)
+        sig = len(blob)
+        if message.get("_tok_sig") == sig and "_tok" in message:
+            return message["_tok"]
+        n = count_tokens(blob) + 4
+        message["_tok"] = n
+        message["_tok_sig"] = sig
+        return n
 
     def _total_estimated_tokens(self) -> int:
         return sum(self._estimate_tokens(m) for m in self.messages)

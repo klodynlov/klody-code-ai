@@ -157,6 +157,7 @@ class TestSlimPromptCoder:
         o._code_model_active = True
         o.memory.messages = []
         o._on_skills_selected = None
+        o._relevant_files_section.return_value = ""  # retrieval proactif neutralisé ici
         Orchestrator._inject_system_prompt(o, task_type="feature", query="une horloge")
         sysmsg = o.memory.messages[0]
         assert sysmsg["role"] == "system"

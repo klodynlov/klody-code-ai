@@ -19,11 +19,15 @@ from config import (
     MAX_ITERATIONS,
     PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
+    RETRIEVAL_INJECT_ENABLED,
+    RETRIEVAL_INJECT_K,
+    RETRIEVAL_MIN_SCORE,
     ROUTER_ENABLED,
     SANDBOX_AUTO_EXEC,
     SANDBOX_TIMEOUT,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
+    THINKING_ENABLED,
     match_allowed_root,
 )
 from rich.console import Console
@@ -543,6 +547,23 @@ class Orchestrator:
         else:
             self.llm.switch_to(LLM_MODEL, LLM_BASE_URL, LLM_API_KEY)
 
+    def _should_think(self) -> bool:
+        """Active le mode raisonnement (CoT) pour CE tour.
+
+        Réservé aux tâches de RAISONNEMENT servies par le brain (Qwen3 thinking) :
+        `explain` (analyse, « pourquoi ») ou difficulté `hard`. JAMAIS sur le coder
+        (instruct, sans mode thinking → le kwarg serait ignoré et on paierait juste
+        le surcoût de max_tokens) ni en skill interactif (un QCM dialogue, il ne
+        raisonne pas en silence). Cf. config.THINKING_ENABLED et llm.stream_chat."""
+        if not THINKING_ENABLED:
+            return False
+        if getattr(self, "_code_model_active", False):
+            return False
+        if getattr(self, "_interactive_skill_active", False):
+            return False
+        d = self.last_routing
+        return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+
     def _detect_interactive_skill(self, query: str) -> bool:
         """Le skill le plus pertinent pour cette requête est-il un guide
         INTERACTIF (QCM) ? On regarde le 1er skill how-to routé (hors always-on
@@ -583,10 +604,14 @@ class Orchestrator:
 
     @property
     def embed_index(self):
-        """Index embeddings bge-m3 pour recherche sémantique (lazy)."""
+        """Index embeddings bge-m3 pour recherche sémantique (lazy).
+
+        Singleton PARTAGÉ par racine (get_embedding_index) : l'Orchestrator est
+        recréé à chaque message, l'index doit survivre entre les tours pour ne pas
+        se reconstruire à chaque fois (cf. tools.code_search.get_embedding_index)."""
         if self._embed_index is None:
-            from tools.code_search import EmbeddingIndex
-            self._embed_index = EmbeddingIndex(self.file_manager.root)
+            from tools.code_search import get_embedding_index
+            self._embed_index = get_embedding_index(self.file_manager.root)
         return self._embed_index
 
     @property
@@ -626,6 +651,41 @@ class Orchestrator:
             self._skill_router = SkillRouter(use_llm_judge=SKILLS_ROUTER_JUDGE)
         return self._skill_router
 
+    def _relevant_files_section(self, query: str) -> str:
+        """Recherche sémantique proactive : top-k fichiers du projet probablement
+        pertinents pour `query`, formatés en PISTES pour le prompt.
+
+        L'agent n'a plus à deviner/explorer à l'aveugle quels fichiers concernent
+        la tâche. Best-effort et JAMAIS bloquant : silencieux si le retrieval est
+        coupé (flag), si la requête est vide, si l'index embeddings est indisponible
+        (Ollama/bge-m3 absent) ou en cas d'erreur. Les hits sous le seuil de
+        similarité sont écartés (pas de bruit sur une requête conversationnelle).
+
+        NB : le 1er appel d'une session construit l'index (coûteux), puis
+        incrémental. Présenté en « pistes à vérifier » — pas une vérité absolue —
+        pour ne pas ancrer le modèle sur un faux positif."""
+        if not RETRIEVAL_INJECT_ENABLED or not query.strip():
+            return ""
+        try:
+            if not self.embed_index.is_available():
+                return ""
+            hits = self.embed_index.search(query, k=RETRIEVAL_INJECT_K)
+        except Exception as exc:  # best-effort : un retrieval KO ne casse pas le tour
+            logger.debug("Retrieval proactif ignoré : %s", exc)
+            return ""
+        hits = [h for h in hits if h.score >= RETRIEVAL_MIN_SCORE]
+        if not hits:
+            return ""
+        logger.info("[retrieval] %d piste(s) injectée(s) : %s",
+                    len(hits), ", ".join(h.rel_path for h in hits))
+        lines = [
+            "\n\n## Fichiers du projet probablement pertinents (recherche sémantique)\n",
+            "_Pistes — à confirmer en lisant les fichiers avant d'agir, pas une vérité absolue :_",
+        ]
+        for h in hits:
+            lines.append(f"- `{h.rel_path}` (pertinence {h.score:.2f})")
+        return "\n".join(lines)
+
     def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
 
@@ -633,14 +693,21 @@ class Orchestrator:
         (Roadmap v2 #5). Sinon, utilise le fallback `default.md`.
 
         `query` (le prompt utilisateur courant) sert à n'injecter que les skills
-        pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills.
+        pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills,
+        ET les fichiers du projet sémantiquement proches (retrieval proactif).
         """
+        # Retrieval proactif : pistes de fichiers pertinents pour CE prompt. Injecté
+        # dans les DEUX modes — y compris coder-slim, car les tâches de code (donc
+        # le besoin de savoir QUELS fichiers toucher) y sont justement routées.
+        retrieval_section = self._relevant_files_section(query)
+
         if getattr(self, "_code_model_active", False):
             # Modèle coder : prompt SLIM. Sous le gros prompt agentique il
             # dégénère ; en complétion il sort du code markdown ```html complet,
             # capté par le text-to-action fallback → preview_code. Pas de skills/
-            # mémoire/conventions (inutiles et déstabilisants pour un coder).
-            content = _CODER_SLIM_PROMPT
+            # mémoire/conventions (inutiles et déstabilisants pour un coder) — mais
+            # les pistes de fichiers, factuelles et courtes, l'aident à viser juste.
+            content = _CODER_SLIM_PROMPT + retrieval_section
             skills: list[dict] = []
             self._injected_skill_slugs = []
         else:
@@ -674,6 +741,7 @@ class Orchestrator:
             content = (
                 f"{base_prompt}\n\n"
                 f"Dossier projet actif: {PROJECT_ROOT}"
+                f"{retrieval_section}"
                 f"{skills_section}"
                 f"{lt_section}"
                 f"{profile_section}"
@@ -1582,6 +1650,7 @@ class Orchestrator:
                 })
                 final_content, _ = self.llm.stream_chat(
                     self.memory.get_messages_for_api(), tools=None,
+                    enable_thinking=self._should_think(),
                 )
                 if final_content:
                     self.memory.add_message("assistant", final_content)
@@ -1619,6 +1688,7 @@ class Orchestrator:
             else:
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
+                    enable_thinking=self._should_think(),
                 )
 
             if tool_calls:
