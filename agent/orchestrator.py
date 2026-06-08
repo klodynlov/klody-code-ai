@@ -565,10 +565,14 @@ class Orchestrator:
         """Active le mode raisonnement (CoT) pour CE tour.
 
         Réservé aux tâches de RAISONNEMENT servies par le brain (Qwen3 thinking) :
-        `explain` (analyse, « pourquoi ») ou difficulté `hard`. JAMAIS sur le coder
-        (instruct, sans mode thinking → le kwarg serait ignoré et on paierait juste
-        le surcoût de max_tokens) ni en skill interactif (un QCM dialogue, il ne
-        raisonne pas en silence). Cf. config.THINKING_ENABLED et llm.stream_chat."""
+        `explain` ou difficulté `hard`. `explain` est le SEUL task_type qui reste
+        sur le brain (les types code partent sur le coder, instruct, sans thinking,
+        cf. _CODE_TASK_TYPES) → c'est là que le raisonnement fire réellement. L'A/B
+        (08/06) y a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT
+        aveugle, désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le
+        gate large redevient justifié. JAMAIS sur le coder ni en skill interactif
+        (un QCM dialogue, il ne raisonne pas en silence). Cf. config.THINKING_ENABLED
+        et llm.stream_chat."""
         if not THINKING_ENABLED:
             return False
         if getattr(self, "_code_model_active", False):

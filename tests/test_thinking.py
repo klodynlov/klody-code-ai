@@ -73,11 +73,11 @@ class TestStreamChatThinking:
         client = _make_client(chunks)
         content, tools = client.stream_chat(
             [{"role": "user", "content": "q"}], silent=True,
-            enable_thinking=True, max_tokens=8192,
+            enable_thinking=True, max_tokens=1024,
         )
         cap = client.client.chat.completions.captured
         assert cap["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
-        assert cap["max_tokens"] == THINKING_MAX_TOKENS  # max(8192, 16384)
+        assert cap["max_tokens"] == THINKING_MAX_TOKENS  # max(1024, 8192) → boost
         assert content == "42"  # le reasoning n'est PAS dans le content
         assert tools is None
 
@@ -129,6 +129,9 @@ def _routing(task_type="explain", difficulty="medium"):
 
 class TestShouldThink:
     def test_explain_active(self, monkeypatch):
+        # `explain` est le seul task_type qui reste sur le brain → c'est LE cas où
+        # le thinking fire réellement (le TTFT aveugle est désormais corrigé en
+        # diffusant le CoT à l'UI). Gate large justifié.
         monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
         o = _orch()
         o.last_routing = _routing(task_type="explain", difficulty="easy")
@@ -138,6 +141,13 @@ class TestShouldThink:
         monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
         o = _orch()
         o.last_routing = _routing(task_type="feature", difficulty="hard")
+        assert o._should_think() is True
+
+    def test_explain_hard_active(self, monkeypatch):
+        # `explain` ET `hard` → actif (les deux conditions concordent).
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o.last_routing = _routing(task_type="explain", difficulty="hard")
         assert o._should_think() is True
 
     def test_medium_edit_inactif(self, monkeypatch):

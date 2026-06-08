@@ -718,6 +718,15 @@ def _build_streaming_orchestrator(
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
+                # CoT (mode thinking) : le brain Qwen3 émet le raisonnement via
+                # `delta.reasoning` AVANT le `content`. On le DIFFUSE à l'UI (panneau
+                # « Raisonnement… ») au lieu de laisser un placeholder figé ~33 s
+                # sans le moindre signe de vie (A/B 08/06 : TTFT jusqu'à 66 s). Le
+                # helper renvoie '' hors mode thinking → aucun coût quand off.
+                if enable_thinking and not silent:
+                    reasoning_delta = orch.llm._delta_reasoning(delta)
+                    if reasoning_delta:
+                        _put({"type": "reasoning", "content": reasoning_delta})
                 if delta.content:
                     full_content += delta.content
                     if not silent:

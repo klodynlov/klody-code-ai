@@ -92,13 +92,17 @@ ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "tru
 # Les modèles Qwen3 "thinking" (le brain) émettent une chaîne de raisonnement
 # AVANT la réponse quand `chat_template_kwargs.enable_thinking=true`. Les serveurs
 # mlx_lm sont lancés avec le thinking COUPÉ (--chat-template-args) ; Klody le
-# RÉACTIVE par requête sur le brain pour les tâches de raisonnement (explain /
-# hard). Le coder (instruct) n'a pas de mode thinking → jamais activé pour lui.
+# RÉACTIVE par requête sur le brain pour les tâches de raisonnement (`explain` —
+# le seul type qui reste sur le brain — ou difficulté `hard` ; cf. _should_think).
+# Le CoT est diffusé à l'UI (panneau « Raisonnement… ») pour que l'attente ne soit
+# pas un écran figé (A/B 08/06 : sans diffusion, TTFT aveugle jusqu'à 66 s). Le
+# coder (instruct) n'a pas de mode thinking → jamais activé pour lui.
 THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 # Le raisonnement consomme beaucoup de tokens AVANT la réponse : on élargit le
 # plafond de génération quand il est actif (sinon le CoT mange tout et la réponse
-# n'a plus de place — cf. probe : 250 tokens entièrement consommés par le CoT).
-THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 16384))
+# n'a plus de place). Mesuré à l'A/B (08/06) : P95 du CoT ≈ 1800 tokens, donc 8192
+# couvre largement réponse + CoT ; 16384 était du gâchis (latence/budget inutiles).
+THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 8192))
 
 # --- Auto-critique (Levier 3) ---
 # Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
