@@ -100,6 +100,14 @@ THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", 
 # n'a plus de place — cf. probe : 250 tokens entièrement consommés par le CoT).
 THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 16384))
 
+# --- Auto-critique (Levier 3) ---
+# Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
+# une passe de relecture critique cherche erreur/oubli/hypothèse fausse et réécrit
+# la réponse si besoin (sinon la garde telle quelle via le sentinel INCHANGÉ).
+# COÛTE un appel LLM supplémentaire → OFF par défaut : à activer après un A/B au
+# bench (cf. bench/run.py) plutôt qu'imposer la latence à chaque tâche.
+SELF_CRITIQUE_ENABLED: bool = os.getenv("SELF_CRITIQUE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+
 # --- Best-of-N (Roadmap v2 #7) ---
 # Génère N candidats + reranker LLM-as-judge sur la 1ère itération des tâches hard.
 # Cost : (N+1) appels LLM au lieu de 1, déclenché UNIQUEMENT si router.use_best_of_n=True.

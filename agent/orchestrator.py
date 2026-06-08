@@ -25,6 +25,7 @@ from config import (
     ROUTER_ENABLED,
     SANDBOX_AUTO_EXEC,
     SANDBOX_TIMEOUT,
+    SELF_CRITIQUE_ENABLED,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
     THINKING_ENABLED,
@@ -301,6 +302,19 @@ _AUTO_EXTENSION_SIZE = 8
 # généraliste, meilleur en conversation/explication.
 _CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
 
+# Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
+# « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
+_SELF_CRITIQUE_MIN_CHARS = 200
+_SELF_CRITIQUE_PROMPT = (
+    "Relis ta dernière réponse à l'utilisateur d'un œil critique. Cherche : erreur "
+    "factuelle, oubli important, hypothèse non vérifiée, ou affirmation trop "
+    "catégorique.\n"
+    "- Si la réponse est DÉJÀ correcte et complète, réponds EXACTEMENT par le seul "
+    "mot : INCHANGÉ\n"
+    "- Sinon, réécris DIRECTEMENT la réponse finale corrigée pour l'utilisateur "
+    "(sans méta-commentaire sur ta relecture)."
+)
+
 # Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
 # l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
 # skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
@@ -563,6 +577,66 @@ class Orchestrator:
             return False
         d = self.last_routing
         return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+
+    def _maybe_self_critique(self, draft: str) -> None:
+        """Passe d'auto-critique sur la réponse finale (Levier 3).
+
+        Sur une tâche de raisonnement (explain/hard, servie par le brain), relit la
+        réponse et la RÉÉCRIT si elle contient une erreur/oubli/hypothèse fausse ;
+        sinon la garde telle quelle (sentinel « INCHANGÉ »). Coûte un appel LLM
+        supplémentaire → OFF par défaut (config.SELF_CRITIQUE_ENABLED), à activer
+        après A/B au bench. Best-effort, jamais bloquante.
+
+        Mêmes gardes que le thinking : jamais sur le coder (instruct) ni en skill
+        interactif (dialogue). Une seule passe par tour (_self_critique_done)."""
+        if not SELF_CRITIQUE_ENABLED:
+            return
+        if getattr(self, "_code_model_active", False) or getattr(self, "_interactive_skill_active", False):
+            return
+        if getattr(self, "_self_critique_done", False):
+            return
+        d = self.last_routing
+        if d is None or not (d.task_type == "explain" or d.difficulty == "hard"):
+            return
+        if len((draft or "").strip()) < _SELF_CRITIQUE_MIN_CHARS:
+            return  # réponse trop courte pour qu'une relecture vaille le coût
+        self._self_critique_done = True
+
+        # Consigne posée sur une COPIE éphémère de la conversation : ni la consigne
+        # ni un éventuel « INCHANGÉ » ne polluent l'historique persistant.
+        critique_msgs = [
+            *self.memory.get_messages_for_api(),
+            {"role": "user", "content": _SELF_CRITIQUE_PROMPT},
+        ]
+        try:
+            revised, _ = self.llm.stream_chat(
+                critique_msgs, tools=None, silent=True,
+                enable_thinking=self._should_think(),
+            )
+        except Exception as exc:  # une critique KO ne casse jamais le tour
+            logger.debug("Auto-critique ignorée : %s", exc)
+            return
+
+        revised = (revised or "").strip()
+        # Réponse déjà bonne (sentinel) ou vide → on garde le brouillon tel quel,
+        # sans rien réafficher (l'utilisateur a déjà vu la réponse).
+        if not revised or revised.upper().startswith(("INCHANGÉ", "INCHANGE")):
+            logger.info("[auto-critique] réponse confirmée inchangée")
+            return
+
+        # La critique a produit une version affinée → on l'affiche et on remplace
+        # le dernier message assistant en mémoire (le futur contexte voit la bonne).
+        logger.info("[auto-critique] réponse affinée (%d chars)", len(revised))
+        console.print(Panel(
+            Markdown(revised),
+            title="[cyan]🔍 Auto-critique — réponse affinée[/cyan]",
+            border_style="cyan", padding=(0, 1),
+        ))
+        for msg in reversed(self.memory.messages):
+            if msg.get("role") == "assistant":
+                msg["content"] = revised
+                break
+        self.memory.save()
 
     def _detect_interactive_skill(self, query: str) -> bool:
         """Le skill le plus pertinent pour cette requête est-il un guide
@@ -1838,12 +1912,16 @@ class Orchestrator:
                                 self._t2a_fired = False  # ré-autorise le fallback à la régénération
                                 continue
                         # On break après — l'utilisateur a son résultat (preview, fichier…).
+                # Auto-critique de la réponse finale (Levier 3) : no-op si désactivé,
+                # tâche non-raisonnement, coder, skill interactif ou réponse triviale.
+                self._maybe_self_critique(content)
                 break
 
         # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)
         self._anti_stall_fired = False
         self._anti_stall_iter = -1
         self._t2a_fired = False
+        self._self_critique_done = False
         self._interactive_skill_active = False
 
     def _mid_session_extract(self) -> None:
