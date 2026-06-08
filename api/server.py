@@ -662,6 +662,7 @@ def _build_streaming_orchestrator(
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
+        enable_thinking: bool = False,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -675,6 +676,11 @@ def _build_streaming_orchestrator(
         if not silent:
             _put({"type": "thinking"})
 
+        if enable_thinking:
+            # CoT (Qwen3 brain) précède la réponse et consomme beaucoup de tokens :
+            # sans marge élargie, il mange tout le budget et `content` reste vide.
+            # Miroir exact de LLMClient.stream_chat (cf. config.THINKING_*).
+            max_tokens = max(max_tokens, config.THINKING_MAX_TOKENS)
         params: dict = {
             "model": orch.llm.model,
             "messages": messages,
@@ -683,6 +689,8 @@ def _build_streaming_orchestrator(
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if enable_thinking:
+            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
@@ -995,7 +1003,11 @@ def _run_siri_query(query: str) -> str:
         orch.llm.model = config.MODEL_FALLBACK
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
-        def _sync_chat(messages: list[dict], tools=None) -> tuple[str, Any]:
+        def _sync_chat(messages: list[dict], tools=None, **_kwargs) -> tuple[str, Any]:
+            # **_kwargs absorbe les options de streaming/thinking que l'orchestrateur
+            # passe à stream_chat (token_callback, silent, tool_choice, max_tokens,
+            # enable_thinking…) : ce fallback Siri est synchrone et sans CoT, il les
+            # ignore. Sans ça, l'ajout d'un kwarg côté orchestrateur casse Siri.
             params: dict = {
                 "model": orch.llm.model,
                 "messages": messages,

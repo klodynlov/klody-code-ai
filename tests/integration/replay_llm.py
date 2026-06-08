@@ -41,6 +41,7 @@ class FakeLLMClient:
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
+        enable_thinking: bool = False,
     ) -> tuple[str, list[dict] | None]:
         """Compatible avec LLMClient.stream_chat — retourne (content, tool_calls)."""
         if self._cursor >= len(self.responses):
@@ -57,6 +58,7 @@ class FakeLLMClient:
             "tool_choice": tool_choice,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "enable_thinking": enable_thinking,
         })
 
         resp = self.responses[self._cursor]

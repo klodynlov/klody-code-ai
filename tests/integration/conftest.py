@@ -23,6 +23,18 @@ def _no_preview_bind(monkeypatch):
     monkeypatch.setattr("tools.preview._stop_server", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_live_retrieval(monkeypatch):
+    """Coupe le retrieval proactif (recherche sémantique Ollama/bge-m3) pour TOUS
+    les tests d'intégration. Sinon `_relevant_files_section` fait un appel réseau
+    live vers Ollama :11434 : non-hermétique (le résultat dépend de l'humeur
+    d'Ollama) et surtout BLOQUANT — sur un projet réel l'index s'embedde par lots
+    de 16 avec un timeout de 60 s/lot, soit ~18 min si bge-m3 est froid/lent. Le
+    retrieval est best-effort et n'est pas le sujet de ces tests ; ses tests dédiés
+    (tests/test_retrieval_inject.py) stubent l'index. Défaut prod = activé."""
+    monkeypatch.setattr("agent.orchestrator.RETRIEVAL_INJECT_ENABLED", False)
+
+
 @pytest.fixture
 def project_root(tmp_path: Path) -> Path:
     """PROJECT_ROOT isolé par test."""
