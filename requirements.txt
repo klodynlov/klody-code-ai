@@ -22,7 +22,7 @@ pytest-asyncio>=1.4.0
 
 # Serveur MCP Web (klody_mcp/web_server.py — fetch_url + web_search)
 requests>=2.31.0
-beautifulsoup4>=4.12.0
+beautifulsoup4>=4.15.0
 
 # Qualité & sécurité (Vague 1 — durcissement CI)
 pytest-cov>=7.1.0
