@@ -26,6 +26,9 @@ from config import (
     SANDBOX_AUTO_EXEC,
     SANDBOX_TIMEOUT,
     SELF_CRITIQUE_ENABLED,
+    SKILLS_ON_CODER_ENABLED,
+    SKILLS_ON_CODER_MAX,
+    SKILLS_ON_CODER_MAX_CHARS,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
     THINKING_ENABLED,
@@ -66,8 +69,10 @@ from tools.registry import ASK_USER_TOOL, get_tools
 from tools.search import Search
 from tools.skills import (
     _matching_terms,
+    _skill_is_code_compatible,
     _skill_terms,
     delete_skill,
+    format_skills_compact,
     format_skills_for_prompt,
     list_skills,
     load_skills,
@@ -324,6 +329,15 @@ _SELF_CRITIQUE_PROMPT = (
 _INTERACTIVE_SKILL_MARKERS = (
     "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
 )
+
+
+def _as_bool(v: object) -> bool:
+    """Coerce un argument d'outil en booléen, robuste aux modèles locaux qui
+    sérialisent les bools en CHAÎNE ('true'/'false') — `bool('false')` vaut True,
+    d'où ce garde-fou (cf. _normalize_ask_user_options, même classe de bug)."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
 
 
 def _skill_is_interactive(skill: dict) -> bool:
@@ -785,9 +799,31 @@ class Orchestrator:
             # capté par le text-to-action fallback → preview_code. Pas de skills/
             # mémoire/conventions (inutiles et déstabilisants pour un coder) — mais
             # les pistes de fichiers, factuelles et courtes, l'aident à viser juste.
-            content = _CODER_SLIM_PROMPT + retrieval_section
+            # Par défaut le coder ne reçoit AUCUN skill (prompt slim). Opt-in
+            # (SKILLS_ON_CODER_ENABLED) : on laisse passer UNIQUEMENT les skills
+            # marqués `code_compatible` ET jugés pertinents par select_skills
+            # (double garde : tag = quoi est sûr, pertinence = quand c'est utile),
+            # capés à SKILLS_ON_CODER_MAX et rendus COMPACTS (description + content
+            # tronqué — le dump intégral réveillerait la dégénérescence du coder).
             skills: list[dict] = []
-            self._injected_skill_slugs = []
+            if SKILLS_ON_CODER_ENABLED:
+                # On EXCLUT les always-on (utilisateur_*/conventions_*) que
+                # select_skills renvoie toujours en tête SANS test de pertinence :
+                # sinon un always-on taggé code_compatible squatterait le coder sur
+                # toute tâche (hors-sujet inclus) et mangerait le cap, évinçant un
+                # how-to vraiment pertinent. Parité avec _detect_interactive_skill /
+                # le hook UI. La « double garde » (tag ET pertinence) ne vaut que
+                # pour les how-to relevance-filtrés.
+                skills = [
+                    s for s in select_skills(load_skills(), query)
+                    if _skill_is_code_compatible(s)
+                    and not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))
+                ][:SKILLS_ON_CODER_MAX]
+            skills_section = (
+                format_skills_compact(skills, SKILLS_ON_CODER_MAX_CHARS) if skills else ""
+            )
+            content = _CODER_SLIM_PROMPT + retrieval_section + skills_section
+            self._injected_skill_slugs = [s.get("slug", "") for s in skills]
         else:
             base_prompt = compose_system_prompt(task_type)
             if SKILLS_ROUTER_ENABLED:
@@ -1154,7 +1190,10 @@ class Orchestrator:
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
-            "save_skill": lambda a: save_skill(a["name"], a["description"], a["content"]),
+            "save_skill": lambda a: save_skill(
+                a["name"], a["description"], a["content"],
+                code_compatible=_as_bool(a.get("code_compatible", False)),
+            ),
             # Imports LLM
             "import_llm_export": lambda a: import_llm_export(a["path"]),
             "list_imports": lambda a: list_imports(),

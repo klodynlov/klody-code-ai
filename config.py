@@ -145,6 +145,19 @@ SKILLS_ROUTER_ENABLED: bool = os.getenv("SKILLS_ROUTER_ENABLED", "false").lower(
 # Sous-flag : utiliser le juge LLM en plus des embeddings (sinon rang cosinus seul).
 SKILLS_ROUTER_JUDGE: bool = os.getenv("SKILLS_ROUTER_JUDGE", "true").lower() in ("1", "true", "yes", "on")
 
+# --- Skills sur tâches de code (OPT-IN) ---
+# Par défaut, le modèle coder (Qwen3-Coder, complétion — dégénère sous un gros
+# prompt) ne reçoit AUCUN skill. À ON, on autorise l'injection d'un sous-ensemble
+# MINUSCULE : uniquement les skills explicitement marqués `code_compatible: true`
+# ET jugés pertinents par select_skills (double garde), capés à SKILLS_ON_CODER_MAX
+# et rendus COMPACTS (description + content tronqué — jamais le dump intégral qui
+# réveille la dégénérescence). OFF → comportement actuel strictement préservé.
+SKILLS_ON_CODER_ENABLED: bool = os.getenv("SKILLS_ON_CODER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Nombre max de skills injectés au coder (garder très bas : 1, exceptionnellement 2).
+SKILLS_ON_CODER_MAX: int = int(os.getenv("SKILLS_ON_CODER_MAX", 1))
+# Plafond de caractères du `content` d'un skill injecté au coder (rendu compact).
+SKILLS_ON_CODER_MAX_CHARS: int = int(os.getenv("SKILLS_ON_CODER_MAX_CHARS", 800))
+
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain

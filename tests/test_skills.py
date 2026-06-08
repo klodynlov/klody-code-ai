@@ -307,3 +307,61 @@ class TestIsUserSkill:
         from tools.skills import _is_user_skill
         p = tmp_path / "b.json"; p.write_text("{ cassé")
         assert _is_user_skill(p) is False
+
+
+# ── code_compatible : skills sur tâches de code ─────────────────────────────────
+
+class TestCodeCompatible:
+    def test_flag_absent_est_false(self):
+        from tools.skills import _skill_is_code_compatible
+        assert _skill_is_code_compatible({"name": "x"}) is False
+
+    def test_flag_true(self):
+        from tools.skills import _skill_is_code_compatible
+        assert _skill_is_code_compatible({"name": "x", "code_compatible": True}) is True
+
+    def test_flag_non_booleen_truthy_rejete(self):
+        # On exige is True, pas juste truthy (évite un "true" string accidentel).
+        from tools.skills import _skill_is_code_compatible
+        assert _skill_is_code_compatible({"code_compatible": "yes"}) is False
+        assert _skill_is_code_compatible({"code_compatible": 1}) is False
+
+    def test_save_skill_par_defaut_n_ecrit_pas_le_flag(self, tmp_path):
+        from tools.skills import save_skill
+        save_skill("Sans flag", "desc", "contenu")
+        data = json.loads(next(iter(tmp_path.glob("*.json"))).read_text())
+        assert "code_compatible" not in data
+
+    def test_save_skill_ecrit_le_flag_si_true(self, tmp_path):
+        from tools.skills import save_skill
+        save_skill("Avec flag", "desc", "contenu", code_compatible=True)
+        data = json.loads(next(iter(tmp_path.glob("*.json"))).read_text())
+        assert data["code_compatible"] is True
+
+
+# ── format_skills_compact : rendu minuscule pour le coder ───────────────────────
+
+class TestFormatSkillsCompact:
+    def test_vide_retourne_chaine_vide(self):
+        from tools.skills import format_skills_compact
+        assert format_skills_compact([]) == ""
+
+    def test_n_emet_pas_de_bloc_code_fence(self):
+        # Contrairement à format_skills_for_prompt : pas de ``` (déstabilise le coder).
+        from tools.skills import format_skills_compact
+        out = format_skills_compact([{"name": "S", "description": "d", "content": "x = 1"}])
+        assert "```" not in out
+        assert "### S" in out and "d" in out
+
+    def test_tronque_le_content_au_plafond(self):
+        from tools.skills import format_skills_compact
+        long_content = "A" * 5000
+        out = format_skills_compact([{"name": "S", "description": "d", "content": long_content}], max_chars=800)
+        assert "[…]" in out
+        # Bien plus court que le content brut (troncature effective).
+        assert len(out) < 1000
+
+    def test_content_court_non_tronque(self):
+        from tools.skills import format_skills_compact
+        out = format_skills_compact([{"name": "S", "description": "d", "content": "court"}], max_chars=800)
+        assert "court" in out and "[…]" not in out
