@@ -163,6 +163,13 @@ LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
+# Serveur MCP PROPRE de Klody (klody_mcp.klody_server) — expose les outils de
+# Klody à des clients externes (Claude Desktop, Continue.dev…). Port HTTP par
+# défaut 8087 : 8083 entrait en collision avec MLX_CODE_PORT (modèle code MLX),
+# ce qui empêchait ce serveur de démarrer. Sert aussi à la sonde /api/status.
+KLODY_MCP_PORT: str = os.getenv("KLODY_MCP_PORT", "8087")
+KLODY_MCP_URL: str = os.getenv("KLODY_MCP_URL", f"http://127.0.0.1:{KLODY_MCP_PORT}/mcp")
+
 
 # --- Client MCP : serveurs externes que Klody peut CONSOMMER ---
 # Klody se connecte à ces serveurs MCP, découvre leurs outils et les expose au

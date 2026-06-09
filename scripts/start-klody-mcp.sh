@@ -6,14 +6,14 @@
 #
 # Usage:
 #   ./scripts/start-klody-mcp.sh                  # stdio (par défaut)
-#   ./scripts/start-klody-mcp.sh --http           # HTTP sur :8083
+#   ./scripts/start-klody-mcp.sh --http           # HTTP sur :8087
 #   ./scripts/start-klody-mcp.sh --root /path     # projet à exposer (défaut: cwd)
 
 set -euo pipefail
 
 ROOT="${KLODY_MCP_ROOT:-$(pwd)}"
 TRANSPORT="${KLODY_MCP_TRANSPORT:-stdio}"
-PORT="${KLODY_MCP_PORT:-8083}"
+PORT="${KLODY_MCP_PORT:-8087}"  # 8083 entrait en collision avec MLX_CODE_PORT
 
 while [[ $# -gt 0 ]]; do
   case $1 in

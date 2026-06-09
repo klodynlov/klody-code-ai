@@ -254,7 +254,7 @@ def detect_conventions() -> dict:
 
 def main() -> None:
     transport = os.getenv("KLODY_MCP_TRANSPORT", "stdio").lower()
-    port = int(os.getenv("KLODY_MCP_PORT", "8083"))
+    port = int(os.getenv("KLODY_MCP_PORT", "8087"))  # 8083 = collision avec MLX_CODE_PORT
     host = os.getenv("KLODY_MCP_HOST", "127.0.0.1")
 
     if transport == "http":
