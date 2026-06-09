@@ -34,9 +34,10 @@ class _ToolCallChunk:
 
 
 class _Delta:
-    def __init__(self, content=None, tool_calls=None) -> None:
+    def __init__(self, content=None, tool_calls=None, reasoning=None) -> None:
         self.content = content
         self.tool_calls = tool_calls
+        self.reasoning = reasoning  # CoT (mode thinking) — capté par _delta_reasoning
 
 
 class _Choice:
@@ -68,17 +69,25 @@ class _Completion:
 
 
 class _Chunk:
-    def __init__(self, content=None, tool_calls=None, usage=None) -> None:
-        if content is None and tool_calls is None:
+    def __init__(self, content=None, tool_calls=None, usage=None, reasoning=None) -> None:
+        if content is None and tool_calls is None and reasoning is None:
             self.choices = []
         else:
-            self.choices = [_Choice(_Delta(content, tool_calls))]
+            self.choices = [_Choice(_Delta(content, tool_calls, reasoning))]
         self.usage = usage
 
 
 def _text_turn(text: str) -> list[_Chunk]:
     # Tokenise grossièrement + chunk final porteur de l'usage (include_usage).
     chunks = [_Chunk(content=tok) for tok in text.split(" ")]
+    chunks.append(_Chunk(usage=_Usage()))
+    return chunks
+
+
+def _thinking_turn(cot: str, text: str) -> list[_Chunk]:
+    """Tour façon brain Qwen3 : CoT (delta.reasoning) AVANT la réponse (content)."""
+    chunks = [_Chunk(reasoning=part + " ") for part in cot.split(" ")]
+    chunks += [_Chunk(content=tok + " ") for tok in text.split(" ")]
     chunks.append(_Chunk(usage=_Usage()))
     return chunks
 
@@ -209,6 +218,39 @@ class TestChatRoundTrip:
             tc = next(e for e in events if e["type"] == "tool_call")
             assert tc.get("name") == "list_skills"
             assert types[-1] == "done"
+
+
+class TestThinkingStream:
+    """Mode raisonnement (Levier 2) sur le chemin WebSocket : quand
+    `_should_think()` est vrai, `stream_api` doit DIFFUSER le CoT (delta.reasoning)
+    à l'UI via des events `reasoning`, AVANT les tokens — sinon l'utilisateur fixe
+    un placeholder figé ~33 s (A/B 08/06). Le CoT ne doit jamais polluer le content."""
+
+    def test_reasoning_diffuse_avant_les_tokens(self, chat_client, monkeypatch):
+        # Force le thinking pour CE tour (indépendant du routeur, désactivé ici).
+        monkeypatch.setattr(
+            "agent.orchestrator.Orchestrator._should_think", lambda self: True
+        )
+        FakeOpenAI._turns = [
+            _thinking_turn("je pose le raisonnement", "Voici la reponse finale")
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "explique en raisonnant"})
+            events = _drain_until(ws, "done")
+            types = [e["type"] for e in events]
+            assert "reasoning" in types, f"CoT non diffusé (vu: {types})"
+            # Le CoT est reconstitué côté UI…
+            cot = "".join(e["content"] for e in events if e["type"] == "reasoning")
+            assert "raisonnement" in cot
+            # …mais NE fuite PAS dans le content (token) — canaux séparés.
+            streamed = "".join(e["content"] for e in events if e["type"] == "token")
+            assert "raisonnement" not in streamed
+            assert "reponse" in streamed
+            # Ordre : le 1er `reasoning` précède le 1er `token` (attente rendue visible).
+            first_reasoning = next(i for i, e in enumerate(events) if e["type"] == "reasoning")
+            first_token = next(i for i, e in enumerate(events) if e["type"] == "token")
+            assert first_reasoning < first_token
 
 
 class TestInteractiveQuestionRoundTrip:

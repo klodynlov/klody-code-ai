@@ -14,6 +14,7 @@ from config import (
     LLM_MAX_RETRIES,
     LLM_MODEL,
     MODEL_FALLBACK,
+    THINKING_MAX_TOKENS,
 )
 from openai import APIConnectionError, APITimeoutError, OpenAI
 from rich.console import Console
@@ -22,6 +23,8 @@ from rich.markdown import Markdown
 from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
+
+from agent.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -207,6 +210,7 @@ class LLMClient:
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
+        enable_thinking: bool = False,
     ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
@@ -221,7 +225,16 @@ class LLMClient:
             tool_choice : "auto" (défaut) | "required" (force un tool_call) | "none".
                           "required" est utilisé par l'anti-stall pour forcer une action
                           quand le LLM répond en texte pur sur une tâche d'action.
+            enable_thinking : active le mode raisonnement (Qwen3 brain). Le modèle
+                     émet alors un CoT (champ `delta.reasoning`, capté et affiché en
+                     filigrane) AVANT le `content`. On élargit max_tokens en
+                     conséquence. No-op sur un modèle sans thinking (le serveur
+                     ignore le kwarg). Cf. config.THINKING_*.
         """
+        if enable_thinking:
+            # Le CoT précède la réponse et consomme beaucoup de tokens : sans marge
+            # élargie, il mange tout le budget et `content` reste vide.
+            max_tokens = max(max_tokens, THINKING_MAX_TOKENS)
         params: dict = {
             "model": self.model,
             "messages": messages,
@@ -229,11 +242,14 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,  # défaut généreux : 8192 tokens pour gros codes Three.js
         }
+        if enable_thinking:
+            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
 
         full_content = ""
+        reasoning_buf = ""  # CoT (mode thinking) — capté, jamais réinjecté dans l'historique
         raw_tool_calls: dict[int, dict] = {}
         t0 = time.monotonic()
 
@@ -246,6 +262,7 @@ class LLMClient:
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
+                    reasoning_buf += self._delta_reasoning(delta)
                     if delta.content:
                         full_content += delta.content
                         if token_callback:
@@ -254,7 +271,7 @@ class LLMClient:
                         for tc_chunk in delta.tool_calls:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
             else:
-                # Phase 1 : spinner pendant que le modèle charge
+                # Phase 1 : spinner pendant que le modèle charge (ou raisonne)
                 spinner = Spinner("dots2", text=Text(" Klody réfléchit…", style="dim cyan"))
 
                 with Live(spinner, console=console, refresh_per_second=12, transient=True):
@@ -262,6 +279,10 @@ class LLMClient:
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
+
+                        # Le CoT (thinking) précède le content : on l'accumule sans
+                        # rompre le spinner — la réponse n'a pas encore commencé.
+                        reasoning_buf += self._delta_reasoning(delta)
 
                         if delta.content:
                             full_content += delta.content
@@ -279,6 +300,7 @@ class LLMClient:
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
+                    reasoning_buf += self._delta_reasoning(delta)
 
                     if delta.content:
                         full_content += delta.content
@@ -290,6 +312,9 @@ class LLMClient:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
             elapsed = time.monotonic() - t0
+            out_tokens = count_tokens(full_content)
+            if reasoning_buf:
+                logger.info("Raisonnement (CoT): %d chars", len(reasoning_buf))
 
             # Rendu final : Markdown si détecté, sinon texte brut (uniquement si non-silent)
             if full_content and not silent:
@@ -297,13 +322,23 @@ class LLMClient:
                     console.print(Markdown(full_content))
                 else:
                     console.print(full_content, markup=False, highlight=False)
+                think_note = (
+                    f" · 🧠 ~{count_tokens(reasoning_buf)} tok raisonnés"
+                    if reasoning_buf else ""
+                )
                 console.print(Rule(
-                    f"[dim]⏱ {elapsed:.1f}s · ~{len(full_content) // 4} tokens[/dim]",
+                    f"[dim]⏱ {elapsed:.1f}s · ~{out_tokens} tokens{think_note}[/dim]",
                     style="dim blue",
                 ))
+            elif reasoning_buf and not full_content and not silent:
+                # Le CoT a consommé tout le budget sans produire de réponse.
+                console.print(
+                    "[dim yellow]  ⚠  Raisonnement interrompu avant la réponse "
+                    "(budget de tokens). Augmente THINKING_MAX_TOKENS.[/dim yellow]"
+                )
 
-            # Estimation tokens (réponse uniquement — les messages d'entrée ne sont comptés qu'une fois à l'envoi)
-            self.total_tokens += len(full_content) // 4
+            # Compteur de tokens (réponse uniquement — l'entrée n'est comptée qu'une fois à l'envoi)
+            self.total_tokens += out_tokens
 
             tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
@@ -359,6 +394,18 @@ class LLMClient:
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _delta_reasoning(delta: Any) -> str:
+        """Texte de raisonnement (CoT) d'un delta de stream, quand le mode thinking
+        est actif. Les modèles Qwen3 brain l'exposent via `delta.reasoning` ;
+        certains builds ne le posent que dans `model_extra`. Retourne '' si absent —
+        donc no-op total sur un modèle sans thinking."""
+        r = getattr(delta, "reasoning", None)
+        if not r:
+            em = getattr(delta, "model_extra", None) or {}
+            r = em.get("reasoning") or em.get("reasoning_content")
+        return r or ""
 
     def _accumulate_tool_call(self, raw: dict, tc_chunk: Any) -> None:
         idx = tc_chunk.index

@@ -662,6 +662,7 @@ def _build_streaming_orchestrator(
         silent: bool = False,
         tool_choice: str = "auto",
         max_tokens: int = 8192,
+        enable_thinking: bool = False,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -675,6 +676,11 @@ def _build_streaming_orchestrator(
         if not silent:
             _put({"type": "thinking"})
 
+        if enable_thinking:
+            # CoT (Qwen3 brain) précède la réponse et consomme beaucoup de tokens :
+            # sans marge élargie, il mange tout le budget et `content` reste vide.
+            # Miroir exact de LLMClient.stream_chat (cf. config.THINKING_*).
+            max_tokens = max(max_tokens, config.THINKING_MAX_TOKENS)
         params: dict = {
             "model": orch.llm.model,
             "messages": messages,
@@ -683,6 +689,8 @@ def _build_streaming_orchestrator(
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if enable_thinking:
+            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
@@ -710,6 +718,15 @@ def _build_streaming_orchestrator(
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
+                # CoT (mode thinking) : le brain Qwen3 émet le raisonnement via
+                # `delta.reasoning` AVANT le `content`. On le DIFFUSE à l'UI (panneau
+                # « Raisonnement… ») au lieu de laisser un placeholder figé ~33 s
+                # sans le moindre signe de vie (A/B 08/06 : TTFT jusqu'à 66 s). Le
+                # helper renvoie '' hors mode thinking → aucun coût quand off.
+                if enable_thinking and not silent:
+                    reasoning_delta = orch.llm._delta_reasoning(delta)
+                    if reasoning_delta:
+                        _put({"type": "reasoning", "content": reasoning_delta})
                 if delta.content:
                     full_content += delta.content
                     if not silent:
@@ -995,7 +1012,11 @@ def _run_siri_query(query: str) -> str:
         orch.llm.model = config.MODEL_FALLBACK
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
-        def _sync_chat(messages: list[dict], tools=None) -> tuple[str, Any]:
+        def _sync_chat(messages: list[dict], tools=None, **_kwargs) -> tuple[str, Any]:
+            # **_kwargs absorbe les options de streaming/thinking que l'orchestrateur
+            # passe à stream_chat (token_callback, silent, tool_choice, max_tokens,
+            # enable_thinking…) : ce fallback Siri est synchrone et sans CoT, il les
+            # ignore. Sans ça, l'ajout d'un kwarg côté orchestrateur casse Siri.
             params: dict = {
                 "model": orch.llm.model,
                 "messages": messages,

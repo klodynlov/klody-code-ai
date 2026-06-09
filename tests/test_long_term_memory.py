@@ -215,6 +215,83 @@ class TestPersistance:
 
 
 # ------------------------------------------------------------------ #
+# prune (GC mémoire)                                                   #
+# ------------------------------------------------------------------ #
+
+class TestPrune:
+    def test_dedup_contenu_identique_context(self, lt):
+        lt.remember("fait_a", "L'utilisateur aime Python", "context")
+        lt.remember("fait_b", "l'utilisateur aime python", "context")  # même contenu normalisé
+        removed = lt.prune()
+        assert removed == 1
+        assert len(lt.entries) == 1
+
+    def test_dedup_garde_la_plus_recente(self, lt):
+        lt.entries = [
+            {"key": "vieux", "content": "doublon", "category": "context",
+             "updated_at": "2026-01-01T00:00:00"},
+            {"key": "recent", "content": "doublon", "category": "context",
+             "updated_at": "2026-06-01T00:00:00"},
+        ]
+        lt.prune()
+        assert len(lt.entries) == 1
+        assert lt.entries[0]["key"] == "recent"
+
+    def test_plafond_disque_context(self, lt, monkeypatch):
+        monkeypatch.setattr("agent.long_term_memory._MAX_CONTEXT_ON_DISK", 5)
+        for i in range(12):
+            lt.entries.append({
+                "key": f"k{i}", "content": f"contenu unique {i}",
+                "category": "context", "updated_at": f"2026-01-{i + 1:02d}T00:00:00",
+            })
+        lt.prune()
+        ctx = [e for e in lt.entries if e["category"] == "context"]
+        assert len(ctx) == 5
+        keys = {e["key"] for e in ctx}  # garde les plus récents (k11..k7)
+        assert "k11" in keys and "k7" in keys and "k0" not in keys
+
+    def test_categories_durables_jamais_purgees(self, lt, monkeypatch):
+        monkeypatch.setattr("agent.long_term_memory._MAX_CONTEXT_ON_DISK", 1)
+        for cat in ("user", "project", "preference"):
+            for i in range(5):
+                lt.entries.append({
+                    "key": f"{cat}{i}", "content": f"{cat} {i}",
+                    "category": cat, "updated_at": "2026-01-01T00:00:00",
+                })
+        lt.prune()
+        durables = [e for e in lt.entries if e["category"] != "context"]
+        assert len(durables) == 15
+
+    def test_prune_retourne_zero_si_rien_a_purger(self, lt):
+        lt.remember("k", "v", "user")
+        assert lt.prune() == 0
+
+    def test_remember_borne_context_en_direct(self, lt, monkeypatch):
+        monkeypatch.setattr("agent.long_term_memory._MAX_CONTEXT_ON_DISK", 5)
+        for i in range(20):
+            lt.remember(f"k{i}", f"contenu unique numero {i}", "context")
+        ctx = [e for e in lt.entries if e["category"] == "context"]
+        assert len(ctx) <= 5
+
+    def test_load_declenche_gc(self, tmp_path, monkeypatch):
+        storage = tmp_path / "long_term.json"
+        monkeypatch.setattr("agent.long_term_memory._MAX_CONTEXT_ON_DISK", 3)
+        bloat = [
+            {"key": f"k{i}", "content": f"c{i}", "category": "context",
+             "updated_at": f"2026-01-{i + 1:02d}T00:00:00"}
+            for i in range(10)
+        ]
+        storage.write_text(json.dumps(bloat))
+        monkeypatch.setattr("agent.long_term_memory._STORAGE", storage)
+        monkeypatch.setattr("agent.long_term_memory._instance", None)
+        lt2 = LongTermMemory()
+        ctx = [e for e in lt2.entries if e["category"] == "context"]
+        assert len(ctx) == 3
+        data = json.loads(storage.read_text())  # fichier réécrit purgé
+        assert len([e for e in data if e["category"] == "context"]) == 3
+
+
+# ------------------------------------------------------------------ #
 # Titre auto dans ConversationMemory                                   #
 # ------------------------------------------------------------------ #
 

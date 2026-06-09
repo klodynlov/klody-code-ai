@@ -25,8 +25,13 @@ def _slugify(name: str) -> str:
     return slug[:40].strip("_-") or "skill"
 
 
-def save_skill(name: str, description: str, content: str) -> str:
-    """Sauvegarde une compétence ou un pattern utile."""
+def save_skill(name: str, description: str, content: str, code_compatible: bool = False) -> str:
+    """Sauvegarde une compétence ou un pattern utile.
+
+    `code_compatible=True` marque le skill comme utilisable sur une tâche de code
+    (il pourra alors être injecté — compact — au modèle coder si
+    config.SKILLS_ON_CODER_ENABLED). Par défaut False : le skill ne touche que le
+    brain. Cf. _skill_is_code_compatible / format_skills_compact."""
     SKILLS_DIR.mkdir(exist_ok=True)
 
     slug = _slugify(name)
@@ -40,6 +45,8 @@ def save_skill(name: str, description: str, content: str) -> str:
         "content": content,
         "updated": datetime.now().isoformat(),
     }
+    if code_compatible:
+        data["code_compatible"] = True
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
     action = "mise à jour" if existed else "sauvegardée"
@@ -197,4 +204,37 @@ def format_skills_for_prompt(skills: list[dict]) -> str:
         lines.append(f"\n### {s['name']}")
         lines.append(f"{s['description']}")
         lines.append(f"```\n{s['content']}\n```")
+    return "\n".join(lines)
+
+
+def _skill_is_code_compatible(skill: dict) -> bool:
+    """Le skill est-il explicitement marqué utilisable sur une tâche de code ?
+
+    Drapeau booléen `code_compatible: true` (modèle calqué sur `interactive`).
+    Par défaut False → aucun skill n'atteint le modèle coder tant qu'il n'est pas
+    taggé, ce qui préserve le comportement slim historique du coder."""
+    return skill.get("code_compatible") is True
+
+
+def format_skills_compact(skills: list[dict], max_chars: int = 800) -> str:
+    """Rendu MINIMAL des skills pour le modèle coder (complétion, fragile).
+
+    Contrairement à format_skills_for_prompt (qui dump le `content` intégral dans
+    un bloc ```), on n'émet qu'un titre + la description + un `content` TRONQUÉ à
+    `max_chars`. But : donner la piste utile sans réveiller la dégénérescence du
+    coder sous un gros prompt."""
+    if not skills:
+        return ""
+    max_chars = max(1, max_chars)  # plancher : évite une troncature à 0 → ' […]' isolé
+    lines = ["\n\n## Compétence(s) pertinente(s)"]
+    for s in skills:
+        lines.append(f"\n### {s.get('name', s.get('slug', ''))}")
+        desc = (s.get("description") or "").strip()
+        if desc:
+            lines.append(desc)
+        content = (s.get("content") or "").strip()
+        if content:
+            if len(content) > max_chars:
+                content = content[:max_chars].rstrip() + " […]"
+            lines.append(content)
     return "\n".join(lines)

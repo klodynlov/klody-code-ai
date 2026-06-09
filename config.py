@@ -62,8 +62,13 @@ PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
 MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", 1024 * 1024))  # 1 MB
 MAX_ITERATIONS: int = int(os.getenv("MAX_ITERATIONS", 25))
 MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
-# Fenêtre de contexte du modèle (tokens) — sert à la jauge de contexte de l'UI.
-CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", 32768))
+# Fenêtre de contexte (tokens) : sert À LA FOIS la jauge UI ET le budget de la
+# fenêtre glissante des messages (cf. agent/memory._message_budget). 32k était un
+# plafond ARTIFICIEL hérité d'Ollama : les modèles MLX servis ici (Qwen3.x-A3B)
+# gèrent 256K natif, et une machine 64–128 Go a la RAM pour un large KV cache.
+# 64k double le contexte utile sans prefill démesuré ; pousser à 131072 (128k) si
+# la latence du 1er token reste acceptable. À régler aussi dans .env (runtime).
+CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", 65536))
 # Réserves soustraites de CONTEXT_WINDOW pour borner la fenêtre glissante des
 # messages. Le prompt RÉEL envoyé au modèle = system + messages + SCHÉMAS D'OUTILS
 # (passés à part, ~8k pour 38 outils internes + MCP) ; il faut EN PLUS laisser de
@@ -83,6 +88,30 @@ SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", 20))
 # Classifie le prompt avant la boucle ReAct → adapte max_iterations + stratégie.
 ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
+# --- Mode raisonnement (thinking) ---
+# Les modèles Qwen3 "thinking" (le brain) émettent une chaîne de raisonnement
+# AVANT la réponse quand `chat_template_kwargs.enable_thinking=true`. Les serveurs
+# mlx_lm sont lancés avec le thinking COUPÉ (--chat-template-args) ; Klody le
+# RÉACTIVE par requête sur le brain pour les tâches de raisonnement (`explain` —
+# le seul type qui reste sur le brain — ou difficulté `hard` ; cf. _should_think).
+# Le CoT est diffusé à l'UI (panneau « Raisonnement… ») pour que l'attente ne soit
+# pas un écran figé (A/B 08/06 : sans diffusion, TTFT aveugle jusqu'à 66 s). Le
+# coder (instruct) n'a pas de mode thinking → jamais activé pour lui.
+THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+# Le raisonnement consomme beaucoup de tokens AVANT la réponse : on élargit le
+# plafond de génération quand il est actif (sinon le CoT mange tout et la réponse
+# n'a plus de place). Mesuré à l'A/B (08/06) : P95 du CoT ≈ 1800 tokens, donc 8192
+# couvre largement réponse + CoT ; 16384 était du gâchis (latence/budget inutiles).
+THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 8192))
+
+# --- Auto-critique (Levier 3) ---
+# Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
+# une passe de relecture critique cherche erreur/oubli/hypothèse fausse et réécrit
+# la réponse si besoin (sinon la garde telle quelle via le sentinel INCHANGÉ).
+# COÛTE un appel LLM supplémentaire → OFF par défaut : à activer après un A/B au
+# bench (cf. bench/run.py) plutôt qu'imposer la latence à chaque tâche.
+SELF_CRITIQUE_ENABLED: bool = os.getenv("SELF_CRITIQUE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+
 # --- Best-of-N (Roadmap v2 #7) ---
 # Génère N candidats + reranker LLM-as-judge sur la 1ère itération des tâches hard.
 # Cost : (N+1) appels LLM au lieu de 1, déclenché UNIQUEMENT si router.use_best_of_n=True.
@@ -93,6 +122,19 @@ BEST_OF_N_COUNT: int = int(os.getenv("BEST_OF_N_COUNT", 3))
 # pas classifiées hard).
 BEST_OF_N_FORCE: bool = os.getenv("BEST_OF_N_FORCE", "false").lower() in ("1", "true", "yes", "on")
 
+# --- Retrieval proactif (Levier 1c) ---
+# Avant la boucle ReAct, on injecte dans le prompt les fichiers du projet
+# sémantiquement proches de la requête (embeddings bge-m3, cf. tools/code_search),
+# en PISTES à vérifier. Évite à l'agent d'explorer à l'aveugle / de deviner les
+# fichiers. Best-effort : silencieux si l'index est indisponible (Ollama/bge-m3
+# absent) ou en cas d'erreur. Le 1er tour d'une session paie la construction de
+# l'index (puis incrémental). Mettre RETRIEVAL_INJECT_ENABLED=0 pour couper.
+RETRIEVAL_INJECT_ENABLED: bool = os.getenv("RETRIEVAL_INJECT_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+RETRIEVAL_INJECT_K: int = int(os.getenv("RETRIEVAL_INJECT_K", 5))
+# Seuil de similarité cosinus sous lequel un hit est jugé hors-sujet (filtre le
+# bruit : sur une requête de pure conversation, aucun fichier n'est injecté).
+RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", 0.35))
+
 # --- Routeur de skills sémantique (OPTIONNEL, cf. tools/skill_router.py) ---
 # OFF par défaut : Klody reste offline-first (select_skills, IDF déterministe,
 # zéro dépendance réseau). À ON, l'injection des skills couche A passe par
@@ -102,6 +144,19 @@ BEST_OF_N_FORCE: bool = os.getenv("BEST_OF_N_FORCE", "false").lower() in ("1", "
 SKILLS_ROUTER_ENABLED: bool = os.getenv("SKILLS_ROUTER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
 # Sous-flag : utiliser le juge LLM en plus des embeddings (sinon rang cosinus seul).
 SKILLS_ROUTER_JUDGE: bool = os.getenv("SKILLS_ROUTER_JUDGE", "true").lower() in ("1", "true", "yes", "on")
+
+# --- Skills sur tâches de code (OPT-IN) ---
+# Par défaut, le modèle coder (Qwen3-Coder, complétion — dégénère sous un gros
+# prompt) ne reçoit AUCUN skill. À ON, on autorise l'injection d'un sous-ensemble
+# MINUSCULE : uniquement les skills explicitement marqués `code_compatible: true`
+# ET jugés pertinents par select_skills (double garde), capés à SKILLS_ON_CODER_MAX
+# et rendus COMPACTS (description + content tronqué — jamais le dump intégral qui
+# réveille la dégénérescence). OFF → comportement actuel strictement préservé.
+SKILLS_ON_CODER_ENABLED: bool = os.getenv("SKILLS_ON_CODER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Nombre max de skills injectés au coder (garder très bas : 1, exceptionnellement 2).
+SKILLS_ON_CODER_MAX: int = int(os.getenv("SKILLS_ON_CODER_MAX", 1))
+# Plafond de caractères du `content` d'un skill injecté au coder (rendu compact).
+SKILLS_ON_CODER_MAX_CHARS: int = int(os.getenv("SKILLS_ON_CODER_MAX_CHARS", 800))
 
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
