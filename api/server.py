@@ -1148,17 +1148,22 @@ async def health(response: Response):
     # Probes parallèles
     ollama_url = config.OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
     mlx_url = config.MLX_BASE_URL.replace("/v1", "") + "/v1/models"
-    mcp_url = "http://127.0.0.1:8083/mcp"
+    # Sonder les VRAIS serveurs MCP que l'orchestrateur utilise (KLODY_MCP_SERVERS)
+    # plutôt qu'une URL en dur : l'ancienne sonde tapait :8083 = modèle code MLX,
+    # qui n'expose pas /mcp → toujours « down » à tort. Les endpoints /mcp
+    # répondent 406 à un GET (négociation streamable-http).
+    mcp_urls = list(config.MCP_SERVERS.values())
 
-    probes = await asyncio.gather(
+    ollama_p, mlx_p, *mcp_ps = await asyncio.gather(
         _probe_url(ollama_url),
         _probe_url(mlx_url) if config.BACKEND == "mlx" else asyncio.sleep(0, result=None),
-        _probe_url(mcp_url, accept_status=(200, 405, 406)),
+        *[_probe_url(u, accept_status=(200, 405, 406)) for u in mcp_urls],
         return_exceptions=True,
     )
-    ollama_ok = probes[0] is True
-    mlx_ok = probes[1] is True if config.BACKEND == "mlx" else None
-    mcp_ok = probes[2] is True
+    ollama_ok = ollama_p is True
+    mlx_ok = mlx_p is True if config.BACKEND == "mlx" else None
+    # ok si TOUS les serveurs configurés répondent ; None si aucun n'est configuré.
+    mcp_ok = all(p is True for p in mcp_ps) if mcp_urls else None
 
     # LLM principal selon BACKEND
     llm_ok = mlx_ok if config.BACKEND == "mlx" else ollama_ok
@@ -1166,7 +1171,7 @@ async def health(response: Response):
     checks = {
         "llm_backend": "ok" if llm_ok else "down",
         "ollama": "ok" if ollama_ok else "down",
-        "mcp": "ok" if mcp_ok else "down",
+        "mcp": "off" if mcp_ok is None else ("ok" if mcp_ok else "down"),
     }
     if mlx_ok is not None:
         checks["mlx"] = "ok" if mlx_ok else "down"
