@@ -64,10 +64,12 @@ def _start_process(lb_path: Path) -> subprocess.Popen | None:
     """
     try:
         _LB_LOG.parent.mkdir(parents=True, exist_ok=True)
-        logf = open(_LB_LOG, "a")  # noqa: SIM115 — fd hérité par l'enfant, fermé juste après
-        logf.write(f"\n===== [LibraryBrain] démarrage {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
-        logf.flush()
-        try:
+        # `with` : le fd est dupliqué dans l'enfant par Popen, donc refermer la
+        # copie parent en sortie de bloc est sûr (l'enfant garde la sienne) et
+        # garantit la fermeture même si write/flush/Popen lève (pas de fuite).
+        with open(_LB_LOG, "a") as logf:
+            logf.write(f"\n===== [LibraryBrain] démarrage {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+            logf.flush()
             proc = subprocess.Popen(
                 [
                     "python3", "-m", "uvicorn", "search.api:app",
@@ -78,8 +80,6 @@ def _start_process(lb_path: Path) -> subprocess.Popen | None:
                 stdout=logf,
                 stderr=logf,
             )
-        finally:
-            logf.close()
         logger.info("[LibraryBrain] Démarré (PID %d) — logs → %s", proc.pid, _LB_LOG)
         return proc
     except Exception as e:
