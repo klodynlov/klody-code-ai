@@ -19,11 +19,19 @@ from config import (
     MAX_ITERATIONS,
     PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
+    RETRIEVAL_INJECT_ENABLED,
+    RETRIEVAL_INJECT_K,
+    RETRIEVAL_MIN_SCORE,
     ROUTER_ENABLED,
     SANDBOX_AUTO_EXEC,
     SANDBOX_TIMEOUT,
+    SELF_CRITIQUE_ENABLED,
+    SKILLS_ON_CODER_ENABLED,
+    SKILLS_ON_CODER_MAX,
+    SKILLS_ON_CODER_MAX_CHARS,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
+    THINKING_ENABLED,
     match_allowed_root,
 )
 from rich.console import Console
@@ -61,8 +69,10 @@ from tools.registry import ASK_USER_TOOL, get_tools
 from tools.search import Search
 from tools.skills import (
     _matching_terms,
+    _skill_is_code_compatible,
     _skill_terms,
     delete_skill,
+    format_skills_compact,
     format_skills_for_prompt,
     list_skills,
     load_skills,
@@ -297,6 +307,19 @@ _AUTO_EXTENSION_SIZE = 8
 # généraliste, meilleur en conversation/explication.
 _CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
 
+# Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
+# « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
+_SELF_CRITIQUE_MIN_CHARS = 200
+_SELF_CRITIQUE_PROMPT = (
+    "Relis ta dernière réponse à l'utilisateur d'un œil critique. Cherche : erreur "
+    "factuelle, oubli important, hypothèse non vérifiée, ou affirmation trop "
+    "catégorique.\n"
+    "- Si la réponse est DÉJÀ correcte et complète, réponds EXACTEMENT par le seul "
+    "mot : INCHANGÉ\n"
+    "- Sinon, réécris DIRECTEMENT la réponse finale corrigée pour l'utilisateur "
+    "(sans méta-commentaire sur ta relecture)."
+)
+
 # Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
 # l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
 # skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
@@ -306,6 +329,15 @@ _CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_de
 _INTERACTIVE_SKILL_MARKERS = (
     "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
 )
+
+
+def _as_bool(v: object) -> bool:
+    """Coerce un argument d'outil en booléen, robuste aux modèles locaux qui
+    sérialisent les bools en CHAÎNE ('true'/'false') — `bool('false')` vaut True,
+    d'où ce garde-fou (cf. _normalize_ask_user_options, même classe de bug)."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
 
 
 def _skill_is_interactive(skill: dict) -> bool:
@@ -543,6 +575,87 @@ class Orchestrator:
         else:
             self.llm.switch_to(LLM_MODEL, LLM_BASE_URL, LLM_API_KEY)
 
+    def _should_think(self) -> bool:
+        """Active le mode raisonnement (CoT) pour CE tour.
+
+        Réservé aux tâches de RAISONNEMENT servies par le brain (Qwen3 thinking) :
+        `explain` ou difficulté `hard`. `explain` est le SEUL task_type qui reste
+        sur le brain (les types code partent sur le coder, instruct, sans thinking,
+        cf. _CODE_TASK_TYPES) → c'est là que le raisonnement fire réellement. L'A/B
+        (08/06) y a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT
+        aveugle, désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le
+        gate large redevient justifié. JAMAIS sur le coder ni en skill interactif
+        (un QCM dialogue, il ne raisonne pas en silence). Cf. config.THINKING_ENABLED
+        et llm.stream_chat."""
+        if not THINKING_ENABLED:
+            return False
+        if getattr(self, "_code_model_active", False):
+            return False
+        if getattr(self, "_interactive_skill_active", False):
+            return False
+        d = self.last_routing
+        return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+
+    def _maybe_self_critique(self, draft: str) -> None:
+        """Passe d'auto-critique sur la réponse finale (Levier 3).
+
+        Sur une tâche de raisonnement (explain/hard, servie par le brain), relit la
+        réponse et la RÉÉCRIT si elle contient une erreur/oubli/hypothèse fausse ;
+        sinon la garde telle quelle (sentinel « INCHANGÉ »). Coûte un appel LLM
+        supplémentaire → OFF par défaut (config.SELF_CRITIQUE_ENABLED), à activer
+        après A/B au bench. Best-effort, jamais bloquante.
+
+        Mêmes gardes que le thinking : jamais sur le coder (instruct) ni en skill
+        interactif (dialogue). Une seule passe par tour (_self_critique_done)."""
+        if not SELF_CRITIQUE_ENABLED:
+            return
+        if getattr(self, "_code_model_active", False) or getattr(self, "_interactive_skill_active", False):
+            return
+        if getattr(self, "_self_critique_done", False):
+            return
+        d = self.last_routing
+        if d is None or not (d.task_type == "explain" or d.difficulty == "hard"):
+            return
+        if len((draft or "").strip()) < _SELF_CRITIQUE_MIN_CHARS:
+            return  # réponse trop courte pour qu'une relecture vaille le coût
+        self._self_critique_done = True
+
+        # Consigne posée sur une COPIE éphémère de la conversation : ni la consigne
+        # ni un éventuel « INCHANGÉ » ne polluent l'historique persistant.
+        critique_msgs = [
+            *self.memory.get_messages_for_api(),
+            {"role": "user", "content": _SELF_CRITIQUE_PROMPT},
+        ]
+        try:
+            revised, _ = self.llm.stream_chat(
+                critique_msgs, tools=None, silent=True,
+                enable_thinking=self._should_think(),
+            )
+        except Exception as exc:  # une critique KO ne casse jamais le tour
+            logger.debug("Auto-critique ignorée : %s", exc)
+            return
+
+        revised = (revised or "").strip()
+        # Réponse déjà bonne (sentinel) ou vide → on garde le brouillon tel quel,
+        # sans rien réafficher (l'utilisateur a déjà vu la réponse).
+        if not revised or revised.upper().startswith(("INCHANGÉ", "INCHANGE")):
+            logger.info("[auto-critique] réponse confirmée inchangée")
+            return
+
+        # La critique a produit une version affinée → on l'affiche et on remplace
+        # le dernier message assistant en mémoire (le futur contexte voit la bonne).
+        logger.info("[auto-critique] réponse affinée (%d chars)", len(revised))
+        console.print(Panel(
+            Markdown(revised),
+            title="[cyan]🔍 Auto-critique — réponse affinée[/cyan]",
+            border_style="cyan", padding=(0, 1),
+        ))
+        for msg in reversed(self.memory.messages):
+            if msg.get("role") == "assistant":
+                msg["content"] = revised
+                break
+        self.memory.save()
+
     def _detect_interactive_skill(self, query: str) -> bool:
         """Le skill le plus pertinent pour cette requête est-il un guide
         INTERACTIF (QCM) ? On regarde le 1er skill how-to routé (hors always-on
@@ -583,10 +696,14 @@ class Orchestrator:
 
     @property
     def embed_index(self):
-        """Index embeddings bge-m3 pour recherche sémantique (lazy)."""
+        """Index embeddings bge-m3 pour recherche sémantique (lazy).
+
+        Singleton PARTAGÉ par racine (get_embedding_index) : l'Orchestrator est
+        recréé à chaque message, l'index doit survivre entre les tours pour ne pas
+        se reconstruire à chaque fois (cf. tools.code_search.get_embedding_index)."""
         if self._embed_index is None:
-            from tools.code_search import EmbeddingIndex
-            self._embed_index = EmbeddingIndex(self.file_manager.root)
+            from tools.code_search import get_embedding_index
+            self._embed_index = get_embedding_index(self.file_manager.root)
         return self._embed_index
 
     @property
@@ -626,6 +743,41 @@ class Orchestrator:
             self._skill_router = SkillRouter(use_llm_judge=SKILLS_ROUTER_JUDGE)
         return self._skill_router
 
+    def _relevant_files_section(self, query: str) -> str:
+        """Recherche sémantique proactive : top-k fichiers du projet probablement
+        pertinents pour `query`, formatés en PISTES pour le prompt.
+
+        L'agent n'a plus à deviner/explorer à l'aveugle quels fichiers concernent
+        la tâche. Best-effort et JAMAIS bloquant : silencieux si le retrieval est
+        coupé (flag), si la requête est vide, si l'index embeddings est indisponible
+        (Ollama/bge-m3 absent) ou en cas d'erreur. Les hits sous le seuil de
+        similarité sont écartés (pas de bruit sur une requête conversationnelle).
+
+        NB : le 1er appel d'une session construit l'index (coûteux), puis
+        incrémental. Présenté en « pistes à vérifier » — pas une vérité absolue —
+        pour ne pas ancrer le modèle sur un faux positif."""
+        if not RETRIEVAL_INJECT_ENABLED or not query.strip():
+            return ""
+        try:
+            if not self.embed_index.is_available():
+                return ""
+            hits = self.embed_index.search(query, k=RETRIEVAL_INJECT_K)
+        except Exception as exc:  # best-effort : un retrieval KO ne casse pas le tour
+            logger.debug("Retrieval proactif ignoré : %s", exc)
+            return ""
+        hits = [h for h in hits if h.score >= RETRIEVAL_MIN_SCORE]
+        if not hits:
+            return ""
+        logger.info("[retrieval] %d piste(s) injectée(s) : %s",
+                    len(hits), ", ".join(h.rel_path for h in hits))
+        lines = [
+            "\n\n## Fichiers du projet probablement pertinents (recherche sémantique)\n",
+            "_Pistes — à confirmer en lisant les fichiers avant d'agir, pas une vérité absolue :_",
+        ]
+        for h in hits:
+            lines.append(f"- `{h.rel_path}` (pertinence {h.score:.2f})")
+        return "\n".join(lines)
+
     def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
 
@@ -633,16 +785,45 @@ class Orchestrator:
         (Roadmap v2 #5). Sinon, utilise le fallback `default.md`.
 
         `query` (le prompt utilisateur courant) sert à n'injecter que les skills
-        pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills.
+        pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills,
+        ET les fichiers du projet sémantiquement proches (retrieval proactif).
         """
+        # Retrieval proactif : pistes de fichiers pertinents pour CE prompt. Injecté
+        # dans les DEUX modes — y compris coder-slim, car les tâches de code (donc
+        # le besoin de savoir QUELS fichiers toucher) y sont justement routées.
+        retrieval_section = self._relevant_files_section(query)
+
         if getattr(self, "_code_model_active", False):
             # Modèle coder : prompt SLIM. Sous le gros prompt agentique il
             # dégénère ; en complétion il sort du code markdown ```html complet,
             # capté par le text-to-action fallback → preview_code. Pas de skills/
-            # mémoire/conventions (inutiles et déstabilisants pour un coder).
-            content = _CODER_SLIM_PROMPT
+            # mémoire/conventions (inutiles et déstabilisants pour un coder) — mais
+            # les pistes de fichiers, factuelles et courtes, l'aident à viser juste.
+            # Par défaut le coder ne reçoit AUCUN skill (prompt slim). Opt-in
+            # (SKILLS_ON_CODER_ENABLED) : on laisse passer UNIQUEMENT les skills
+            # marqués `code_compatible` ET jugés pertinents par select_skills
+            # (double garde : tag = quoi est sûr, pertinence = quand c'est utile),
+            # capés à SKILLS_ON_CODER_MAX et rendus COMPACTS (description + content
+            # tronqué — le dump intégral réveillerait la dégénérescence du coder).
             skills: list[dict] = []
-            self._injected_skill_slugs = []
+            if SKILLS_ON_CODER_ENABLED:
+                # On EXCLUT les always-on (utilisateur_*/conventions_*) que
+                # select_skills renvoie toujours en tête SANS test de pertinence :
+                # sinon un always-on taggé code_compatible squatterait le coder sur
+                # toute tâche (hors-sujet inclus) et mangerait le cap, évinçant un
+                # how-to vraiment pertinent. Parité avec _detect_interactive_skill /
+                # le hook UI. La « double garde » (tag ET pertinence) ne vaut que
+                # pour les how-to relevance-filtrés.
+                skills = [
+                    s for s in select_skills(load_skills(), query)
+                    if _skill_is_code_compatible(s)
+                    and not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))
+                ][:SKILLS_ON_CODER_MAX]
+            skills_section = (
+                format_skills_compact(skills, SKILLS_ON_CODER_MAX_CHARS) if skills else ""
+            )
+            content = _CODER_SLIM_PROMPT + retrieval_section + skills_section
+            self._injected_skill_slugs = [s.get("slug", "") for s in skills]
         else:
             base_prompt = compose_system_prompt(task_type)
             if SKILLS_ROUTER_ENABLED:
@@ -674,6 +855,7 @@ class Orchestrator:
             content = (
                 f"{base_prompt}\n\n"
                 f"Dossier projet actif: {PROJECT_ROOT}"
+                f"{retrieval_section}"
                 f"{skills_section}"
                 f"{lt_section}"
                 f"{profile_section}"
@@ -1008,7 +1190,10 @@ class Orchestrator:
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
-            "save_skill": lambda a: save_skill(a["name"], a["description"], a["content"]),
+            "save_skill": lambda a: save_skill(
+                a["name"], a["description"], a["content"],
+                code_compatible=_as_bool(a.get("code_compatible", False)),
+            ),
             # Imports LLM
             "import_llm_export": lambda a: import_llm_export(a["path"]),
             "list_imports": lambda a: list_imports(),
@@ -1582,6 +1767,7 @@ class Orchestrator:
                 })
                 final_content, _ = self.llm.stream_chat(
                     self.memory.get_messages_for_api(), tools=None,
+                    enable_thinking=self._should_think(),
                 )
                 if final_content:
                     self.memory.add_message("assistant", final_content)
@@ -1619,6 +1805,7 @@ class Orchestrator:
             else:
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
+                    enable_thinking=self._should_think(),
                 )
 
             if tool_calls:
@@ -1768,12 +1955,16 @@ class Orchestrator:
                                 self._t2a_fired = False  # ré-autorise le fallback à la régénération
                                 continue
                         # On break après — l'utilisateur a son résultat (preview, fichier…).
+                # Auto-critique de la réponse finale (Levier 3) : no-op si désactivé,
+                # tâche non-raisonnement, coder, skill interactif ou réponse triviale.
+                self._maybe_self_critique(content)
                 break
 
         # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)
         self._anti_stall_fired = False
         self._anti_stall_iter = -1
         self._t2a_fired = False
+        self._self_critique_done = False
         self._interactive_skill_active = False
 
     def _mid_session_extract(self) -> None:

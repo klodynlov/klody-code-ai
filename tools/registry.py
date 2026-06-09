@@ -336,6 +336,15 @@ SKILL_TOOL = {
                     "type": "string",
                     "description": "Le code, pattern ou connaissance à mémoriser",
                 },
+                "code_compatible": {
+                    "type": "boolean",
+                    "description": (
+                        "Optionnel (défaut false). Mets true UNIQUEMENT si ce skill est "
+                        "utile à la GÉNÉRATION DE CODE (convention de code projet, pattern "
+                        "framework). Il pourra alors être injecté — compact — au modèle "
+                        "coder. Laisse false pour un skill conceptuel/explicatif."
+                    ),
+                },
             },
             "required": ["name", "description", "content"],
         },

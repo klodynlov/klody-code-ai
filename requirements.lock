@@ -166,7 +166,7 @@ mypy==2.1.0
     # via -r requirements.txt
 mypy-extensions==1.1.0
     # via mypy
-openai==2.38.0
+openai==2.41.0
     # via -r requirements.txt
 openapi-pydantic==0.5.1
     # via fastmcp-slim

@@ -39,6 +39,12 @@ _CATEGORY_LABELS = {
 # Le profil curé (skills `utilisateur_*`) reste, lui, la source de référence.
 _MAX_ENTRIES_PER_CATEGORY = 15
 
+# Plafond DISQUE des entrées "context" (≫ le cap d'injection). Le cap ci-dessus
+# borne ce qu'on INJECTE ; sans borne sur le DISQUE, l'extracteur auto fait
+# enfler long_term.json sans fin (chargement/sauvegarde plus lents, doublons,
+# pertinence diluée). prune() ne touche QUE "context" (volatil, auto-généré) ;
+# user/project/preference sont curés, durables, jamais purgés.
+_MAX_CONTEXT_ON_DISK = 60
 
 class LongTermMemory:
     def __init__(self) -> None:
@@ -69,6 +75,10 @@ class LongTermMemory:
             "category": category,
             "updated_at": datetime.now().isoformat(),
         })
+        # GC live : si "context" dépasse le plafond disque, on purge (save inclus).
+        ctx_count = sum(1 for e in self.entries if e.get("category") == "context")
+        if category == "context" and ctx_count > _MAX_CONTEXT_ON_DISK and self.prune():
+            return f"Mémorisé : [{category}] {key}"
         self._save()
         return f"Mémorisé : [{category}] {key}"
 
@@ -81,6 +91,44 @@ class LongTermMemory:
             return f"Clé introuvable : '{key}'"
         self._save()
         return f"Oublié : {key}"
+
+    def prune(self) -> int:
+        """GC de la mémoire : borne le flot de l'extracteur auto.
+
+        Agit UNIQUEMENT sur la catégorie "context" (volatile, auto-générée) ;
+        user/project/preference sont curés et durables, jamais purgés.
+
+        1. Dé-duplication : deux entrées "context" au contenu normalisé identique
+           → on garde la plus récente (l'extracteur ré-extrait souvent le même
+           fait sous des clés différentes).
+        2. Plafond disque : au-delà de `_MAX_CONTEXT_ON_DISK`, on ne garde que les
+           plus récentes (updated_at desc).
+
+        Retourne le nombre d'entrées supprimées (0 = aucun changement, pas de save).
+        """
+        before = len(self.entries)
+        context = [e for e in self.entries if e.get("category") == "context"]
+        others = [e for e in self.entries if e.get("category") != "context"]
+
+        # 1. dédup par contenu normalisé — la plus récente gagne
+        seen: dict[str, dict] = {}
+        for e in sorted(context, key=lambda e: e.get("updated_at", ""), reverse=True):
+            norm = " ".join((e.get("content") or "").lower().split())
+            if norm and norm not in seen:
+                seen[norm] = e
+        deduped = sorted(
+            seen.values(), key=lambda e: e.get("updated_at", ""), reverse=True
+        )
+
+        # 2. plafond disque (plus récentes d'abord)
+        kept_context = deduped[:_MAX_CONTEXT_ON_DISK]
+
+        removed = before - (len(others) + len(kept_context))
+        if removed:
+            self.entries = others + kept_context
+            self._save()
+            logger.info("[LongTermMemory] GC : %d entrée(s) 'context' purgée(s)", removed)
+        return removed
 
     def list_all(self) -> list[dict]:
         """Retourne toutes les entrées triées par catégorie."""
@@ -143,6 +191,9 @@ class LongTermMemory:
         except Exception as e:
             logger.error("[LongTermMemory] Erreur chargement : %s", e)
             self.entries = []
+        # GC opportuniste au démarrage : résorbe le surplus 'context' hérité.
+        if self.entries:
+            self.prune()
 
 
 # Singleton partagé

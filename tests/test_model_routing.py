@@ -157,6 +157,7 @@ class TestSlimPromptCoder:
         o._code_model_active = True
         o.memory.messages = []
         o._on_skills_selected = None
+        o._relevant_files_section.return_value = ""  # retrieval proactif neutralisé ici
         Orchestrator._inject_system_prompt(o, task_type="feature", query="une horloge")
         sysmsg = o.memory.messages[0]
         assert sysmsg["role"] == "system"
@@ -165,6 +166,106 @@ class TestSlimPromptCoder:
         # Slim = bien plus court que le prompt agentique géant (~12k tokens).
         assert len(sysmsg["content"]) < 2000
         assert o._injected_skill_slugs == []
+
+
+# ── Skills sur tâches de code (opt-in, SKILLS_ON_CODER_ENABLED) ────────────────
+
+
+_FASTAPI_SKILL = {
+    "name": "Patterns FastAPI",
+    "slug": "patterns_fastapi",
+    "description": "comment écrire un endpoint FastAPI dans ce projet",
+    "content": "router = APIRouter()\n@router.get('/x')\ndef x(): ...",
+    "code_compatible": True,
+}
+
+
+def _coder_inject(monkeypatch, *, enabled, skills_on_disk, query, task_type="feature"):
+    """Mode coder : monkeypatche le flag + load_skills, exécute
+    _inject_system_prompt et renvoie (o, contenu du system message)."""
+    import agent.orchestrator as orch_mod
+    monkeypatch.setattr(orch_mod, "SKILLS_ON_CODER_ENABLED", enabled)
+    monkeypatch.setattr(orch_mod, "load_skills", lambda: skills_on_disk)
+    o = MagicMock()
+    o._code_model_active = True
+    o.memory.messages = []
+    o._on_skills_selected = None
+    o._relevant_files_section.return_value = ""
+    Orchestrator._inject_system_prompt(o, task_type=task_type, query=query)
+    return o, o.memory.messages[0]["content"]
+
+
+class TestSkillsOnCoder:
+    def test_flag_off_aucun_skill(self, monkeypatch):
+        # Défaut : comportement historique préservé même si un skill est taggé.
+        o, content = _coder_inject(monkeypatch, enabled=False,
+                                   skills_on_disk=[_FASTAPI_SKILL],
+                                   query="ajoute un endpoint FastAPI")
+        assert o._injected_skill_slugs == []
+        assert "Patterns FastAPI" not in content
+        assert "générateur de code" in content  # prompt slim intact
+
+    def test_flag_on_skill_taggue_et_pertinent_injecte_compact(self, monkeypatch):
+        o, content = _coder_inject(monkeypatch, enabled=True,
+                                   skills_on_disk=[_FASTAPI_SKILL],
+                                   query="ajoute un endpoint FastAPI")
+        assert o._injected_skill_slugs == ["patterns_fastapi"]
+        assert "Patterns FastAPI" in content
+        assert "## Compétence(s) pertinente(s)" in content  # rendu compact injecté
+        assert "APIRouter" in content                       # le content (tronqué) est là
+        assert "générateur de code" in content              # le prompt slim reste présent
+        assert len(content) < 2500                          # reste compact
+
+    def test_flag_on_skill_non_taggue_ignore(self, monkeypatch):
+        untagged = {k: v for k, v in _FASTAPI_SKILL.items() if k != "code_compatible"}
+        o, content = _coder_inject(monkeypatch, enabled=True,
+                                   skills_on_disk=[untagged],
+                                   query="ajoute un endpoint FastAPI")
+        assert o._injected_skill_slugs == []
+        assert "Patterns FastAPI" not in content
+
+    def test_flag_on_skill_taggue_mais_hors_sujet_ignore(self, monkeypatch):
+        # Tagué code_compatible MAIS aucun terme commun → select_skills l'écarte.
+        o, _ = _coder_inject(monkeypatch, enabled=True,
+                             skills_on_disk=[_FASTAPI_SKILL],
+                             query="calcule la moyenne d'une liste de nombres")
+        assert o._injected_skill_slugs == []
+
+    def test_flag_on_always_on_taggue_exclu_du_coder(self, monkeypatch):
+        # Un skill always-on (slug conventions_*/utilisateur_*) est renvoyé par
+        # select_skills SANS test de pertinence. Même taggé code_compatible, il NE
+        # doit PAS atteindre le coder (sinon il squatte le slot sur toute tâche,
+        # hors-sujet inclus). Parité avec _detect_interactive_skill.
+        always_on = {
+            "name": "Conventions projet", "slug": "conventions_projet",
+            "description": "règles de code du projet", "content": "use snake_case",
+            "code_compatible": True,
+        }
+        o, content = _coder_inject(monkeypatch, enabled=True,
+                                   skills_on_disk=[always_on],
+                                   query="calcule la moyenne d'une liste de nombres")
+        assert o._injected_skill_slugs == []
+        assert "Conventions projet" not in content
+
+
+class TestAsBool:
+    def test_vrais_booleens(self):
+        from agent.orchestrator import _as_bool
+        assert _as_bool(True) is True
+        assert _as_bool(False) is False
+
+    def test_chaines_truthy(self):
+        # bool("false") == True en Python → le garde-fou doit corriger.
+        from agent.orchestrator import _as_bool
+        assert _as_bool("true") is True
+        assert _as_bool("True") is True
+        assert _as_bool("false") is False  # le piège
+        assert _as_bool("") is False
+        assert _as_bool("0") is False
+
+    def test_none_et_absent(self):
+        from agent.orchestrator import _as_bool
+        assert _as_bool(None) is False
 
 
 # ── Best-of-N coupé quand le coder est routé ──────────────────────────────────

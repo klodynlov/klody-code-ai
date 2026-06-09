@@ -17,6 +17,16 @@ def mem(tmp_path, monkeypatch):
     return m
 
 
+@pytest.fixture
+def heuristic_tokens(monkeypatch):
+    """Force le comptage heuristique (~chars/4). Les tests de MÉCANIQUE de
+    rognage doivent être déterministes, indépendamment de la présence — ou non —
+    du tokenizer exact du modèle sur la machine de test (un vrai tokenizer BPE
+    compresse différemment les chaînes répétées 'xxxx…' utilisées ici)."""
+    monkeypatch.setattr("agent.tokens._tried", True)
+    monkeypatch.setattr("agent.tokens._tokenizer", None)
+
+
 # ------------------------------------------------------------------ #
 # Ajout de messages                                                    #
 # ------------------------------------------------------------------ #
@@ -60,7 +70,7 @@ class TestAddMessage:
 # ------------------------------------------------------------------ #
 
 class TestTokenBudget:
-    def test_gros_messages_declenchent_le_trim_tokens(self, mem, monkeypatch):
+    def test_gros_messages_declenchent_le_trim_tokens(self, mem, monkeypatch, heuristic_tokens):
         """Même SOUS le plafond de messages, un contexte volumineux est rogné
         pour rester sous le budget messages (= CW − réserves outils/réponse)."""
         import config
@@ -78,7 +88,7 @@ class TestTokenBudget:
         assert mem._total_estimated_tokens() <= budget
         assert 1 <= mem._count_non_system() < 30  # rognage effectif
 
-    def test_dernier_groupe_toujours_conserve(self, mem, monkeypatch):
+    def test_dernier_groupe_toujours_conserve(self, mem, monkeypatch, heuristic_tokens):
         """Un unique message plus gros que le budget n'est PAS supprimé."""
         import config
 
@@ -86,7 +96,7 @@ class TestTokenBudget:
         mem.add_message("user", "y" * 8000)  # ~2000 tokens, > budget
         assert mem._count_non_system() == 1
 
-    def test_trim_tokens_preserve_l_invariant(self, mem, monkeypatch):
+    def test_trim_tokens_preserve_l_invariant(self, mem, monkeypatch, heuristic_tokens):
         """Le rognage par tokens ne laisse jamais de tool result orphelin."""
         import config
 
@@ -103,7 +113,7 @@ class TestTokenBudget:
             mem.add_message("user", "suite")  # déclenche _apply_sliding_window
         assert mem._orphan_tool_results() == []
 
-    def test_tour_react_outils_seuls_est_rogne(self, mem, monkeypatch):
+    def test_tour_react_outils_seuls_est_rogne(self, mem, monkeypatch, heuristic_tokens):
         """Régression : un tour ReAct enchaîne add_tool_call_message /
         add_tool_result (jusqu'à MAX_ITERATIONS fois) SANS repasser par
         add_message. Avant le fix ces deux méthodes ne rognaient pas → le
