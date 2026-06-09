@@ -20,8 +20,17 @@ _librarybrain_base_url: str = ""
 _librarybrain_status: dict = {"up": False, "pid": None, "restarts": 0}
 _watchdog_thread: threading.Thread | None = None
 _watchdog_stop = threading.Event()
+# True si LibraryBrain tournait DÉJÀ au démarrage (géré par un service externe,
+# p.ex. le LaunchAgent com.librarybrain.server avec KeepAlive). Dans ce cas Klody
+# ne doit JAMAIS spawner son propre uvicorn : le port :8765 est déjà pris, le
+# doublon meurt aussitôt (`[Errno 48] address already in use` → code=1) et le
+# watchdog le comptait comme une « mort » — d'où 84 fausses morts en boucle.
+_externally_managed: bool = False
 
 _MAX_RESTARTS = 3
+# stderr/stdout de LibraryBrain — sans ça (DEVNULL), les morts code=1 étaient
+# indiagnostiquables. On capture en append pour garder l'historique des crashes.
+_LB_LOG = Path(__file__).resolve().parent / "logs" / "librarybrain.log"
 
 
 def _is_up(base_url: str, timeout: float = 2.0) -> bool:
@@ -45,19 +54,33 @@ def get_librarybrain_status() -> dict:
 
 
 def _start_process(lb_path: Path) -> subprocess.Popen | None:
-    """Lance le processus uvicorn LibraryBrain. Retourne le Popen ou None."""
+    """Lance le processus uvicorn LibraryBrain. Retourne le Popen ou None.
+
+    stderr/stdout sont redirigés vers ``logs/librarybrain.log`` (append) : c'est
+    la seule fenêtre sur les morts code=1, qui sont déclenchées par requête
+    (cf. clusters de redémarrages à ~20-50s pendant l'usage). Le fd est dupliqué
+    dans l'enfant par Popen, donc on peut refermer la copie parent aussitôt
+    (pas de fuite de descripteur à chaque redémarrage).
+    """
     try:
-        proc = subprocess.Popen(
-            [
-                "python3", "-m", "uvicorn", "search.api:app",
-                "--host", "127.0.0.1", "--port", "8765",
-                "--log-level", "warning",
-            ],
-            cwd=str(lb_path),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("[LibraryBrain] Démarré (PID %d)", proc.pid)
+        _LB_LOG.parent.mkdir(parents=True, exist_ok=True)
+        # `with` : le fd est dupliqué dans l'enfant par Popen, donc refermer la
+        # copie parent en sortie de bloc est sûr (l'enfant garde la sienne) et
+        # garantit la fermeture même si write/flush/Popen lève (pas de fuite).
+        with open(_LB_LOG, "a") as logf:
+            logf.write(f"\n===== [LibraryBrain] démarrage {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+            logf.flush()
+            proc = subprocess.Popen(
+                [
+                    "python3", "-m", "uvicorn", "search.api:app",
+                    "--host", "127.0.0.1", "--port", "8765",
+                    "--log-level", "warning",
+                ],
+                cwd=str(lb_path),
+                stdout=logf,
+                stderr=logf,
+            )
+        logger.info("[LibraryBrain] Démarré (PID %d) — logs → %s", proc.pid, _LB_LOG)
         return proc
     except Exception as e:
         logger.error("[LibraryBrain] Impossible de démarrer : %s", e)
@@ -95,6 +118,18 @@ def _watchdog() -> None:
                 logger.info("[LibraryBrain] De nouveau joignable — surveillance réarmée.")
                 _librarybrain_status["restarts"] = 0
                 abandoned = False
+            continue
+
+        # Injoignable, et géré par un service externe (launchd) : surtout NE PAS
+        # spawner de doublon — le port est à lui, notre uvicorn mourrait sur
+        # `[Errno 48]`. On observe et on laisse le gestionnaire externe relancer.
+        if _externally_managed:
+            if not abandoned:
+                abandoned = True
+                logger.warning(
+                    "[LibraryBrain] Injoignable — géré en externe (launchd), "
+                    "pas de redémarrage par Klody (reprise auto attendue)."
+                )
             continue
 
         # Injoignable.
@@ -148,16 +183,18 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
     Retourne True si le service est disponible.
     """
     global _librarybrain_proc, _librarybrain_dir, _librarybrain_base_url
-    global _watchdog_thread
+    global _watchdog_thread, _externally_managed
 
     base_url = librarybrain_url.rsplit("/api/", 1)[0]
     _librarybrain_dir = librarybrain_dir
     _librarybrain_base_url = base_url
 
-    # Déjà up
+    # Déjà up : c'est un service externe (launchd) qui le gère. Klody se contente
+    # de surveiller — il ne spawnera jamais de doublon (cf. _externally_managed).
     if _is_up(base_url):
         _librarybrain_status["up"] = True
-        console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif[/dim]")
+        _externally_managed = True
+        console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
         _launch_watchdog()
         return True
 
