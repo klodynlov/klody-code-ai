@@ -20,6 +20,12 @@ _librarybrain_base_url: str = ""
 _librarybrain_status: dict = {"up": False, "pid": None, "restarts": 0}
 _watchdog_thread: threading.Thread | None = None
 _watchdog_stop = threading.Event()
+# True si LibraryBrain tournait DÉJÀ au démarrage (géré par un service externe,
+# p.ex. le LaunchAgent com.librarybrain.server avec KeepAlive). Dans ce cas Klody
+# ne doit JAMAIS spawner son propre uvicorn : le port :8765 est déjà pris, le
+# doublon meurt aussitôt (`[Errno 48] address already in use` → code=1) et le
+# watchdog le comptait comme une « mort » — d'où 84 fausses morts en boucle.
+_externally_managed: bool = False
 
 _MAX_RESTARTS = 3
 # stderr/stdout de LibraryBrain — sans ça (DEVNULL), les morts code=1 étaient
@@ -114,6 +120,18 @@ def _watchdog() -> None:
                 abandoned = False
             continue
 
+        # Injoignable, et géré par un service externe (launchd) : surtout NE PAS
+        # spawner de doublon — le port est à lui, notre uvicorn mourrait sur
+        # `[Errno 48]`. On observe et on laisse le gestionnaire externe relancer.
+        if _externally_managed:
+            if not abandoned:
+                abandoned = True
+                logger.warning(
+                    "[LibraryBrain] Injoignable — géré en externe (launchd), "
+                    "pas de redémarrage par Klody (reprise auto attendue)."
+                )
+            continue
+
         # Injoignable.
         if _librarybrain_status["restarts"] < _MAX_RESTARTS:
             # Processus mort ou injoignable — tenter un redémarrage
@@ -165,16 +183,18 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
     Retourne True si le service est disponible.
     """
     global _librarybrain_proc, _librarybrain_dir, _librarybrain_base_url
-    global _watchdog_thread
+    global _watchdog_thread, _externally_managed
 
     base_url = librarybrain_url.rsplit("/api/", 1)[0]
     _librarybrain_dir = librarybrain_dir
     _librarybrain_base_url = base_url
 
-    # Déjà up
+    # Déjà up : c'est un service externe (launchd) qui le gère. Klody se contente
+    # de surveiller — il ne spawnera jamais de doublon (cf. _externally_managed).
     if _is_up(base_url):
         _librarybrain_status["up"] = True
-        console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif[/dim]")
+        _externally_managed = True
+        console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
         _launch_watchdog()
         return True
 
