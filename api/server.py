@@ -112,14 +112,10 @@ async def get_status():
         except Exception:
             pass
 
-    # Klody MCP server status (port 8083)
-    mcp_active = False
-    try:
-        async with httpx.AsyncClient(timeout=1.5) as client:
-            r = await client.get("http://127.0.0.1:8083/mcp", headers={"Accept": "text/event-stream"})
-            mcp_active = r.status_code in (200, 405, 406)  # 406 = Not Acceptable mais up
-    except Exception:
-        pass
+    # Statut du serveur MCP propre de Klody — port configurable (KLODY_MCP_URL).
+    # Avant : :8083 en dur (collision modèle code MLX) + en-tête Accept:text/event-stream
+    # qui faisait répondre 400. GET nu : un serveur MCP up renvoie 406, un 404 = absent.
+    mcp_active = await _probe_url(config.KLODY_MCP_URL, accept_status=(200, 405, 406))
 
     # Conventions et erreurs récurrentes (Roadmap v2 #8)
     project_info = _load_project_info()
