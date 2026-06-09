@@ -22,6 +22,9 @@ _watchdog_thread: threading.Thread | None = None
 _watchdog_stop = threading.Event()
 
 _MAX_RESTARTS = 3
+# stderr/stdout de LibraryBrain — sans ça (DEVNULL), les morts code=1 étaient
+# indiagnostiquables. On capture en append pour garder l'historique des crashes.
+_LB_LOG = Path(__file__).resolve().parent / "logs" / "librarybrain.log"
 
 
 def _is_up(base_url: str, timeout: float = 2.0) -> bool:
@@ -45,19 +48,33 @@ def get_librarybrain_status() -> dict:
 
 
 def _start_process(lb_path: Path) -> subprocess.Popen | None:
-    """Lance le processus uvicorn LibraryBrain. Retourne le Popen ou None."""
+    """Lance le processus uvicorn LibraryBrain. Retourne le Popen ou None.
+
+    stderr/stdout sont redirigés vers ``logs/librarybrain.log`` (append) : c'est
+    la seule fenêtre sur les morts code=1, qui sont déclenchées par requête
+    (cf. clusters de redémarrages à ~20-50s pendant l'usage). Le fd est dupliqué
+    dans l'enfant par Popen, donc on peut refermer la copie parent aussitôt
+    (pas de fuite de descripteur à chaque redémarrage).
+    """
     try:
-        proc = subprocess.Popen(
-            [
-                "python3", "-m", "uvicorn", "search.api:app",
-                "--host", "127.0.0.1", "--port", "8765",
-                "--log-level", "warning",
-            ],
-            cwd=str(lb_path),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        logger.info("[LibraryBrain] Démarré (PID %d)", proc.pid)
+        _LB_LOG.parent.mkdir(parents=True, exist_ok=True)
+        logf = open(_LB_LOG, "a")  # noqa: SIM115 — fd hérité par l'enfant, fermé juste après
+        logf.write(f"\n===== [LibraryBrain] démarrage {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+        logf.flush()
+        try:
+            proc = subprocess.Popen(
+                [
+                    "python3", "-m", "uvicorn", "search.api:app",
+                    "--host", "127.0.0.1", "--port", "8765",
+                    "--log-level", "warning",
+                ],
+                cwd=str(lb_path),
+                stdout=logf,
+                stderr=logf,
+            )
+        finally:
+            logf.close()
+        logger.info("[LibraryBrain] Démarré (PID %d) — logs → %s", proc.pid, _LB_LOG)
         return proc
     except Exception as e:
         logger.error("[LibraryBrain] Impossible de démarrer : %s", e)

@@ -8,6 +8,7 @@ UNE seule fois, puis se réarmer si le service redevient joignable.
 from __future__ import annotations
 
 import logging
+import subprocess
 
 import services
 
@@ -81,3 +82,31 @@ def test_rearmement_quand_le_service_revient(monkeypatch, caplog):
     assert any("réarmée" in m for m in msgs), "doit signaler le réarmement"
     # Réarmé → budget remis à zéro.
     assert services._librarybrain_status["restarts"] == 0
+
+
+def test_start_process_capture_stderr_pas_devnull(monkeypatch, tmp_path):
+    """Régression : LibraryBrain doit écrire stdout/stderr dans un fichier, pas
+    dans DEVNULL — sinon les morts code=1 (déclenchées par requête) restent
+    indiagnostiquables. On vérifie qu'aucun flux ne pointe vers DEVNULL et que
+    le marqueur de démarrage atterrit bien dans le fichier."""
+    log_file = tmp_path / "librarybrain.log"
+    monkeypatch.setattr(services, "_LB_LOG", log_file)
+
+    captured: dict = {}
+
+    class FakeProc:
+        pid = 4242
+
+    def fake_popen(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeProc()
+
+    monkeypatch.setattr(services.subprocess, "Popen", fake_popen)
+
+    proc = services._start_process(tmp_path)
+
+    assert proc is not None
+    assert captured["stderr"] is not subprocess.DEVNULL, "stderr ne doit plus être /dev/null"
+    assert captured["stdout"] is not subprocess.DEVNULL, "stdout ne doit plus être /dev/null"
+    assert log_file.exists()
+    assert "démarrage" in log_file.read_text(), "le marqueur de démarrage doit être écrit"
