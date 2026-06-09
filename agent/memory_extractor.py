@@ -50,6 +50,48 @@ _MIN_USER_MESSAGES = 2  # Ne pas extraire pour les sessions trop courtes
 _MID_SESSION_INTERVAL = 8  # Extraire tous les N messages user mid-session
 _last_mid_extraction_count: int = 0
 
+_VALID_CATEGORIES = ("user", "project", "preference", "context")
+
+
+def _coerce_text(value: object) -> str:
+    """Coerce en texte propre une valeur renvoyée par le LLM.
+
+    Le modèle renvoie parfois une liste (`["Three.js", "Blender"]`) ou un objet
+    là où l'on attend une string. `fact.get("key", "").strip()` plantait alors
+    sur `'list' object has no attribute 'strip'`, et comme l'appelant attrape
+    en bloc, c'est TOUTE la fournée de faits qui était perdue. On normalise
+    sans jamais lever.
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_coerce_text(v) for v in value if v is not None).strip()
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _save_facts(facts: list, lt_memory: LongTermMemory, log_prefix: str) -> list[dict]:
+    """Valide, normalise et persiste les faits extraits.
+
+    Robuste aux faits malformés : un fait non-dict ou aux valeurs non-string
+    est normalisé ou ignoré individuellement, sans faire échouer les autres.
+    """
+    saved: list[dict] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        key = _coerce_text(fact.get("key"))
+        content = _coerce_text(fact.get("content"))
+        category = fact.get("category", "context")
+        if category not in _VALID_CATEGORIES:
+            category = "context"
+        if key and content:
+            result = lt_memory.remember(key, content, category)
+            logger.info("%s %s", log_prefix, result)
+            saved.append({"key": key, "content": content, "category": category})
+    return saved
+
 
 def extract_mid_session(
     messages: list[dict],
@@ -106,18 +148,7 @@ def extract_mid_session(
         return []
 
     facts = _parse_json_facts(raw)
-    saved = []
-    for fact in facts:
-        key = fact.get("key", "").strip()
-        content = fact.get("content", "").strip()
-        category = fact.get("category", "context")
-        if category not in ("user", "project", "preference", "context"):
-            category = "context"
-        if key and content:
-            result = lt_memory.remember(key, content, category)
-            logger.info("[Extractor-mid] %s", result)
-            saved.append({"key": key, "content": content, "category": category})
-
+    saved = _save_facts(facts, lt_memory, "[Extractor-mid]")
     if saved:
         logger.info("[Extractor-mid] %d fait(s) extraits mid-session", len(saved))
     return saved
@@ -188,18 +219,7 @@ def extract_and_save(
         logger.debug("[Extractor] Aucun fait extrait")
         return []
 
-    saved = []
-    for fact in facts:
-        key = fact.get("key", "").strip()
-        content = fact.get("content", "").strip()
-        category = fact.get("category", "context")
-        if category not in ("user", "project", "preference", "context"):
-            category = "context"
-        if key and content:
-            result = lt_memory.remember(key, content, category)
-            logger.info("[Extractor] %s", result)
-            saved.append({"key": key, "content": content, "category": category})
-
+    saved = _save_facts(facts, lt_memory, "[Extractor]")
     logger.info("[Extractor] %d fait(s) sauvegardé(s)", len(saved))
     return saved
 
@@ -222,6 +242,18 @@ def _parse_json_facts(raw: str) -> list[dict]:
     if start != -1 and end != -1 and end > start:
         try:
             data = json.loads(raw[start:end + 1])
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # Array tronqué (réponse coupée en plein milieu, sans `]` final) :
+    # on ferme proprement après le dernier objet complet `}`.
+    last_obj = raw.rfind("}")
+    if start != -1 and last_obj > start:
+        snippet = raw[start:last_obj + 1].rstrip().rstrip(",")
+        try:
+            data = json.loads(snippet + "]")
             if isinstance(data, list):
                 return data
         except json.JSONDecodeError:

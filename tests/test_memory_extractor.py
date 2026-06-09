@@ -73,6 +73,19 @@ class TestParseJsonFacts:
         result = _parse_json_facts(raw)
         assert len(result) == 1
 
+    def test_array_tronque_recupere(self):
+        """Réponse coupée sans `]` final (vu en prod 09/06) — on récupère
+        les objets complets au lieu de tout jeter."""
+        raw = '[{"key": "preferred_3D_software", "content": "Three.js, Blender"},'
+        result = _parse_json_facts(raw)
+        assert len(result) == 1
+        assert result[0]["key"] == "preferred_3D_software"
+
+    def test_array_tronque_multi_objets(self):
+        raw = '[{"key": "a", "content": "va"}, {"key": "b", "content": "vb"},'
+        result = _parse_json_facts(raw)
+        assert len(result) == 2
+
 
 # ── extract_and_save — session trop courte ────────────────────────────────────
 
@@ -196,6 +209,38 @@ class TestExtractWithMockedLLM:
         assert result == []
         # Vérifier que le LLM a bien été appelé (pas skippé)
         mock_openai_cls.return_value.chat.completions.create.assert_called_once()
+
+    @patch("agent.memory_extractor.OpenAI")
+    def test_content_liste_ne_crashe_pas(self, mock_openai_cls):
+        """Le LLM renvoie content sous forme de liste (`["Three.js", "Blender"]`).
+        Régression du bug prod `'list' object has no attribute 'strip'` qui
+        faisait perdre TOUTE la fournée."""
+        facts = [{"key": "soft_3d", "content": ["Three.js", "Blender"], "category": "preference"}]
+        mock_openai_cls.return_value.chat.completions.create.return_value = _llm_response(facts)
+
+        lt = _lt_mock()
+        result = extract_and_save(_msgs(3), lt)
+
+        assert len(result) == 1
+        assert result[0]["content"] == "Three.js, Blender"
+
+    @patch("agent.memory_extractor.OpenAI")
+    def test_un_fact_pourri_ne_jette_pas_les_bons(self, mock_openai_cls):
+        """Un fait malformé (key=liste) est ignoré individuellement ; les
+        faits valides de la même fournée sont quand même sauvegardés."""
+        facts = [
+            {"key": ["x", "y"], "content": "valeur", "category": "context"},  # key non-string
+            "ceci n'est pas un dict",                                          # fact non-dict
+            {"key": "bon", "content": "Python", "category": "preference"},     # valide
+        ]
+        mock_openai_cls.return_value.chat.completions.create.return_value = _llm_response(facts)
+
+        lt = _lt_mock()
+        result = extract_and_save(_msgs(3), lt)
+
+        keys = {r["key"] for r in result}
+        assert "bon" in keys
+        assert lt.remember.called
 
     @patch("agent.memory_extractor.OpenAI")
     def test_categories_valides_conservees(self, mock_openai_cls):
