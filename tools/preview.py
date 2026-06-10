@@ -17,6 +17,8 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 from config import PREVIEW_DIR, PREVIEW_PORT, PROJECT_ROOT
 
+from tools.threejs_lint import fix_threejs
+
 logger = logging.getLogger(__name__)
 
 _server: HTTPServer | None = None
@@ -591,6 +593,12 @@ def _build_document(
     else:
         doc = _wrap_fragment(html, css, js, scripts, styles, title)
     doc, warnings = _inject_missing_libs(doc)
+    # Lint Three.js déterministe : corrige les anti-patterns que le coder répète
+    # et que la prose n'empêche pas (loader ↔ extension, cœur en double). Cf.
+    # tools/threejs_lint.py. Ses notes rejoignent le canal d'avertissements
+    # (transparence + boucle d'auto-correction).
+    doc, three_notes = fix_threejs(doc)
+    warnings.extend(three_notes)
     doc = _inject_error_overlay(doc)
     return doc, warnings
 
