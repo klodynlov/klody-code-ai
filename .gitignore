@@ -31,6 +31,7 @@ logs/long_term.json
 logs/user_profile.json
 logs/distill_book_last_invalid.json
 logs/distill/
+logs/semantic_memory.db*
 !logs/.gitkeep
 
 # macOS

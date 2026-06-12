@@ -571,6 +571,43 @@ MEMORY_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "rappeler_memoire",
+            "description": (
+                "Recherche SÉMANTIQUE dans la mémoire archivée : tous les faits jamais "
+                "mémorisés (même anciens, au-delà de ceux affichés dans le prompt) et les "
+                "sessions passées. Utilise cet outil quand l'utilisateur fait référence à "
+                "quelque chose de passé absent du contexte : « tu te souviens de… », "
+                "« qu'avait-on décidé pour… », « sur quoi avait-on travaillé… ». "
+                "Recherche en langage naturel, pas par clé exacte."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "requete": {
+                        "type": "string",
+                        "description": "Ce qu'on cherche, en langage naturel (ex: 'décision sur le backend MLX')",
+                    },
+                    "nombre": {
+                        "type": "integer",
+                        "description": "Nombre de souvenirs à ramener (défaut 5, max 20)",
+                        "default": 5,
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Filtre optionnel par type de souvenir : "
+                            "user, project, preference, context ou session. Vide = tous."
+                        ),
+                        "default": "",
+                    },
+                },
+                "required": ["requete"],
+            },
+        },
+    },
 ]
 
 GITHUB_TOOLS = [

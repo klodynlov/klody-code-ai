@@ -82,7 +82,7 @@ from tools.skills import (
 )
 from tools.terminal import CommandBlocked, Terminal
 
-from agent import preview_errors
+from agent import preview_errors, semantic_memory
 from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -1210,6 +1210,11 @@ class Orchestrator:
             "remember_fact": lambda a: self.lt_memory.remember(
                 a["key"], a["content"], a.get("category", "context")),
             "forget_fact": lambda a: self.lt_memory.forget(a["key"]),
+            # Mémoire sémantique (archive klody_memory — lecture seule)
+            "rappeler_memoire": lambda a: semantic_memory.recall_for_llm(
+                a["requete"],
+                top_k=int(a.get("nombre", 5) or 5),
+                kind=(a.get("type") or "").strip() or None),
             # GitHub
             "browse_repo": lambda a: gh_browse_repo(
                 a["repo"], a.get("path", ""), a.get("recursive", False)),

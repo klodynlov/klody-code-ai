@@ -38,3 +38,12 @@ prometheus-client>=0.21.0
 
 # Génération de classeurs Excel (.xlsx) téléchargeables — outil generate_excel
 openpyxl>=3.1.0
+
+# Mémoire sémantique (agent/semantic_memory.py — memory bus Klody Core).
+# klody-memory est un paquet LOCAL (pas sur PyPI) :
+#     pip install -e ~/klody-core/memory
+# sentence-transformers = provider "st" (embeddings bge-m3 in-process, sans Ollama).
+# ollama = import top-level de klody_memory.embedder (client léger, daemon non requis en st).
+sentence-transformers>=5.0
+sqlite-vec>=0.1.6
+ollama>=0.4.0
