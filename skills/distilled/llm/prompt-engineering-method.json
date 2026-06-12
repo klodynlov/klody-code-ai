@@ -1,0 +1,152 @@
+{
+  "skill": "Prompt Engineering Method",
+  "domain": "llm",
+  "description": "Concevoir un prompt LLM fiable et reproductible : cadrer rôle et tâche, ancrer dans un contexte, escalader zero-shot → few-shot → raisonnement (CoT/self-consistency/ToT/ReAct), contraindre la sortie, régler le décodage, puis itérer, évaluer, versionner et durcir. Corpus : 10 livres Library Brain.",
+  "source": {
+    "book": "Prompt Engineering for LLMs",
+    "author": "John Berryman and Albert Ziegler",
+    "year": 2024
+  },
+  "principles": [
+    "Escalader zero-shot → few-shot → chaîne de raisonnement ; ne pas sur-ingénier un prompt qui marche déjà.",
+    "Le modèle n'a pas de monologue interne : exiger le raisonnement AVANT la réponse, sinon il devine puis rationalise.",
+    "Des instructions claires, spécifiques et structurées priment sur tout autre réglage.",
+    "Démontrer le format exact par l'exemple (few-shot) plutôt que le décrire en prose.",
+    "Imposer une sortie structurée/contrainte dès que la sortie alimente un système automatisé.",
+    "Le prompt engineering est empirique : itérer, évaluer sur des scénarios réels, versionner (le prompt drift casse les prompts au changement de modèle).",
+    "Un prompt ne débloque pas une capacité absente du modèle ; ce n'est pas une incantation magique."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer le rôle et la tâche",
+      "purpose": "Donner au modèle un point de vue et une intention sans ambiguïté.",
+      "guidelines": [
+        "Mettre dans le system prompt le rôle/persona ('Tu es un analyste senior') et les contraintes immuables.",
+        "Énoncer la tâche de façon spécifique et non vague ; structurer les sous-consignes en puces ou étapes numérotées.",
+        "Choisir le bon type de prompt : classification (label/score), génération (contenu original), extraction (faits ciblés)."
+      ],
+      "pitfalls": [
+        "Consigne vague ('Planifie un voyage') qui laisse trop d'interprétation : produit une sortie générique.",
+        "Mélanger rôle, tâche et données sans délimiteurs."
+      ]
+    },
+    {
+      "step": "Fournir le contexte (grounding)",
+      "purpose": "Réduire l'hallucination en ancrant la réponse dans des faits fournis.",
+      "guidelines": [
+        "Insérer le contexte nécessaire et le délimiter clairement (triple-guillemets, balises).",
+        "Pour la fiabilité, restreindre le modèle au contexte : 'Réponds uniquement depuis le contexte ; sinon réponds NOT_FOUND.'",
+        "Pour le RAG, générer plusieurs reformulations de la question (multi-query) pour mieux récupérer."
+      ],
+      "pitfalls": [
+        "Compter sur la mémoire paramétrique pour des faits précis ou récents.",
+        "Lost-in-the-middle : une info noyée au milieu d'un long contexte est ignorée — placer les éléments clés en début et en fin."
+      ]
+    },
+    {
+      "step": "Choisir le niveau de démonstration",
+      "purpose": "Apprendre le format et le patron attendus au moindre coût.",
+      "guidelines": [
+        "Commencer zero-shot si la tâche est simple et clairement définie.",
+        "Passer en few-shot quand le format dérape : fournir 1 à 3 exemples input→output cohérents qui montrent EXACTEMENT la sortie voulue.",
+        "Sélectionner des exemples représentatifs (idéalement récupérés par RAG) et homogènes en forme."
+      ],
+      "pitfalls": [
+        "Anchoring : des exemples quasi identiques biaisent le modèle vers eux et brouillent l'attention.",
+        "Empiler des exemples sans nécessité : coût en tokens et risque de sur-spécialisation."
+      ]
+    },
+    {
+      "step": "Activer le bon mode de raisonnement",
+      "purpose": "Faire raisonner le modèle quand la tâche l'exige.",
+      "guidelines": [
+        "CoT : exemplaires qui raisonnent-puis-répondent, ou cue zero-shot 'Réfléchis étape par étape' avant la réponse.",
+        "Self-consistency : échantillonner N chaînes (température>0) et garder la réponse majoritaire (coût n×).",
+        "Tree-of-Thought : explorer plusieurs branches ; émulable en un appel via le prompt 'trois experts écrivent une étape chacun, ceux qui se trompent partent'.",
+        "ReAct : alterner raisonnement, action (appel d'outil) et observation pour les tâches multi-étapes avec récupération.",
+        "Prompt chaining : découper une tâche complexe entre plusieurs prompts (sortie de l'un = entrée du suivant)."
+      ],
+      "pitfalls": [
+        "Forcer une réponse avant tout raisonnement sur une tâche logique : intuition non fiable.",
+        "Dégainer self-consistency/ToT sur des tâches simples : latence et tokens gaspillés."
+      ]
+    },
+    {
+      "step": "Contraindre la sortie",
+      "purpose": "Garantir une sortie parsable par un système automatisé.",
+      "guidelines": [
+        "Imposer un schéma : JSON (response_format json_object), grammaire contrainte, ou with_structured_output(Pydantic/Zod).",
+        "Utiliser un indicateur de sortie : terminer le prompt par 'JSON:' ou 'Sentiment:' pour amorcer le bon token.",
+        "Spécifier explicitement le format attendu plutôt que de le laisser implicite."
+      ],
+      "pitfalls": [
+        "Format implicite : la réponse dérive d'un appel à l'autre.",
+        "Verbiage RLHF (fluff poli) qui casse le parsing : le contraindre explicitement."
+      ]
+    },
+    {
+      "step": "Régler le décodage",
+      "purpose": "Adapter le compromis précision/créativité à la tâche.",
+      "guidelines": [
+        "Basse température (~0.2) et top-k restreint pour le factuel, le code, le support technique.",
+        "Température plus haute (~0.7-0.8) avec top-p (nucleus) pour la créativité et la diversité.",
+        "Fixer le décodage de manière reproductible pour les tâches déterministes."
+      ],
+      "pitfalls": [
+        "Température haute sur une tâche factuelle : augmente créativité ET hallucination."
+      ]
+    },
+    {
+      "step": "Itérer, évaluer, versionner et durcir",
+      "purpose": "Fiabiliser le prompt dans la durée et face aux usages adverses.",
+      "guidelines": [
+        "Tester sur des scénarios utilisateurs représentatifs, raffiner sur les échecs, évaluer systématiquement (jeux de cas, métriques).",
+        "Versionner les prompts (catalog dédié) ; re-tester après tout changement de modèle (prompt drift).",
+        "Apps user-facing : appliquer la hiérarchie d'instructions (system > user > sortie d'outil) et des guardrails entrée/sortie contre extraction, jailbreak et injection.",
+        "Envisager l'optimisation automatique (APO, AutoPrompt, DSPy/LMQL) quand le réglage manuel plafonne."
+      ],
+      "pitfalls": [
+        "Figer le prompt après le premier jet sans test ni itération.",
+        "Trucs hacky ('$300 tip', 'Q:' vs 'Questions:') : spécifiques au modèle et périssables.",
+        "Croire un system prompt 'extrait' par le modèle : il est souvent halluciné."
+      ]
+    }
+  ],
+  "checklist": [
+    "Rôle/persona et contraintes dans le system prompt ; tâche spécifique et structurée.",
+    "Contexte fourni et délimité ; consigne de repli 'NOT_FOUND' si hors contexte.",
+    "Niveau de démonstration choisi (zero/few-shot) ; exemples cohérents montrant le format exact.",
+    "Mode de raisonnement adapté (CoT par défaut, self-consistency/ToT/ReAct si forte valeur).",
+    "Sortie contrainte (JSON/schéma) avec indicateur de sortie terminal.",
+    "Température réglée selon la tâche (basse=factuel, haute=créatif).",
+    "Prompt testé sur scénarios réels, évalué et versionné.",
+    "Couches défensives (hiérarchie d'instructions, guardrails) pour toute app exposée."
+  ],
+  "vocabulary": [
+    {"term": "in-context learning (ICL)", "definition": "Apprendre la tâche depuis des exemples placés dans le prompt, sans mettre à jour les poids du modèle."},
+    {"term": "chain-of-thought (CoT)", "definition": "Inciter le modèle à produire des étapes de raisonnement intermédiaires avant la réponse finale."},
+    {"term": "self-consistency", "definition": "Échantillonner plusieurs chaînes de raisonnement puis retenir la réponse par vote majoritaire."},
+    {"term": "tree-of-thought (ToT)", "definition": "Explorer et évaluer plusieurs branches de raisonnement au lieu d'une chaîne linéaire unique."},
+    {"term": "ReAct", "definition": "Boucle alternant raisonnement, action (outil) et observation, fondement des agents."},
+    {"term": "instruction hierarchy", "definition": "Priorité des consignes : system > user > sortie d'outil ; neutralise beaucoup d'injections indirectes."},
+    {"term": "prompt drift", "definition": "Dégradation silencieuse d'un prompt réglé lorsque le modèle sous-jacent est mis à jour ou remplacé."}
+  ],
+  "heuristics": [
+    "Si la sortie part en format libre indésirable, ajouter un indicateur de sortie et un schéma avant d'ajouter des instructions.",
+    "Si une tâche de raisonnement échoue, ajouter 'réfléchis étape par étape' avant d'enrichir le contexte.",
+    "Si le few-shot biaise les réponses, réduire le nombre d'exemples ou les diversifier plutôt que les multiplier.",
+    "Si le modèle hallucine des faits, restreindre au contexte (grounding/RAG) plutôt qu'augmenter la taille du prompt."
+  ],
+  "antipatterns": [
+    "Méga-prompt monolithique au lieu d'une chaîne de prompts décomposée.",
+    "Tout décrire en prose quand un ou deux exemples in-context suffiraient.",
+    "Réglages magiques ('$300 tip', phrases porte-bonheur) supposés universels.",
+    "Température élevée pour des tâches factuelles ou de code.",
+    "Prompt non versionné dépendant d'un comportement de modèle non documenté."
+  ],
+  "examples": [
+    {"context": "Extraction de champ avec sortie destinée à un pipeline automatisé.", "outcome": "System(rôle+contrainte) + 1-2 few-shot du format + contexte délimité + 'Return JSON {...}. JSON:' + température 0.2 → sortie parsable et stable."},
+    {"context": "Problème arithmétique multi-étapes échouant en réponse directe.", "outcome": "Ajout de 'Réfléchis étape par étape' (CoT) puis, si critique, self-consistency sur 5 échantillons avec vote majoritaire → précision nettement accrue."},
+    {"context": "Chatbot support exposé à des utilisateurs potentiellement malveillants.", "outcome": "Hiérarchie d'instructions (system prioritaire) + guardrails entrée/sortie → injections indirectes et tentatives d'extraction neutralisées."}
+  ]
+}
