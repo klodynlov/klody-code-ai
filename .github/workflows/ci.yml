@@ -146,7 +146,12 @@ jobs:
           cache: pip
       - run: pip install "pip-audit>=2.7.3"
       - name: Audit lockfile
-        run: pip-audit -r requirements.lock --strict --progress-spinner=off
+        # CVE-2025-3000 (torch.jit.script, corruption mémoire) : aucune release corrigée
+        # au 2026-06-12 ; vecteur local-only (AV:L/PR:L, impacts L), jit.script sur entrée
+        # non fiable hors threat model PyTorch. Usage repo : embeddings in-process
+        # sentence-transformers, pas de jit.script sur entrée externe.
+        # Retirer l'ignore dès qu'une release torch corrige (vérifier OSV/PYSEC-2025-194).
+        run: pip-audit -r requirements.lock --strict --progress-spinner=off --ignore-vuln CVE-2025-3000
 
   # ─────────────────────────────────────────────────────────────────
   # Scan secrets — empêche commit de tokens / clés
