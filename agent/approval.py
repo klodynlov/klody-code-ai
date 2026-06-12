@@ -22,7 +22,7 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     # Réseau + disque (clone, indexation, scaffolding de projet)
     "clone_github_repo", "index_github_repo", "create_project",
     # Création d'un skill permanent à partir de livres
-    "learn_from_books",
+    "learn_from_books", "distill_theme",
     # Production d'artefacts audio sur le disque
     "edit_wav", "mix_stems", "generate_silence", "convert_format",
 })
