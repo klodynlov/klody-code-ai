@@ -81,8 +81,9 @@ from tools.skills import (
     select_skills,
 )
 from tools.terminal import CommandBlocked, Terminal
+from tools.voice import speak as vc_speak
 
-from agent import preview_errors
+from agent import preview_errors, semantic_memory
 from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -1210,6 +1211,11 @@ class Orchestrator:
             "remember_fact": lambda a: self.lt_memory.remember(
                 a["key"], a["content"], a.get("category", "context")),
             "forget_fact": lambda a: self.lt_memory.forget(a["key"]),
+            # Mémoire sémantique (archive klody_memory — lecture seule)
+            "rappeler_memoire": lambda a: semantic_memory.recall_for_llm(
+                a["requete"],
+                top_k=int(a.get("nombre", 5) or 5),
+                kind=(a.get("type") or "").strip() or None),
             # GitHub
             "browse_repo": lambda a: gh_browse_repo(
                 a["repo"], a.get("path", ""), a.get("recursive", False)),
@@ -1230,6 +1236,8 @@ class Orchestrator:
             "preview_file": lambda a: pv_preview_file(a["path"]),
             "list_previews": lambda a: pv_list_previews(),
             "stop_preview_server": lambda a: pv_stop_server(),
+            # Voix parlée (TTS VocalBrain + afplay)
+            "speak": lambda a: vc_speak(a["text"], a.get("language", "fr")),
             # Documents téléchargeables
             "generate_excel": self._tool_generate_excel,
             "generate_text_file": self._tool_generate_text_file,

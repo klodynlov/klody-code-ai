@@ -60,7 +60,14 @@ class LongTermMemory:
         key = key.strip().lower().replace(" ", "_")
         if not key or not content.strip():
             return "ERREUR: key et content sont requis."
+        result = self._store(key, content, category)
+        # Miroir vers l'archive sémantique (agent/semantic_memory) : contrairement
+        # au JSON plat, elle n'est jamais purgée ni capée → un fait y reste
+        # retrouvable par rappeler_memoire même des mois plus tard.
+        self._mirror_semantic("remember", key, content=content.strip(), category=category)
+        return result
 
+    def _store(self, key: str, content: str, category: Category) -> str:
         for entry in self.entries:
             if entry["key"] == key:
                 entry["content"] = content.strip()
@@ -90,7 +97,30 @@ class LongTermMemory:
         if len(self.entries) == before:
             return f"Clé introuvable : '{key}'"
         self._save()
+        self._mirror_semantic("forget", key)
         return f"Oublié : {key}"
+
+    @staticmethod
+    def _mirror_semantic(
+        action: str, key: str, content: str = "", category: str = "context"
+    ) -> None:
+        """Miroir best-effort vers la mémoire sémantique. Ne doit JAMAIS casser le
+        chemin principal : deps absentes, base verrouillée, modèle d'embedding
+        indisponible… → on logge en debug et on continue. `replace=True` reproduit
+        la sémantique « mise à jour par clé » (pas de doublon à chaque update)."""
+        try:
+            import config as _cfg
+            if not getattr(_cfg, "SEMANTIC_MEMORY_ENABLED", False):
+                return
+            from agent import semantic_memory
+            if not semantic_memory.MEMORY_AVAILABLE:
+                return
+            if action == "remember":
+                semantic_memory.remember(content, title=key, kind=category, replace=True)
+            else:
+                semantic_memory.forget(key)
+        except Exception as e:
+            logger.debug("[LongTermMemory] miroir sémantique ignoré : %s", e)
 
     def prune(self) -> int:
         """GC de la mémoire : borne le flot de l'extracteur auto.

@@ -279,6 +279,31 @@ SKILLS_DIR: Path = _ROOT / "skills"
 # produits par les outils, jamais des fichiers du projet.
 DOWNLOADS_DIR: Path = Path(os.getenv("DOWNLOADS_DIR", str(_ROOT / "_downloads"))).resolve()
 
+# --- Mémoire sémantique (klody_memory — « memory bus » Klody Core) ---
+# Archive ILLIMITÉE + rappel sémantique bge-m3 par-dessus la mémoire long-terme
+# plate : chaque fait remember_fact / extrait auto est MIROITÉ dans une base
+# sqlite-vec dédiée (cf. agent/semantic_memory.py), interrogeable via l'outil
+# rappeler_memoire — y compris les faits "context" purgés du JSON ou au-delà du
+# cap d'injection du prompt. Best-effort : paquet klody-memory absent → tout le
+# reste fonctionne sans la couche sémantique.
+SEMANTIC_MEMORY_ENABLED: bool = os.getenv("SEMANTIC_MEMORY_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+SEMANTIC_MEMORY_DB: Path = Path(os.getenv("SEMANTIC_MEMORY_DB", str(MEMORY_DIR / "semantic_memory.db")))
+# "st" = sentence-transformers in-process (bge-m3, chargé 1×/process) — le bon
+# choix pour l'API launchd long-vécue, et zéro dépendance au daemon Ollama.
+# "ollama" reste possible (daemon requis).
+SEMANTIC_MEMORY_PROVIDER: str = os.getenv("SEMANTIC_MEMORY_PROVIDER", "st")
+
+# --- Voix parlée de Klody (outil speak → CLI VocalBrain + afplay) ---
+# Pont léger : la synthèse vit dans le venv local-suno (mlx-audio), Klody ne
+# l'importe jamais — il appelle la CLI en subprocess. Le projet/personnage
+# VocalBrain « klody-voice »/« Klody » (Qwen3-TTS 0.6B) ont été créés une fois ;
+# surchargeables ici si on veut une autre voix.
+VOICE_CLI: str = os.getenv("VOICE_CLI", str(Path.home() / "local-suno" / ".venv" / "bin" / "vocalbrain"))
+VOICE_PROJECT_ID: str = os.getenv("VOICE_PROJECT_ID", "58a252a5-1c07-4bd1-bf36-ad59bcdbd413")
+VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
+VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
+VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
+
 LOG_DIR.mkdir(exist_ok=True)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 

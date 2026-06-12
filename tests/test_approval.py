@@ -55,6 +55,26 @@ def test_mcp_reads_pass():
         assert not requires_approval(f"mcp__srv__{leaf}"), f"MCP read : {leaf}"
 
 
+def test_speak_n_est_pas_garde():
+    # Même choix produit que generate_excel : WAV confiné à ~/.vocalbrain/audio,
+    # lecture explicitement demandée, quelques secondes → pas d'approbation.
+    assert not requires_approval("speak")
+
+
+def test_mcp_verbes_francais_write():
+    # Les serveurs MCP maison nomment en français : generer_chanson lance des
+    # minutes de calcul + écrit sur le disque → gardé.
+    for leaf in ["generer_chanson", "entrainer_voix", "creer_projet",
+                 "supprimer_session", "envoyer_message"]:
+        assert requires_approval(f"mcp__vocalbrain__{leaf}"), f"MCP write FR : {leaf}"
+
+
+def test_mcp_verbes_francais_read():
+    for leaf in ["lister_voix", "lister_sessions", "statut_generation",
+                 "resultat_generation", "etat_systeme", "statut_entrainement"]:
+        assert not requires_approval(f"mcp__vocalbrain__{leaf}"), f"MCP read FR : {leaf}"
+
+
 def test_unknown_internal_tool_defaults_to_pass():
     # Outil interne inconnu (non MCP) → pas de gate (lecture présumée).
     assert not requires_approval("some_future_inspect_tool")
