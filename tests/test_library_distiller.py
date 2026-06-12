@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-import tools.library_distiller as ld
 from tools.library_distiller import (
     _digest_slug,
     _parse_llm_json,
@@ -62,14 +61,14 @@ def _make_db(path: Path, with_fts: bool = True) -> None:
 def db(tmp_path, monkeypatch) -> Path:
     p = tmp_path / "library.db"
     _make_db(p)
-    monkeypatch.setattr(ld, "LIBRARY_DB_PATH", p)
+    monkeypatch.setattr("tools.library_distiller.LIBRARY_DB_PATH", p)
     return p
 
 
 @pytest.fixture
 def skills_dir(tmp_path, monkeypatch) -> Path:
     d = tmp_path / "skills"
-    monkeypatch.setattr(ld, "SKILLS_DIR", d)
+    monkeypatch.setattr("tools.library_distiller.SKILLS_DIR", d)
     return d
 
 
@@ -167,13 +166,13 @@ class TestRankHarvest:
         # DB sans table FTS (index cassé/absent) → repli LIKE silencieux.
         p = tmp_path / "nofts.db"
         _make_db(p, with_fts=False)
-        monkeypatch.setattr(ld, "LIBRARY_DB_PATH", p)
+        monkeypatch.setattr("tools.library_distiller.LIBRARY_DB_PATH", p)
         books = rank_books("webgl shaders")
         assert books and books[0]["id"] == 1
         assert harvest(books, "webgl")
 
     def test_db_absente_message_clair(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(ld, "LIBRARY_DB_PATH", tmp_path / "absente.db")
+        monkeypatch.setattr("tools.library_distiller.LIBRARY_DB_PATH", tmp_path / "absente.db")
         with pytest.raises(FileNotFoundError, match="LIBRARY_DB_PATH"):
             rank_books("webgl")
 
