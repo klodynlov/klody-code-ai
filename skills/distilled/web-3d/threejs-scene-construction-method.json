@@ -1,0 +1,142 @@
+{
+  "skill": "Three.js Scene Construction",
+  "domain": "web-3d",
+  "description": "Construire une scène 3D web performante avec three.js : setup caméra/renderer, structuration par scene graph, matériaux et lumières, boucle d'animation, puis optimisation guidée par la mesure. Corpus : Learning Three.js 2nd Ed., Conquering JavaScript: Three.js, 3D Web Development with Three.js and Next.js.",
+  "source": {
+    "book": "Conquering JavaScript: Three.js",
+    "author": "Sufyan bin Uzayr"
+  },
+  "principles": [
+    "La boucle de rendu passe par requestAnimationFrame, jamais par setInterval.",
+    "Le scene graph structure tout : chaque objet vit dans l'espace local de son parent.",
+    "Ne jamais optimiser sans avoir mesuré puis diagnostiqué CPU-bound vs GPU-bound.",
+    "Tout objet retiré définitivement doit libérer ses ressources (dispose géométrie, matériau, texture).",
+    "Préférer la désactivation douce (intensity à 0, visible à false) à la suppression qui recompile les shaders.",
+    "En stack React, n'utiliser que des versions de three/R3F/Drei/Next testées ensemble."
+  ],
+  "workflow": [
+    {
+      "step": "Initialiser la scène",
+      "purpose": "Obtenir un rendu à l'écran le plus tôt possible pour itérer dessus.",
+      "guidelines": [
+        "Créer Scene, PerspectiveCamera (fov ~45, aspect = largeur/hauteur, near 0.1, far 1000) et WebGLRenderer.",
+        "Configurer le renderer : couleur de fond, taille pleine fenêtre, antialias selon besoin, puis attacher son domElement au DOM.",
+        "Gérer le resize : mettre à jour camera.aspect, appeler updateProjectionMatrix, redimensionner le renderer.",
+        "En HTML autonome sans bundler : déclarer un import map (three + three/addons/) avant le script module — les addons examples/jsm importent 'three' en spécificateur nu et ne se résolvent pas sans lui ; préférer une copie locale vendorisée de three pour rester offline."
+      ],
+      "pitfalls": [
+        "Oublier updateProjectionMatrix après un changement d'aspect : l'image se déforme.",
+        "Charger des addons examples/jsm sans import map, ou référencer examples/js (supprimé des versions récentes de three) : la page plante au premier import.",
+        "Mélanger le build UMD three.min.js et des imports ESM dans la même page."
+      ]
+    },
+    {
+      "step": "Structurer le scene graph",
+      "purpose": "Exprimer les relations spatiales par parentage plutôt que par calculs globaux.",
+      "guidelines": [
+        "Grouper les objets liés sous des Group/Object3D pivots.",
+        "Positionner chaque enfant dans l'espace local de son parent (modèle orbite : pivot qui tourne, enfant décalé).",
+        "Animer les pivots plutôt que recalculer des trajectoires absolues."
+      ],
+      "pitfalls": [
+        "Mélanger coordonnées globales et locales dans la même logique d'animation."
+      ]
+    },
+    {
+      "step": "Créer géométries et matériaux",
+      "purpose": "Donner forme et apparence aux objets avec le bon niveau de détail.",
+      "guidelines": [
+        "Partir des primitives (BoxGeometry, cylindre, cône, plan) avec une segmentation adaptée — dense uniquement si déformation prévue.",
+        "Pour un terrain ou une surface déformée : déplacer les vertices puis recalculer les normales (computeVertexNormals).",
+        "Pour des effets custom : ShaderMaterial avec uniforms comme canal renderer vers shader (time, resolution).",
+        "Objets répétés (atomes d'une molécule, particules, grilles) : décrire les données dans des tableaux compacts (élément/position, paires de liaisons) et instancier par boucle ou InstancedMesh — jamais énumérer des dizaines de meshes quasi identiques à la main."
+      ],
+      "pitfalls": [
+        "Muter des vertices sans recalculer les normales : éclairage faux.",
+        "Sur-segmenter des géométries statiques jamais déformées.",
+        "Écrire un long bloc de créations de meshes copiées-collées au lieu de données + boucle : illisible, et fait partir un LLM génératif en répétition infinie."
+      ]
+    },
+    {
+      "step": "Éclairer et ombrer",
+      "purpose": "Obtenir une lumière crédible au coût le plus bas.",
+      "guidelines": [
+        "Combiner une lumière ambiante faible et une directionnelle principale.",
+        "Désactiver une lumière en mettant son intensité à 0 plutôt qu'en la retirant de la scène.",
+        "Pour des ombres statiques : préférer une light map pré-rendue aux ombres temps réel.",
+        "Produire les normal maps avec un outil dédié (Blender), pas manuellement."
+      ],
+      "pitfalls": [
+        "Ajouter/retirer des lumières dynamiquement : recompilation des shaders à chaque fois."
+      ]
+    },
+    {
+      "step": "Animer",
+      "purpose": "Boucle fluide synchronisée avec le rafraîchissement écran.",
+      "guidelines": [
+        "Boucle requestAnimationFrame qui mute les transforms puis appelle renderer.render(scene, camera).",
+        "Mettre à jour les uniforms animés (time) dans cette boucle.",
+        "Afficher des Stats (FPS, mémoire) dès le début du développement."
+      ],
+      "pitfalls": [
+        "setInterval pour animer : désynchronisé de l'écran et actif en onglet caché."
+      ]
+    },
+    {
+      "step": "Optimiser",
+      "purpose": "Corriger le vrai goulot, pas celui supposé.",
+      "guidelines": [
+        "Mesurer d'abord (Stats : FPS, CPU, GPU, mémoire).",
+        "Diagnostiquer : remplacer tous les matériaux par des basiques via overrideMaterial — si les FPS montent c'est GPU-bound, sinon CPU-bound.",
+        "Objets statiques : matrixAutoUpdate à false et updateMatrix explicite après tout changement.",
+        "Limiter les objets transparents ; préférer alphaTest quand le rendu le permet.",
+        "Avant tout retrait permanent d'objet : dispose des géométries, matériaux et textures."
+      ],
+      "pitfalls": [
+        "Optimiser le CPU quand le goulot est GPU (ou l'inverse).",
+        "Retraits d'objets sans dispose : fuite de mémoire GPU progressive."
+      ]
+    },
+    {
+      "step": "Intégrer en React/Next.js (optionnel)",
+      "purpose": "Porter la scène dans une app React sans casser le rendu.",
+      "guidelines": [
+        "Composants 3D marqués 'use client' ; scène déclarée dans <Canvas>, animations via useFrame.",
+        "Utiliser les helpers Drei (Stats, OrbitControls) plutôt que les réécrire.",
+        "Épingler des versions de three, React Three Fiber, Drei et Next testées ensemble ; vérifier la compatibilité avant tout upgrade."
+      ],
+      "pitfalls": [
+        "Monter à l'aveugle la dernière version de chaque paquet : combinaisons R3F/Drei/Next non testées cassent au runtime."
+      ]
+    }
+  ],
+  "checklist": [
+    "Caméra : fov ~45, near/far adaptés à l'échelle de la scène, resize géré avec updateProjectionMatrix.",
+    "Boucle : requestAnimationFrame, transforms mutés avant render.",
+    "Hiérarchie : objets liés groupés sous des pivots, animations sur les pivots.",
+    "Normales recalculées après toute mutation de vertices.",
+    "Lumières désactivées par intensity=0, jamais retirées à chaud.",
+    "Stats affichées, goulot diagnostiqué (override material) avant optimisation.",
+    "Objets statiques : matrixAutoUpdate=false.",
+    "dispose() appelé sur géométrie/matériau/texture avant retrait permanent.",
+    "Stack React : versions three/R3F/Drei/Next épinglées et compatibles."
+  ],
+  "vocabulary": [
+    {"term": "scene graph", "definition": "Arbre de nœuds où chaque objet est positionné dans l'espace local de son parent ; déplacer un parent emporte ses enfants."},
+    {"term": "uniform", "definition": "Variable passée du programme JavaScript au shader, mise à jour par frame (ex. time) ou par événement (ex. resolution)."},
+    {"term": "light map", "definition": "Ombrage pré-rendu (prebaked) plaqué comme texture pour simuler des ombres sans coût temps réel."},
+    {"term": "normal map", "definition": "Texture encodant des micro-reliefs pour enrichir l'éclairage sans densifier la géométrie."},
+    {"term": "GPU-bound / CPU-bound", "definition": "Goulot côté carte graphique ou côté processeur ; se diagnostique en simplifiant tous les matériaux et en observant les FPS."}
+  ],
+  "heuristics": [
+    "Si les FPS montent avec des matériaux basiques partout, travailler la charge GPU (matériaux, transparence, ombres) ; sinon la charge CPU (updates, matrices, logique JS).",
+    "Un objet qui ne bouge jamais ne doit jamais recalculer sa matrice.",
+    "Toute géométrie déformée à la main exige un recalcul de normales avant d'être éclairée."
+  ],
+  "antipatterns": [
+    "setInterval comme boucle de rendu.",
+    "Positions globales recalculées à la main au lieu d'un parentage.",
+    "Suppression de lumières ou d'objets à chaud sans dispose ni gestion de recompilation.",
+    "Optimisation au feeling sans mesure ni diagnostic CPU/GPU."
+  ]
+}
