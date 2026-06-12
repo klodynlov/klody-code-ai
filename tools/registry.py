@@ -477,6 +477,42 @@ MCP_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "distill_theme",
+            "description": (
+                "Distille un THÈME entier depuis la bibliothèque locale (DB Library "
+                "Brain, multi-livres) en une compétence digest structurée et durable. "
+                "Plus profond que learn_from_books : classe les livres du corpus par "
+                "pertinence, moissonne les meilleurs extraits page par page, puis "
+                "synthétise méthodes, pièges et boilerplate REFORMULÉS (jamais la prose "
+                "des auteurs) dans skills/digest_<slug>.json. Utilise cet outil quand "
+                "l'utilisateur demande de « distiller », « monter en compétences sur » "
+                "ou « apprendre en profondeur » un domaine."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "theme": {
+                        "type": "string",
+                        "description": "Thème à distiller (ex: 'optimisation WebGL', 'design d'API REST')",
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": "Corps du slug (auto depuis le thème si vide) — sera préfixé digest_",
+                        "default": "",
+                    },
+                    "code_compatible": {
+                        "type": "boolean",
+                        "description": "true si le thème sert des tâches de CODE (le digest sera aussi injecté, compact, au modèle coder)",
+                        "default": False,
+                    },
+                },
+                "required": ["theme"],
+            },
+        },
+    },
 ]
 
 MEMORY_TOOLS = [

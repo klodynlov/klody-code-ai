@@ -48,6 +48,7 @@ from tools.github_reader import (
     list_indexed_repos as gh_list_indexed,
     read_github_file as gh_read_file,
 )
+from tools.library_distiller import distill_theme
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import (
     get_skills as mcp_get_skills,
@@ -1201,6 +1202,10 @@ class Orchestrator:
             "search_books": lambda a: mcp_search_books(a["query"], a.get("limit", 3)),
             "get_skills": lambda a: mcp_get_skills(a["domain"]),
             "learn_from_books": lambda a: mcp_learn(a["topic"], a.get("skill_name", "")),
+            "distill_theme": lambda a: distill_theme(
+                a["theme"], a.get("slug", ""),
+                code_compatible=_as_bool(a.get("code_compatible", False)),
+                llm=self.llm),
             # Mémoire long-terme
             "remember_fact": lambda a: self.lt_memory.remember(
                 a["key"], a["content"], a.get("category", "context")),
@@ -1547,7 +1552,7 @@ class Orchestrator:
                 padding=(0, 1),
             ))
 
-        elif tool_name == "learn_from_books":
+        elif tool_name in ("learn_from_books", "distill_theme"):
             console.print(Panel(
                 result,
                 title="[bold green]🧠 Apprentissage[/bold green]",

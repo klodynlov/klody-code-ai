@@ -68,7 +68,10 @@ class TestDeltaReasoning:
 
 
 class TestStreamChatThinking:
-    def test_enable_thinking_pose_extra_body_et_booste_tokens(self):
+    def test_enable_thinking_pose_extra_body_et_booste_tokens(self, monkeypatch):
+        # Penalty neutralisée : on teste le contrat thinking seul (la forme exacte
+        # d'extra_body avec penalty active est couverte par TestRepetitionPenalty).
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
         chunks = [_chunk(_Delta(reasoning="hmm ")), _chunk(_Delta(content="42"))]
         client = _make_client(chunks)
         content, tools = client.stream_chat(
@@ -81,13 +84,45 @@ class TestStreamChatThinking:
         assert content == "42"  # le reasoning n'est PAS dans le content
         assert tools is None
 
-    def test_sans_thinking_pas_d_extra_body(self):
+    def test_sans_thinking_pas_d_extra_body(self, monkeypatch):
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
         chunks = [_chunk(_Delta(content="ok"))]
         client = _make_client(chunks)
         client.stream_chat([{"role": "user", "content": "q"}], silent=True, max_tokens=8192)
         cap = client.client.chat.completions.captured
         assert "extra_body" not in cap
         assert cap["max_tokens"] == 8192
+
+
+# ── stream_chat : repetition_penalty (filet anti-boucle, opt-in) ─────────────
+
+
+class TestRepetitionPenalty:
+    def test_penalty_active_part_dans_extra_body(self, monkeypatch):
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.05)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat([{"role": "user", "content": "q"}], silent=True)
+        cap = client.client.chat.completions.captured
+        assert cap["extra_body"] == {"repetition_penalty": 1.05}
+
+    def test_penalty_fusionne_avec_thinking(self, monkeypatch):
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.05)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat(
+            [{"role": "user", "content": "q"}], silent=True, enable_thinking=True,
+        )
+        cap = client.client.chat.completions.captured
+        assert cap["extra_body"] == {
+            "repetition_penalty": 1.05,
+            "chat_template_kwargs": {"enable_thinking": True},
+        }
+
+    def test_penalty_a_1_desactivee(self, monkeypatch):
+        # 1.0 = neutre : le param n'est pas envoyé (comportement historique).
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat([{"role": "user", "content": "q"}], silent=True)
+        assert "extra_body" not in client.client.chat.completions.captured
 
     def test_reasoning_seul_ne_plante_pas_et_content_vide(self):
         # Cas probe : le CoT consomme tout, aucune réponse.
