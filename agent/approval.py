@@ -30,11 +30,15 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
 # artefacts sont confinés à DOWNLOADS_DIR (nom basenamé, aucune écriture possible
 # hors de ce dossier) et l'utilisateur les a explicitement demandés. Les garde-fous
 # anti-traversée vivent dans tools/excel.py, tools/documents.py et tools/archive.py.
+# Même logique pour speak : WAV confiné à ~/.vocalbrain/audio, lecture demandée
+# par l'utilisateur, quelques secondes — pas de validation.
 
 # Outils MCP : on classe par le VERBE DE TÊTE du nom (mcp__serveur__verbe_objet).
 # C'est plus fiable qu'une recherche de sous-chaîne : « list_labels » (lecture)
 # ne doit pas matcher à cause de « label », alors que « label_message » (écriture)
-# le doit. Verbe de tête mutateur → validation.
+# le doit. Verbe de tête mutateur → validation. Les serveurs MCP maison nomment
+# leurs outils en FRANÇAIS (generer_chanson, lister_voix…) → les deux langues
+# sont couvertes, sans accents (les noms d'outils n'en portent pas).
 _WRITE_VERBS: frozenset[str] = frozenset({
     "create", "update", "delete", "remove", "send", "write", "commit",
     "push", "merge", "upload", "move", "draft", "reply", "respond",
@@ -42,11 +46,17 @@ _WRITE_VERBS: frozenset[str] = frozenset({
     "cancel", "add", "set", "copy", "generate", "resize", "perform",
     "comment", "post", "put", "patch", "rename", "replace", "archive",
     "trash", "star", "modify", "start", "stop", "make", "save", "apply",
+    # verbes français (serveurs MCP maison : vocalbrain, gmail…)
+    "generer", "entrainer", "creer", "supprimer", "envoyer", "ecrire",
+    "modifier", "ajouter", "deplacer", "renommer", "remplacer", "lancer",
 })
 _READ_VERBS: frozenset[str] = frozenset({
     "list", "get", "search", "read", "fetch", "find", "show", "describe",
     "suggest", "resolve", "help", "download", "view", "lookup", "query",
     "count", "check", "status", "preview", "inspect", "snapshot", "logs",
+    # verbes français
+    "lister", "lire", "chercher", "rechercher", "afficher", "etat",
+    "statut", "resultat", "voir", "consulter",
 })
 # Verbes franchement destructeurs : si présents n'importe où dans le nom,
 # on valide même quand le verbe de tête est inconnu.

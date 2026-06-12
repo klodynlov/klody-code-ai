@@ -293,6 +293,17 @@ SEMANTIC_MEMORY_DB: Path = Path(os.getenv("SEMANTIC_MEMORY_DB", str(MEMORY_DIR /
 # "ollama" reste possible (daemon requis).
 SEMANTIC_MEMORY_PROVIDER: str = os.getenv("SEMANTIC_MEMORY_PROVIDER", "st")
 
+# --- Voix parlée de Klody (outil speak → CLI VocalBrain + afplay) ---
+# Pont léger : la synthèse vit dans le venv local-suno (mlx-audio), Klody ne
+# l'importe jamais — il appelle la CLI en subprocess. Le projet/personnage
+# VocalBrain « klody-voice »/« Klody » (Qwen3-TTS 0.6B) ont été créés une fois ;
+# surchargeables ici si on veut une autre voix.
+VOICE_CLI: str = os.getenv("VOICE_CLI", str(Path.home() / "local-suno" / ".venv" / "bin" / "vocalbrain"))
+VOICE_PROJECT_ID: str = os.getenv("VOICE_PROJECT_ID", "58a252a5-1c07-4bd1-bf36-ad59bcdbd413")
+VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
+VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
+VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
+
 LOG_DIR.mkdir(exist_ok=True)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 

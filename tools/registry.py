@@ -401,11 +401,11 @@ MCP_TOOLS = [
         "function": {
             "name": "search_books",
             "description": (
-                "Recherche des extraits pertinents dans la bibliothèque locale LibraryBrain "
-                "(livres techniques indexés via RAG). Utilise cet outil quand la question "
-                "porte sur un sujet où un livre de référence peut aider : architecture, "
-                "patterns, algorithmes, frameworks. "
-                "Retourne les passages les plus pertinents avec leur source."
+                "Interroge la bibliothèque locale LibraryBrain (RAG génératif multi-livres) : "
+                "compose une RÉPONSE COMPLÈTE et sourcée (citations livre + page) à partir "
+                "des livres indexés. Utilise cet outil quand la question porte sur un sujet "
+                "où un livre de référence peut aider : architecture, patterns, algorithmes, "
+                "frameworks, sciences. Peut prendre 1 à 3 minutes (génération locale)."
             ),
             "parameters": {
                 "type": "object",
@@ -1178,7 +1178,39 @@ DOCUMENT_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS]
+VOICE_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "speak",
+            "description": (
+                "Dit un court texte À VOIX HAUTE sur les haut-parleurs du Mac avec la "
+                "voix de Klody (TTS local VocalBrain, quelques secondes). Utilise cet "
+                "outil quand l'utilisateur demande de parler, dire, lire ou annoncer "
+                "quelque chose à voix haute, ou pour signaler oralement la fin d'une "
+                "longue tâche. Texte court (≤ 600 caractères). Ce n'est PAS pour "
+                "générer des chansons (→ mcp__vocalbrain__generer_chanson)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Texte à prononcer (court, naturel à l'oral).",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Code langue de la voix (fr, en, es…). Défaut : fr.",
+                        "default": "fr",
+                    },
+                },
+                "required": ["text"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
