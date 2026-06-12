@@ -104,6 +104,16 @@ THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", 
 # couvre largement réponse + CoT ; 16384 était du gâchis (latence/budget inutiles).
 THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 8192))
 
+# Pénalité de répétition transmise au serveur MLX (extra_body, hors spec OpenAI —
+# le gateway :8090 forwarde le body intégral au worker mlx_lm qui la supporte).
+# Filet anti-boucle OPT-IN (défaut 1.0 = désactivé, param non envoyé, comportement
+# historique strictement préservé) : à température basse, une longue liste quasi
+# identique (53 atomes d'une molécule…) fait partir le modèle en répétition
+# dégénérée qui mange tout le budget de tokens sans jamais terminer (vécu 12/06 :
+# « molécule de THC en 3D », 2 requêtes parties en boucle infinie). Valeur
+# recommandée : 1.05 — à peine perceptible sur du code normal, casse les cycles.
+LLM_REPETITION_PENALTY: float = float(os.getenv("LLM_REPETITION_PENALTY", "1.0"))
+
 # --- Auto-critique (Levier 3) ---
 # Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
 # une passe de relecture critique cherche erreur/oubli/hypothèse fausse et réécrit
@@ -161,6 +171,9 @@ SKILLS_ON_CODER_MAX_CHARS: int = int(os.getenv("SKILLS_ON_CODER_MAX_CHARS", 800)
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain
+# DB SQLite de Library Brain (index FTS5 des livres) — lue DIRECTEMENT (lecture
+# seule) par tools/library_distiller.py, sans passer par le serveur :8765.
+LIBRARY_DB_PATH: Path = Path(os.getenv("LIBRARY_DB_PATH", str(Path.home() / "library_brain.db")))
 MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8082/mcp")
 
 # Serveur MCP PROPRE de Klody (klody_mcp.klody_server) — expose les outils de

@@ -13,6 +13,7 @@ from config import (
     LLM_HTTP_TIMEOUT,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_REPETITION_PENALTY,
     MODEL_FALLBACK,
     THINKING_MAX_TOKENS,
 )
@@ -242,8 +243,15 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,  # défaut généreux : 8192 tokens pour gros codes Three.js
         }
+        extra_body: dict = {}
+        if LLM_REPETITION_PENALTY > 1.0:
+            # Param mlx_lm (hors spec OpenAI) → extra_body obligatoire, sinon le
+            # SDK openai rejette le kwarg. Cf. config.LLM_REPETITION_PENALTY.
+            extra_body["repetition_penalty"] = LLM_REPETITION_PENALTY
         if enable_thinking:
-            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+            extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+        if extra_body:
+            params["extra_body"] = extra_body
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
