@@ -1,6 +1,9 @@
 """Tests pour tools/sandbox.py — venv jetable + auto-détection commande."""
 from __future__ import annotations
 
+import logging
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -177,3 +180,130 @@ class TestSandboxRunner:
         result = runner.run(["python", "asks.py"], timeout=10)
         assert result.timed_out is False
         assert "EOFError" in result.stderr
+
+
+# ── Packages par défaut + requirements.txt (staleness mtime) ─────────────────
+
+
+@pytest.fixture
+def fake_venv_runner(tmp_path, monkeypatch):
+    """Runner dont le venv « existe » déjà — subprocess.run remplacé par un
+    enregistreur d'appels. Aucun venv réel : tests rapides du cycle de vie."""
+    cache = tmp_path / "_klody_cache"
+    runner = SandboxRunner(workdir=tmp_path, cache_root=cache)
+    (runner.venv_dir / "bin").mkdir(parents=True)
+    runner.python.touch()
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append([str(c) for c in cmd])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr("tools.sandbox.subprocess.run", fake_run)
+    return runner, calls
+
+
+def _pip_calls(calls: list[list[str]]) -> list[list[str]]:
+    return [c for c in calls if c and c[0].endswith("/pip")]
+
+
+class TestDefaultPackages:
+    def test_defauts_legers_calcul_et_http(self):
+        """Socle volontairement minimal : tests + calcul + HTTP. Les libs
+        lourdes (pandas, torch, opencv…) restent à la demande/requirements."""
+        assert set(SandboxRunner._DEFAULT_PACKAGES) == {"pytest", "numpy", "requests"}
+
+
+class TestRequirementsStaleness:
+    """requirements.txt écrit ou modifié APRÈS le 1er run → pris en compte
+    au run suivant (avant : ignoré jusqu'au restart backend, _ready cachait)."""
+
+    def test_sans_requirements_aucun_pip(self, fake_venv_runner):
+        runner, calls = fake_venv_runner
+        assert runner.ensure_venv() is True
+        assert _pip_calls(calls) == []
+
+    def test_requirements_present_installe_une_fois(self, fake_venv_runner):
+        runner, calls = fake_venv_runner
+        req = runner.workdir / "requirements.txt"
+        req.write_text("httpx\n", encoding="utf-8")
+        assert runner.ensure_venv() is True
+        assert runner.ensure_venv() is True  # 2e appel sans changement
+        pips = _pip_calls(calls)
+        assert len(pips) == 1
+        assert "-r" in pips[0] and str(req) in pips[0]
+
+    def test_requirements_ecrit_apres_premier_run_installe(self, fake_venv_runner):
+        """LE bug d'origine : req écrit après le 1er ensure_venv → installé."""
+        runner, calls = fake_venv_runner
+        assert runner.ensure_venv() is True
+        assert _pip_calls(calls) == []
+
+        req = runner.workdir / "requirements.txt"
+        req.write_text("pandas\n", encoding="utf-8")
+        assert runner.ensure_venv() is True
+        assert len(_pip_calls(calls)) == 1
+
+    def test_requirements_modifie_reinstalle(self, fake_venv_runner):
+        runner, calls = fake_venv_runner
+        req = runner.workdir / "requirements.txt"
+        req.write_text("pandas\n", encoding="utf-8")
+        runner.ensure_venv()
+        # mtime forcé dans le futur (l'écriture peut tomber dans la même seconde)
+        st = req.stat()
+        os.utime(req, (st.st_atime, st.st_mtime + 10))
+        runner.ensure_venv()
+        assert len(_pip_calls(calls)) == 2
+
+    def test_requirements_supprime_pas_de_pip(self, fake_venv_runner):
+        runner, calls = fake_venv_runner
+        req = runner.workdir / "requirements.txt"
+        req.write_text("pandas\n", encoding="utf-8")
+        runner.ensure_venv()
+        req.unlink()
+        runner.ensure_venv()
+        assert len(_pip_calls(calls)) == 1  # pas de réinstall fantôme
+
+    def test_pip_echec_logge_mais_sandbox_utilisable(self, tmp_path, monkeypatch, caplog):
+        """Un requirements cassé ne tue pas le sandbox — mais n'est plus muet."""
+        cache = tmp_path / "_klody_cache"
+        runner = SandboxRunner(workdir=tmp_path, cache_root=cache)
+        (runner.venv_dir / "bin").mkdir(parents=True)
+        runner.python.touch()
+        (tmp_path / "requirements.txt").write_text("paquet-inexistant-xyz\n", encoding="utf-8")
+
+        def fail_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="No matching distribution")
+
+        monkeypatch.setattr("tools.sandbox.subprocess.run", fail_run)
+        with caplog.at_level(logging.WARNING, logger="tools.sandbox"):
+            assert runner.ensure_venv() is True
+        assert any("requirements.txt" in r.message for r in caplog.records)
+
+
+class TestEnvHeadless:
+    def test_mplbackend_agg_injecte(self, tmp_path, monkeypatch):
+        """matplotlib sans écran : MPLBACKEND=Agg doit être posé, sinon
+        plt.show() ouvre le backend macosx et pend jusqu'au timeout."""
+        cache = tmp_path / "_klody_cache"
+        runner = SandboxRunner(workdir=tmp_path, cache_root=cache)
+        monkeypatch.setattr(SandboxRunner, "ensure_venv", lambda self: True)
+
+        captured: dict = {}
+
+        class FakeProc:
+            returncode = 0
+
+            def communicate(self, timeout=None):
+                return ("", "")
+
+        def fake_popen(cmd, env=None, **kwargs):
+            captured["env"] = env
+            return FakeProc()
+
+        monkeypatch.setattr("tools.sandbox.subprocess.Popen", fake_popen)
+        result = runner.run(["python", "plot.py"], timeout=5)
+        assert result.exit_code == 0
+        assert captured["env"]["MPLBACKEND"] == "Agg"
+        assert captured["env"]["PYTHONFAULTHANDLER"] == "1"
