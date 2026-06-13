@@ -668,7 +668,14 @@ def preview_file(path: str) -> str:
     except ValueError:
         return f"ERREUR: Chemin hors du projet: {path}"
     if not source.exists():
-        return f"ERREUR: Fichier introuvable: {path}"
+        return (
+            f"ERREUR: Fichier introuvable: {path}\n"
+            "preview_file n'ouvre QU'un .html déjà écrit sur le disque. "
+            "Si tu viens de générer ce HTML (affiché en bloc de code), il n'a "
+            "jamais été sauvegardé : appelle plutôt preview_code(html=..., js=..., "
+            "scripts=[...]) qui ÉCRIT le fichier ET l'ouvre en un seul appel. "
+            "Sinon, crée d'abord le fichier avec write_file puis relance preview_file."
+        )
     if source.suffix.lower() not in (".html", ".htm"):
         return f"ERREUR: Seuls les fichiers .html/.htm sont supportés (reçu: {source.suffix})"
 

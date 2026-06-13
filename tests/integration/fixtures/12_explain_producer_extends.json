@@ -1,0 +1,63 @@
+{
+  "name": "explain_producer_extends",
+  "description": "Suivi « tu as fini ? » routé `explain` (max_iter=3) où le modèle FABRIQUE un artefact : preview_file sur un HTML jamais écrit (introuvable), puis write_file. Contrairement à une boucle de lecture seule (cf. #10 qui force la synthèse au cap), un outil PRODUCTEUR doit déclencher l'auto-extension du budget — sinon l'erreur preview dead-locke et force l'utilisateur à relancer. Preuve : un 4e tool call s'exécute APRÈS le cap de 3 (impossible sans extension, le 4e appel serait une synthèse forcée sans outil).",
+  "user_prompt": "tu as fini ?",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "suivi conversationnel classé explain — c'est justement le piège"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {"name": "preview_file", "arguments": "{\"path\": \"canard_3d.html\"}"}
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {"name": "write_file", "arguments": "{\"path\": \"canard_3d.html\", \"content\": \"<!DOCTYPE html><html><head><title>Canard 3D</title></head><body><canvas id=\\\"c\\\"></canvas></body></html>\"}"}
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {"name": "write_file", "arguments": "{\"path\": \"duck.js\", \"content\": \"// scene three.js du canard\"}"}
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {"name": "write_file", "arguments": "{\"path\": \"README.md\", \"content\": \"# Canard 3D\\nOuvre canard_3d.html.\"}"}
+        }
+      ]
+    },
+    {
+      "content": "Oui, c'est prêt : canard_3d.html + duck.js. Ouvre canard_3d.html pour voir le canard."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 5,
+    "max_llm_calls": 5,
+    "tool_calls_invoked": ["preview_file", "write_file", "write_file", "write_file"],
+    "final_content_contains": ["canard_3d.html"],
+    "file_created": {"path": "canard_3d.html", "content_contains": "Canard 3D"}
+  },
+  "max_iterations": 3
+}
