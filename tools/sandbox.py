@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 _MAX_OUTPUT_CHARS = 3000
 # Timeout par défaut d'une exécution sandbox.
 _DEFAULT_TIMEOUT = 30
+# Timeout des pip install (packages de base + requirements.txt). 120s suffisait
+# pour pytest seul ; numpy/requests + des requirements lourds (torch, opencv)
+# demandent de la marge — un dépassement coupait l'install EN SILENCE.
+_PIP_TIMEOUT = 600
 
 
 @dataclass
@@ -66,7 +70,10 @@ class SandboxRunner:
     """Gère un venv jetable par workdir + exécute des commandes Python isolées."""
 
     # Packages installés par défaut dans tout sandbox venv neuf.
-    _DEFAULT_PACKAGES = ("pytest",)
+    # Volontairement léger (≈35 Mo) : le venv est multiplié par workdir.
+    # Le reste (pandas, torch, opencv…) s'installe à la demande — règle
+    # prompt base.md — ou via requirements.txt du projet.
+    _DEFAULT_PACKAGES = ("pytest", "numpy", "requests")
 
     def __init__(self, workdir: Path, cache_root: Path | None = None):
         self.workdir = Path(workdir).resolve()
@@ -76,6 +83,8 @@ class SandboxRunner:
         digest = hashlib.sha256(str(self.workdir).encode()).hexdigest()[:16]
         self.venv_dir: Path = cache_root / digest
         self._ready = False
+        # mtime du requirements.txt installé — None tant que rien d'installé.
+        self._req_mtime: float | None = None
 
     # ------------------------------------------------------------------ #
     # Cycle de vie du venv                                                #
@@ -92,13 +101,17 @@ class SandboxRunner:
     def ensure_venv(self) -> bool:
         """Crée le venv si absent + installe les packages de base.
 
+        Le requirements.txt du workdir est (ré)installé dès que son mtime
+        change : l'agent écrit souvent ce fichier APRÈS le premier run — sans
+        ce check, il était ignoré jusqu'au redémarrage du backend (le runner
+        est caché par root dans l'orchestrator et `_ready` court-circuitait).
+
         Retourne True si le venv est utilisable, False sinon (logge l'erreur).
         Idempotent.
         """
-        if self._ready and self.python.exists():
-            return True
-
         if not self.python.exists():
+            self._ready = False
+            self._req_mtime = None
             self.venv_dir.parent.mkdir(parents=True, exist_ok=True)
             logger.info("Création du venv sandbox: %s", self.venv_dir)
             try:
@@ -112,32 +125,42 @@ class SandboxRunner:
                 logger.error("Échec création venv: %s", exc)
                 return False
 
-            # Install pytest et packages de base (silencieux)
-            try:
-                subprocess.run(
-                    [str(self.pip), "install", "-q", *self._DEFAULT_PACKAGES],
-                    check=False,
-                    capture_output=True,
-                    timeout=120,
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning("Timeout installation packages de base — sandbox utilisable mais sans pytest")
+            self._pip_install(list(self._DEFAULT_PACKAGES), label="packages de base")
 
-        # Si un requirements.txt est présent dans le workdir, l'installer aussi.
+        # requirements.txt : installer à l'apparition ET à chaque modification.
         req = self.workdir / "requirements.txt"
-        if req.exists():
-            try:
-                subprocess.run(
-                    [str(self.pip), "install", "-q", "-r", str(req)],
-                    check=False,
-                    capture_output=True,
-                    timeout=120,
-                )
-            except subprocess.TimeoutExpired:
-                logger.warning("Timeout installation requirements.txt — continue quand même")
+        req_mtime = req.stat().st_mtime if req.exists() else None
+        if req_mtime is not None and req_mtime != self._req_mtime:
+            self._pip_install(["-r", str(req)], label="requirements.txt")
+        self._req_mtime = req_mtime
 
         self._ready = True
         return True
+
+    def _pip_install(self, args: list[str], label: str) -> None:
+        """pip install discret mais jamais muet : échec et timeout sont loggés.
+
+        check=False voulu — un requirements cassé ne doit pas rendre le
+        sandbox inutilisable, l'agent verra l'ImportError au run et corrigera.
+        """
+        try:
+            res = subprocess.run(
+                [str(self.pip), "install", "-q", *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=_PIP_TIMEOUT,
+            )
+            if res.returncode != 0:
+                logger.warning(
+                    "pip install %s en échec (exit=%s): %s",
+                    label, res.returncode, (res.stderr or "")[-400:],
+                )
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Timeout installation %s (>%ss) — sandbox utilisable mais install incomplète",
+                label, _PIP_TIMEOUT,
+            )
 
     # ------------------------------------------------------------------ #
     # Exécution                                                            #
@@ -203,7 +226,9 @@ class SandboxRunner:
         # non-réentrant, l'agent a bouclé write→run→timeout sans jamais voir
         # la cause). stdin=DEVNULL : un input() ou une lecture bloquante échoue
         # immédiatement (EOFError) au lieu de pendre jusqu'au timeout.
-        env = dict(os.environ, PYTHONFAULTHANDLER="1")
+        # MPLBACKEND=Agg : sandbox headless — sans ça, matplotlib tente le
+        # backend macosx (fenêtre GUI) et plt.show() pend jusqu'au timeout.
+        env = dict(os.environ, PYTHONFAULTHANDLER="1", MPLBACKEND="Agg")
         is_python = Path(cmd[0]).name.startswith(("python", "pytest"))
 
         t0 = time.monotonic()

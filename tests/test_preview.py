@@ -17,6 +17,7 @@ from tools.preview import (
     _SilentHandler,
     _stop_server,
     preview_code,
+    preview_file,
 )
 
 
@@ -553,3 +554,26 @@ class TestServerLifecycle:
         assert fake.did_shutdown and fake.closed
         assert preview_mod._server is None and preview_mod._thread is None
         _stop_server()  # 2e appel : aucun crash
+
+
+# ── preview_file : fichier introuvable → message qui guide vers preview_code ──
+
+class TestPreviewFileIntrouvable:
+    """Fix : preview_file sur un HTML jamais écrit (généré seulement en bloc de
+    code dans le chat) doit renvoyer un message qui oriente vers preview_code,
+    pour que le LLM se corrige dans la boucle au lieu d'errer (cf. canard_3d.html
+    « Fichier introuvable » puis arrêt forçant une relance)."""
+
+    def test_introuvable_oriente_vers_preview_code(self):
+        msg = preview_file("canard_3d_jamais_ecrit_xyz.html")
+        assert "introuvable" in msg.lower()
+        # Le message doit nommer le bon outil de récupération.
+        assert "preview_code" in msg
+        # …et expliquer pourquoi (jamais écrit sur disque).
+        assert "write_file" in msg
+
+    def test_introuvable_retour_inchange_pour_les_asserts_substring(self):
+        """Garde-fou rayon de souffle : le préfixe historique reste présent."""
+        assert preview_file("rien_du_tout_42.html").startswith(
+            "ERREUR: Fichier introuvable:"
+        )

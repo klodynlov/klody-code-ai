@@ -304,6 +304,20 @@ def _is_continuation(text: str) -> bool:
 _MAX_AUTO_EXTENSIONS = 3
 _AUTO_EXTENSION_SIZE = 8
 
+# Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
+# projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
+# travaille vraiment — un échec en cours (ex: preview_file sur un HTML pas encore
+# écrit) ne doit pas dead-locker sur un label `explain`/`edit` et forcer une
+# relance. Les outils en lecture seule (read_file, search_*, find_*) en sont
+# exclus : une boucle de lecture sans fin reste un stall, pas du travail.
+_PRODUCING_TOOLS = frozenset({
+    "write_file", "preview_code", "preview_file", "run_in_sandbox",
+    "create_project", "clone_github_repo",
+    # Générateurs d'artefacts téléchargeables (même piège : produire un .xlsx
+    # puis « tu as fini ? » routé `explain` ne doit pas dead-locker).
+    "generate_excel", "generate_text_file", "bundle_zip", "import_llm_export",
+})
+
 # Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
 # Orchestrator._route_model). `explain` en est exclu : il reste sur le
 # généraliste, meilleur en conversation/explication.
@@ -1721,6 +1735,7 @@ class Orchestrator:
         iteration = -1
         extensions = 0
         tools_called_in_pass = False
+        produced_in_pass = False
         while True:
             iteration += 1
             if iteration >= max_iter:
@@ -1729,16 +1744,21 @@ class Orchestrator:
                 # travaillait encore (tools appelés) et qu'il reste des extensions,
                 # on prolonge au lieu d'arrêter et de forcer l'utilisateur à relancer.
                 # Les tâches `explain`/`edit` ne sont pas prolongées (une boucle de
-                # lecture sans fin est un stall, pas du travail).
+                # lecture sans fin est un stall) SAUF si la passe a appelé un outil
+                # producteur (cf. produced_in_pass) : alors l'agent fabrique un
+                # artefact et mérite le même filet qu'une tâche actionnable — typiquement
+                # un suivi « tu as fini ? » routé `explain` qui tente une preview et
+                # tombe sur une erreur récupérable.
                 is_actionable = (
                     self.last_routing is not None
                     and self.last_routing.task_type
                     in ("feature", "refactor", "self_dev", "bug_fix")
                 )
-                if is_actionable and tools_called_in_pass and extensions < _MAX_AUTO_EXTENSIONS:
+                if (is_actionable or produced_in_pass) and tools_called_in_pass and extensions < _MAX_AUTO_EXTENSIONS:
                     extensions += 1
                     max_iter += _AUTO_EXTENSION_SIZE
                     tools_called_in_pass = False
+                    produced_in_pass = False
                     logger.info("[auto-continue] extension %d/%d → max_iter=%d",
                                 extensions, _MAX_AUTO_EXTENSIONS, max_iter)
                     console.print(
@@ -1867,6 +1887,8 @@ class Orchestrator:
                         _preview_url = _extract_preview_url(result)
 
                 tools_called_in_pass = True
+                if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
+                    produced_in_pass = True
                 # Boucle de feedback : si la preview plante au runtime, on relance
                 # une passe de correction (no-op si pas de preview ou timeout désactivé).
                 self._check_preview_feedback(_preview_url, _preview_since)

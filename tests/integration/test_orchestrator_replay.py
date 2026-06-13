@@ -25,6 +25,7 @@ SCENARIOS = [
     "09_unknown_tool",
     "10_max_iterations_cap",
     "11_search_then_explain",
+    "12_explain_producer_extends",
 ]
 
 
