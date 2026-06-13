@@ -293,6 +293,13 @@ SKILLS_DIR: Path = _ROOT / "skills"
 # /api/files/<nom>. Dossier dédié et gitignoré : on n'y sert QUE des fichiers
 # produits par les outils, jamais des fichiers du projet.
 DOWNLOADS_DIR: Path = Path(os.getenv("DOWNLOADS_DIR", str(_ROOT / "_downloads"))).resolve()
+# Images uploadées par le front (vision B-lite) : POST /api/upload y écrit, puis le
+# message chat joint le chemin retourné dans `image_paths`. Sous PROJECT_ROOT (le
+# repo est un enfant de ~/Projets) → l'outil analyser_image (sandbox + whitelist
+# ext) l'accepte. Dédié et gitignoré ; nom de fichier = uuid serveur (jamais le nom
+# client). Le cerveau reste TEXTE : on ne fait que produire un fichier que l'outil
+# Path A sait lire — aucun changement du format des messages.
+UPLOADS_DIR: Path = Path(os.getenv("UPLOADS_DIR", str(_ROOT / "_uploads"))).resolve()
 
 # --- Mémoire sémantique (klody_memory — « memory bus » Klody Core) ---
 # Archive ILLIMITÉE + rappel sémantique bge-m3 par-dessus la mémoire long-terme
@@ -321,6 +328,7 @@ VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
 
 LOG_DIR.mkdir(exist_ok=True)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 # --- Logging : fichier uniquement, ne pas polluer le terminal Rich ---
 logging.basicConfig(

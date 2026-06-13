@@ -68,6 +68,13 @@
       "body_required": false
     }
   },
+  "/api/upload": {
+    "POST": {
+      "params": [],
+      "has_body": true,
+      "body_required": true
+    }
+  },
   "/api/sessions/{session_id}": {
     "DELETE": {
       "params": [
