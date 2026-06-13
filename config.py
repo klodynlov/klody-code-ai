@@ -45,6 +45,21 @@ CODE_MODEL: str    = MLX_CODE_MODEL if BACKEND == "mlx" else ""
 CODE_BASE_URL: str = MLX_CODE_BASE_URL
 CODE_API_KEY: str  = MLX_CODE_API_KEY
 
+# MLX — modèle VISION (VL) dédié, exploité par l'outil `analyser_image`.
+# Klody reste TEXTE de bout en bout : la vision est un outil À ARTEFACT (image →
+# description renvoyée dans la boucle ReAct), PAS un changement du format des
+# messages du cerveau. L'outil POSTe l'image (base64) au worker VL via le gateway
+# Klody Core (mêmes :8090 que brain/coder ; le champ `model` route vers le worker
+# mlx_vlm). VL_MODEL vide → outil enregistré mais désactivé (dégradation propre,
+# message lisible — jamais d'exception). VL_MODEL = un alias gateway ("vision") ou
+# l'id HF complet du modèle VL. Le client OpenAI de l'outil est DÉDIÉ : un appel
+# d'outil ne détourne jamais le client de la boucle principale.
+VL_MODEL: str    = os.getenv("VL_MODEL", "")
+VL_BASE_URL: str = os.getenv("VL_BASE_URL", MLX_BASE_URL)
+VL_API_KEY: str  = os.getenv("VL_API_KEY", MLX_API_KEY)
+VL_MAX_TOKENS: int   = int(os.getenv("VL_MAX_TOKENS", "1024"))
+VL_MAX_IMAGE_MB: float = float(os.getenv("VL_MAX_IMAGE_MB", "12"))
+
 # --- Timeouts client LLM ---
 # Le défaut du SDK OpenAI (timeout=600 s, max_retries=2) ferait attendre jusqu'à
 # ~30 min si le serveur d'inférence local (MLX/Ollama) se fige. On coupe vite à la

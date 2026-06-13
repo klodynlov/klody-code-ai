@@ -81,6 +81,7 @@ from tools.skills import (
     select_skills,
 )
 from tools.terminal import CommandBlocked, Terminal
+from tools.vision import analyser_image as vn_analyser_image
 from tools.voice import speak as vc_speak
 
 from agent import preview_errors, semantic_memory
@@ -1252,6 +1253,9 @@ class Orchestrator:
             "stop_preview_server": lambda a: pv_stop_server(),
             # Voix parlée (TTS VocalBrain + afplay)
             "speak": lambda a: vc_speak(a["text"], a.get("language", "fr")),
+            # Vision (image → description via worker VL, gateway Klody Core)
+            "analyser_image": lambda a: vn_analyser_image(
+                a["image_path"], a.get("question", "")),
             # Documents téléchargeables
             "generate_excel": self._tool_generate_excel,
             "generate_text_file": self._tool_generate_text_file,

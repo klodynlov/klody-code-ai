@@ -1210,7 +1210,44 @@ VOICE_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS]
+IMAGE_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "analyser_image",
+            "description": (
+                "Regarde une IMAGE locale et répond à une question dessus avec le "
+                "modèle vision de Klody (VL local). Utilise cet outil DÈS qu'il faut "
+                "VOIR le contenu d'une image : capture d'écran, photo, schéma, "
+                "diagramme, graphique, maquette UI, document scanné, OCR. Le cerveau "
+                "ne voit PAS les images lui-même — passe TOUJOURS par cet outil pour "
+                "tout ce qui est visuel. Formats : png, jpg, jpeg, webp, gif, bmp."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "description": (
+                            "Chemin (relatif au projet ou absolu sous une racine "
+                            "autorisée) vers le fichier image."
+                        ),
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": (
+                            "Ce qu'on veut savoir sur l'image (ex. « quel texte ? », "
+                            "« décris la maquette »). Défaut : description détaillée."
+                        ),
+                    },
+                },
+                "required": ["image_path"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
