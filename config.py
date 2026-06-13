@@ -45,6 +45,21 @@ CODE_MODEL: str    = MLX_CODE_MODEL if BACKEND == "mlx" else ""
 CODE_BASE_URL: str = MLX_CODE_BASE_URL
 CODE_API_KEY: str  = MLX_CODE_API_KEY
 
+# MLX — modèle VISION (VL) dédié, exploité par l'outil `analyser_image`.
+# Klody reste TEXTE de bout en bout : la vision est un outil À ARTEFACT (image →
+# description renvoyée dans la boucle ReAct), PAS un changement du format des
+# messages du cerveau. L'outil POSTe l'image (base64) au worker VL via le gateway
+# Klody Core (mêmes :8090 que brain/coder ; le champ `model` route vers le worker
+# mlx_vlm). VL_MODEL vide → outil enregistré mais désactivé (dégradation propre,
+# message lisible — jamais d'exception). VL_MODEL = un alias gateway ("vision") ou
+# l'id HF complet du modèle VL. Le client OpenAI de l'outil est DÉDIÉ : un appel
+# d'outil ne détourne jamais le client de la boucle principale.
+VL_MODEL: str    = os.getenv("VL_MODEL", "")
+VL_BASE_URL: str = os.getenv("VL_BASE_URL", MLX_BASE_URL)
+VL_API_KEY: str  = os.getenv("VL_API_KEY", MLX_API_KEY)
+VL_MAX_TOKENS: int   = int(os.getenv("VL_MAX_TOKENS", "1024"))
+VL_MAX_IMAGE_MB: float = float(os.getenv("VL_MAX_IMAGE_MB", "12"))
+
 # --- Timeouts client LLM ---
 # Le défaut du SDK OpenAI (timeout=600 s, max_retries=2) ferait attendre jusqu'à
 # ~30 min si le serveur d'inférence local (MLX/Ollama) se fige. On coupe vite à la
@@ -278,6 +293,13 @@ SKILLS_DIR: Path = _ROOT / "skills"
 # /api/files/<nom>. Dossier dédié et gitignoré : on n'y sert QUE des fichiers
 # produits par les outils, jamais des fichiers du projet.
 DOWNLOADS_DIR: Path = Path(os.getenv("DOWNLOADS_DIR", str(_ROOT / "_downloads"))).resolve()
+# Images uploadées par le front (vision B-lite) : POST /api/upload y écrit, puis le
+# message chat joint le chemin retourné dans `image_paths`. Sous PROJECT_ROOT (le
+# repo est un enfant de ~/Projets) → l'outil analyser_image (sandbox + whitelist
+# ext) l'accepte. Dédié et gitignoré ; nom de fichier = uuid serveur (jamais le nom
+# client). Le cerveau reste TEXTE : on ne fait que produire un fichier que l'outil
+# Path A sait lire — aucun changement du format des messages.
+UPLOADS_DIR: Path = Path(os.getenv("UPLOADS_DIR", str(_ROOT / "_uploads"))).resolve()
 
 # --- Mémoire sémantique (klody_memory — « memory bus » Klody Core) ---
 # Archive ILLIMITÉE + rappel sémantique bge-m3 par-dessus la mémoire long-terme
@@ -306,6 +328,7 @@ VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
 
 LOG_DIR.mkdir(exist_ok=True)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 # --- Logging : fichier uniquement, ne pas polluer le terminal Rich ---
 logging.basicConfig(

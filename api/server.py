@@ -9,13 +9,23 @@ import logging
 import re
 import sys
 import threading
+import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
 import httpx
-from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 # Chemin vers la racine du projet pour les imports
@@ -30,6 +40,7 @@ from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
 from services import ensure_librarybrain, get_librarybrain_status
 from tools.skills import delete_skill, load_skills
+from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
 from api import metrics as _metrics
 
@@ -270,6 +281,103 @@ async def download_file(name: str):
     return FileResponse(match, filename=match.name, media_type=media)
 
 
+# ── Upload image (vision B-lite) ────────────────────────────────────────────────
+# Le front uploade une image ICI, puis joint le `path` retourné dans `image_paths`
+# du message chat WS. L'image atterrit dans config.UPLOADS_DIR (sous PROJECT_ROOT)
+# → l'outil analyser_image (déjà livré, Path A) sait la lire. Le cerveau reste
+# TEXTE : on ne touche PAS le format des messages — on produit juste un fichier.
+
+_IMAGE_MAGIC: tuple[bytes, ...] = (
+    b"\x89PNG\r\n\x1a\n",   # PNG
+    b"\xff\xd8\xff",         # JPEG
+    b"GIF87a", b"GIF89a",   # GIF
+    b"BM",                   # BMP
+)
+
+
+def _sniff_image(data: bytes) -> bool:
+    """Vrai si `data` débute par une signature d'image connue.
+
+    Sécurité : on ne CROIT pas le content-type ni l'extension annoncés par le
+    client — on vérifie les octets. Empêche d'écrire un non-image (script, secret)
+    sous une extension .png dans le dossier sandbox que le modèle peut lire.
+    """
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":   # WEBP = conteneur RIFF
+        return True
+    return any(data.startswith(sig) for sig in _IMAGE_MAGIC)
+
+
+def _safe_image_paths(raw: Any) -> list[str]:
+    """Ne garde QUE les chemins réellement sous config.UPLOADS_DIR (produits par
+    /api/upload). Défense en profondeur : un client ne peut pas faire analyser un
+    fichier arbitraire (/etc/...). analyser_image re-bloque déjà hors-sandbox +
+    non-image, mais ici on n'accepte rien d'autre que _uploads.
+    """
+    if not isinstance(raw, list):
+        return []
+    base = config.UPLOADS_DIR.resolve()
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        try:
+            p = Path(item).resolve()
+        except (OSError, ValueError):
+            continue
+        if p.parent != base or not p.is_file():
+            continue
+        if p.suffix.lower() not in _IMAGE_EXTS:
+            continue
+        out.append(str(p))
+    return out
+
+
+def _prefix_image_note(user_text: str, image_paths: list[str]) -> str:
+    """Préfixe au texte une note (str simple) listant les images jointes et invitant
+    le cerveau à appeler analyser_image. AUCUN changement du format message : le
+    `content` reste une str → cœur (mémoire/tokens/llm) non touché → 0 régression.
+    """
+    listing = "\n".join(f"- {p}" for p in image_paths)
+    note = (
+        "[Images jointes par l'utilisateur — utilise l'outil analyser_image sur "
+        f"chaque chemin pour les voir :\n{listing}\n]"
+    )
+    return f"{note}\n\n{user_text}" if user_text else note
+
+
+# Singleton module-level (et non `File(...)` en défaut d'argument) : évite B008
+# (appel dans un défaut) tout en restant le motif FastAPI standard.
+_UPLOAD_FILE = File(...)
+
+
+@app.post("/api/upload")
+async def upload_image(file: UploadFile = _UPLOAD_FILE):
+    """Reçoit une image du front, la valide et l'écrit dans config.UPLOADS_DIR.
+
+    Garde-fous (API loopback, pas d'auth — menace = client local) :
+      • extension whitelistée (mêmes exts que analyser_image, source unique) ;
+      • signature magique vérifiée (on ne croit pas content-type/nom client) ;
+      • cap VL_MAX_IMAGE_MB, lecture bornée (max+1) → RAM bornée ;
+      • nom = uuid serveur, JAMAIS le nom client → 0 traversée / 0 écrasement.
+    """
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _IMAGE_EXTS:
+        raise HTTPException(415, f"extension non-image : {ext or '(aucune)'}")
+
+    max_bytes = int(config.VL_MAX_IMAGE_MB * 1024 * 1024)
+    data = await file.read(max_bytes + 1)          # +1 → détecte un dépassement
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"image trop volumineuse (max {config.VL_MAX_IMAGE_MB:.0f} Mo)")
+    if not _sniff_image(data):
+        raise HTTPException(415, "contenu non reconnu comme image")
+
+    config.UPLOADS_DIR.mkdir(exist_ok=True)        # robustesse si purgé à chaud
+    name = f"{uuid.uuid4().hex}{ext}"
+    dest = (config.UPLOADS_DIR / name).resolve()
+    dest.write_bytes(data)
+    return {"ok": True, "path": str(dest), "name": name, "size": len(data)}
+
+
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Supprime définitivement le fichier de session."""
@@ -437,8 +545,14 @@ async def websocket_endpoint(ws: WebSocket):
 
             if msg["type"] == "chat":
                 user_text = msg["content"].strip()
-                if not user_text:
+                # Vision B-lite : images uploadées via /api/upload, jointes ici.
+                # On ne garde que les chemins sous _uploads, puis on préfixe une note
+                # (texte) → le cerveau appelle analyser_image. `content` reste une str.
+                image_paths = _safe_image_paths(msg.get("image_paths"))
+                if not user_text and not image_paths:
                     continue
+                if image_paths:
+                    user_text = _prefix_image_note(user_text, image_paths)
 
                 # Métriques : démarre le timer + compte la requête
                 import time as _time

@@ -54,6 +54,9 @@ preview/
 # Artefacts générés téléchargeables (Excel, etc.)
 _downloads/
 
+# Images uploadées par le front (vision B-lite)
+_uploads/
+
 # Bench results (locaux, gros JSON)
 bench/results/*.json
 bench/results/*.md
