@@ -1109,7 +1109,10 @@ def _strip_markdown(text: str) -> str:
 
 def _run_siri_query(query: str) -> str:
     """Exécute la requête de façon synchrone dans un thread dédié.
-    Utilise une session persistante 'siri' et MODEL_FALLBACK pour la réactivité.
+
+    Session persistante 'siri'. En mode Ollama, bascule sur MODEL_FALLBACK pour
+    la réactivité ; en mode MLX, garde le modèle principal (MODEL_FALLBACK est un
+    modèle Ollama que le serveur/gateway MLX ne connaît pas → 404).
     """
     with _SIRI_LOCK:
         siri_file = config.MEMORY_DIR / f"memory_{_SIRI_SESSION_ID}.json"
@@ -1119,7 +1122,12 @@ def _run_siri_query(query: str) -> str:
             memory = ConversationMemory(session_id=_SIRI_SESSION_ID)
 
         orch = Orchestrator(memory)
-        orch.llm.model = config.MODEL_FALLBACK
+        # MODEL_FALLBACK (ex. mistral:latest) est un modèle OLLAMA. Ne l'imposer
+        # qu'en backend Ollama : en MLX, le client parle au gateway/serveur MLX qui
+        # renvoie 404 sur ce nom. On garde alors orch.llm.model par défaut
+        # (= config.LLM_MODEL), exactement le modèle du chat WS qui fonctionne.
+        if config.BACKEND == "ollama":
+            orch.llm.model = config.MODEL_FALLBACK
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
         def _sync_chat(messages: list[dict], tools=None, **_kwargs) -> tuple[str, Any]:
@@ -1170,7 +1178,7 @@ def _run_siri_query(query: str) -> str:
             orch.run(query)
         except Exception as e:
             logger.error("[Siri] Erreur agent: %s", e, exc_info=True)
-            return "Une erreur s'est produite. Vérifiez que Ollama est démarré."
+            return "Une erreur s'est produite côté serveur. Réessaie dans un instant."
 
         last = next(
             (m["content"] for m in reversed(memory.messages)
