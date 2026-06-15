@@ -8,7 +8,7 @@ httpx>=0.28.1
 fastapi>=0.136.3
 uvicorn>=0.48.0
 loguru>=0.7.2
-jsonschema>=4.20.0
+jsonschema>=4.26.0
 
 # Retrieval code-aware (Roadmap v2 #6)
 tree-sitter>=0.25.2
