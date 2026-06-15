@@ -181,9 +181,13 @@ class TestCablage:
         import tools.vision as vision
         assert srv._IMAGE_EXTS is vision._IMAGE_EXTS
 
-    def test_uploads_dir_lisible_par_analyser_image(self):
-        """Invariant sandbox : un fichier dans UPLOADS_DIR passe la validation
-        de analyser_image (UPLOADS_DIR est sous une racine vision autorisée)."""
-        from config import PROJECT_ROOT, UPLOADS_DIR, build_allowed_roots, match_allowed_root
-        roots = build_allowed_roots(PROJECT_ROOT)
-        assert match_allowed_root(UPLOADS_DIR.resolve(), roots) is not None
+    def test_uploads_dir_sous_racine_projet(self):
+        """UPLOADS_DIR vit SOUS la racine du repo (config._ROOT). En déploiement
+        standard (PROJECT_ROOT = le projet ou un ancêtre, cf. .env ~/Projets), la
+        sandbox de analyser_image — ancrée sur PROJECT_ROOT — accepte donc les
+        uploads. On ancre la vérif sur _ROOT pour rester DÉTERMINISTE : la CI isole
+        PROJECT_ROOT sur un tmp (≠ déploiement), ce qui ferait faussement échouer
+        une vérif basée sur PROJECT_ROOT (cf. _ROOT = racine réelle de UPLOADS_DIR)."""
+        import config
+        roots = config.build_allowed_roots(config._ROOT)
+        assert config.match_allowed_root(config.UPLOADS_DIR.resolve(), roots) is not None
