@@ -653,6 +653,23 @@ async def websocket_endpoint(ws: WebSocket):
                                     if not ev.is_set():
                                         holder["answer"] = str(ctrl.get("answer") or "")
                                         ev.set()
+                            elif ctype == "chat" and pending_questions:
+                                # Anti-freeze (« Klody ne répond plus ») : l'utilisateur
+                                # a tapé du texte libre dans la boîte principale au lieu
+                                # de cliquer la carte QCM. Sans ce relai, le message
+                                # tombait dans « autres : ignorés » et le tour restait
+                                # bloqué sur ev.wait() jusqu'au timeout 30 min. On route
+                                # ce texte comme réponse à la question en attente
+                                # (allow_free_text=True par défaut → réponse valide).
+                                # Une seule question est en vol (boucle ReAct synchrone),
+                                # donc pas d'ambiguïté de cible.
+                                free_text = str(ctrl.get("content") or "").strip()
+                                if free_text:
+                                    for _qid, (ev, holder) in list(pending_questions.items()):
+                                        if not ev.is_set():
+                                            holder["answer"] = free_text
+                                            ev.set()
+                                            break
                             elif ctype == "stop":
                                 _stop_flag[0] = True
                             # ping / autres : ignorés tant qu'un run est en cours
