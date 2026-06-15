@@ -21,7 +21,7 @@ tree-sitter-typescript>=0.23.2
 pytest-asyncio>=1.4.0
 
 # Serveur MCP Web (klody_mcp/web_server.py — fetch_url + web_search)
-requests>=2.31.0
+requests>=2.34.2
 beautifulsoup4>=4.15.0
 
 # Qualité & sécurité (Vague 1 — durcissement CI)
