@@ -37,7 +37,7 @@ mypy>=1.11
 prometheus-client>=0.21.0
 
 # Génération de classeurs Excel (.xlsx) téléchargeables — outil generate_excel
-openpyxl>=3.1.0
+openpyxl>=3.1.5
 
 # Mémoire sémantique (agent/semantic_memory.py — memory bus Klody Core).
 # klody-memory est un paquet LOCAL (pas sur PyPI) :
