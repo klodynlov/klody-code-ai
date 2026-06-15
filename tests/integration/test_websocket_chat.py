@@ -328,6 +328,34 @@ class TestInteractiveQuestionRoundTrip:
             assert any("Liste" in c for c in tools)
             assert any("Petit" in c for c in tools)
 
+    def test_texte_libre_pendant_question_debloque(self, chat_client):
+        """Régression « Klody ne répond plus » : l'utilisateur tape du texte libre
+        dans la boîte principale (message `chat`) au lieu de cliquer la carte QCM.
+        Sans relai, ce message tombait dans « autres : ignorés » et le tour restait
+        bloqué 30 min sur ev.wait(). Le texte doit débloquer la question en attente
+        (allow_free_text par défaut) et revenir au modèle comme réponse."""
+        import json
+
+        FakeOpenAI._turns = [
+            _tool_turn("q1", "ask_user", json.dumps({"question": "Nature ?", "options": ["Trier", "Chercher"]})),
+            _text_turn("Compris, on trie"),
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "conçois mon algo"})
+            ev = _drain_until(ws, "question_request")[-1]
+            assert ev["question"] == "Nature ?"
+
+            # L'utilisateur NE clique PAS : il tape du texte libre dans la boîte
+            # principale. Sans le fix, le drain ci-dessous ne verrait jamais `done`.
+            ws.send_json({"type": "chat", "content": "Trier les données"})
+
+            tail = _drain_until(ws, "done")
+            assert tail[-1]["type"] == "done"
+            # Le texte libre est revenu au modèle comme réponse à la question.
+            tools = _tool_messages(FakeOpenAI.captured)
+            assert any("Trier les données" in c for c in tools)
+
     def test_double_reponse_ignoree(self, chat_client):
         """Idempotence : une 2e question_response pour le même id (double-clic /
         message tardif) ne corrompt pas la réponse déjà livrée."""
