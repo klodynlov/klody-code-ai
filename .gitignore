@@ -70,3 +70,4 @@ memory/
 
 # PID files de l'orchestrateur d'inférence locale (start-local-ai.sh)
 .run/
+graphify-out/

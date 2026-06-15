@@ -1247,7 +1247,53 @@ IMAGE_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS]
+CODE_GRAPH_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "code_graph",
+            "description": (
+                "Interroge le GRAPHE de connaissance du code (relations entre "
+                "symboles). À utiliser pour comprendre la STRUCTURE, pas pour "
+                "localiser un symbole (→ find_symbol) ni lister ses occurrences "
+                "brutes (→ find_references). Quatre modes : "
+                "`overview` (carte du projet : god nodes les plus connectés + "
+                "communautés — idéal pour découvrir un repo) ; "
+                "`explain` (un symbole + ses voisins TYPÉS, avec le NOM des "
+                "appelants/appelés) ; "
+                "`callers` (qui appelle ce symbole, nœuds nommés) ; "
+                "`path` (plus court chemin entre deux symboles : comment X est "
+                "relié à Y). Lecture seule, instantané, zéro coût LLM."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["overview", "explain", "callers", "path"],
+                        "description": "Opération. Défaut : explain.",
+                        "default": "explain",
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": (
+                            "Nom du symbole cible (fonction/classe/méthode). "
+                            "Requis sauf en mode `overview`. Pour `path`, c'est "
+                            "le point de départ."
+                        ),
+                    },
+                    "to": {
+                        "type": "string",
+                        "description": "Mode `path` uniquement : symbole d'arrivée.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
