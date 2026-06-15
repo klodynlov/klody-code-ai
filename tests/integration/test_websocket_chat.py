@@ -378,3 +378,49 @@ class TestInteractiveQuestionRoundTrip:
             tools = _tool_messages(FakeOpenAI.captured)
             assert any("Réponse de l'utilisateur : A" in c for c in tools)
             assert not any("Réponse de l'utilisateur : B" in c for c in tools)
+
+
+class TestApprovalInterrupt:
+    """Approbation human-in-the-loop : un outil à effet de bord met le tour en
+    pause (approval_request). Si l'utilisateur tape du texte libre dans la boîte
+    principale au lieu de cliquer Valider/Refuser, ce `chat` doit refuser par
+    défaut (garde-fou sécurité : un texte libre n'est JAMAIS un consentement) et
+    débloquer le tour — sans le geler 30 min (jumeau du bug ask_user)."""
+
+    def test_texte_libre_pendant_approbation_refuse_et_debloque(self, chat_client):
+        import json
+
+        # Tour 1 : le LLM demande write_file (effet de bord → approbation requise) ;
+        # tour 2 : il conclut. write_file ne s'exécute PAS (refusé) → aucune
+        # écriture disque réelle dans le test.
+        FakeOpenAI._turns = [
+            _tool_turn("call_w", "write_file", json.dumps({"path": "x.txt", "content": "y"})),
+            _text_turn("Je n'ai pas pu écrire le fichier, dis-moi quoi faire"),
+        ]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "écris un fichier"})
+
+            # Le tour bloque sur la demande d'approbation.
+            ev = _drain_until(ws, "approval_request")[-1]
+            assert ev["name"] == "write_file"
+
+            # L'utilisateur NE clique PAS : il tape du texte libre. Sans le fix, le
+            # drain ci-dessous ne verrait jamais `done` (gel 30 min).
+            ws.send_json({"type": "chat", "content": "attends pourquoi ça marche pas"})
+
+            tail = _drain_until(ws, "done")
+            types = [e["type"] for e in tail]
+            assert tail[-1]["type"] == "done"
+            # Le front est prévenu de retirer la carte d'approbation.
+            assert "approval_interrupted" in types
+            # Refus par défaut propagé en tool_result ET réinjecté au modèle :
+            # le texte libre n'a JAMAIS validé l'action (sécurité).
+            assert any(
+                e["type"] == "tool_result" and "refusée" in e.get("content", "")
+                for e in tail
+            )
+            tools = _tool_messages(FakeOpenAI.captured)
+            assert any("refusée" in c for c in tools)
+            # Le texte libre n'a pas été détourné en « réponse » (pas de fuite ask_user).
+            assert not any("attends pourquoi" in c for c in tools)

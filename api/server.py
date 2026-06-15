@@ -653,23 +653,45 @@ async def websocket_endpoint(ws: WebSocket):
                                     if not ev.is_set():
                                         holder["answer"] = str(ctrl.get("answer") or "")
                                         ev.set()
-                            elif ctype == "chat" and pending_questions:
+                            elif ctype == "chat" and (pending_questions or pending_approvals):
                                 # Anti-freeze (« Klody ne répond plus ») : l'utilisateur
                                 # a tapé du texte libre dans la boîte principale au lieu
-                                # de cliquer la carte QCM. Sans ce relai, le message
+                                # d'agir sur la carte en attente. Sans ce relai, le message
                                 # tombait dans « autres : ignorés » et le tour restait
-                                # bloqué sur ev.wait() jusqu'au timeout 30 min. On route
-                                # ce texte comme réponse à la question en attente
-                                # (allow_free_text=True par défaut → réponse valide).
-                                # Une seule question est en vol (boucle ReAct synchrone),
+                                # bloqué sur ev.wait() jusqu'au timeout 30 min.
+                                # Une seule interaction est en vol à la fois (boucle ReAct
+                                # synchrone : un seul `ask_user` OU une seule approbation),
                                 # donc pas d'ambiguïté de cible.
                                 free_text = str(ctrl.get("content") or "").strip()
                                 if free_text:
-                                    for _qid, (ev, holder) in list(pending_questions.items()):
+                                    resolved = False
+                                    # 1) ask_user : le texte libre EST une réponse valide
+                                    #    (allow_free_text=True par défaut) → on le route.
+                                    for _qid, (ev, holder) in list((pending_questions or {}).items()):
                                         if not ev.is_set():
                                             holder["answer"] = free_text
                                             ev.set()
+                                            resolved = True
                                             break
+                                    # 2) approbation human-in-the-loop : un texte libre
+                                    #    N'EST JAMAIS un consentement (le consentement passe
+                                    #    par le bouton de la carte). Garde-fou sécurité :
+                                    #    on refuse par défaut (default-deny) et on débloque
+                                    #    le tour pour éviter le gel 30 min. Le tool_result
+                                    #    « Action refusée » remonte déjà côté UI ; on émet
+                                    #    en plus `approval_interrupted` pour que le front
+                                    #    retire la carte. L'utilisateur reformule ensuite.
+                                    #    NB : on est DANS le thread de la boucle d'événements
+                                    #    → `await queue.put(...)` directement (PAS `_put`, qui
+                                    #    fait run_coroutine_threadsafe et n'est valide que
+                                    #    depuis le thread orchestrator).
+                                    if not resolved:
+                                        for _aid, (ev, holder) in list((pending_approvals or {}).items()):
+                                            if not ev.is_set():
+                                                holder["approved"] = False
+                                                ev.set()
+                                                await queue.put({"type": "approval_interrupted", "id": _aid})
+                                                break
                             elif ctype == "stop":
                                 _stop_flag[0] = True
                             # ping / autres : ignorés tant qu'un run est en cours
