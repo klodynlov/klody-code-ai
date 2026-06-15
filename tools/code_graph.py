@@ -161,10 +161,10 @@ def explain(project_root: Path | str, symbol: str) -> str:
     g = _load(project_root)
     if g is None:
         return _absent()
-    ids, exact = _match(g, symbol)
+    ids, _ = _match(g, symbol)
     if not ids:
         return f"Aucun nœud `{symbol}` dans le graphe. (Essaie find_symbol.)"
-    if not exact and len(ids) > 1:
+    if len(ids) > 1:
         return _ambiguous(g, symbol, ids)
     nid = ids[0]
     n = g.nodes[nid]
@@ -198,10 +198,10 @@ def callers(project_root: Path | str, symbol: str) -> str:
     g = _load(project_root)
     if g is None:
         return _absent()
-    ids, exact = _match(g, symbol)
+    ids, _ = _match(g, symbol)
     if not ids:
         return f"Aucun nœud `{symbol}` dans le graphe."
-    if not exact and len(ids) > 1:
+    if len(ids) > 1:
         return _ambiguous(g, symbol, ids)
     nid = ids[0]
     ins = g.in_edges.get(nid, [])
@@ -229,7 +229,7 @@ def path(project_root: Path | str, a: str, b: str) -> str:
         return f"Aucun nœud `{a}`."
     if not ids_b:
         return f"Aucun nœud `{b}`."
-    src, dst = ids_a[0], ids_b[0]
+    src = ids_a[0]
     targets = set(ids_b)
     # BFS non-orienté (les arêtes calls/contains sont dirigées mais pour « comment
     # X et Y sont-ils reliés » on veut le chemin, pas le sens).
@@ -283,7 +283,7 @@ def overview(project_root: Path | str) -> str:
         f"Carte du code (commit {g.built_at_commit[:8] or '?'}) : "
         f"{len(code_nodes)} symboles · {edges} arêtes · "
         f"{len(communities)} communautés.",
-        f"God nodes (les + connectés — points d'entrée structurels) :",
+        "God nodes (les + connectés — points d'entrée structurels) :",
     ]
     for nid in god:
         n = g.nodes[nid]
