@@ -1204,6 +1204,7 @@ class Orchestrator:
             "find_symbol": self._tool_find_symbol,
             "find_references": self._tool_find_references,
             "find_relevant_files": self._tool_find_relevant_files,
+            "code_graph": self._tool_code_graph,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1297,6 +1298,10 @@ class Orchestrator:
             return ("Recherche sémantique indisponible : Ollama ou "
                     "bge-m3 introuvable. Utilise find_symbol ou search_in_files.")
         return format_hits(hits)
+
+    def _tool_code_graph(self, a: dict) -> str:
+        from tools import code_graph
+        return code_graph.query(self.file_manager.root, a)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio
