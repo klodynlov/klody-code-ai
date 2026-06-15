@@ -1,0 +1,8 @@
+{
+  "name": "Jeu Python : devinette",
+  "slug": "jeu_python_devinette",
+  "description": "Un jeu de devinette en Python, console, sans dépendances. L'ordinateur choisit un nombre entre 1 et 100, le joueur doit le deviner.",
+  "content": "import random\n\ndef jeu_devinette():\n    nombre_secret = random.randint(1, 100)\n    tentatives = 0\n\n    print(\"Bienvenue dans le jeu de devinette !\")\n    print(\"J'ai choisi un nombre entre 1 et 100.\")\n\n    while True:\n        try:\n            proposition = int(input(\"Devine le nombre : \"))\n            tentatives += 1\n\n            if proposition < nombre_secret:\n                print(\"Trop petit !\")\n            elif proposition > nombre_secret:\n                print(\"Trop grand !\")\n            else:\n                print(f\"Bravo ! Tu as trouvé en {tentatives} tentatives.\")\n                break\n        except ValueError:\n            print(\"Entrez un nombre valide.\")\n\nif __name__ == \"__main__\":\n    jeu_devinette()",
+  "updated": "2026-06-09T07:40:09.842334",
+  "code_compatible": true
+}
