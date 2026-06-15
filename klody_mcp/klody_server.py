@@ -29,6 +29,8 @@ import os
 from pathlib import Path
 
 from fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,16 @@ logger = logging.getLogger(__name__)
 _ROOT = Path(os.getenv("KLODY_MCP_ROOT", os.getcwd())).resolve()
 
 mcp = FastMCP("Klody")
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def _health(request: Request) -> JSONResponse:
+    """Sonde de vitalité hors protocole MCP (GET /health → 200).
+
+    FastMCP renvoie 404 sur les chemins qui ne sont pas du transport MCP ;
+    un health check générique (curl /health) échouait donc. Cette route
+    custom expose un 200 JSON stable pour le monitoring."""
+    return JSONResponse({"status": "ok", "service": "klody-mcp", "root": str(_ROOT)})
 
 
 def _get_code_index():
