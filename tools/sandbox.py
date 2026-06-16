@@ -267,6 +267,21 @@ class SandboxRunner:
                 hint += " Pile capturée ci-dessus (faulthandler) : repère la dernière " \
                         "frame de TON code pour localiser le blocage."
             stderr = ((stderr or "") + "\n" + hint).strip()
+
+        # Sandbox non-interactif (stdin=/dev/null) : un EOFError sur input() /
+        # lecture stdin ne veut PAS dire que le code est cassé — il attend une
+        # entrée clavier qu'on ne peut pas fournir ici. On le signale pour que
+        # l'agent arrête de boucler à « corriger » du code pourtant correct
+        # (cf. jeu interactif régénéré à l'identique run après run).
+        if not timed_out and is_python and exit_code != 0 and "EOFError" in (stderr or ""):
+            stderr = ((stderr or "") + "\n"
+                      "Note : sandbox non-interactif (stdin=/dev/null) — cet EOFError "
+                      "vient de input(), pas d'un bug. Pour qu'il TOURNE ici : détecte "
+                      "`auto = not sys.stdin.isatty()` et, en mode auto, joue une démo "
+                      "complète qui se termine (ex. devinette → bisection). N'utilise PAS "
+                      "une valeur fixe dans `while True` (boucle infinie → timeout) ni un "
+                      "simple `except EOFError: break` (partie vide). Garde input() pour "
+                      "le terminal réel.").strip()
         duration = round(time.monotonic() - t0, 2)
         ensure(duration >= 0, "durée d'exécution non négative")
 
@@ -322,7 +337,11 @@ def auto_command_for(filepath: Path) -> list[str] | None:
     if name.startswith("test_") or name.endswith("_test.py") or "\ndef test_" in src or src.startswith("def test_"):
         return ["pytest", rel, "-q", "--no-header", "--tb=short"]
 
-    # Entry point → python -c
+    # Entry point → python <file>. On l'exécute VRAIMENT (pas py_compile) : un
+    # code interactif bien écrit détecte sys.stdin.isatty() et joue une démo
+    # auto en sandbox (cf. règle prompts/base.md) → on veut voir cette sortie.
+    # S'il lit stdin sans garde, le run lève EOFError et SandboxRunner.run
+    # annote « non-interactif » pour guider la correction (pas une boucle).
     if 'if __name__ == "__main__"' in src or "if __name__ == '__main__'" in src:
         return ["python", rel]
 

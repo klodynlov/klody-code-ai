@@ -50,6 +50,19 @@ class TestAutoCommand:
         assert cmd is not None
         assert cmd[:3] == ["python", "-m", "py_compile"]
 
+    def test_main_avec_input_lance_quand_meme_python(self, tmp_path):
+        """Entry point lisant stdin : on l'EXÉCUTE quand même (pas py_compile) —
+        un code bien écrit détecte isatty() et joue une démo auto en sandbox.
+        Le FAUX FAIL EOFError est géré par l'annotation dans run(), pas en
+        bloquant l'exécution (qui empêcherait de voir la démo tourner)."""
+        f = tmp_path / "jeu.py"
+        f.write_text(
+            'def jeu():\n    x = int(input("? "))\n    print(x)\n\n'
+            'if __name__ == "__main__":\n    jeu()\n',
+            encoding="utf-8",
+        )
+        assert auto_command_for(f) == ["python", "jeu.py"]
+
 
 # ── SandboxRunner ─────────────────────────────────────────────────────────────
 
@@ -180,6 +193,40 @@ class TestSandboxRunner:
         result = runner.run(["python", "asks.py"], timeout=10)
         assert result.timed_out is False
         assert "EOFError" in result.stderr
+
+    def test_eoferror_input_recoit_note_non_interactif(self, tmp_path, monkeypatch):
+        """Un EOFError de input() doit être annoté « sandbox non-interactif »
+        pour que l'agent n'aille pas réécrire en boucle du code correct."""
+        runner = SandboxRunner(workdir=tmp_path, cache_root=tmp_path / "_c")
+        monkeypatch.setattr(SandboxRunner, "ensure_venv", lambda self: True)
+
+        class FakeProc:
+            returncode = 1
+
+            def communicate(self, timeout=None):
+                return ("", "Traceback (most recent call last):\n"
+                            "EOFError: EOF when reading a line")
+
+        monkeypatch.setattr("tools.sandbox.subprocess.Popen", lambda *a, **k: FakeProc())
+        result = runner.run(["python", "jeu.py"], timeout=5)
+        assert result.success is False
+        assert "non-interactif" in result.stderr
+        assert "EOFError" in result.stderr
+
+    def test_fail_normal_pas_de_note_non_interactif(self, tmp_path, monkeypatch):
+        """Un FAIL sans EOFError ne doit PAS recevoir la note (pas de bruit)."""
+        runner = SandboxRunner(workdir=tmp_path, cache_root=tmp_path / "_c")
+        monkeypatch.setattr(SandboxRunner, "ensure_venv", lambda self: True)
+
+        class FakeProc:
+            returncode = 1
+
+            def communicate(self, timeout=None):
+                return ("", "AssertionError: boom")
+
+        monkeypatch.setattr("tools.sandbox.subprocess.Popen", lambda *a, **k: FakeProc())
+        result = runner.run(["python", "x.py"], timeout=5)
+        assert "non-interactif" not in result.stderr
 
 
 # ── Packages par défaut + requirements.txt (staleness mtime) ─────────────────
