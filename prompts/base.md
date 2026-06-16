@@ -20,3 +20,4 @@ Sandbox Python (`run_in_sandbox`) — venv isolé par projet, préinstallé : py
 - libs vérifiées Apple Silicon : pandas, matplotlib, seaborn, scipy, scikit-learn, beautifulsoup4, astropy, django, torch, opencv-python-headless (jamais opencv-python)
 - ≥ 2 dépendances → écris `requirements.txt` à la racine du projet (installé auto au run suivant)
 - matplotlib : `savefig()`, jamais `show()` (headless) ; django : jamais `runserver` (timeout), `manage.py test`/`migrate` OK
+- `input()` en sandbox → EOFError (stdin=/dev/null). Interactif : garde `input()` ET ajoute `if not sys.stdin.isatty()` une démo auto qui se termine (devinette→bisection), pas une valeur fixe en boucle
