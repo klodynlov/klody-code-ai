@@ -260,7 +260,7 @@ def _note_to_midi(note_str: str, m21) -> int:
 
 def _midi_to_name(midi: float, m21) -> str:
     p = m21.pitch.Pitch()
-    p.midi = int(round(midi))
+    p.midi = round(midi)
     return _pretty(p.nameWithOctave)
 
 
@@ -327,7 +327,7 @@ def _suggerer_tonalites(note_grave: str, note_aigue: str, n: int = 5) -> dict:
         centre = (mg + ma) / 2.0
 
         cands = []
-        base = int(round(centre))
+        base = round(centre)
         for pc in range(12):
             best = min(
                 (m for m in range(base - 7, base + 8) if m % 12 == pc),
