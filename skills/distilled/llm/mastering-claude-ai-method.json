@@ -1,0 +1,124 @@
+{
+  "skill": "Mastering Claude AI Method",
+  "domain": "llm",
+  "description": "Bien utiliser Claude au quotidien : structurer chaque prompt (Context-Role-Task-Constraints-Format-Examples), itérer par follow-ups, exploiter Artifacts/Projects/Extended Thinking en gérant le contexte à la main, et vérifier les sorties critiques (trust but verify). Source : Mastering Claude AI, Ryan Dickey 2025.",
+  "source": {
+    "book": "Mastering Claude AI: Practical Journey from First Prompts to Pro with Claude AI",
+    "author": "Ryan Dickey",
+    "year": 2025
+  },
+  "principles": [
+    "Spécificité > vague : un prompt cadré (contexte, rôle, tâche, contraintes, format) bat toujours une demande floue.",
+    "Le 1er prompt est un brouillon : itérer par follow-ups ciblés plutôt que viser la perfection d'emblée.",
+    "Démontrer par l'exemple (few-shot) quand le style ou le format prime sur la description.",
+    "Trust but verify : double-checker tout ce qui est critique (médical, légal, financier, historique, scientifique, publié) ; l'aplomb d'une réponse n'est pas une preuve.",
+    "Gérer le contexte explicitement : chat history (transcript visible) ≠ context window (mémoire active) ; les Projects ne transfèrent pas le contexte tout seuls.",
+    "Les techniques avancées (recursive CoT, méta-prompting) amplifient les erreurs initiales : vérifier à chaque niveau, sinon illusion de profondeur.",
+    "Un prompt n'invoque pas une capacité absente du modèle ni ne lève une limite fondamentale de raisonnement."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer le prompt avec le Master Template",
+      "purpose": "Donner à Claude tout ce qu'il faut pour viser juste du premier jet.",
+      "guidelines": [
+        "Renseigner Context (situation/objectif), Role (expertise à adopter), Task (une demande précise), Constraints (longueur, ton, audience, scope, exclusions), Format (liste/tableau/étapes).",
+        "Ajouter 1-3 exemples (few-shot) si le style ou le format compte plus que la description.",
+        "Remplacer le vague par du concret : 'productivité' -> 'productivité pour télétravailleurs distraits à la maison'."
+      ],
+      "pitfalls": [
+        "Mind Reader Fallacy : compter sur 'tu sais ce que je veux dire' — expliciter le besoin.",
+        "Over-constraining : empiler des critères qui se contredisent."
+      ]
+    },
+    {
+      "step": "Itérer par follow-ups",
+      "purpose": "Raffiner la sortie au lieu de tout réécrire.",
+      "guidelines": [
+        "Demander des ajustements ciblés : 'étends le point 3', '50 mots de moins', 'garde ce ton'.",
+        "Construire les livrables complexes étape par étape, chaque prompt s'appuyant sur le précédent.",
+        "Capitaliser les prompts qui marchent dans une bibliothèque personnelle réutilisable."
+      ],
+      "pitfalls": [
+        "Perfectionist paralysis : peaufiner sans jamais lancer.",
+        "One-size-fits-all : réutiliser la même structure pour des tâches de nature différente."
+      ]
+    },
+    {
+      "step": "Exploiter les features Claude",
+      "purpose": "Tirer parti d'Artifacts, Projects et Extended Thinking sans se faire piéger par leurs limites.",
+      "guidelines": [
+        "Artifacts : générer des documents persistants, demander des éditions CIBLÉES ('mets à jour seulement la section budget'), les nommer, les réutiliser comme templates.",
+        "Projects : y déposer le contexte partagé MAIS re-référencer/résumer à la main dans chaque nouvelle conversation (pas de transfert auto).",
+        "Extended Thinking : déclencher par un prompt complexe multi-dimensionnel pour obtenir analyse multi-facteurs et évaluation des risques.",
+        "Fichiers : texte cherchable, découper les gros, retirer le sensible ; web = 30 MB/fichier, 20 fichiers max ; guider l'analyse en passes."
+      ],
+      "pitfalls": [
+        "Croire que les Projects maintiennent le contexte automatiquement.",
+        "Uploader un fichier et dire seulement 'analyse ça' sans cibler le focus."
+      ]
+    },
+    {
+      "step": "Vérifier et contrôler la qualité",
+      "purpose": "Empêcher les erreurs confiantes (hallucinations) d'atteindre la décision finale.",
+      "guidelines": [
+        "Double-checker médical, juridique, financier, dates/chiffres, données scientifiques, tout contenu publié ; croiser plusieurs sources.",
+        "Demander raisonnement + sources et lire le niveau de confiance.",
+        "Enchaîner un contrôle qualité : faire relire le livrable pour exactitude, complétude, zones à vérifier, limites, et faire signaler les affirmations à valider.",
+        "Pour le code : itérer fix + test, classer le bug (syntaxe / logique / runtime)."
+      ],
+      "pitfalls": [
+        "Prendre une réponse confiante pour une réponse correcte.",
+        "Empiler du recursive CoT sans vérifier chaque niveau (erreurs composées)."
+      ]
+    },
+    {
+      "step": "Capitaliser via frameworks et garder sa voix",
+      "purpose": "Réutiliser des templates éprouvés et rester responsable sans diluer sa propre voix.",
+      "guidelines": [
+        "Partir d'un framework nommé selon la tâche : Problem-Solving (problème/situation/objectif/contraintes/métriques), Executive Summary, Email Enhancement (Keep/Remove/Tone), Concept Mastery pour apprendre.",
+        "Réviser un écrit en 3 passes : structure et flow -> 'rends ça plus percutant' -> 'ajoute des exemples', puis polish final à ta voix.",
+        "Démarrer les workflows par TON contenu/direction (Success Formulas) : Claude draft -> personnalisation humaine -> résultat ; jamais copier-coller verbatim.",
+        "Appliquer le Transparency Test, créditer l'IA selon le contexte, divulguer selon profession/juridiction, laisser le jugement humain trancher."
+      ],
+      "pitfalls": [
+        "Copy-paste trap et perte de voix : surdépendance qui uniformise tout.",
+        "Disclosure dodge / privacy leak : cacher l'usage de l'IA ou surpartager des données sensibles.",
+        "En créatif : confondre suggestions par patterns et jugement de valeur réel."
+      ]
+    }
+  ],
+  "checklist": [
+    "Prompt structuré : contexte, rôle, tâche, contraintes, format présents ?",
+    "Style/format critique -> ai-je donné un exemple (few-shot) ?",
+    "Sortie critique -> ai-je vérifié/croisé les faits sensibles ?",
+    "Travail réutilisé -> sauvé en Artifact nommé, contexte re-référencé dans le Project ?",
+    "Refus rencontré -> reformulé en cadrage constructif plutôt qu'insisté ?",
+    "Tâche complexe -> Extended Thinking déclenché et/ou self-questioning cascade ajoutée ?"
+  ],
+  "vocabulary": [
+    {"term": "Context window", "definition": "Mémoire de travail active de Claude pour un tour (input + output), distincte du chat history visible."},
+    {"term": "Chat history", "definition": "Transcript complet et visible de la conversation, que Claude relit via son context window."},
+    {"term": "Artifact", "definition": "Document persistant éditable affiché à côté du chat, modifiable par sections sans tout réécrire."},
+    {"term": "Project", "definition": "Dossier regroupant conversations et fichiers de contexte partagé, sans transfert automatique de contexte."},
+    {"term": "Extended Thinking", "definition": "Mode d'analyse profonde déclenché par des prompts complexes multi-dimensionnels."},
+    {"term": "Constitutional AI", "definition": "Méthode d'entraînement d'Anthropic guidant Claude vers les trois H : Helpful, Harmless, Honest."}
+  ],
+  "heuristics": [
+    "Si la réponse est trop générique : ajouter du contexte et de la spécificité, pas plus de mots.",
+    "Si le format n'est pas respecté : passer du zero-shot au few-shot avec un exemple du format exact.",
+    "Si le contexte sature : repartir d'un thread neuf avec un résumé plutôt que de paniquer.",
+    "Si l'info est critique : exiger sources + raisonnement et vérifier indépendamment avant d'agir.",
+    "Si un écrit sonne générique ou pas comme toi : repasse en 3 passes et réinjecte tes tournures signature.",
+    "Si tu hésites éthiquement : applique le Transparency Test (serais-tu à l'aise que tout le monde le sache ?).",
+    "Si le chat plante ou sature : nouveau thread + recap '[sujet], voici où on en était' plutôt que repartir de zéro."
+  ],
+  "antipatterns": [
+    "Attendre qu'un prompt 'magique' compense une limite de raisonnement ou de connaissance du modèle.",
+    "Supposer que Claude se souvient d'autres conversations ou threads.",
+    "Publier une sortie médicale/légale/financière sans vérification externe."
+  ],
+  "examples": [
+    {"context": "Email de relance prospect vague ('écris un email')", "outcome": "Cadré via le Master Template (rôle commercial B2B, <120 mots, un seul CTA, 3 paragraphes) -> email directement utilisable."},
+    {"context": "Décision SaaS complexe à trancher", "outcome": "Prompt multi-dimensionnel (marché, dette technique, retours clients, concurrence, ressources) -> Extended Thinking produit une analyse structurée à valider."}
+  ]
+}
