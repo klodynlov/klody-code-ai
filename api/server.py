@@ -834,6 +834,7 @@ def _build_streaming_orchestrator(
         tool_choice: str = "auto",
         max_tokens: int = 8192,
         enable_thinking: bool = False,
+        thinking_budget: int | None = None,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -861,7 +862,12 @@ def _build_streaming_orchestrator(
             "max_tokens": max_tokens,
         }
         if enable_thinking:
-            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+            # Miroir LLMClient.stream_chat : forward thinking_budget (forward-compat,
+            # no-op sur le template Qwen3.6) quand fourni et le forward activé.
+            ctk: dict = {"enable_thinking": True}
+            if thinking_budget is not None and config.THINKING_BUDGET_FORWARD:
+                ctk["thinking_budget"] = thinking_budget
+            params["extra_body"] = {"chat_template_kwargs": ctk}
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
