@@ -121,6 +121,10 @@ class Router:
 
         En cas d'échec de parsing, retourne un fallback safe (medium / explain).
         """
+        # La classif est un appel structuré rapide (JSON, stream=False) : aucun CoT.
+        # → budget de raisonnement nul. Contraste avec les tâches brain explain/hard
+        # qui obtiennent un budget MOYEN/HAUT (cf. Orchestrator._thinking_budget).
+        logger.info("[thinking-budget] routing classification → budget=0 (no CoT)")
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,

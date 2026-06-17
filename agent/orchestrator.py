@@ -31,6 +31,9 @@ from config import (
     SKILLS_ON_CODER_MAX_CHARS,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
+    THINKING_BUDGET_HIGH,
+    THINKING_BUDGET_MED,
+    THINKING_BUDGET_NONE,
     THINKING_ENABLED,
     match_allowed_root,
 )
@@ -625,6 +628,32 @@ class Orchestrator:
             return False
         d = self.last_routing
         return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+
+    def _thinking_budget(self) -> int:
+        """Budget de tokens de raisonnement (CoT) PAR REQUÊTE pour ce tour.
+
+        Équivalent client-side du `thinking_budget_tokens` par requête (mlx_lm n'a
+        aucun budget natif — vérifié 0.31.3). Source unique : la classif du router.
+        - thinking OFF (coder, skill interactif, edit/medium…) → 0, aucun CoT.
+        - raisonnement profond (`hard`) → tier HAUT.
+        - raisonnement léger (`explain` easy/medium) → tier MOYEN.
+        Le budget pilote thinking_max_tokens dans stream_chat (cf. config.THINKING_BUDGET_*).
+        NB archi : les tâches de CODE (edit/refactor/bug_fix/feature) partent sur le
+        coder instruct (sans thinking) → budget 0 par construction ; le raisonnement
+        de Klody fire sur le brain (`explain`/`hard`), pas sur l'édition pure.
+        """
+        if not self._should_think():
+            return THINKING_BUDGET_NONE
+        d = self.last_routing
+        budget = (
+            THINKING_BUDGET_HIGH if (d is not None and d.difficulty == "hard")
+            else THINKING_BUDGET_MED
+        )
+        logger.info(
+            "[thinking-budget] task_type=%s difficulty=%s → budget=%d tok",
+            getattr(d, "task_type", None), getattr(d, "difficulty", None), budget,
+        )
+        return budget
 
     def _maybe_self_critique(self, draft: str) -> None:
         """Passe d'auto-critique sur la réponse finale (Levier 3).
@@ -1820,9 +1849,12 @@ class Orchestrator:
                     ),
                     "timestamp": None,
                 })
+                _final_budget = self._thinking_budget()
                 final_content, _ = self.llm.stream_chat(
                     self.memory.get_messages_for_api(), tools=None,
                     enable_thinking=self._should_think(),
+                    thinking_max_tokens=_final_budget or None,
+                    thinking_budget=_final_budget or None,
                 )
                 if final_content:
                     self.memory.add_message("assistant", final_content)
@@ -1858,9 +1890,12 @@ class Orchestrator:
             if use_bon:
                 content, tool_calls = self._run_best_of_n(messages)
             else:
+                budget = self._thinking_budget()
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                     enable_thinking=self._should_think(),
+                    thinking_max_tokens=budget or None,
+                    thinking_budget=budget or None,
                 )
 
             if tool_calls:

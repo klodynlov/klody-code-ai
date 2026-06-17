@@ -11,7 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 from agent.llm import LLMClient
-from config import THINKING_MAX_TOKENS
+from config import (
+    THINKING_BUDGET_HIGH,
+    THINKING_BUDGET_MED,
+    THINKING_MAX_TOKENS,
+)
 
 # ── Faux stream OpenAI ──────────────────────────────────────────────────────
 
@@ -92,6 +96,56 @@ class TestStreamChatThinking:
         cap = client.client.chat.completions.captured
         assert "extra_body" not in cap
         assert cap["max_tokens"] == 8192
+
+
+# ── stream_chat : thinking budget PAR REQUÊTE (additif, inerte si non fourni) ─
+
+
+class TestStreamChatThinkingBudget:
+    def test_thinking_max_tokens_override_le_plafond_par_requete(self, monkeypatch):
+        # Un budget par-requête remplace le défaut global THINKING_MAX_TOKENS.
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat(
+            [{"role": "user", "content": "q"}], silent=True,
+            enable_thinking=True, max_tokens=256, thinking_max_tokens=2048,
+        )
+        cap = client.client.chat.completions.captured
+        assert cap["max_tokens"] == 2048  # max(256, 2048) — pas le global 8192
+
+    def test_thinking_budget_forwarde_dans_chat_template_kwargs(self, monkeypatch):
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
+        monkeypatch.setattr("agent.llm.THINKING_BUDGET_FORWARD", True)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat(
+            [{"role": "user", "content": "q"}], silent=True,
+            enable_thinking=True, thinking_budget=2048,
+        )
+        cap = client.client.chat.completions.captured
+        assert cap["extra_body"]["chat_template_kwargs"] == {
+            "enable_thinking": True, "thinking_budget": 2048,
+        }
+
+    def test_forward_off_n_envoie_que_enable_thinking(self, monkeypatch):
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
+        monkeypatch.setattr("agent.llm.THINKING_BUDGET_FORWARD", False)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat(
+            [{"role": "user", "content": "q"}], silent=True,
+            enable_thinking=True, thinking_budget=2048,
+        )
+        cap = client.client.chat.completions.captured
+        assert cap["extra_body"]["chat_template_kwargs"] == {"enable_thinking": True}
+
+    def test_sans_budget_forme_historique_preservee(self, monkeypatch):
+        # Aucun budget passé → contrat byte-identique à l'historique.
+        monkeypatch.setattr("agent.llm.LLM_REPETITION_PENALTY", 1.0)
+        client = _make_client([_chunk(_Delta(content="ok"))])
+        client.stream_chat(
+            [{"role": "user", "content": "q"}], silent=True, enable_thinking=True,
+        )
+        cap = client.client.chat.completions.captured
+        assert cap["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
 
 
 # ── stream_chat : repetition_penalty (filet anti-boucle, opt-in) ─────────────
@@ -215,3 +269,47 @@ class TestShouldThink:
         monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
         o = _orch()
         assert o._should_think() is False
+
+
+# ── Orchestrator._thinking_budget : modulation par type de tâche ─────────────
+
+
+class TestThinkingBudget:
+    def test_off_quand_thinking_off(self, monkeypatch):
+        # edit/medium → thinking off → budget 0 (pas de CoT).
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o.last_routing = _routing(task_type="edit", difficulty="medium")
+        assert o._thinking_budget() == 0
+
+    def test_explain_leger_budget_moyen(self, monkeypatch):
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o.last_routing = _routing(task_type="explain", difficulty="easy")
+        assert o._thinking_budget() == THINKING_BUDGET_MED
+
+    def test_hard_budget_haut(self, monkeypatch):
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o.last_routing = _routing(task_type="feature", difficulty="hard")
+        assert o._thinking_budget() == THINKING_BUDGET_HIGH
+
+    def test_coder_budget_nul(self, monkeypatch):
+        # Même hard/explain : sur le coder, jamais de CoT → budget 0.
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="explain", difficulty="hard")
+        assert o._thinking_budget() == 0
+
+    def test_modulation_demontree(self, monkeypatch):
+        # Modulation effective : routing(off) < explain(moyen) < hard(haut).
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        o = _orch()
+        o.last_routing = _routing(task_type="edit", difficulty="easy")
+        off = o._thinking_budget()
+        o.last_routing = _routing(task_type="explain", difficulty="medium")
+        med = o._thinking_budget()
+        o.last_routing = _routing(task_type="bug_fix", difficulty="hard")
+        high = o._thinking_budget()
+        assert off < med < high
