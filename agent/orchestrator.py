@@ -32,6 +32,7 @@ from config import (
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
     THINKING_BUDGET_HIGH,
+    THINKING_BUDGET_LOW,
     THINKING_BUDGET_MED,
     THINKING_BUDGET_NONE,
     THINKING_ENABLED,
@@ -630,27 +631,31 @@ class Orchestrator:
         return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
 
     def _thinking_budget(self) -> int:
-        """Budget de tokens de raisonnement (CoT) PAR REQUÊTE pour ce tour.
+        """Budget de raisonnement (CoT) PAR TYPE DE TÂCHE pour ce tour.
 
-        Équivalent client-side du `thinking_budget_tokens` par requête (mlx_lm n'a
-        aucun budget natif — vérifié 0.31.3). Source unique : la classif du router.
+        Politique inspirée du `thinking_budget_tokens` par requête du node de veille.
+        mlx_lm n'a AUCUN budget natif (vérifié 0.31.3) et ne permet pas de borner le
+        CoT côté client sans troncature dure du flux (écartée). Ce budget est donc
+        FORWARD-COMPAT : forwardé dans chat_template_kwargs.thinking_budget (no-op
+        aujourd'hui, effectif si un futur template l'honore) — il ne modifie PAS
+        max_tokens (cf. llm.stream_chat, docs/thinking-budget-policy.md). Tiers :
         - thinking OFF (coder, skill interactif, edit/medium…) → 0, aucun CoT.
-        - raisonnement profond (`hard`) → tier HAUT.
-        - raisonnement léger (`explain` easy/medium) → tier MOYEN.
-        Le budget pilote thinking_max_tokens dans stream_chat (cf. config.THINKING_BUDGET_*).
-        NB archi : les tâches de CODE (edit/refactor/bug_fix/feature) partent sur le
-        coder instruct (sans thinking) → budget 0 par construction ; le raisonnement
-        de Klody fire sur le brain (`explain`/`hard`), pas sur l'édition pure.
+        - `hard` → tier HAUT (raisonnement profond).
+        - `explain` medium → tier MOYEN ; `explain` easy → tier BAS.
+        NB archi : les tâches de CODE partent sur le coder instruct (sans thinking) →
+        budget 0 par construction ; le raisonnement fire sur le brain (explain/hard).
         """
         if not self._should_think():
             return THINKING_BUDGET_NONE
         d = self.last_routing
-        budget = (
-            THINKING_BUDGET_HIGH if (d is not None and d.difficulty == "hard")
-            else THINKING_BUDGET_MED
-        )
+        if d is not None and d.difficulty == "hard":
+            budget = THINKING_BUDGET_HIGH
+        elif d is not None and d.difficulty == "easy":
+            budget = THINKING_BUDGET_LOW
+        else:
+            budget = THINKING_BUDGET_MED
         logger.info(
-            "[thinking-budget] task_type=%s difficulty=%s → budget=%d tok",
+            "[thinking-budget] task_type=%s difficulty=%s → budget=%d tok (forward-compat)",
             getattr(d, "task_type", None), getattr(d, "difficulty", None), budget,
         )
         return budget
@@ -1853,7 +1858,6 @@ class Orchestrator:
                 final_content, _ = self.llm.stream_chat(
                     self.memory.get_messages_for_api(), tools=None,
                     enable_thinking=self._should_think(),
-                    thinking_max_tokens=_final_budget or None,
                     thinking_budget=_final_budget or None,
                 )
                 if final_content:
@@ -1894,7 +1898,6 @@ class Orchestrator:
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                     enable_thinking=self._should_think(),
-                    thinking_max_tokens=budget or None,
                     thinking_budget=budget or None,
                 )
 

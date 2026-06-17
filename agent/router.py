@@ -6,6 +6,10 @@ pour permettre à l'orchestrator d'adapter sa stratégie :
 - use_planner: True uniquement si hard ou multi-fichier
 - (futur #5) hot-swap du system prompt selon task_type
 - (futur #7) best-of-N conditionnel si hard
+
+Contrainte JSON conforme à docs/json-constraint-policy.md : validation Pydantic +
+retry borné (réinjection d'un message de correction) AVANT le fallback safe — jamais
+« strip + espoir ».
 """
 from __future__ import annotations
 
@@ -17,12 +21,32 @@ from typing import Literal
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_HTTP_TIMEOUT, LLM_MAX_RETRIES, LLM_MODEL
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
+from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
 
 Difficulty = Literal["easy", "medium", "hard"]
 TaskType = Literal["edit", "refactor", "bug_fix", "feature", "explain", "self_dev"]
+
+# Nb d'essais LLM supplémentaires après l'appel initial sur échec de validation.
+# 1 appel initial + _ROUTER_MAX_RETRIES retries = (_ROUTER_MAX_RETRIES + 1) appels max.
+_ROUTER_MAX_RETRIES = 2
+
+
+class _RouterClassification(BaseModel):
+    """Schéma strict des 3 champs émis par le LLM, validés par Pydantic.
+
+    Les `Literal` rejettent nativement toute valeur hors-domaine → ValidationError.
+    Ne couvre PAS les champs dérivés (max_iterations/use_planner/use_best_of_n) qui
+    restent calculés par `_decide_strategy` dans le dataclass public RoutingDecision.
+    Les champs en trop émis par le modèle sont ignorés (comportement Pydantic v2).
+    """
+
+    difficulty: Difficulty
+    task_type: TaskType
+    reasoning: str = ""
 
 
 @dataclass
@@ -65,7 +89,7 @@ def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:
     }
 
 
-# --- Prompt système du Router ---------------------------------------------- #
+# --- Prompts du Router ------------------------------------------------------ #
 
 _ROUTER_SYSTEM = """\
 Tu es un router de tâches. Classifie chaque demande de coding.
@@ -103,6 +127,15 @@ Exemples :
 - "améliore tes performances de retrieval" → {"difficulty":"hard","task_type":"self_dev","reasoning":"optimisation interne Klody"}
 """
 
+# Message de correction réinjecté entre deux essais quand la validation échoue.
+_CORRECTION_PROMPT = (
+    "Ta réponse précédente n'était pas un JSON valide conforme au schéma attendu. "
+    "Réponds UNIQUEMENT par cet objet JSON, sans markdown ni texte autour : "
+    '{"difficulty":"easy|medium|hard",'
+    '"task_type":"edit|refactor|bug_fix|feature|explain|self_dev",'
+    '"reasoning":"phrase courte"}'
+)
+
 
 class Router:
     """Router LLM léger qui classifie une demande coding."""
@@ -117,65 +150,89 @@ class Router:
         )
 
     def classify(self, user_prompt: str) -> RoutingDecision:
-        """Appelle le LLM et retourne une RoutingDecision.
+        """Classifie un prompt en RoutingDecision.
 
-        En cas d'échec de parsing, retourne un fallback safe (medium / explain).
+        Conforme à docs/json-constraint-policy.md : validation Pydantic + RETRY borné
+        (réinjection d'un message de correction) AVANT le fallback safe medium/explain.
+        Une erreur de TRANSPORT (réseau/timeout) court-circuite le retry → fallback
+        direct (réessayer le parse serait inutile).
         """
-        # La classif est un appel structuré rapide (JSON, stream=False) : aucun CoT.
-        # → budget de raisonnement nul. Contraste avec les tâches brain explain/hard
-        # qui obtiennent un budget MOYEN/HAUT (cf. Orchestrator._thinking_budget).
-        logger.info("[thinking-budget] routing classification → budget=0 (no CoT)")
+        messages: list[ChatCompletionMessageParam] = [
+            {"role": "system", "content": _ROUTER_SYSTEM},
+            {"role": "user", "content": user_prompt},
+        ]
+        last_raw = ""
+        for attempt in range(_ROUTER_MAX_RETRIES + 1):
+            raw = self._call_llm(messages)
+            if raw is None:
+                return self._fallback(reason="LLM error", raw=last_raw)
+            last_raw = raw
+            decision = self._parse_response(raw, user_prompt)
+            if decision is not None:
+                return decision
+            if attempt < _ROUTER_MAX_RETRIES:
+                logger.warning(
+                    "Router: parse invalide (essai %d/%d) → relance avec correction",
+                    attempt + 1, _ROUTER_MAX_RETRIES + 1,
+                )
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content": _CORRECTION_PROMPT})
+
+        logger.warning(
+            "Router: parse invalide après %d essais → fallback", _ROUTER_MAX_RETRIES + 1
+        )
+        return self._fallback(
+            reason=f"parse failed after {_ROUTER_MAX_RETRIES + 1} attempts", raw=last_raw
+        )
+
+    def _call_llm(self, messages: list[ChatCompletionMessageParam]) -> str | None:
+        """Un appel de classification (sans retry). Retourne le content stripé, ou
+        None sur erreur de transport (réseau, timeout…) — distinct d'un parse invalide."""
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": _ROUTER_SYSTEM},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=messages,
                 temperature=0.0,
                 max_tokens=200,
                 stream=False,
             )
-            raw = (resp.choices[0].message.content or "").strip()
+            return (resp.choices[0].message.content or "").strip()
         except Exception as exc:
             logger.error("Router LLM call failed: %s", exc)
-            return self._fallback(reason=f"LLM error: {exc}", raw="")
+            return None
 
-        return self._parse_response(raw, user_prompt)
+    def _parse_response(self, raw: str, user_prompt: str) -> RoutingDecision | None:
+        """Valide la réponse brute du LLM → RoutingDecision, ou None si invalide.
 
-    def _parse_response(self, raw: str, user_prompt: str) -> RoutingDecision:
-        """Parse la réponse du LLM en RoutingDecision.
-
-        Robuste à : markdown ```json```, texte avant/après, JSON nested.
+        Conforme à la politique JSON : NETTOYAGE (fences markdown, bloc <think> inline)
+        PUIS validation Pydantic. Le nettoyage n'est jamais une garantie ; la garantie
+        est la validation + le retry/fallback porté par classify(). Cette méthode ne
+        relance PAS le LLM et n'applique PAS de fallback : elle retourne None pour
+        signaler un échec de parse, à charge de l'appelant de décider retry vs fallback.
         """
         text = raw.strip()
+        # Nettoyage (jamais une garantie) : <think>…</think> inline + fences markdown.
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.MULTILINE)
         text = re.sub(r"\s*```\s*$", "", text, flags=re.MULTILINE)
-
-        # Cherche un objet JSON complet dans le texte
         match = re.search(r"\{[^{}]*\"difficulty\"[^{}]*\}", text, re.DOTALL)
-        json_str = match.group(0) if match else text
+        json_str = match.group(0) if match else text.strip()
 
         try:
-            data = json.loads(json_str)
-        except json.JSONDecodeError:
-            logger.warning("Router: JSON parse failed on: %s", raw[:120])
-            return self._fallback(reason="invalid JSON", raw=raw)
+            parsed = _RouterClassification.model_validate_json(json_str)
+        except ValidationError:
+            # Repli : certains modèles double-échappent le JSON (string contenant du JSON).
+            try:
+                parsed = _RouterClassification.model_validate(json.loads(json_str))
+            except (ValidationError, json.JSONDecodeError, TypeError):
+                logger.warning("Router: JSON invalide sur: %s", raw[:120])
+                return None
 
-        difficulty = data.get("difficulty", "").lower()
-        task_type = data.get("task_type", "").lower()
-        reasoning = data.get("reasoning", "")[:200]
-
-        if difficulty not in ("easy", "medium", "hard"):
-            return self._fallback(reason=f"invalid difficulty: {difficulty}", raw=raw)
-        if task_type not in ("edit", "refactor", "bug_fix", "feature", "explain", "self_dev"):
-            return self._fallback(reason=f"invalid task_type: {task_type}", raw=raw)
-
-        strategy = _decide_strategy(difficulty, task_type)
+        strategy = _decide_strategy(parsed.difficulty, parsed.task_type)
         return RoutingDecision(
-            difficulty=difficulty,
-            task_type=task_type,
-            reasoning=reasoning,
+            difficulty=parsed.difficulty,
+            task_type=parsed.task_type,
+            reasoning=parsed.reasoning[:200],
             raw_response=raw,
             **strategy,
         )

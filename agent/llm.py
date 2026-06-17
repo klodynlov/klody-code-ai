@@ -220,7 +220,6 @@ class LLMClient:
         tool_choice: str = "auto",
         max_tokens: int = 8192,
         enable_thinking: bool = False,
-        thinking_max_tokens: int | None = None,
         thinking_budget: int | None = None,
     ) -> tuple[str, list[dict] | None]:
         """
@@ -241,23 +240,21 @@ class LLMClient:
                      filigrane) AVANT le `content`. On élargit max_tokens en
                      conséquence. No-op sur un modèle sans thinking (le serveur
                      ignore le kwarg). Cf. config.THINKING_*.
-            thinking_max_tokens : plafond de génération réservé quand le thinking
-                     est actif, PAR REQUÊTE (None = défaut global THINKING_MAX_TOKENS,
-                     comportement historique). Permet de moduler le budget de CoT
-                     par type de tâche sans relancer le serveur. Cf. _thinking_budget.
-            thinking_budget : entier forwardé dans chat_template_kwargs.thinking_budget
-                     (forward-compat ; NO-OP sur les templates actuels qui ignorent
-                     la clé). None ⇒ clé absente (forme historique préservée).
+            thinking_budget : entier PAR TYPE DE TÂCHE, forwardé dans
+                     chat_template_kwargs.thinking_budget (FORWARD-COMPAT). NO-OP sur
+                     les templates actuels (Qwen3.6 ignore la clé — vérifié : l'appel
+                     live passe sans erreur). On NE module PAS max_tokens avec : le
+                     plafond ne sait qu'ÉLARGIR (`max()`), pas réduire, donc moduler
+                     par là serait un no-op (le défaut 8192 ≥ tous les tiers). Borner
+                     le CoT seul exigerait une troncature dure du flux (écartée : risque
+                     sur le format tool-call). Cf. docs/thinking-budget-policy.md et
+                     Orchestrator._thinking_budget. None ⇒ clé absente (forme historique).
         """
         if enable_thinking:
-            # Le CoT précède la réponse et consomme beaucoup de tokens : sans marge
-            # élargie, il mange tout le budget et `content` reste vide. Le plafond
-            # est par-requête (thinking_max_tokens) ou, à défaut, le global.
-            ceiling = (
-                thinking_max_tokens if thinking_max_tokens is not None
-                else THINKING_MAX_TOKENS
-            )
-            max_tokens = max(max_tokens, ceiling)
+            # Le CoT précède la réponse et consomme beaucoup de tokens : on élargit le
+            # plafond global pour qu'il ne mange pas toute la réponse (comportement
+            # historique INCHANGÉ). Le budget par-tâche ne touche PAS max_tokens.
+            max_tokens = max(max_tokens, THINKING_MAX_TOKENS)
         params: dict = {
             "model": self.model,
             "messages": messages,

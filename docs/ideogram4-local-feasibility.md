@@ -65,9 +65,9 @@ Apache-2.0, mais **pas les poids**.
   **interdit par la licence**.
 
 ➡️ **Décision : usage perso non-commercial uniquement** (R&D locale). Pour les
-visuels de karaibart.fr, prévoir une **alternative open permissive** (ex. FLUX.1
-[dev/schnell], SDXL, Qwen-Image) dont la licence autorise l'usage commercial —
-hors périmètre de ce document.
+visuels **commerciaux** de karaibart.fr, voir les alternatives open permissives
+analysées dans [image-model-options-karaibart.md](image-model-options-karaibart.md)
+(recommandé : **Qwen-Image**, Apache-2.0 + rendu de texte fort, MLX natif).
 
 ## 4. Plan d'install minimal (standalone, hors ComfyUI) — NON EXÉCUTÉ
 

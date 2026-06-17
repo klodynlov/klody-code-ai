@@ -62,22 +62,30 @@ class TestParsing:
         assert d.difficulty == "medium"
         assert d.task_type == "refactor"
 
-    def test_difficulty_invalide_fallback(self, router):
+    def test_difficulty_invalide_renvoie_none(self, router):
+        # _parse_response ne fait plus de fallback : il signale l'échec par None
+        # (Pydantic rejette le Literal hors-domaine). Le fallback est porté par classify().
         raw = '{"difficulty": "trivial", "task_type": "edit", "reasoning": "x"}'
-        d = router._parse_response(raw, "x")
-        assert d.difficulty == "medium"  # fallback
-        assert "[fallback" in d.reasoning
+        assert router._parse_response(raw, "x") is None
 
-    def test_task_type_invalide_fallback(self, router):
+    def test_task_type_invalide_renvoie_none(self, router):
         raw = '{"difficulty": "easy", "task_type": "garbage", "reasoning": "x"}'
-        d = router._parse_response(raw, "x")
-        assert d.difficulty == "medium"  # fallback
+        assert router._parse_response(raw, "x") is None
 
-    def test_json_casse_fallback(self, router):
+    def test_json_casse_renvoie_none(self, router):
         raw = "ce n'est pas du JSON"
+        assert router._parse_response(raw, "x") is None
+
+    def test_champ_manquant_renvoie_none(self, router):
+        # task_type absent → champ requis manquant → ValidationError → None.
+        raw = '{"difficulty": "easy", "reasoning": "x"}'
+        assert router._parse_response(raw, "x") is None
+
+    def test_think_inline_nettoye_puis_valide(self, router):
+        # Le bloc <think> est nettoyé (jamais une garantie) avant validation.
+        raw = '<think>je réfléchis</think>{"difficulty":"easy","task_type":"edit","reasoning":"r"}'
         d = router._parse_response(raw, "x")
-        assert d.difficulty == "medium"
-        assert "[fallback" in d.reasoning
+        assert d is not None and d.difficulty == "easy" and d.task_type == "edit"
 
     def test_reasoning_tronque_a_200(self, router):
         long_reason = "x" * 500
@@ -121,6 +129,70 @@ class TestClassifyMocked:
 
         assert d.difficulty == "medium"
         assert "[fallback" in d.reasoning
+
+    @staticmethod
+    def _resp(content: str) -> MagicMock:
+        r = MagicMock()
+        r.choices = [MagicMock()]
+        r.choices[0].message.content = content
+        return r
+
+    def test_classify_retry_puis_succes(self):
+        # 1er appel : JSON invalide → 2e appel (après correction) : JSON valide.
+        bad = self._resp('{"difficulty":"trivial","task_type":"edit","reasoning":"x"}')
+        good = self._resp('{"difficulty":"easy","task_type":"edit","reasoning":"ok"}')
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = [bad, good]
+            mock_openai.return_value = mock_client
+            router = Router()
+            d = router.classify("renomme x")
+
+        assert d.difficulty == "easy" and d.task_type == "edit"
+        assert "[fallback" not in d.reasoning
+        assert mock_client.chat.completions.create.call_count == 2
+
+    def test_classify_retry_epuise_puis_fallback(self):
+        # 3 réponses invalides (1 + 2 retries) → fallback medium/explain.
+        bad = self._resp('pas du json')
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = [bad, bad, bad]
+            mock_openai.return_value = mock_client
+            router = Router()
+            d = router.classify("x")
+
+        assert d.difficulty == "medium" and d.task_type == "explain"
+        assert "[fallback" in d.reasoning
+        assert mock_client.chat.completions.create.call_count == 3  # _ROUTER_MAX_RETRIES + 1
+
+    def test_classify_injecte_message_correction(self):
+        # Au 2e appel, l'historique doit contenir la réponse fautive + la correction.
+        bad = self._resp('nope')
+        good = self._resp('{"difficulty":"easy","task_type":"edit","reasoning":"ok"}')
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = [bad, good]
+            mock_openai.return_value = mock_client
+            router = Router()
+            router.classify("x")
+            second_call_messages = mock_client.chat.completions.create.call_args_list[1].kwargs["messages"]
+
+        roles = [m["role"] for m in second_call_messages]
+        assert roles[-2:] == ["assistant", "user"]  # réponse fautive + correction
+        assert "JSON" in second_call_messages[-1]["content"]
+
+    def test_classify_erreur_reseau_pas_de_retry(self):
+        # Erreur transport → fallback immédiat, AUCUN retry de parse.
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = ConnectionError("down")
+            mock_openai.return_value = mock_client
+            router = Router()
+            d = router.classify("x")
+
+        assert "[fallback" in d.reasoning
+        assert mock_client.chat.completions.create.call_count == 1
 
 
 # ── Sérialisation ────────────────────────────────────────────────────────────
