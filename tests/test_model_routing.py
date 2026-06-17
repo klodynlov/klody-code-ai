@@ -38,10 +38,16 @@ class TestSwitchTo:
 # ── Orchestrator._route_model ─────────────────────────────────────────────────
 
 
-def _fake_orch(model: str) -> MagicMock:
-    """Faux orchestrateur minimal : un .llm dont switch_to mute le modèle."""
+def _fake_orch(model: str, *, pinned_model: str | None = None) -> MagicMock:
+    """Faux orchestrateur minimal : un .llm dont switch_to mute le modèle.
+
+    `pinned_model` : None = mode Auto (le routeur bascule) ; une valeur = pin
+    manuel sticky (le routeur ne touche plus). Posé explicitement car un
+    MagicMock auto-créerait un attribut truthy → fausserait la garde du pin.
+    """
     o = MagicMock()
     o.llm.model = model
+    o._pinned_model = pinned_model
 
     def _switch(m, b, k):
         o.llm.model = m
@@ -103,6 +109,37 @@ class TestRouteModel:
         Orchestrator._route_model(o, "feature", force_generalist=True)
         o.llm.switch_to.assert_called_once_with("general-35b", "http://localhost:8080/v1", "mlx")
         assert o._code_model_active is False
+
+
+class TestRouteModelPin:
+    """Pin manuel sticky : un modèle épinglé dans le sélecteur n'est JAMAIS
+    écrasé par le routeur, quel que soit le type de tâche."""
+
+    def test_coder_epingle_reste_coder_sur_tache_non_code(self, monkeypatch):
+        # Épinglé sur le coder + tâche `explain` → on NE revient PAS au brain.
+        _set_models(monkeypatch)
+        o = _fake_orch("coder-30b", pinned_model="coder-30b")
+        Orchestrator._route_model(o, "explain")
+        o.llm.switch_to.assert_not_called()
+        assert o.llm.model == "coder-30b"
+        assert o._code_model_active is True  # coder épinglé → prompt slim
+
+    def test_brain_epingle_reste_brain_sur_tache_code(self, monkeypatch):
+        # Épinglé sur le brain + tâche `feature` → on NE bascule PAS au coder.
+        _set_models(monkeypatch)
+        o = _fake_orch("general-35b", pinned_model="general-35b")
+        Orchestrator._route_model(o, "feature")
+        o.llm.switch_to.assert_not_called()
+        assert o.llm.model == "general-35b"
+        assert o._code_model_active is False  # brain épinglé → pas slim, thinking OK
+
+    def test_pin_prime_sur_force_generalist(self, monkeypatch):
+        # Le pin coupe court AVANT toute autre logique (y compris force_generalist).
+        _set_models(monkeypatch)
+        o = _fake_orch("coder-30b", pinned_model="coder-30b")
+        Orchestrator._route_model(o, "feature", force_generalist=True)
+        o.llm.switch_to.assert_not_called()
+        assert o._code_model_active is True
 
 
 # ── Détection d'un skill interactif (QCM) ─────────────────────────────────────

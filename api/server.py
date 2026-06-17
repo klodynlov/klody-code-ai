@@ -484,8 +484,12 @@ async def websocket_endpoint(ws: WebSocket):
     _metrics.ws_active.inc()
 
     memory = ConversationMemory()
-    # Modèle actif = celui résolu par config selon BACKEND (ollama / mlx).
+    # Modèle de DÉPART du run (mode Auto) = celui résolu par config selon BACKEND.
     current_model = config.LLM_MODEL
+    # Modèle ÉPINGLÉ par un choix manuel du sélecteur. None = mode « Auto » (le
+    # routeur bascule brain↔coder selon la tâche). Une valeur = pin sticky : le
+    # routeur ne l'écrase plus. La valeur sentinelle "auto" côté UI dépingle.
+    pinned_model: str | None = None
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue()
     # Approbations en attente : id → (threading.Event, {"approved": bool}).
@@ -506,7 +510,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.send_json({
             "type": "session_init",
             "session_id": memory.session_id,
-            "model": current_model,
+            "model": pinned_model or "auto",
         })
     except WebSocketDisconnect:  # pragma: no cover - chemin d'erreur réseau
         _metrics.ws_active.dec()
@@ -534,7 +538,7 @@ async def websocket_endpoint(ws: WebSocket):
         await ws.send_json({
             "type": "status",
             "session_id": memory.session_id,
-            "model": current_model,
+            "model": pinned_model or "auto",
             "messages": non_sys,
         })
 
@@ -559,9 +563,16 @@ async def websocket_endpoint(ws: WebSocket):
                 _chat_t0 = _time.monotonic()
                 _chat_status = "ok"
 
-                # Créer l'orchestrateur avec callbacks via queue
+                # Créer l'orchestrateur avec callbacks via queue.
+                # Pin : on DÉMARRE sur le modèle épinglé et on verrouille le routeur.
+                # Auto : on démarre sur current_model, le routeur prend la main.
                 _stop_flag[0] = False
-                orch = _build_streaming_orchestrator(memory, current_model, queue, loop, _stop_flag, pending_approvals, pending_questions)
+                run_model = pinned_model if pinned_model is not None else current_model
+                orch = _build_streaming_orchestrator(
+                    memory, run_model, queue, loop, _stop_flag,
+                    pending_approvals, pending_questions,
+                    pinned=pinned_model is not None,
+                )
 
                 # Liaison explicite des variables de boucle (orch/user_text/memory)
                 # comme arguments par défaut : chaque thread capture les valeurs de
@@ -722,15 +733,18 @@ async def websocket_endpoint(ws: WebSocket):
                 await send_status()
 
             elif msg["type"] == "model_change":
-                current_model = msg["model"]
-                await ws.send_json({"type": "model_changed", "model": current_model})
+                # "auto" (sentinelle) = revenir au routage auto (dépingle). Toute
+                # autre valeur = pin sticky : le routeur ne l'écrasera plus.
+                choice = msg.get("model") or "auto"
+                pinned_model = None if choice == "auto" else choice
+                await ws.send_json({"type": "model_changed", "model": pinned_model or "auto"})
 
             elif msg["type"] == "session_new":
                 memory = ConversationMemory()
                 await ws.send_json({
                     "type": "session_init",
                     "session_id": memory.session_id,
-                    "model": current_model,
+                    "model": pinned_model or "auto",
                 })
 
             elif msg["type"] == "session_load":
@@ -787,10 +801,18 @@ def _build_streaming_orchestrator(
     stop_flag: list[bool] | None = None,
     pending_approvals: dict | None = None,
     pending_questions: dict | None = None,
+    pinned: bool = False,
 ) -> Orchestrator:
-    """Crée un Orchestrator patché pour envoyer des événements dans la queue."""
+    """Crée un Orchestrator patché pour envoyer des événements dans la queue.
+
+    `pinned` : True si `model` est un choix manuel explicite du sélecteur de l'UI
+    (mode « pin »). Le routeur ne l'écrasera pas (cf. Orchestrator._route_model).
+    False = mode « Auto » : `model` n'est que le point de départ, le routeur
+    bascule brain↔coder selon la tâche.
+    """
     orch = Orchestrator(memory)
     orch.llm.model = model
+    orch._pinned_model = model if pinned else None
 
     def _put(event: dict) -> None:
         asyncio.run_coroutine_threadsafe(queue.put(event), loop)
