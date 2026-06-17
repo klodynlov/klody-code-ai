@@ -501,6 +501,10 @@ class Orchestrator:
         self._router_enabled = ROUTER_ENABLED
         self._router = None  # lazy
         self.last_routing = None  # dernière décision, pour debug et étapes futures
+        # Modèle ÉPINGLÉ par un choix manuel explicite dans le sélecteur de l'UI.
+        # None = mode « Auto » (le routeur bascule brain↔coder selon la tâche, défaut).
+        # Posé par l'API (_build_streaming_orchestrator) ; toujours None en CLI.
+        self._pinned_model = None
         # Hook optionnel (None en CLI) : permet aux outils bloquants comme
         # await_distillation d'observer une demande d'arrêt côté API.
         self._stop_check: Callable[[], bool] | None = None
@@ -580,8 +584,17 @@ class Orchestrator:
         No-op si aucun modèle code n'est configuré (CODE_MODEL vide), ou si le
         client est sur un modèle qui n'est NI le généraliste NI le code — i.e.
         un choix manuel dans le sélecteur de l'UI, qu'on ne doit pas écraser.
+
+        Pin manuel (`_pinned_model`) : si l'utilisateur a explicitement épinglé un
+        modèle dans le sélecteur, le routeur ne bascule JAMAIS — son choix prime.
+        On aligne seulement `_code_model_active` sur le modèle épinglé (coder →
+        prompt slim + pas de thinking, exactement comme en routage auto) pour un
+        comportement identique quel que soit le chemin d'accès au coder.
         """
         self._code_model_active = False
+        if self._pinned_model:
+            self._code_model_active = bool(CODE_MODEL) and self._pinned_model == CODE_MODEL
+            return
         if not CODE_MODEL:
             return
         if self.llm.model not in (LLM_MODEL, CODE_MODEL):
