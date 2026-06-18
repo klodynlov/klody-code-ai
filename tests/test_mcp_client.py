@@ -244,3 +244,81 @@ class TestSearchBooks:
                     result = search_books("query")
 
         assert "timeout" in result.lower()
+
+
+# ── catalog_lookup ───────────────────────────────────────────────────────────
+
+class TestCatalogLookup:
+    """DB SQLite réelle (books + books_fts) pour valider le lookup non gaté."""
+
+    @pytest.fixture
+    def db(self, tmp_path, monkeypatch):
+        import sqlite3
+        path = tmp_path / "library_brain.db"
+        con = sqlite3.connect(path)
+        con.executescript(
+            """
+            CREATE TABLE books (
+                id INTEGER PRIMARY KEY, title TEXT, author TEXT, year INTEGER,
+                page_count INTEGER, format TEXT, indexed_at TEXT
+            );
+            CREATE VIRTUAL TABLE books_fts USING fts5(
+                title, author, content='books', content_rowid='id'
+            );
+            """
+        )
+        con.execute(
+            "INSERT INTO books VALUES (?,?,?,?,?,?,?)",
+            (1, "Animation Craft For 3D and 2D Animators", "Jonathan Annand",
+             None, 345, "pdf", "2026-06-18T11:09:26"),
+        )
+        con.execute(
+            "INSERT INTO books VALUES (?,?,?,?,?,?,?)",
+            (2, "Clean Code", "Robert Martin", 2008, 464, "epub", "2026-01-02T00:00:00"),
+        )
+        con.execute("INSERT INTO books_fts(books_fts) VALUES ('rebuild')")
+        con.commit()
+        con.close()
+        monkeypatch.setattr("tools.mcp_client.LIBRARY_DB_PATH", path)
+        return path
+
+    def test_trouve_livre_par_titre(self, db):
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("animation craft")
+        assert "Animation Craft" in result
+        assert "Jonathan Annand" in result
+        assert "indexé le 2026-06-18" in result
+
+    def test_trouve_livre_par_auteur(self, db):
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("Robert Martin")
+        assert "Clean Code" in result
+
+    def test_livre_absent_dit_pas_indexe(self, db):
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("Seigneur des Anneaux Tolkien")
+        assert "pas indexé" in result
+        assert "2 livres" in result  # total du catalogue
+
+    def test_db_absente_message_lisible(self, tmp_path, monkeypatch):
+        from tools.mcp_client import catalog_lookup
+        monkeypatch.setattr("tools.mcp_client.LIBRARY_DB_PATH", tmp_path / "ghost.db")
+        result = catalog_lookup("anything")
+        assert "introuvable" in result
+
+    def test_match_partiel_signale_approchant(self, db):
+        # « clean » matche Clean Code, « tolkien » non → OR → approchant, pas exact
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("clean tolkien")
+        assert "approchant" in result.lower()
+        assert "Clean Code" in result
+
+    def test_requete_vide(self, db):
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("!!! ?")
+        assert "vide" in result.lower()
+
+    def test_que_des_mots_vides_dit_vide(self, db):
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("as-tu le livre")
+        assert "vide" in result.lower()

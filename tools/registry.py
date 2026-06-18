@@ -427,6 +427,38 @@ MCP_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "library_catalog",
+            "description": (
+                "Cherche un livre AU CATALOGUE LibraryBrain par TITRE ou AUTEUR "
+                "(métadonnée, instantané). Réponds avec ça pour savoir si un livre "
+                "est INDEXÉ : « as-tu le livre X ? », « est-ce que X est indexé ? », "
+                "« quels livres de tel auteur / sur tel titre ? ». Retourne titre, "
+                "auteur, année, pages, date d'indexation. "
+                "NE PASSE PAS par le RAG gaté — à l'inverse de search_books qui "
+                "interroge le CONTENU et peut répondre « aucun résultat » pour une "
+                "question par titre alors que le livre est bien au catalogue. "
+                "Pour interroger le CONTENU d'un livre, utilise search_books."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Titre, auteur ou mots-clés du titre à retrouver",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Nombre max de livres à retourner (1-10, défaut: 5)",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_skills",
             "description": (
                 "Récupère les conventions et patterns techniques d'un domaine spécifique. "
