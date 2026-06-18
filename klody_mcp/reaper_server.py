@@ -281,6 +281,29 @@ async def insert_midi_note(
 
 
 @mcp.tool()
+async def insert_midi_notes(track_index: int, notes: list[dict]) -> dict:
+    """Insère une mélodie entière (plusieurs notes) dans UN SEUL item MIDI sur la piste.
+
+    À préférer à `insert_midi_note` appelé en boucle : celui-ci crée un item par
+    note (mélodie = N items qui se chevauchent), alors qu'`insert_midi_notes` pose
+    toute la mélodie dans un seul item propre. L'item couvre [début de la 1re note,
+    fin de la dernière]. Sans sauvegarde.
+
+    `notes` est exactement la forme des `events` renvoyés par
+    mcp__klodymusic__melodie_vers_midi : enchaîne donc directement les deux outils.
+
+    Args:
+        track_index: piste cible (0-based).
+        notes: liste de notes, chacune {pitch: 0-127, start: sec, length: sec,
+            velocity?: 1-127 (défaut 96), channel?: 0-15 (défaut 0)}.
+
+    Returns:
+        {"track_index", "note_count", "item_start", "item_end"} ou {"error": "..."}.
+    """
+    return await _bridge_call("insert_midi_notes", {"track_index": track_index, "notes": notes})
+
+
+@mcp.tool()
 async def list_midi_notes(track_index: int, item_index: int = 0) -> dict:
     """Liste les notes MIDI d'un item (pitch, start, length, velocity, channel).
 
