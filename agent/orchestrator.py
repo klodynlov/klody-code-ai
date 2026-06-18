@@ -55,6 +55,7 @@ from tools.github_reader import (
 from tools.library_distiller import distill_theme
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import (
+    catalog_lookup as mcp_catalog,
     get_skills as mcp_get_skills,
     learn_from_books as mcp_learn,
     search_books as mcp_search_books,
@@ -1264,6 +1265,7 @@ class Orchestrator:
             "list_imports": lambda a: list_imports(),
             # LibraryBrain (MCP interne)
             "search_books": lambda a: mcp_search_books(a["query"], a.get("limit", 3)),
+            "library_catalog": lambda a: mcp_catalog(a["query"], a.get("limit", 5)),
             "get_skills": lambda a: mcp_get_skills(a["domain"]),
             "learn_from_books": lambda a: mcp_learn(a["topic"], a.get("skill_name", "")),
             "distill_theme": lambda a: distill_theme(
@@ -1578,6 +1580,15 @@ class Orchestrator:
         elif tool_name == "search_in_files":
             pattern = tool_args.get("pattern", "")
             console.print(_format_search_results(result, pattern))
+
+        elif tool_name == "library_catalog":
+            query = tool_args.get("query", "")
+            miss = result.startswith(("Aucun", "Catalogue", "Erreur", "Requête"))
+            console.print(Panel(
+                f"[{'yellow' if miss else 'cyan'}]{result}[/]",
+                title=f"[magenta]📖 catalogue: {query[:50]}[/magenta]",
+                border_style="yellow" if miss else "magenta",
+            ))
 
         elif tool_name == "search_books":
             query = tool_args.get("query", "")
