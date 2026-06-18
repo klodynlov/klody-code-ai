@@ -46,16 +46,15 @@ BRIDGE_TIMEOUT = float(os.getenv("REAPER_BRIDGE_TIMEOUT", "5"))
 mcp = FastMCP("REAPER")
 
 _UNREACHABLE = (
-    "pont REAPER injoignable (%s:%d) — vérifie que (1) REAPER est lancé et "
+    f"pont REAPER injoignable ({BRIDGE_HOST}:{BRIDGE_PORT}) — vérifie que (1) REAPER est lancé et "
     "(2) le script reaper_bridge/klody_reaper_bridge.py est chargé et actif "
-    "(Actions > Load ReaScript puis lancer l'action)." % (BRIDGE_HOST, BRIDGE_PORT)
+    "(Actions > Load ReaScript puis lancer l'action)."
 )
 # Diagnostic DISTINCT : socket accepté mais pas de réponse complète. NE PAS dire
 # « REAPER injoignable » (faux) — c'est plutôt une boucle defer arrêtée / REAPER figé.
 _NO_REPLY = (
-    "pont REAPER joignable (%s:%d) mais pas de réponse complète avant %ss — "
-    "boucle defer du script pont arrêtée ou REAPER figé ? Relance l'action du pont."
-    % (BRIDGE_HOST, BRIDGE_PORT, BRIDGE_TIMEOUT)
+    f"pont REAPER joignable ({BRIDGE_HOST}:{BRIDGE_PORT}) mais pas de réponse complète avant "
+    f"{BRIDGE_TIMEOUT}s — boucle defer du script pont arrêtée ou REAPER figé ? Relance l'action du pont."
 )
 
 
@@ -83,10 +82,10 @@ def _bridge_call_sync(cmd: str, args: dict | None = None) -> dict:
                 buf.extend(chunk)
     except (ConnectionRefusedError, FileNotFoundError):
         return {"error": _UNREACHABLE}  # rien n'écoute → REAPER/pont down
-    except socket.timeout:
+    except TimeoutError:
         return {"error": _NO_REPLY}  # connecté mais muet → pas un faux « down »
     except OSError as exc:
-        return {"error": "erreur socket pont REAPER (%s:%d): %s" % (BRIDGE_HOST, BRIDGE_PORT, exc)}
+        return {"error": f"erreur socket pont REAPER ({BRIDGE_HOST}:{BRIDGE_PORT}): {exc}"}
 
     if b"\n" not in buf:  # connexion fermée sur réponse partielle/vide
         return {"error": _NO_REPLY if buf else "réponse vide du pont REAPER"}
@@ -94,7 +93,7 @@ def _bridge_call_sync(cmd: str, args: dict | None = None) -> dict:
     try:
         resp = json.loads(line)
     except (ValueError, TypeError) as exc:
-        return {"error": "réponse illisible du pont REAPER: %s" % exc}
+        return {"error": f"réponse illisible du pont REAPER: {exc}"}
 
     if not resp.get("ok"):
         return {"error": resp.get("error", "erreur côté pont REAPER")}
