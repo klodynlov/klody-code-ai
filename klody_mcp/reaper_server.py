@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
 BRIDGE_HOST = os.getenv("REAPER_BRIDGE_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.getenv("REAPER_BRIDGE_PORT", "9000"))
 BRIDGE_TIMEOUT = float(os.getenv("REAPER_BRIDGE_TIMEOUT", "5"))
-ENABLE_SKELETON = os.getenv("REAPER_ENABLE_SKELETON", "0") == "1"
 
 mcp = FastMCP("REAPER")
 
@@ -239,57 +238,93 @@ async def transport_stop() -> dict:
 
 
 # ---------------------------------------------------------------------------- #
-# PHASE 3c — squelette des outils LOURDS restants. NON enregistré par défaut.   #
-#                                                                              #
-# Activation : REAPER_ENABLE_SKELETON=1. Effets de bord risqués (écrit audio /  #
-# disque) ou complexes (MIDI ppq) -> laissés en TODO explicite, à implémenter   #
-# avec une intention utilisateur claire. JAMAIS de sauvegarde implicite.        #
+# PHASE 3c — outils LOURDS, désormais LIVE. Effets de bord risqués :            #
+# transport_record écrit de l'audio ; render_* écrivent un fichier sur disque   #
+# (out_path REQUIS = intention explicite). Aucun ne sauvegarde le projet .rpp.  #
 # ---------------------------------------------------------------------------- #
 
-_TODO = {"error": "outil non encore activé (squelette Phase 3c) — ce n'est pas un échec d'exécution, ne pas réessayer"}
+
+@mcp.tool()
+async def transport_record() -> dict:
+    """Démarre l'enregistrement sur les pistes armées.
+
+    ⚠️ RISQUÉ : écrit de l'audio. À n'appeler que sur intention explicite de
+    l'utilisateur. `transport_stop` arrête. Returns {"recording": true}.
+    """
+    return await _bridge_call("transport_record")
 
 
-def _register_skeleton() -> None:
-    # ----- Transport risqué ------------------------------------------------- #
-    @mcp.tool()
-    async def transport_record() -> dict:
-        """Démarre l'enregistrement. Effet de bord RISQUÉ (écrit de l'audio).
-        TODO: RPR_OnRecordButton. Exiger une intention explicite."""
-        return _TODO
+@mcp.tool()
+async def insert_midi_note(
+    track_index: int,
+    pitch: int,
+    start: float,
+    length: float,
+    velocity: int = 96,
+    channel: int = 0,
+) -> dict:
+    """Insère une note MIDI dans un nouvel item MIDI sur la piste `track_index`.
 
-    # ----- MIDI ------------------------------------------------------------- #
-    @mcp.tool()
-    async def insert_midi_note(
-        track_index: int, pitch: int, start: float, length: float, velocity: int = 96
-    ) -> dict:
-        """Insère une note MIDI sur la piste `track_index`. Effet de bord.
-        Crée un item MIDI si besoin. TODO: RPR_CreateNewMIDIItemInProj +
-        RPR_MIDI_InsertNote (temps→ppq via RPR_MIDI_GetPPQPosFromProjTime)."""
-        return _TODO
+    Chaque appel crée son propre item [start, start+length]. Sans sauvegarde.
 
-    @mcp.tool()
-    async def list_midi_notes(track_index: int, item_index: int = 0) -> dict:
-        """Liste les notes MIDI d'un item (pitch, start, length, vel). Lecture pure.
-        TODO: RPR_MIDI_CountEvts + RPR_MIDI_GetNote en boucle."""
-        return _TODO
-
-    # ----- Rendu ------------------------------------------------------------ #
-    @mcp.tool()
-    async def render_region(region_index: int, out_path: str = "") -> dict:
-        """Rend une région en fichier audio. Effet de bord (écrit sur disque).
-        TODO: configurer RENDER_* via RPR_GetSetProjectInfo* puis
-        RPR_Main_OnCommand(render). NE PAS sauvegarder le .rpp."""
-        return _TODO
-
-    @mcp.tool()
-    async def render_project(out_path: str = "") -> dict:
-        """Rend le projet entier (master) en fichier audio. Effet de bord lourd.
-        TODO: idem render_region, bornes = projet entier."""
-        return _TODO
+    Args:
+        track_index: piste cible (0-based).
+        pitch: note MIDI 0-127 (60 = Do central).
+        start: début en secondes (temps projet).
+        length: durée en secondes.
+        velocity: vélocité 1-127 (défaut 96).
+        channel: canal MIDI 0-15 (défaut 0).
+    """
+    return await _bridge_call("insert_midi_note", {
+        "track_index": track_index, "pitch": pitch, "start": start,
+        "length": length, "velocity": velocity, "channel": channel,
+    })
 
 
-if ENABLE_SKELETON:
-    _register_skeleton()
+@mcp.tool()
+async def list_midi_notes(track_index: int, item_index: int = 0) -> dict:
+    """Liste les notes MIDI d'un item (pitch, start, length, velocity, channel).
+
+    Lecture pure.
+
+    Args:
+        track_index: piste (0-based).
+        item_index: item MIDI de la piste (0-based, défaut 0).
+
+    Returns:
+        {"note_count": <int>, "notes": [{"index","pitch","start","length","velocity","channel","muted"}, ...]}.
+    """
+    return await _bridge_call("list_midi_notes", {"track_index": track_index, "item_index": item_index})
+
+
+@mcp.tool()
+async def render_region(region_index: int, out_path: str) -> dict:
+    """Rend une région du projet en fichier audio (écrit sur disque).
+
+    `out_path` est OBLIGATOIRE (chemin complet du fichier). Utilise les derniers
+    réglages de format de REAPER. Ne sauvegarde JAMAIS le projet .rpp.
+
+    Args:
+        region_index: index de la région (0-based, ordre du projet).
+        out_path: chemin complet du fichier de sortie (ex. /tmp/region0.wav).
+
+    Returns:
+        {"region_index","out_path","start","end","rendered": <bool>} ou {"error"}.
+    """
+    return await _bridge_call("render_region", {"region_index": region_index, "out_path": out_path})
+
+
+@mcp.tool()
+async def render_project(out_path: str) -> dict:
+    """Rend le projet entier (master) en fichier audio (écrit sur disque).
+
+    `out_path` est OBLIGATOIRE. Derniers réglages de format REAPER. Ne sauvegarde
+    JAMAIS le projet .rpp.
+
+    Returns:
+        {"out_path", "rendered": <bool>} ou {"error"}.
+    """
+    return await _bridge_call("render_project", {"out_path": out_path})
 
 
 # ---------------------------------------------------------------------------- #

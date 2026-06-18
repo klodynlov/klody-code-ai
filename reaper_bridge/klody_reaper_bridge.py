@@ -36,8 +36,10 @@ Securite : lecture seule pour l'instant. AUCUN appel qui modifie ou sauvegarde l
 projet (pas de RPR_Main_SaveProject).
 """
 
+import glob
 import json
 import math
+import os
 import select
 import socket
 import traceback
@@ -260,6 +262,147 @@ def _cmd_transport_stop(args):
     return {"playing": False}
 
 
+# -- Helpers Phase 3c (MIDI / render) ----------------------------------------
+
+
+def _take_is_null(t):
+    return (not t) or (isinstance(t, str) and "0x0000000000000000" in t)
+
+
+def _project_regions():
+    """Liste ordonnee des regions du projet : [(pos, end), ...]."""
+    total = int(RPR_CountProjectMarkers(0, 0, 0)[0])  # noqa: F821  (markers+regions)
+    out = []
+    for i in range(total):
+        res = RPR_EnumProjectMarkers(i, 0, 0.0, 0.0, "", 0)  # noqa: F821
+        if res[2]:  # isrgn
+            out.append((res[3], res[4]))
+    return out
+
+
+def _check_out_path(args):
+    """Valide out_path (requis + dossier parent existant). Renvoie le chemin."""
+    out = (args.get("out_path") or "").strip()
+    if not out:
+        raise ValueError("out_path requis (chemin complet du fichier de sortie)")
+    parent = os.path.dirname(out) or "."
+    if not os.path.isdir(parent):
+        raise ValueError("dossier de sortie inexistant: %s" % parent)
+    return out
+
+
+def _render_to(out_path, bounds_flag):
+    """Configure bornes + sortie, rend (sans dialogue), renvoie les fichiers ecrits.
+
+    REAPER traite RENDER_FILE comme un DOSSIER et RENDER_PATTERN comme le nom (sans
+    extension, ajoutee selon le format actif). On scinde donc out_path -> dir+stem.
+    """
+    d = os.path.dirname(out_path) or "."
+    stem = os.path.splitext(os.path.basename(out_path))[0]
+    RPR_GetSetProjectInfo_String(0, "RENDER_FILE", d, True)  # noqa: F821  (dossier)
+    RPR_GetSetProjectInfo_String(0, "RENDER_PATTERN", stem, True)  # noqa: F821  (nom)
+    RPR_GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", float(bounds_flag), True)  # noqa: F821
+    # 41824 = "Render using most recent settings" -> ecrit direct sur disque, SANS
+    # dialogue (42230 ouvre le modal "Render to File" -> figerait REAPER).
+    RPR_Main_OnCommand(41824, 0)  # noqa: F821
+    # Fichier reel = dir/stem.<ext-du-format> ; on le retrouve par glob.
+    matches = sorted(glob.glob(os.path.join(d, glob.escape(stem) + ".*")))
+    return matches
+
+
+# -- Handlers Phase 3c --------------------------------------------------------
+
+
+def _cmd_transport_record(args):
+    """Demarre l'enregistrement. RISQUE : ecrit de l'audio sur les pistes armees."""
+    RPR_CSurf_OnRecord()  # noqa: F821
+    return {"recording": True}
+
+
+def _cmd_insert_midi_note(args):
+    """Insere une note MIDI dans un NOUVEL item MIDI sur la piste. Sans save.
+
+    args: track_index, pitch(0-127), start(sec), length(sec), velocity(1-127),
+    channel(0-15). Chaque appel cree son propre item [start, start+length].
+    """
+    ti = int(args.get("track_index"))
+    tr, _ = _track_at(ti)
+    pitch = max(0, min(127, int(args.get("pitch", 60))))
+    start = float(args.get("start", 0.0))
+    length = max(0.001, float(args.get("length", 0.5)))
+    vel = max(1, min(127, int(args.get("velocity", 96))))
+    chan = max(0, min(15, int(args.get("channel", 0))))
+    end = start + length
+    item = RPR_CreateNewMIDIItemInProj(tr, start, end, 0)[0]  # noqa: F821  (0=temps, pas QN)
+    take = RPR_GetActiveTake(item)  # noqa: F821
+    if _take_is_null(take):
+        raise RuntimeError("impossible de creer l'item MIDI")
+    sppq = RPR_MIDI_GetPPQPosFromProjTime(take, start)  # noqa: F821
+    eppq = RPR_MIDI_GetPPQPosFromProjTime(take, end)  # noqa: F821
+    RPR_MIDI_InsertNote(take, False, False, sppq, eppq, chan, pitch, vel, False)  # noqa: F821
+    RPR_MIDI_Sort(take)  # noqa: F821
+    _refresh()
+    return {"track_index": ti, "pitch": pitch, "start": start, "length": length,
+            "velocity": vel, "channel": chan}
+
+
+def _cmd_list_midi_notes(args):
+    """Liste les notes MIDI d'un item (lecture pure).
+
+    args: track_index, item_index (defaut 0). Renvoie pitch/start/length/vel/chan.
+    """
+    ti = int(args.get("track_index"))
+    tr, _ = _track_at(ti)
+    item_index = int(args.get("item_index", 0))
+    n_items = int(RPR_CountTrackMediaItems(tr))  # noqa: F821
+    if n_items == 0:
+        return {"track_index": ti, "item_index": item_index, "note_count": 0, "notes": []}
+    if item_index < 0 or item_index >= n_items:
+        raise IndexError("item_index %d hors borne (0..%d)" % (item_index, n_items - 1))
+    item = RPR_GetTrackMediaItem(tr, item_index)  # noqa: F821
+    take = RPR_GetActiveTake(item)  # noqa: F821
+    if _take_is_null(take):
+        return {"track_index": ti, "item_index": item_index, "note_count": 0, "notes": []}
+    notecnt = int(RPR_MIDI_CountEvts(take, 0, 0, 0)[2])  # noqa: F821
+    notes = []
+    for i in range(notecnt):
+        nd = RPR_MIDI_GetNote(take, i, 0, 0, 0, 0, 0, 0, 0)  # noqa: F821
+        # (r, take, idx, selected, muted, startppq, endppq, chan, pitch, vel)
+        st = RPR_MIDI_GetProjTimeFromPPQPos(take, nd[5])  # noqa: F821
+        en = RPR_MIDI_GetProjTimeFromPPQPos(take, nd[6])  # noqa: F821
+        notes.append({"index": i, "pitch": nd[8], "start": round(st, 4),
+                      "length": round(en - st, 4), "velocity": nd[9],
+                      "channel": nd[7], "muted": bool(nd[4])})
+    return {"track_index": ti, "item_index": item_index, "note_count": notecnt, "notes": notes}
+
+
+def _cmd_render_region(args):
+    """Rend une region en fichier audio (ecrit sur disque). out_path REQUIS.
+
+    Utilise les derniers reglages de format REAPER ; ne sauvegarde PAS le .rpp.
+    """
+    out = _check_out_path(args)
+    ri = int(args.get("region_index", 0))
+    regions = _project_regions()
+    if ri < 0 or ri >= len(regions):
+        raise IndexError("region_index %d hors borne (%d region(s) dans le projet)" % (ri, len(regions)))
+    pos, end = regions[ri]
+    RPR_GetSet_LoopTimeRange(True, False, pos, end, False)  # noqa: F821  (selection = region)
+    files = _render_to(out, 2)  # 2 = time selection ; rend (41824, sans dialogue)
+    return {"region_index": ri, "start": round(pos, 4), "end": round(end, 4),
+            "rendered": bool(files), "output_files": files}
+
+
+def _cmd_render_project(args):
+    """Rend le projet entier en fichier audio (ecrit sur disque). out_path REQUIS.
+
+    Derniers reglages de format REAPER ; ne sauvegarde PAS le .rpp.
+    """
+    out = _check_out_path(args)
+    files = _render_to(out, 1)  # 1 = projet entier ; rend (41824, sans dialogue)
+    return {"rendered": bool(files), "output_files": files}
+
+
 # Table de dispatch. PHASE 2 = uniquement ping + get_track_count.
 # PHASE 3 (effets de bord lourds) : ajouter ici en regard des outils MCP, mais
 # TOUJOURS sans sauvegarde implicite du projet. TODO cibles cote serveur MCP.
@@ -277,6 +420,11 @@ _DISPATCH = {
     "set_track_solo": _cmd_set_track_solo,
     "transport_play": _cmd_transport_play,
     "transport_stop": _cmd_transport_stop,
+    "transport_record": _cmd_transport_record,
+    "insert_midi_note": _cmd_insert_midi_note,
+    "list_midi_notes": _cmd_list_midi_notes,
+    "render_region": _cmd_render_region,
+    "render_project": _cmd_render_project,
 }
 
 

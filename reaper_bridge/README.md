@@ -171,13 +171,14 @@ Vérif sans réseau :
 
 ## Outils exposés
 
-**12 outils LIVE** (implémentés + testés) :
+**17 outils LIVE** (implémentés + testés live sur REAPER 7.74) :
 
 | Outil | Type | Effet |
 |---|---|---|
 | `get_track_count` | lecture | nombre de pistes |
 | `list_tracks` | lecture | index, nom, volume_db, pan, mute, solo |
 | `get_play_position` | lecture | position lecture + curseur + play/rec/pause |
+| `list_midi_notes` | lecture | notes d'un item MIDI (pitch/start/length/vel/chan) |
 | `add_track` | écriture | insère une piste (nom + index optionnels) |
 | `rename_track` | écriture | renomme la piste `index` |
 | `delete_track` | écriture | supprime la piste `index` (annulable Cmd-Z) |
@@ -185,17 +186,22 @@ Vérif sans réseau :
 | `set_track_pan` | écriture | pan [-1..1] |
 | `set_track_mute` | écriture | mute/unmute |
 | `set_track_solo` | écriture | solo/unsolo |
+| `insert_midi_note` | écriture | note MIDI dans un nouvel item (pitch/start/length/vel/chan) |
 | `transport_play` | écriture | lance la lecture |
 | `transport_stop` | écriture | arrête lecture/enregistrement |
+| `transport_record` | écriture ⚠️ | démarre l'enregistrement (écrit de l'audio) |
+| `render_region` | disque ⚠️ | rend une région en fichier (`out_path` requis) |
+| `render_project` | disque ⚠️ | rend le projet entier en fichier (`out_path` requis) |
 
 Aucune n'appelle `RPR_Main_SaveProject` : le projet est modifié en mémoire mais
 **jamais sauvegardé** automatiquement.
 
-**Squelette restant** (gaté `REAPER_ENABLE_SKELETON=1`, effets lourds/risqués) :
-`transport_record`, `insert_midi_note`, `list_midi_notes`, `render_region`,
-`render_project`. Ajouter un outil = handler dans `_DISPATCH` côté pont +
-`@mcp.tool()` côté serveur (calquer un outil live), puis recharger le pont +
-redémarrer le serveur MCP + le backend.
+**Notes rendu** : `render_*` utilisent les **derniers réglages de format** de
+REAPER (WAV par défaut) via l'action `41824` (rendu direct, sans dialogue — pas
+`42230` qui ouvre un modal). `out_path` est scindé en dossier + nom ; le fichier
+réel (avec l'extension du format actif) est renvoyé dans `output_files`.
+`transport_record`/`render_*` sont des effets de bord lourds : à n'appeler que
+sur intention explicite.
 
 ## Démarrage automatique du pont (optionnel)
 
