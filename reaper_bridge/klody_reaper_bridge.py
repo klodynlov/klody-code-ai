@@ -347,6 +347,50 @@ def _cmd_insert_midi_note(args):
             "velocity": vel, "channel": chan}
 
 
+def _cmd_insert_midi_notes(args):
+    """Insere PLUSIEURS notes MIDI dans UN SEUL item sur la piste. Sans save.
+
+    args: track_index, notes = [{pitch, start, length, velocity?, channel?}, ...]
+    -- forme exacte des `events` de klody_music_server.melodie_vers_midi. L'item
+    couvre [min(start), max(start+length)] : une melodie = UN item (pas N items
+    comme insert_midi_note appele en boucle). noSort=True a chaque insert puis un
+    seul MIDI_Sort a la fin (insertion par lot correcte + moins de tri).
+    """
+    ti = int(args.get("track_index"))
+    tr, _ = _track_at(ti)
+    notes = args.get("notes")
+    if not isinstance(notes, list) or not notes:
+        raise ValueError("notes doit etre une liste non vide de {pitch,start,length,...}")
+    norm = []
+    item_start = None
+    item_end = None
+    for n in notes:
+        if not isinstance(n, dict):
+            raise ValueError("chaque note doit etre un objet {pitch,start,length,...}")
+        pitch = max(0, min(127, int(n.get("pitch", 60))))
+        start = float(n.get("start", 0.0))
+        length = max(0.001, float(n.get("length", 0.5)))
+        vel = max(1, min(127, int(n.get("velocity", 96))))
+        chan = max(0, min(15, int(n.get("channel", 0))))
+        end = start + length
+        norm.append((start, end, chan, pitch, vel))
+        item_start = start if item_start is None else min(item_start, start)
+        item_end = end if item_end is None else max(item_end, end)
+    item = RPR_CreateNewMIDIItemInProj(tr, item_start, item_end, 0)[0]  # noqa: F821  (0=temps)
+    take = RPR_GetActiveTake(item)  # noqa: F821
+    if _take_is_null(take):
+        raise RuntimeError("impossible de creer l'item MIDI")
+    for (start, end, chan, pitch, vel) in norm:
+        sppq = RPR_MIDI_GetPPQPosFromProjTime(take, start)  # noqa: F821
+        eppq = RPR_MIDI_GetPPQPosFromProjTime(take, end)  # noqa: F821
+        # noSort=True : on differe le tri jusqu'au MIDI_Sort final (insertion par lot).
+        RPR_MIDI_InsertNote(take, False, False, sppq, eppq, chan, pitch, vel, True)  # noqa: F821
+    RPR_MIDI_Sort(take)  # noqa: F821
+    _refresh()
+    return {"track_index": ti, "note_count": len(norm),
+            "item_start": round(item_start, 4), "item_end": round(item_end, 4)}
+
+
 def _cmd_list_midi_notes(args):
     """Liste les notes MIDI d'un item (lecture pure).
 
@@ -423,6 +467,7 @@ _DISPATCH = {
     "transport_stop": _cmd_transport_stop,
     "transport_record": _cmd_transport_record,
     "insert_midi_note": _cmd_insert_midi_note,
+    "insert_midi_notes": _cmd_insert_midi_notes,
     "list_midi_notes": _cmd_list_midi_notes,
     "render_region": _cmd_render_region,
     "render_project": _cmd_render_project,
