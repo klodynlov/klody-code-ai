@@ -36,6 +36,7 @@ Securite : lecture seule pour l'instant. AUCUN appel qui modifie ou sauvegarde l
 projet (pas de RPR_Main_SaveProject).
 """
 
+import contextlib
 import glob
 import json
 import math
@@ -449,10 +450,9 @@ def _send(conn, obj):
     # INVARIANT protocole : 1 reponse = 1 ligne. json.dumps echappe deja tout
     # '\n' interne aux chaines en `\n` (2 caracteres) -> la serialisation ne
     # contient jamais de saut de ligne litteral, meme pour un traceback Phase 3.
-    try:
+    # Best-effort : si le client a deja ferme, rien a faire (envoi perdu, attendu).
+    with contextlib.suppress(OSError):
         conn.sendall((json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8"))
-    except OSError:
-        pass
 
 
 def _drain_client(fileno):
@@ -481,10 +481,9 @@ def _drain_client(fileno):
 def _close_client(fileno):
     pair = _clients.pop(fileno, None)
     if pair:
-        try:
+        # Best-effort : fermer un socket deja mort peut lever, sans consequence.
+        with contextlib.suppress(OSError):
             pair[0].close()
-        except OSError:
-            pass
 
 
 def _prune_dead_clients():
@@ -508,12 +507,11 @@ def _tick():
         return
     for s in readable:
         if s is _server_sock:
-            try:
+            # Best-effort : un accept rate (client parti avant) -> on saute ce cycle.
+            with contextlib.suppress(OSError):
                 conn, _ = _server_sock.accept()
                 conn.setblocking(False)
                 _clients[conn.fileno()] = [conn, bytearray()]
-            except OSError:
-                pass
         else:
             _drain_client(s.fileno())
 
@@ -560,10 +558,9 @@ def _stop():
     for fileno in list(_clients):
         _close_client(fileno)
     if _server_sock is not None:
-        try:
+        # Best-effort : libere le port meme si close() rale sur un sock deja KO.
+        with contextlib.suppress(OSError):
             _server_sock.close()
-        except OSError:
-            pass
     _log("pont arrete.")
 
 
