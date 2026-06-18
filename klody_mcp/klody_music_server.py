@@ -193,8 +193,13 @@ def evaluer_tessiture(chemin_audio: str) -> dict:
     approximatif. Donne le meilleur résultat sur une voix nue ; un mix complet
     (avec instruments) fausse la détection.
 
+    PIPELINE CHANSON : passe le STEM de voix (`…/stems/vocals.wav` renvoyé par
+    resultat_generation de VocalBrain), PAS `final_mix.wav` — la détection f0 est
+    monophonique et le mix complet la dégrade.
+
     Args:
         chemin_audio: Chemin du fichier audio (wav/mp3/flac…), absolu ou ~.
+            De préférence un stem de voix isolée (cf. note pipeline ci-dessus).
 
     Returns:
         {"note_grave", "note_aigue", "note_centrale", "hz_grave", "hz_aigu",
@@ -443,6 +448,101 @@ def _suggerer_accords(ton: str, style: str = "tous") -> dict:
 
 
 # ---------------------------------------------------------------------------- #
+# Pont analyse → DAW : mélodie symbolique -> événements MIDI (cœur pur)          #
+# ---------------------------------------------------------------------------- #
+
+
+def _ajuster_octave(pitch: int, lo, hi) -> int:
+    """Replie `pitch` dans [lo, hi] par sauts d'octave (12 demi-tons).
+
+    Plage plus étroite qu'une octave où la note ne rentre pas : on clampe à la
+    borne grave (la voix ne descend pas sous sa note la plus basse).
+    """
+    if lo is not None:
+        while pitch < lo:
+            pitch += 12
+    if hi is not None:
+        while pitch > hi:
+            pitch -= 12
+    if lo is not None:
+        pitch = max(lo, pitch)
+    return pitch
+
+
+def _melodie_vers_midi(
+    notes,
+    duree_note: float = 0.5,
+    durees=None,
+    debut: float = 0.0,
+    note_grave: str = "",
+    note_aigue: str = "",
+    velocity: int = 96,
+) -> dict:
+    """Convertit une mélodie symbolique (noms de notes + rythme) en événements MIDI.
+
+    Pont DÉTERMINISTE analyse→DAW : fait la conversion nom→entier MIDI, replie les
+    notes hors tessiture dans la plage par octaves, et calcule les temps de début
+    cumulés. But : que le pitch entier et le timing passés à REAPER soient
+    PRODUITS par un outil, pas inventés par le LLM (maillon le plus faible du
+    pipeline chanson).
+    """
+    try:
+        m21 = _import_music21()
+    except ImportError as exc:
+        return {"error": str(exc)}
+    if not notes or not isinstance(notes, (list, tuple)):
+        return {"error": "notes doit être une liste non vide de noms de notes (ex: ['E3','G3','B3'])."}
+    try:
+        # Rythme : liste explicite (1 valeur/note) sinon durée uniforme.
+        if durees is not None:
+            if len(durees) != len(notes):
+                return {"error": f"durees ({len(durees)}) doit avoir autant d'éléments que notes ({len(notes)})."}
+            longueurs = [max(0.01, float(d)) for d in durees]
+        else:
+            longueurs = [max(0.01, float(duree_note))] * len(notes)
+
+        # Bornes de tessiture optionnelles (typiquement la sortie d'evaluer_tessiture).
+        lo = _note_to_midi(note_grave, m21) if note_grave else None
+        hi = _note_to_midi(note_aigue, m21) if note_aigue else None
+        if lo is not None and hi is not None and hi <= lo:
+            return {"error": f"note_aigue ({note_aigue}) doit être > note_grave ({note_grave})."}
+
+        events = []
+        t = float(debut)
+        vel = max(1, min(127, int(velocity)))
+        for nom, length in zip(notes, longueurs, strict=True):
+            pitch = _note_to_midi(nom, m21)
+            if lo is not None or hi is not None:
+                pitch = _ajuster_octave(pitch, lo, hi)
+            pitch = max(0, min(127, pitch))
+            events.append({
+                "pitch": pitch,
+                "start": round(t, 4),
+                "length": round(length, 4),
+                "velocity": vel,
+                "note": _midi_to_name(pitch, m21),
+            })
+            t += length
+        pitches = [e["pitch"] for e in events]
+        return {
+            "events": events,
+            "count": len(events),
+            "duree_totale_sec": round(t - float(debut), 4),
+            "ambitus_midi": [min(pitches), max(pitches)],
+            "note": "Prêt pour REAPER : pour chaque event, appelle "
+            "mcp__reaper__insert_midi_note(track_index=<piste>, pitch=event['pitch'], "
+            "start=event['start'], length=event['length'], velocity=event['velocity']).",
+        }
+    # nom de note illisible : erreur d'entrée attendue (pas un bug) -> pas de log.
+    # music21 lève PitchException (sous-classe de Music21Exception) sur 'NOPE' etc.
+    except (ValueError, m21.exceptions21.Music21Exception) as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        logger.error("_melodie_vers_midi: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+# ---------------------------------------------------------------------------- #
 # Outils MCP — théorie                                                          #
 # ---------------------------------------------------------------------------- #
 
@@ -494,6 +594,41 @@ def suggerer_accords(ton: str, style: str = "tous") -> dict:
         ou {"error": "..."}.
     """
     return _suggerer_accords(ton, style)
+
+
+@mcp.tool()
+def melodie_vers_midi(
+    notes: list[str],
+    duree_note: float = 0.5,
+    durees: list[float] | None = None,
+    debut: float = 0.0,
+    note_grave: str = "",
+    note_aigue: str = "",
+    velocity: int = 96,
+) -> dict:
+    """Convertit une mélodie écrite en noms de notes en événements MIDI prêts pour REAPER.
+
+    Pont déterministe analyse→DAW. Donne-lui une mélodie (suite de noms de notes +
+    rythme) et récupère des notes MIDI exactes (pitch entier 0-127 + temps de début
+    cumulés) à passer telles quelles à mcp__reaper__insert_midi_note — pas besoin
+    que tu calcules les entiers MIDI ni les temps toi-même. Si tu fournis la
+    tessiture (note_grave/note_aigue, p.ex. la sortie d'evaluer_tessiture), les
+    notes hors plage sont repliées à l'octave pour rester dans la voix.
+
+    Args:
+        notes: Mélodie en noms de notes, ex: ["E3","F#3","G#3","E3"] (accepte ♯/♭).
+        duree_note: Durée par note en secondes si `durees` non fourni (défaut 0.5).
+        durees: Durées par note (1 valeur/note) ; prioritaire sur duree_note.
+        debut: Temps de début de la 1re note en secondes (défaut 0.0).
+        note_grave: Borne grave de la tessiture pour le repli d'octave (optionnel).
+        note_aigue: Borne aigüe de la tessiture pour le repli d'octave (optionnel).
+        velocity: Vélocité MIDI 1-127 (défaut 96).
+
+    Returns:
+        {"events": [{"pitch","start","length","velocity","note"}], "count",
+         "duree_totale_sec", "ambitus_midi", "note"} ou {"error": "..."}.
+    """
+    return _melodie_vers_midi(notes, duree_note, durees, debut, note_grave, note_aigue, velocity)
 
 
 # ---------------------------------------------------------------------------- #
