@@ -1,0 +1,44 @@
+{
+  "name": "anti_loop_warn_only",
+  "description": "Anti-boucle, branche WARN-seul : le LLM répète le MÊME appel 3 fois (seuil d'avertissement) mais PAS 4 (seuil de coupe). À la 3e répétition l'orchestrator injecte UN avertissement « change d'approche » sans couper le tour ; le LLM en tient compte et termine naturellement à la passe suivante. Complète la fixture #13 (qui exerce le break au 4e appel) en couvrant le chemin warn-sans-break.",
+  "user_prompt": "Relis le fichier et explique-le.",
+  "seed_files": {
+    "pi.txt": "3.14159265358979\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "tâche minimale ; on teste la branche warn de l'anti-boucle, pas le routage"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c3", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "Compris, je change d'approche : le fichier contient la valeur de π (3.14159265358979), inutile de le relire. Je te l'explique directement."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 4,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["read_file", "read_file", "read_file"],
+    "final_content_contains": ["change d'approche"],
+    "loop_warn_fired": true
+  },
+  "max_iterations": 8
+}
