@@ -300,6 +300,16 @@ def _render_to(out_path, bounds_flag):
     """
     d = os.path.dirname(out_path) or "."
     stem = os.path.splitext(os.path.basename(out_path))[0]
+    # Pre-supprime toute sortie existante <stem>.* AVANT de rendre. Sinon l'action
+    # 41824 detecte le fichier present et ouvre un modal "overwrite?" : ce modal
+    # FIGE le thread principal de REAPER -> la boucle defer du pont ne tourne plus
+    # -> toute commande socket/MCP part en timeout (faux "REAPER fige", et le
+    # watchdog "ReaScript task control" finit par tuer la boucle). Supprimer la
+    # cible rend le render direct et sans dialogue, comme prevu.
+    for _old in glob.glob(os.path.join(d, glob.escape(stem) + ".*")):
+        # best-effort : si la suppression echoue, REAPER incrementera le nom
+        with contextlib.suppress(OSError):
+            os.remove(_old)
     RPR_GetSetProjectInfo_String(0, "RENDER_FILE", d, True)  # noqa: F821  (dossier)
     RPR_GetSetProjectInfo_String(0, "RENDER_PATTERN", stem, True)  # noqa: F821  (nom)
     RPR_GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", float(bounds_flag), True)  # noqa: F821
