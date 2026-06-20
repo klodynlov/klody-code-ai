@@ -1,0 +1,50 @@
+{
+  "name": "anti_loop_repeated_tool",
+  "description": "Le LLM rappelle le MÊME tool avec les MÊMES arguments et obtient le MÊME résultat en rafale (échec/résultat figé). Au 4e appel identique l'orchestrator coupe la boucle et force une synthèse finale, au lieu de tourner jusqu'à max_iter — la « boucle » visible côté utilisateur (sessions 19-20/06 : distill_books_merge contre un proxy mort, ConnectError retentée à l'identique).",
+  "user_prompt": "Distille le livre.",
+  "seed_files": {
+    "pi.txt": "3.14159265358979\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "tâche minimale ; on teste l'anti-boucle, pas le routage"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c2", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c3", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {"id": "c4", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"pi.txt\"}"}}
+      ]
+    },
+    {
+      "content": "Je n'arrive pas à avancer : la même lecture renvoie le même résultat. J'arrête et je te le signale."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 5,
+    "max_llm_calls": 5,
+    "tool_calls_invoked": ["read_file", "read_file", "read_file", "read_file"],
+    "final_content_contains": ["J'arrête"],
+    "loop_break_fired": true
+  },
+  "max_iterations": 6
+}

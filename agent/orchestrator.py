@@ -306,6 +306,16 @@ def _is_continuation(text: str) -> bool:
 _MAX_AUTO_EXTENSIONS = 3
 _AUTO_EXTENSION_SIZE = 8
 
+# Anti-boucle : le LLM peut rappeler le MÊME outil avec les MÊMES arguments en
+# rafale quand le résultat ne le satisfait pas (typiquement un `run_in_sandbox`
+# qui plante à l'identique — proxy mort, script cassé). Sans garde-fou il tourne
+# jusqu'à épuiser max_iter (avec auto-continue, jusqu'à 30 passes) sans rien
+# produire : c'est la « boucle » visible côté utilisateur. On compte les appels
+# (nom + args) identiques sur le run ; au 3e on injecte un avertissement (change
+# d'approche), au 4e on coupe et on force la synthèse finale.
+_LOOP_REPEAT_WARN = 3
+_LOOP_REPEAT_BREAK = 4
+
 # Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
 # projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
 # travaille vraiment — un échec en cours (ex: preview_file sur un HTML pas encore
@@ -1769,6 +1779,9 @@ class Orchestrator:
         extensions = 0
         tools_called_in_pass = False
         produced_in_pass = False
+        # Anti-boucle : compteur d'appels (nom+args) identiques sur tout le tour.
+        call_repeat_counts: dict[str, int] = {}
+        loop_warned: set[str] = set()
         while True:
             iteration += 1
             if iteration >= max_iter:
@@ -1889,6 +1902,8 @@ class Orchestrator:
 
                 _preview_url: str | None = None
                 _preview_since = 0.0
+                _worst_n_local = 0
+                _worst_name_local: str | None = None
                 for tc in tool_calls:
                     tool_name = tc["function"]["name"]
                     tool_id = tc["id"]
@@ -1919,12 +1934,80 @@ class Orchestrator:
                     if tool_name in ("preview_code", "preview_file"):
                         _preview_url = _extract_preview_url(result)
 
+                    # Anti-boucle : on compte les appels (nom+args) qui rendent le
+                    # MÊME résultat. Un sondage (statut_generation) voit son résultat
+                    # évoluer (progression) → clé différente → aucun faux positif ;
+                    # un échec à l'identique (proxy mort, script cassé) garde la même
+                    # clé et fait grimper le compteur jusqu'au seuil de coupe.
+                    try:
+                        _args_key = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        _args_key = repr(tool_args)
+                    _loop_key = f"{tool_name}|{_args_key}|{hash(str(result))}"
+                    call_repeat_counts[_loop_key] = call_repeat_counts.get(_loop_key, 0) + 1
+                    if call_repeat_counts[_loop_key] > _worst_n_local:
+                        _worst_n_local = call_repeat_counts[_loop_key]
+                        _worst_name_local = tool_name
+
                 tools_called_in_pass = True
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
                 # Boucle de feedback : si la preview plante au runtime, on relance
                 # une passe de correction (no-op si pas de preview ou timeout désactivé).
                 self._check_preview_feedback(_preview_url, _preview_since)
+
+                # Anti-boucle : même appel + même résultat répété en rafale = le LLM
+                # tourne sans avancer (souvent un échec identique). Au seuil WARN on
+                # l'avertit une fois (change d'approche) ; au seuil BREAK on coupe et
+                # on force la synthèse finale au lieu de laisser tourner jusqu'à
+                # max_iter (la « boucle » visible côté utilisateur).
+                if _worst_name_local is not None and _worst_n_local >= _LOOP_REPEAT_BREAK:
+                    logger.warning(
+                        "[anti-boucle] %s appelé %d× à l'identique (même résultat) "
+                        "→ coupe + synthèse finale", _worst_name_local, _worst_n_local)
+                    console.print(
+                        f"\n[yellow]  ⚠  Boucle détectée — `{_worst_name_local}` répété "
+                        f"{_worst_n_local}× sans changement. Arrêt et synthèse.[/yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"STOP. Tu as appelé `{_worst_name_local}` {_worst_n_local} fois "
+                            "avec exactement les mêmes arguments et obtenu le même résultat à "
+                            "chaque fois. N'appelle plus AUCUN outil. Explique à l'utilisateur "
+                            "ce que tu as tenté, le résultat obtenu (notamment toute erreur "
+                            "rencontrée), et propose une autre piste ou demande une précision. "
+                            "Rédige maintenant ta réponse finale."
+                        ),
+                        "timestamp": None,
+                    })
+                    final_content, _ = self.llm.stream_chat(
+                        self.memory.get_messages_for_api(), tools=None,
+                        enable_thinking=self._should_think(),
+                    )
+                    if final_content:
+                        self.memory.add_message("assistant", final_content)
+                    break
+                if (
+                    _worst_name_local is not None
+                    and _worst_n_local >= _LOOP_REPEAT_WARN
+                    and _worst_name_local not in loop_warned
+                ):
+                    loop_warned.add(_worst_name_local)
+                    logger.info("[anti-boucle] %s répété %d× → avertissement injecté",
+                                _worst_name_local, _worst_n_local)
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"⚠ Tu viens d'appeler `{_worst_name_local}` {_worst_n_local} fois "
+                            "avec les mêmes arguments et tu obtiens le même résultat à chaque "
+                            "fois. Arrête de répéter cet appel à l'identique : change "
+                            "d'arguments, essaie une autre approche, ou si c'est un échec que "
+                            "tu ne peux pas résoudre, explique-le à l'utilisateur au lieu de "
+                            "retenter."
+                        ),
+                        "timestamp": None,
+                    })
                 continue
 
             else:
