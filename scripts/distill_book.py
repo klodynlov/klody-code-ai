@@ -1,9 +1,10 @@
 """Phase 1 du pipeline livre → skill : distille un livre en un JSON conforme à
 `skills/distilled/schema.json`.
 
-Le LLM est joint via le proxy RAG (:8081), qui :
-  1. injecte du contexte LibraryBrain pertinent dans le system prompt,
-  2. force le mode raisonnement (le proxy détecte le mot-clé "distille").
+Le LLM est joint sur un endpoint OpenAI-compatible (défaut : cerveau MLX :8080,
+cf. config.MLX_BASE_URL ; surchargeable par KLODY_DISTILL_URL). L'ancien défaut
+:8081 (rag-proxy) est mort → toute distillation plantait en boucle (ConnectError
+retentée à l'identique).
 
 Usage :
     python -m scripts.distill_book \\
@@ -37,7 +38,14 @@ PROMPT_PATH = ROOT / "prompts" / "distill-book.md"
 SCHEMA_PATH = ROOT / "skills" / "distilled" / "schema.json"
 DISTILLED_DIR = ROOT / "skills" / "distilled"
 
-PROXY_URL = "http://127.0.0.1:8081/v1/chat/completions"
+# Endpoint OpenAI-compatible pour la distillation. Le défaut historique (:8081,
+# l'ancien rag-proxy) est MORT → toute distillation plantait en boucle
+# (ConnectError → le modèle retentait la même commande). On vise désormais le
+# cerveau MLX live (:8080, cf. config.MLX_BASE_URL), surchargeable par env.
+PROXY_URL = os.getenv(
+    "KLODY_DISTILL_URL",
+    os.getenv("MLX_BASE_URL", "http://127.0.0.1:8080/v1").rstrip("/") + "/chat/completions",
+)
 # LibraryBrain (métadonnées livres) — même variable/défaut que config.LIBRARYBRAIN_URL.
 LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 DEFAULT_TIMEOUT = 600.0   # le thinking + RAG + génération peuvent prendre du temps
@@ -123,10 +131,20 @@ def _call_proxy(messages: list[dict], *, model: str, max_tokens: int,
         "stream": False,
     }
     logger.info("POST {} (max_tokens={}, timeout={}s)", PROXY_URL, max_tokens, timeout)
-    with httpx.Client(timeout=timeout) as client:
-        resp = client.post(PROXY_URL, json=body)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(PROXY_URL, json=body)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.ConnectError as exc:
+        # Échec net et actionnable : l'endpoint LLM est injoignable. Un traceback
+        # httpx brut poussait l'appelant (l'agent) à retenter la même commande en
+        # boucle. On lève un message clair, non-réessayable tel quel.
+        raise SystemExit(
+            f"[distill] LLM injoignable sur {PROXY_URL} ({exc}). "
+            "Démarre le cerveau MLX (port 8080) ou règle KLODY_DISTILL_URL vers un "
+            "endpoint OpenAI-compatible vivant, puis relance."
+        ) from exc
 
 
 def _repair(data: dict, schema: dict) -> dict:
