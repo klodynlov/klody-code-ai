@@ -34,7 +34,7 @@ ruff>=0.6
 mypy>=1.11
 
 # Monitoring (Vague 4 — observabilité)
-prometheus-client>=0.21.0
+prometheus-client>=0.25.0
 
 # Génération de classeurs Excel (.xlsx) téléchargeables — outil generate_excel
 openpyxl>=3.1.5
