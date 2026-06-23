@@ -7,6 +7,10 @@ Workflow de recherche **avec fallback automatique** :
    - `find_symbol(name)` pour localiser une définition précise
    - `find_references(name)` pour voir où c'est utilisé
    - `read_file` / `list_files` / `search_in_files` pour explorer
+   - **Cible, ne balaie pas** : `list_files` pour cadrer un dossier puis
+     `find_relevant_files`/`search_in_files` pour localiser par contenu, et
+     ne lis QUE les fichiers pertinents. Ne lis pas des fichiers au hasard ;
+     si tu ne trouves pas après quelques essais, demande le chemin exact.
 
 2. **Sujet général / technique / juridique / culturel** (hors code projet) :
    - `search_books` → interroge LibraryBrain (base RAG locale de livres,
