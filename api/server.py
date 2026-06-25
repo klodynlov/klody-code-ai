@@ -4,6 +4,7 @@ Bridge entre l'agent Python et le dashboard Tauri.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -937,10 +938,8 @@ def _build_streaming_orchestrator(
                                 "[loop-guard] répétition dégénérée coupée : %d → %d chars",
                                 len(full_content), len(trimmed),
                             )
-                            try:
+                            with contextlib.suppress(Exception):
                                 stream.close()  # stoppe la génération MLX en amont
-                            except Exception:
-                                pass
                             full_content = trimmed
                             if not silent:
                                 _put({"type": "stream_trim", "content": trimmed})

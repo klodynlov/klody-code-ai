@@ -47,7 +47,7 @@ def degenerate_cut(
         unit = tail[-1][1].strip()
         if len(unit) >= min_unit and all(ln.strip() == unit for _, ln in tail):
             first_idx = tail[0][0]  # 1re ligne répétée : on la garde, on coupe après
-            return sum(len(l) for l in lines[: first_idx + 1])
+            return sum(len(ln) for ln in lines[: first_idx + 1])
 
     # ── Détecteur 2 : sous-chaîne répétée en queue ───────────────────────
     s = text[-window:]
