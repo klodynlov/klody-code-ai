@@ -31,6 +31,10 @@ from config import (
     SKILLS_ON_CODER_MAX_CHARS,
     SKILLS_ROUTER_ENABLED,
     SKILLS_ROUTER_JUDGE,
+    THINKING_BUDGET_HIGH,
+    THINKING_BUDGET_LOW,
+    THINKING_BUDGET_MED,
+    THINKING_BUDGET_NONE,
     THINKING_ENABLED,
     match_allowed_root,
 )
@@ -648,6 +652,36 @@ class Orchestrator:
             return False
         d = self.last_routing
         return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+
+    def _thinking_budget(self) -> int:
+        """Budget de raisonnement (CoT) PAR TYPE DE TÂCHE pour ce tour.
+
+        Politique inspirée du `thinking_budget_tokens` par requête du node de veille.
+        mlx_lm n'a AUCUN budget natif (vérifié 0.31.3) et ne permet pas de borner le
+        CoT côté client sans troncature dure du flux (écartée). Ce budget est donc
+        FORWARD-COMPAT : forwardé dans chat_template_kwargs.thinking_budget (no-op
+        aujourd'hui, effectif si un futur template l'honore) — il ne modifie PAS
+        max_tokens (cf. llm.stream_chat, docs/thinking-budget-policy.md). Tiers :
+        - thinking OFF (coder, skill interactif, edit/medium…) → 0, aucun CoT.
+        - `hard` → tier HAUT (raisonnement profond).
+        - `explain` medium → tier MOYEN ; `explain` easy → tier BAS.
+        NB archi : les tâches de CODE partent sur le coder instruct (sans thinking) →
+        budget 0 par construction ; le raisonnement fire sur le brain (explain/hard).
+        """
+        if not self._should_think():
+            return THINKING_BUDGET_NONE
+        d = self.last_routing
+        if d is not None and d.difficulty == "hard":
+            budget = THINKING_BUDGET_HIGH
+        elif d is not None and d.difficulty == "easy":
+            budget = THINKING_BUDGET_LOW
+        else:
+            budget = THINKING_BUDGET_MED
+        logger.info(
+            "[thinking-budget] task_type=%s difficulty=%s → budget=%d tok (forward-compat)",
+            getattr(d, "task_type", None), getattr(d, "difficulty", None), budget,
+        )
+        return budget
 
     def _maybe_self_critique(self, draft: str) -> None:
         """Passe d'auto-critique sur la réponse finale (Levier 3).
@@ -1952,9 +1986,11 @@ class Orchestrator:
             if use_bon:
                 content, tool_calls = self._run_best_of_n(messages)
             else:
+                budget = self._thinking_budget()
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                     enable_thinking=self._should_think(),
+                    thinking_budget=budget or None,
                 )
 
             if tool_calls:

@@ -119,6 +119,31 @@ THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", 
 # couvre largement réponse + CoT ; 16384 était du gâchis (latence/budget inutiles).
 THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 8192))
 
+# --- Thinking budget PAR TYPE DE TÂCHE (inspiré du node comfyui-llamacpp-ideogram) ---
+# Le node de référence module le raisonnement via `thinking_budget_tokens` PAR
+# requête. mlx_lm n'a AUCUN équivalent natif (vérifié 0.31.3 : ni paramètre serveur,
+# ni variable `thinking_budget` dans le template Qwen3.6 — seul `enable_thinking` est
+# honoré), ET ne permet pas de borner le CoT côté client sans troncature dure du flux
+# (écartée : risque sur le format tool-call). Le plafond max_tokens ne sait qu'ÉLARGIR
+# (`max()`), jamais réduire → moduler par là serait un no-op (défaut 8192 ≥ tous les
+# tiers). On calcule donc un budget par type de tâche et on le FORWARDE dans
+# chat_template_kwargs.thinking_budget : FORWARD-COMPAT (no-op aujourd'hui, effectif si
+# un futur template l'honore). Cf. docs/thinking-budget-policy.md et
+# Orchestrator._thinking_budget. budget == 0 ⇒ thinking OFF (aucun CoT).
+# Tiers (valeur forwardée ; aucun effet sur max_tokens aujourd'hui) :
+THINKING_BUDGET_NONE: int = 0
+THINKING_BUDGET_LOW: int = int(os.getenv("THINKING_BUDGET_LOW", 512))
+THINKING_BUDGET_MED: int = int(os.getenv("THINKING_BUDGET_MED", 2048))
+# Le tier HAUT vaut THINKING_MAX_TOKENS par défaut (P95 du CoT ≈ 1800 tok ; cf. note
+# THINKING_MAX_TOKENS) — valeur de référence forwardée pour le raisonnement profond.
+THINKING_BUDGET_HIGH: int = int(os.getenv("THINKING_BUDGET_HIGH", THINKING_MAX_TOKENS))
+# Forward du budget dans chat_template_kwargs.thinking_budget. Le template Qwen3.6
+# ignore la clé (l'appel live passe sans erreur — clé inconnue = variable Jinja
+# inutilisée, pas de 400). Gardé true pour la forward-compat ; désactivable.
+THINKING_BUDGET_FORWARD: bool = os.getenv(
+    "THINKING_BUDGET_FORWARD", "true"
+).lower() in ("1", "true", "yes", "on")
+
 # Pénalité de répétition transmise au serveur MLX (extra_body, hors spec OpenAI —
 # le gateway :8090 forwarde le body intégral au worker mlx_lm qui la supporte).
 # Filet anti-boucle OPT-IN (défaut 1.0 = désactivé, param non envoyé, comportement

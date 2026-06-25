@@ -15,6 +15,7 @@ from config import (
     LLM_MODEL,
     LLM_REPETITION_PENALTY,
     MODEL_FALLBACK,
+    THINKING_BUDGET_FORWARD,
     THINKING_MAX_TOKENS,
 )
 from openai import APIConnectionError, APITimeoutError, OpenAI
@@ -219,6 +220,7 @@ class LLMClient:
         tool_choice: str = "auto",
         max_tokens: int = 8192,
         enable_thinking: bool = False,
+        thinking_budget: int | None = None,
     ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
@@ -238,10 +240,20 @@ class LLMClient:
                      filigrane) AVANT le `content`. On élargit max_tokens en
                      conséquence. No-op sur un modèle sans thinking (le serveur
                      ignore le kwarg). Cf. config.THINKING_*.
+            thinking_budget : entier PAR TYPE DE TÂCHE, forwardé dans
+                     chat_template_kwargs.thinking_budget (FORWARD-COMPAT). NO-OP sur
+                     les templates actuels (Qwen3.6 ignore la clé — vérifié : l'appel
+                     live passe sans erreur). On NE module PAS max_tokens avec : le
+                     plafond ne sait qu'ÉLARGIR (`max()`), pas réduire, donc moduler
+                     par là serait un no-op (le défaut 8192 ≥ tous les tiers). Borner
+                     le CoT seul exigerait une troncature dure du flux (écartée : risque
+                     sur le format tool-call). Cf. docs/thinking-budget-policy.md et
+                     Orchestrator._thinking_budget. None ⇒ clé absente (forme historique).
         """
         if enable_thinking:
-            # Le CoT précède la réponse et consomme beaucoup de tokens : sans marge
-            # élargie, il mange tout le budget et `content` reste vide.
+            # Le CoT précède la réponse et consomme beaucoup de tokens : on élargit le
+            # plafond global pour qu'il ne mange pas toute la réponse (comportement
+            # historique INCHANGÉ). Le budget par-tâche ne touche PAS max_tokens.
             max_tokens = max(max_tokens, THINKING_MAX_TOKENS)
         params: dict = {
             "model": self.model,
@@ -256,7 +268,14 @@ class LLMClient:
             # SDK openai rejette le kwarg. Cf. config.LLM_REPETITION_PENALTY.
             extra_body["repetition_penalty"] = LLM_REPETITION_PENALTY
         if enable_thinking:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+            ctk: dict = {"enable_thinking": True}
+            # Forward-compat : on n'ajoute thinking_budget QUE s'il est fourni et que
+            # le forward est activé → sans budget, la forme reste {"enable_thinking":
+            # True} (contrat historique préservé). Le template Qwen3.6 ignore la clé
+            # aujourd'hui (NO-OP) ; le plafond réel est appliqué via max_tokens.
+            if thinking_budget is not None and THINKING_BUDGET_FORWARD:
+                ctk["thinking_budget"] = thinking_budget
+            extra_body["chat_template_kwargs"] = ctk
         if extra_body:
             params["extra_body"] = extra_body
         if tools:
