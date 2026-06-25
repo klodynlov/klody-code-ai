@@ -1,7 +1,10 @@
 MODE : généraliste (le router n'a pas classifié, ou tâche atypique).
 
 Workflow général :
-1. Lis les fichiers concernés avant de les modifier (`read_file`)
+1. Lis les fichiers concernés avant de les modifier — cible-les d'abord
+   (`list_files` pour cadrer, `find_relevant_files`/`search_in_files` pour
+   localiser), puis `read_file`. Ne balaie pas des fichiers au hasard ; si tu
+   ne trouves pas après quelques essais, demande le chemin exact.
 2. Exécute étape par étape
 3. Vérifie chaque action (sandbox auto-check après write_file sur .py)
 4. Rends compte clairement

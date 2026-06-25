@@ -1,0 +1,222 @@
+{
+  "name": "anti_scan_break_synthesis",
+  "description": "BUG 2 — suite : au 14e read_file sur des cibles différentes (balayage qui ne converge pas), l'anti-scan COUPE et force la synthèse finale, au lieu de laisser la storm courir jusqu'au cap d'itérations (49 observé le 23/06). L'anti-boucle à-l'identique ne se déclencherait jamais (clés toutes distinctes).",
+  "user_prompt": "Lis tout le projet pour comprendre.",
+  "seed_files": {
+    "g00.txt": "data 0\n",
+    "g01.txt": "data 1\n",
+    "g02.txt": "data 2\n",
+    "g03.txt": "data 3\n",
+    "g04.txt": "data 4\n",
+    "g05.txt": "data 5\n",
+    "g06.txt": "data 6\n",
+    "g07.txt": "data 7\n",
+    "g08.txt": "data 8\n",
+    "g09.txt": "data 9\n",
+    "g10.txt": "data 10\n",
+    "g11.txt": "data 11\n",
+    "g12.txt": "data 12\n",
+    "g13.txt": "data 13\n"
+  },
+  "router_decision": {
+    "difficulty": "hard",
+    "task_type": "explain",
+    "reasoning": "budget large (25) : prouver que l'anti-scan coupe AVANT le cap"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c00",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g00.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c01",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g01.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c02",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g02.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c03",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g03.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c04",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g04.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c05",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g05.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c06",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g06.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c07",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g07.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c08",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g08.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c09",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g09.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c10",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g10.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c11",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g11.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c12",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g12.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c13",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"g13.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "D'accord, j'arrête de balayer. Voici ce que j'ai trouvé et la piste à suivre."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 15,
+    "max_llm_calls": 15,
+    "scan_break_fired": true,
+    "final_content_contains": [
+      "piste à suivre"
+    ]
+  },
+  "max_iterations": 25
+}

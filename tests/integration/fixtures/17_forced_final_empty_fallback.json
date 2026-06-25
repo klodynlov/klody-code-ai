@@ -1,0 +1,68 @@
+{
+  "name": "forced_final_empty_fallback",
+  "description": "BUG 1 (session 23/06, log « Réponse finale forcée vide (cap 49) ») : au cap d'itérations la synthèse forcée pouvait revenir VIDE (contexte saturé) → l'ancien code loggait juste un warning et break-ait → écran blanc → l'utilisateur DOIT relancer. Désormais : retry sur contexte rogné, puis message de repli DÉTERMINISTE non vide. Ici le LLM rend du vide aux 2 essais → le repli doit apparaître.",
+  "user_prompt": "Lis pi.txt jusqu'à comprendre.",
+  "seed_files": {
+    "pi.txt": "3.14159265358979\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "cap à 3 ; on force la synthèse à revenir vide 2×"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"pi.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"pi.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"pi.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": ""
+    },
+    {
+      "content": ""
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 5,
+    "max_llm_calls": 5,
+    "final_content_contains": [
+      "J'ai épuisé mon budget d'outils"
+    ]
+  },
+  "max_iterations": 3
+}

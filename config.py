@@ -129,6 +129,17 @@ THINKING_MAX_TOKENS: int = int(os.getenv("THINKING_MAX_TOKENS", 8192))
 # recommandée : 1.05 — à peine perceptible sur du code normal, casse les cycles.
 LLM_REPETITION_PENALTY: float = float(os.getenv("LLM_REPETITION_PENALTY", "1.0"))
 
+# Filet DUR anti-boucle (cf. agent/stream_guard.py) : coupe le STREAM dès que la
+# fin de la réponse est un motif répété >= LLM_LOOP_REPS fois (chaque motif
+# >= LLM_LOOP_MIN_UNIT chars). Complète la pénalité SOUPLE ci-dessus — qui ne
+# casse pas toujours le cycle — et s'applique au chemin WS de l'UI (stream_api).
+# Actif par défaut (opt-out via LLM_LOOP_GUARD=0) : ne se déclenche que sur une
+# boucle franche (4× un motif de 16+ chars), jamais sur du code/Markdown normal.
+LLM_LOOP_GUARD: bool = os.getenv("LLM_LOOP_GUARD", "1") not in ("0", "false", "False")
+LLM_LOOP_REPS: int = int(os.getenv("LLM_LOOP_REPS", "4"))
+LLM_LOOP_MIN_UNIT: int = int(os.getenv("LLM_LOOP_MIN_UNIT", "16"))
+LLM_LOOP_WINDOW: int = int(os.getenv("LLM_LOOP_WINDOW", "2000"))
+
 # --- Auto-critique (Levier 3) ---
 # Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
 # une passe de relecture critique cherche erreur/oubli/hypothèse fausse et réécrit

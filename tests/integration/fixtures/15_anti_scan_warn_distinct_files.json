@@ -1,0 +1,138 @@
+{
+  "name": "anti_scan_warn_distinct_files",
+  "description": "BUG 2 (session 23/06) : le LLM balaie 8 fichiers DIFFÉRENTS (storm de read_file à la racine) en cherchant une info. L'anti-boucle historique clé sur nom+args+résultat → 8 clés distinctes → compteur jamais > 1 → AVEUGLE. Le nouvel anti-scan compte par NOM d'outil : au 8e appel il injecte un nudge « utilise list_files/find_relevant_files, ne balaie pas au hasard » SANS couper.",
+  "user_prompt": "Trouve la méthode de distillation dans le projet.",
+  "seed_files": {
+    "f0.txt": "contenu 0\n",
+    "f1.txt": "contenu 1\n",
+    "f2.txt": "contenu 2\n",
+    "f3.txt": "contenu 3\n",
+    "f4.txt": "contenu 4\n",
+    "f5.txt": "contenu 5\n",
+    "f6.txt": "contenu 6\n",
+    "f7.txt": "contenu 7\n"
+  },
+  "router_decision": {
+    "difficulty": "medium",
+    "task_type": "explain",
+    "reasoning": "on teste l'anti-scan, budget large pour que le cap n'interfère pas"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c0",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f0.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f1.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f2.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f3.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f4.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c5",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f5.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c6",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f6.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c7",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"f7.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "J'ai parcouru les fichiers ; voici la synthèse demandée."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 9,
+    "max_llm_calls": 9,
+    "scan_warn_fired": true,
+    "final_content_contains": [
+      "synthèse demandée"
+    ]
+  },
+  "max_iterations": 25
+}
