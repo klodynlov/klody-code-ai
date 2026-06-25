@@ -38,6 +38,7 @@ from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
+from agent.stream_guard import LoopGuard
 from services import ensure_librarybrain, get_librarybrain_status
 from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
@@ -860,8 +861,15 @@ def _build_streaming_orchestrator(
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        extra_body: dict = {}
+        if config.LLM_REPETITION_PENALTY > 1.0:
+            # Filet SOUPLE : avant ce câblage, repetition_penalty n'était posée que
+            # dans LLMClient.stream_chat (CLI) — JAMAIS sur le chemin WS de l'UI.
+            extra_body["repetition_penalty"] = config.LLM_REPETITION_PENALTY
         if enable_thinking:
-            params["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+            extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+        if extra_body:
+            params["extra_body"] = extra_body
         if tools:
             params["tools"] = tools
             params["tool_choice"] = tool_choice
@@ -869,6 +877,20 @@ def _build_streaming_orchestrator(
         full_content = ""
         raw_tool_calls: dict = {}
         usage = None  # rempli par le chunk final (stream_options.include_usage)
+
+        # Filet DUR anti-boucle : actif sur la génération visible (non-silent), où
+        # une répétition dégénérée part en boucle infinie jusqu'au budget tokens.
+        # Les appels silencieux (router/Best-of-N) gardent le comportement
+        # historique et s'appuient sur repetition_penalty.
+        loop_guard = (
+            LoopGuard(
+                reps=config.LLM_LOOP_REPS,
+                min_unit=config.LLM_LOOP_MIN_UNIT,
+                window=config.LLM_LOOP_WINDOW,
+            )
+            if config.LLM_LOOP_GUARD and not silent
+            else None
+        )
 
         # Vérification précoce : si l'utilisateur a déjà demandé l'arrêt (WS disconnect,
         # bouton stop, etc.), on évite même de lancer le LLM call (coûteux côté MLX).
@@ -904,6 +926,27 @@ def _build_streaming_orchestrator(
                         _put({"type": "token", "content": delta.content})
                     if token_callback:
                         token_callback(delta.content)
+                    # Boucle dégénérée détectée → coupe le stream, ne garde qu'une
+                    # copie du motif et nettoie la bulle (stream_trim remplace le
+                    # contenu déjà streamé côté UI). Évite la génération infinie.
+                    if loop_guard is not None:
+                        cut = loop_guard.cut(full_content)
+                        if cut is not None and cut < len(full_content):
+                            trimmed = full_content[:cut].rstrip()
+                            logger.warning(
+                                "[loop-guard] répétition dégénérée coupée : %d → %d chars",
+                                len(full_content), len(trimmed),
+                            )
+                            try:
+                                stream.close()  # stoppe la génération MLX en amont
+                            except Exception:
+                                pass
+                            full_content = trimmed
+                            if not silent:
+                                _put({"type": "stream_trim", "content": trimmed})
+                            return full_content, (
+                                list(raw_tool_calls.values()) if raw_tool_calls else None
+                            )
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         orch.llm._accumulate_tool_call(raw_tool_calls, tc)
