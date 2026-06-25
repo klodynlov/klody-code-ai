@@ -79,7 +79,10 @@ class FileManager:
         if not resolved.exists():
             raise FileNotFoundError(f"Fichier introuvable: {path}")
         if resolved.is_dir():
-            raise IsADirectoryError(f"'{path}' est un répertoire, pas un fichier")
+            raise IsADirectoryError(
+                f"'{path}' est un répertoire, pas un fichier. "
+                f"Utilise list_files('{path}') pour en voir le contenu."
+            )
 
         size = resolved.stat().st_size
         if size > MAX_FILE_SIZE:

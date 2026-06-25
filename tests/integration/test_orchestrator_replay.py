@@ -26,6 +26,11 @@ SCENARIOS = [
     "10_max_iterations_cap",
     "11_search_then_explain",
     "12_explain_producer_extends",
+    "13_anti_loop_repeated_tool",
+    "14_anti_loop_warn_only",
+    "15_anti_scan_warn_distinct_files",
+    "16_anti_scan_break_synthesis",
+    "17_forced_final_empty_fallback",
 ]
 
 
@@ -115,6 +120,88 @@ def _assert_expectations(
         )
         assert nudge_seen, (
             "Anti-stall n'a PAS injecté de nudge alors que la fixture le prévoit. "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+
+    # 6. Anti-boucle (fixture #13) — le break sur appel répété à l'identique
+    # injecte un message d'arrêt « STOP. Tu as appelé … ». Sa présence prouve que
+    # c'est bien le garde-fou anti-boucle qui a terminé le tour (pas une fin
+    # naturelle ni le cap max_iter).
+    if exp.get("loop_break_fired"):
+        break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "STOP. Tu as appelé" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert break_seen, (
+            "Anti-boucle n'a PAS coupé la boucle (message d'arrêt absent). "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+
+    # 7. Anti-boucle WARN-seul (fixture #14) — au 3e appel identique (sous le
+    # seuil de coupe) l'orchestrator injecte UN avertissement « Arrête de répéter
+    # cet appel à l'identique » SANS terminer le tour. On exige donc la présence
+    # de l'avertissement ET l'absence du message de break (« STOP. Tu as appelé »),
+    # pour prouver qu'on est bien sur la branche warn-sans-break.
+    if exp.get("loop_warn_fired"):
+        warn_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "Arrête de répéter cet appel à l'identique" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert warn_seen, (
+            "Anti-boucle n'a PAS injecté d'avertissement (warn) alors que la "
+            f"fixture le prévoit. Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+        break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "STOP. Tu as appelé" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert not break_seen, (
+            "Anti-boucle a coupé (break) alors que la fixture attend un warn SEUL "
+            "(3 répétitions, pas 4)."
+        )
+
+    # 8. Anti-scan (fixture #15) — le MÊME outil d'exploration appelé sur des
+    # cibles DIFFÉRENTES (balayage) trippe l'anti-scan là où l'anti-boucle (clé
+    # nom+args+résultat) reste aveugle. WARN-seul : nudge ciblage présent, pas de
+    # coupe scan.
+    if exp.get("scan_warn_fired"):
+        warn_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "tu balaies des fichiers au hasard" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert warn_seen, (
+            "Anti-scan n'a PAS injecté de nudge de ciblage alors que la fixture le "
+            f"prévoit. Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+        scan_break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "sur des cibles différentes sans converger" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert not scan_break_seen, (
+            "Anti-scan a coupé (break) alors que la fixture attend un warn SEUL."
+        )
+
+    # 9. Anti-scan BREAK (fixture #16) — au seuil de coupe, le balayage est
+    # interrompu et une synthèse finale est forcée avant le cap d'itérations.
+    if exp.get("scan_break_fired"):
+        scan_break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "sur des cibles différentes sans converger" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert scan_break_seen, (
+            "Anti-scan n'a PAS coupé le balayage (message d'arrêt scan absent). "
             f"Messages: {[m.get('role') for m in orch.memory.messages]}"
         )
 

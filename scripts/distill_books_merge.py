@@ -1,9 +1,11 @@
 """Phase 1bis — distille PLUSIEURS livres puis FUSIONNE en UN seul skill.
 
 Pour chaque livre, on réutilise la distillation unitaire (en mémoire, sans
-écrire de fichier intermédiaire) ; puis on demande au modèle (proxy RAG :8081)
-de fusionner les N méthodes en UNE méthode actionnable conforme à
-`skills/distilled/schema.json`.
+écrire de fichier intermédiaire) ; puis on demande au modèle de fusionner les N
+méthodes en UNE méthode actionnable conforme à `skills/distilled/schema.json`.
+L'appel LLM passe par `_call_proxy` importé de `distill_book` (endpoint
+OpenAI-compatible : cerveau MLX :8080 par défaut, cf. `KLODY_DISTILL_URL` —
+l'ancien rag-proxy :8081 est mort et provoquait la boucle ConnectError).
 
 Écrit `skills/distilled/<domain>/<slug>.json` et `print` son chemin relatif —
 le wrapper `klody-distill.sh status` / l'outil `await_distillation` le

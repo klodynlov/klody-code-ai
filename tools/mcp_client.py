@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 import time
 from pathlib import Path
 
 import httpx
-from config import LIBRARYBRAIN_URL, SKILLS_DIR
+from config import LIBRARY_DB_PATH, LIBRARYBRAIN_URL, SKILLS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,122 @@ def search_books(query: str, limit: int = 3) -> str:
     except Exception as exc:
         logger.error("search_books erreur inattendue: %s", exc, exc_info=True)
         return f"Erreur lors de la recherche: {exc}"
+
+
+# ── Catalogue (métadonnée, NON gaté) ────────────────────────────────────────
+# search_books interroge le RAG génératif (/api/ask) gaté par similarité
+# cosinus ≥ 0.55 : une question par titre échoue le gate et renvoie « aucun
+# résultat », même quand le livre EST au catalogue. catalog_lookup lit la table
+# `books` en direct (FTS5 sur titre+auteur) — répond à « est-ce indexé / as-tu
+# le livre X / quels livres sur Y » sans passer par le gate ni le serveur :8765.
+
+def _catalog_connect() -> sqlite3.Connection:
+    """Connexion LECTURE SEULE à la DB Library Brain (catalogue)."""
+    return sqlite3.connect(f"file:{LIBRARY_DB_PATH}?mode=ro", uri=True)
+
+
+# Mots vides FR/EN — exclus du MATCH sinon le repli OR matche « livre », « the »…
+# et renvoie des faux positifs (prétend indexé un livre absent).
+_CATALOG_STOPWORDS = frozenset({
+    "le", "la", "les", "un", "une", "des", "de", "du", "au", "aux", "et", "ou",
+    "en", "ce", "ces", "que", "qui", "sur", "par", "dans", "avec", "sans",
+    "pour", "est", "as", "tu", "livre", "livres", "bouquin", "ouvrage",
+    "the", "of", "to", "and", "or", "in", "on", "for", "with", "by", "book",
+    "books", "do", "you", "have", "is", "it",
+})
+
+
+def _catalog_terms(query: str) -> list[str]:
+    """Mots significatifs (≥ 2 lettres, hors mots vides) pour un MATCH FTS5, max 6."""
+    return [
+        t for t in re.findall(r"\w+", query.lower())
+        if len(t) >= 2 and t not in _CATALOG_STOPWORDS
+    ][:6]
+
+
+def catalog_lookup(query: str, limit: int = 5) -> str:
+    """Cherche un livre AU CATALOGUE par titre/auteur (métadonnée, instantané).
+
+    FTS5 sur `books_fts(title, author)` — AND des termes d'abord, repli OR, puis
+    repli LIKE si l'index FTS est malformé. Retourne titre, auteur, année, pages,
+    format et date d'indexation. Ne passe PAS par le gate sémantique du RAG.
+    """
+    if not LIBRARY_DB_PATH.exists():
+        return f"Catalogue LibraryBrain introuvable ({LIBRARY_DB_PATH})."
+
+    terms = _catalog_terms(query)
+    if not terms:
+        return "Requête vide — précise un titre ou un auteur."
+
+    cols = "b.id, b.title, b.author, b.year, b.page_count, b.format, b.indexed_at"
+    try:
+        con = _catalog_connect()
+    except sqlite3.Error as exc:
+        logger.warning("catalog_lookup connexion KO: %s", exc)
+        return "Catalogue LibraryBrain inaccessible."
+
+    try:
+        rows: list = []
+        approx = False  # True si match par OR (tous les termes pas réunis) → approchant
+        try:
+            quoted = [f'"{t}"' for t in terms]
+            for joiner in (" AND ", " OR "):
+                rows = con.execute(
+                    f"""
+                    SELECT {cols}
+                    FROM books_fts f JOIN books b ON b.id = f.rowid
+                    WHERE books_fts MATCH ?
+                    ORDER BY rank LIMIT ?
+                    """,
+                    (joiner.join(quoted), limit),
+                ).fetchall()
+                if rows:
+                    approx = joiner == " OR " and len(terms) > 1
+                    break
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
+            logger.warning("catalog_lookup FTS KO (%s) → repli LIKE", exc)
+            where = " OR ".join(["b.title LIKE ?", "b.author LIKE ?"])
+            like = f"%{' '.join(terms)}%"
+            rows = con.execute(
+                f"SELECT {cols} FROM books b WHERE {where} LIMIT ?",
+                (like, like, limit),
+            ).fetchall()
+        total = con.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+    except sqlite3.Error as exc:
+        logger.error("catalog_lookup erreur DB: %s", exc, exc_info=True)
+        return f"Erreur catalogue : {exc}"
+    finally:
+        con.close()
+
+    if not rows:
+        return (
+            f"Aucun livre au catalogue pour « {query} » "
+            f"(catalogue = {total} livres). Le livre n'est pas indexé."
+        )
+
+    header = (
+        f"Aucune correspondance exacte pour « {query} ». "
+        f"Livres approchants (ne contiennent pas tous les mots) :"
+        if approx else
+        f"{len(rows)} livre(s) au catalogue pour « {query} » :"
+    )
+    lines = [header]
+    for r in rows:
+        _id, title, author, year, pages, fmt, indexed = r
+        meta = ", ".join(
+            p for p in (
+                str(year) if year else "",
+                f"{pages} p." if pages else "",
+                (fmt or "").upper(),
+            ) if p
+        )
+        date = (indexed or "")[:10]
+        lines.append(
+            f"• {(title or '?').strip()} — {author or 'auteur inconnu'}"
+            f"{f' ({meta})' if meta else ''}"
+            f"{f' · indexé le {date}' if date else ''}"
+        )
+    return "\n".join(lines)
 
 
 def _is_domain_file(path: Path) -> bool:

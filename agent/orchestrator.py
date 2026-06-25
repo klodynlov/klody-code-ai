@@ -55,6 +55,7 @@ from tools.github_reader import (
 from tools.library_distiller import distill_theme
 from tools.llm_import import import_llm_export, list_imports
 from tools.mcp_client import (
+    catalog_lookup as mcp_catalog,
     get_skills as mcp_get_skills,
     learn_from_books as mcp_learn,
     search_books as mcp_search_books,
@@ -308,6 +309,28 @@ def _is_continuation(text: str) -> bool:
 # éviter l'emballement sur une mauvaise piste.
 _MAX_AUTO_EXTENSIONS = 3
 _AUTO_EXTENSION_SIZE = 8
+
+# Anti-boucle : le LLM peut rappeler le MÊME outil avec les MÊMES arguments en
+# rafale quand le résultat ne le satisfait pas (typiquement un `run_in_sandbox`
+# qui plante à l'identique — proxy mort, script cassé). Sans garde-fou il tourne
+# jusqu'à épuiser max_iter (avec auto-continue, jusqu'à 30 passes) sans rien
+# produire : c'est la « boucle » visible côté utilisateur. On compte les appels
+# (nom + args) identiques sur le run ; au 3e on injecte un avertissement (change
+# d'approche), au 4e on coupe et on force la synthèse finale.
+_LOOP_REPEAT_WARN = 3
+_LOOP_REPEAT_BREAK = 4
+
+# Anti-scan : variante « lecture errante ». L'anti-boucle ci-dessus clé sur
+# nom+args+résultat — elle ne voit PAS un modèle qui balaie 40 fichiers DIFFÉRENTS
+# au hasard (40 read_file = 40 clés = compteur jamais > 1) en cherchant une info
+# qu'il ne localise pas. Symptôme observé : storm de read_file à la racine, cap
+# d'itérations atteint, réponse vide. On compte ici le MÊME OUTIL (quels que
+# soient args/résultat), restreint aux outils d'exploration (non producteurs) :
+# au seuil WARN on pousse à utiliser list_files/find_relevant_files ; au BREAK on
+# coupe et on synthétise. Seuils plus hauts que l'anti-boucle : explorer un repo
+# légitimement peut demander plusieurs lectures.
+_SCAN_REPEAT_WARN = 8
+_SCAN_REPEAT_BREAK = 14
 
 # Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
 # projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
@@ -1264,6 +1287,7 @@ class Orchestrator:
             "list_imports": lambda a: list_imports(),
             # LibraryBrain (MCP interne)
             "search_books": lambda a: mcp_search_books(a["query"], a.get("limit", 3)),
+            "library_catalog": lambda a: mcp_catalog(a["query"], a.get("limit", 5)),
             "get_skills": lambda a: mcp_get_skills(a["domain"]),
             "learn_from_books": lambda a: mcp_learn(a["topic"], a.get("skill_name", "")),
             "distill_theme": lambda a: distill_theme(
@@ -1579,6 +1603,15 @@ class Orchestrator:
             pattern = tool_args.get("pattern", "")
             console.print(_format_search_results(result, pattern))
 
+        elif tool_name == "library_catalog":
+            query = tool_args.get("query", "")
+            miss = result.startswith(("Aucun", "Catalogue", "Erreur", "Requête"))
+            console.print(Panel(
+                f"[{'yellow' if miss else 'cyan'}]{result}[/]",
+                title=f"[magenta]📖 catalogue: {query[:50]}[/magenta]",
+                border_style="yellow" if miss else "magenta",
+            ))
+
         elif tool_name == "search_books":
             query = tool_args.get("query", "")
             if result.startswith("LibraryBrain") or result.startswith("Aucun") or result.startswith("Erreur"):
@@ -1698,6 +1731,64 @@ class Orchestrator:
     # Boucle ReAct                                                         #
     # ------------------------------------------------------------------ #
 
+    def _trimmed_messages_for_synthesis(self) -> list[dict]:
+        """Contexte rogné pour la synthèse finale de secours.
+
+        En fin de boucle (cap d'itérations / coupe anti-boucle) le contexte est
+        souvent saturé par des dumps d'outils (lectures de fichiers en rafale) —
+        le LLM peut alors ne RIEN émettre (cf. gotcha budget de contexte). On
+        tronque le contenu des messages `tool` volumineux (on garde l'id et le
+        nom → l'appariement tool_call/tool_result reste valide) pour rendre de
+        l'air au modèle sans casser l'historique.
+        """
+        trimmed: list[dict] = []
+        for m in self.memory.get_messages_for_api():
+            if m.get("role") == "tool":
+                content = m.get("content") or ""
+                if len(content) > 300:
+                    m = {**m, "content": content[:300] + " …[tronqué pour synthèse]"}
+            trimmed.append(m)
+        return trimmed
+
+    def _forced_final_synthesis(self, reason: str = "") -> str:
+        """Force une réponse finale SANS outils et GARANTIT un message non vide.
+
+        Appelé quand la boucle est coupée (cap d'itérations, anti-boucle,
+        anti-scan). Le correctif historique (synthèse forcée) ne protégeait que
+        si le LLM rendait du texte : un retour vide laissait l'utilisateur sur un
+        écran blanc — récurrence du symptôme « il s'arrête, je dois relancer ».
+        Ici on : (1) tente la synthèse, thinking OFF (le canal raisonnement peut
+        absorber tout le budget de sortie) ; (2) si vide, réessaie sur un contexte
+        rogné (cause probable = saturation) ; (3) si toujours vide, écrit un
+        message de repli déterministe. L'utilisateur voit TOUJOURS quelque chose.
+        """
+        final_content, _ = self.llm.stream_chat(
+            self.memory.get_messages_for_api(), tools=None, enable_thinking=False,
+        )
+        if final_content and final_content.strip():
+            self.memory.add_message("assistant", final_content)
+            return final_content
+
+        logger.warning("Synthèse finale vide → retry sur contexte rogné")
+        final_content, _ = self.llm.stream_chat(
+            self._trimmed_messages_for_synthesis(), tools=None, enable_thinking=False,
+        )
+        if final_content and final_content.strip():
+            self.memory.add_message("assistant", final_content)
+            return final_content
+
+        logger.warning("Synthèse finale toujours vide → message de repli déterministe")
+        fallback = (
+            "J'ai épuisé mon budget d'outils sur cette tâche sans aboutir à une "
+            "réponse complète. "
+            + (reason + " " if reason else "")
+            + "Dis-moi sur quel fichier ou dossier précis me concentrer, ou "
+            "reformule ta demande : je repartirai de là."
+        )
+        self.memory.add_message("assistant", fallback)
+        console.print(f"\n[yellow]{fallback}[/yellow]")
+        return fallback
+
     def run(self, user_input: str) -> None:
         """
         Boucle ReAct : Thought (LLM) → Action (outil) → Observation → repeat.
@@ -1792,6 +1883,14 @@ class Orchestrator:
         extensions = 0
         tools_called_in_pass = False
         produced_in_pass = False
+        # Anti-boucle : compteur d'appels (nom+args) identiques sur tout le tour.
+        call_repeat_counts: dict[str, int] = {}
+        loop_warned: set[str] = set()
+        # Anti-scan : compteur par NOM d'outil (indépendant des args/résultat) sur
+        # tout le tour. Capte la lecture errante que l'anti-boucle ci-dessus rate
+        # (40 fichiers différents = 40 clés distinctes).
+        tool_name_counts: dict[str, int] = {}
+        scan_warned: set[str] = set()
         while True:
             iteration += 1
             if iteration >= max_iter:
@@ -1854,16 +1953,9 @@ class Orchestrator:
                     ),
                     "timestamp": None,
                 })
-                _final_budget = self._thinking_budget()
-                final_content, _ = self.llm.stream_chat(
-                    self.memory.get_messages_for_api(), tools=None,
-                    enable_thinking=self._should_think(),
-                    thinking_budget=_final_budget or None,
+                self._forced_final_synthesis(
+                    reason="J'ai atteint la limite d'itérations pour ce tour."
                 )
-                if final_content:
-                    self.memory.add_message("assistant", final_content)
-                else:
-                    logger.warning("Réponse finale forcée vide (cap %d)", max_iter)
                 break
 
             if iteration > 0:
@@ -1916,6 +2008,10 @@ class Orchestrator:
 
                 _preview_url: str | None = None
                 _preview_since = 0.0
+                _worst_n_local = 0
+                _worst_name_local: str | None = None
+                _scan_n_local = 0
+                _scan_name_local: str | None = None
                 for tc in tool_calls:
                     tool_name = tc["function"]["name"]
                     tool_id = tc["id"]
@@ -1946,12 +2042,132 @@ class Orchestrator:
                     if tool_name in ("preview_code", "preview_file"):
                         _preview_url = _extract_preview_url(result)
 
+                    # Anti-boucle : on compte les appels (nom+args) qui rendent le
+                    # MÊME résultat. Un sondage (statut_generation) voit son résultat
+                    # évoluer (progression) → clé différente → aucun faux positif ;
+                    # un échec à l'identique (proxy mort, script cassé) garde la même
+                    # clé et fait grimper le compteur jusqu'au seuil de coupe.
+                    try:
+                        _args_key = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        _args_key = repr(tool_args)
+                    _loop_key = f"{tool_name}|{_args_key}|{hash(str(result))}"
+                    call_repeat_counts[_loop_key] = call_repeat_counts.get(_loop_key, 0) + 1
+                    if call_repeat_counts[_loop_key] > _worst_n_local:
+                        _worst_n_local = call_repeat_counts[_loop_key]
+                        _worst_name_local = tool_name
+
+                    # Anti-scan : compte par NOM seul, restreint aux outils
+                    # d'exploration (un producteur appelé en rafale = travail réel,
+                    # pas une errance). Clé indépendante des args → capte le balayage
+                    # de fichiers distincts.
+                    if tool_name not in _PRODUCING_TOOLS:
+                        tool_name_counts[tool_name] = tool_name_counts.get(tool_name, 0) + 1
+                        if tool_name_counts[tool_name] > _scan_n_local:
+                            _scan_n_local = tool_name_counts[tool_name]
+                            _scan_name_local = tool_name
+
                 tools_called_in_pass = True
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
                 # Boucle de feedback : si la preview plante au runtime, on relance
                 # une passe de correction (no-op si pas de preview ou timeout désactivé).
                 self._check_preview_feedback(_preview_url, _preview_since)
+
+                # Anti-scan : même OUTIL d'exploration répété en rafale (args
+                # variés) = lecture errante. Au WARN on pousse vers list_files /
+                # find_relevant_files ; au BREAK on coupe et on synthétise avant
+                # d'atteindre le cap d'itérations (la storm de read_file observée).
+                if _scan_name_local is not None and _scan_n_local >= _SCAN_REPEAT_BREAK:
+                    logger.warning(
+                        "[anti-scan] %s appelé %d× (args variés) → coupe + synthèse",
+                        _scan_name_local, _scan_n_local)
+                    console.print(
+                        f"\n[yellow]  ⚠  Balayage détecté — `{_scan_name_local}` appelé "
+                        f"{_scan_n_local}× sur des cibles variées. Arrêt et synthèse.[/yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"STOP. Tu as appelé `{_scan_name_local}` {_scan_n_local} fois "
+                            "sur des cibles différentes sans converger : tu balaies au lieu "
+                            "de cibler. N'appelle plus AUCUN outil. Explique à l'utilisateur "
+                            "ce que tu cherchais, ce que tu as trouvé jusqu'ici, et demande "
+                            "le chemin précis (fichier/dossier) si l'info manque. Rédige "
+                            "maintenant ta réponse finale."
+                        ),
+                        "timestamp": None,
+                    })
+                    self._forced_final_synthesis()
+                    break
+                if (
+                    _scan_name_local is not None
+                    and _scan_n_local >= _SCAN_REPEAT_WARN
+                    and _scan_name_local not in scan_warned
+                ):
+                    scan_warned.add(_scan_name_local)
+                    logger.info("[anti-scan] %s appelé %d× → nudge ciblage injecté",
+                                _scan_name_local, _scan_n_local)
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"⚠ Tu as appelé `{_scan_name_local}` {_scan_n_local} fois sur "
+                            "des cibles différentes : tu balaies des fichiers au hasard. "
+                            "Arrête de lire à l'aveugle. Utilise `list_files` pour cadrer le "
+                            "dossier, `find_relevant_files`/`search_in_files` pour localiser "
+                            "par contenu, puis ne lis QUE les fichiers pertinents. Si tu ne "
+                            "trouves pas, demande le chemin à l'utilisateur."
+                        ),
+                        "timestamp": None,
+                    })
+
+                # Anti-boucle : même appel + même résultat répété en rafale = le LLM
+                # tourne sans avancer (souvent un échec identique). Au seuil WARN on
+                # l'avertit une fois (change d'approche) ; au seuil BREAK on coupe et
+                # on force la synthèse finale au lieu de laisser tourner jusqu'à
+                # max_iter (la « boucle » visible côté utilisateur).
+                if _worst_name_local is not None and _worst_n_local >= _LOOP_REPEAT_BREAK:
+                    logger.warning(
+                        "[anti-boucle] %s appelé %d× à l'identique (même résultat) "
+                        "→ coupe + synthèse finale", _worst_name_local, _worst_n_local)
+                    console.print(
+                        f"\n[yellow]  ⚠  Boucle détectée — `{_worst_name_local}` répété "
+                        f"{_worst_n_local}× sans changement. Arrêt et synthèse.[/yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"STOP. Tu as appelé `{_worst_name_local}` {_worst_n_local} fois "
+                            "avec exactement les mêmes arguments et obtenu le même résultat à "
+                            "chaque fois. N'appelle plus AUCUN outil. Explique à l'utilisateur "
+                            "ce que tu as tenté, le résultat obtenu (notamment toute erreur "
+                            "rencontrée), et propose une autre piste ou demande une précision. "
+                            "Rédige maintenant ta réponse finale."
+                        ),
+                        "timestamp": None,
+                    })
+                    self._forced_final_synthesis()
+                    break
+                if (
+                    _worst_name_local is not None
+                    and _worst_n_local >= _LOOP_REPEAT_WARN
+                    and _worst_name_local not in loop_warned
+                ):
+                    loop_warned.add(_worst_name_local)
+                    logger.info("[anti-boucle] %s répété %d× → avertissement injecté",
+                                _worst_name_local, _worst_n_local)
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"⚠ Tu viens d'appeler `{_worst_name_local}` {_worst_n_local} fois "
+                            "avec les mêmes arguments et tu obtiens le même résultat à chaque "
+                            "fois. Arrête de répéter cet appel à l'identique : change "
+                            "d'arguments, essaie une autre approche, ou si c'est un échec que "
+                            "tu ne peux pas résoudre, explique-le à l'utilisateur au lieu de "
+                            "retenter."
+                        ),
+                        "timestamp": None,
+                    })
                 continue
 
             else:

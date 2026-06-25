@@ -57,3 +57,17 @@ ollama>=0.4.0
 cryptography>=48.0.1
 python-multipart>=0.0.31
 starlette>=1.3.1
+
+# Arm MCP musique (klody_mcp/klody_music_server.py) — tout importé en LAZY dans
+# les outils (serveur boot OK sans, l'outil renvoie une erreur d'install claire).
+#   librosa      — extraction f0/tempo/tonalité/timbre (evaluer_tessiture, idees_chanson)
+#   soundfile    — I/O audio (dépendance librosa)
+#   music21      — théorie (suggerer_tonalites/harmoniser/suggerer_accords)
+#   mlx-whisper  — transcription paroles best-effort (idees_chanson), Apple Silicon
+# Hors du lock (verrouillage Linux du CI) : l'arm est Apple Silicon-centré et tout
+# est lazy/optionnel. Install manuelle :
+#   pip install librosa soundfile music21   # analyse + théorie (multi-plateforme)
+# mlx-whisper (transcription paroles, idees_chanson) : Apple Silicon UNIQUEMENT —
+# mlx-metal n'a pas de wheel Linux, l'epingler casserait le lock + le CI Linux.
+# Lazy + best-effort (idees_chanson marche sans, juste sans paroles). Install
+# manuelle macOS :  pip install mlx-whisper
