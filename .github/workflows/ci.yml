@@ -28,7 +28,7 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -93,7 +93,7 @@ jobs:
     name: Lint & types (ruff + mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       - uses: actions/setup-python@v6
@@ -115,7 +115,7 @@ jobs:
     name: Security (bandit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       - uses: actions/setup-python@v6
@@ -135,7 +135,7 @@ jobs:
     name: Deps audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       - uses: actions/setup-python@v6
@@ -160,7 +160,7 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
@@ -178,7 +178,7 @@ jobs:
     name: Lockfile freshness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       - uses: actions/setup-python@v6
