@@ -23,6 +23,7 @@ Code de sortie 0 = tout vert, 1 = au moins un rouge ou pont injoignable.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import os
 import sys
@@ -32,7 +33,20 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Réutilise le client du serveur MCP : valide aussi le framing socket réel.
+from klody_mcp import reaper_workflows as rwf
 from klody_mcp.reaper_server import _bridge_call_sync as call
+
+
+async def _acall(cmd: str, args: dict | None = None) -> dict:
+    """Adaptateur async du client sync : les workflows (P5) attendent un callable
+    asynchrone. Une seule coroutine tourne -> l'appel bloquant est sans risque."""
+    return call(cmd, args or {})
+
+
+def wf_run(coro):
+    """Exécute un workflow async depuis ce script synchrone (preuve bout-en-bout :
+    workflow -> vrai pont -> vrai REAPER)."""
+    return asyncio.run(coro)
 
 TEST_TRACK = "KLODY_VALIDATE_melody"
 # Petite gamme de Do majeur (Do Ré Mi Fa Sol) — preuve de génération mélodie.
@@ -269,6 +283,113 @@ def main() -> int:
             for f in iso_files:
                 with contextlib.suppress(OSError):
                     os.remove(f)
+
+    # 4quinquies. P5 — primitives (arm_track / set_tempo) + workflows agentiques
+    # (spec DAW agentique §8). Les workflows COMPOSENT les primitives P1-P3 ; on les
+    # exerce ici via le VRAI pont (preuve bout-en-bout). Cleanup de tout ce qu'on crée.
+
+    # arm_track : on arme la piste de test, on relit, puis on désarme (propre).
+    r = call("arm_track", {"index": idx, "armed": True, "input": 0, "monitor": True})
+    check("arm_track (armement)", r.get("armed") is True and not err(r),
+          f"armed={r.get('armed')}, rec_input={r.get('rec_input')}, monitor={r.get('monitor')}")
+    call("arm_track", {"index": idx, "armed": False})
+
+    # set_tempo : capture l'original, change, relit via snapshot, restaure.
+    orig_tempo = proj.get("tempo") or 120.0
+    r = call("set_tempo", {"bpm": 100.0})
+    sp = call("get_project_snapshot", {"detail": "summary"})
+    read_tempo = sp.get("project", {}).get("tempo") if isinstance(sp, dict) else None
+    check("set_tempo (réglé + relu)",
+          not err(r) and read_tempo is not None and abs(read_tempo - 100.0) < 0.5,
+          f"tempo réglé→relu={read_tempo} (attendu 100.0)")
+    call("set_tempo", {"bpm": float(orig_tempo)})  # restaure
+
+    # workflow_prepare_vocal_recording : crée + arme une piste voix dédiée (cleanup).
+    vox = wf_run(rwf.prepare_vocal_recording(_acall, name="KLODY_VALIDATE_vox", input_channel=0))
+    vox_guid = vox.get("track", {}).get("guid")
+    # REJOUABLE : on exige une piste voix ARMÉE (l'invariant réel), PAS qu'elle soit
+    # fraîchement créée — un rejeu dans la même session REAPER la réutiliserait
+    # (created=False) sans que le workflow ait échoué. undo_steps >= 1 (l'armement
+    # compte toujours ; la création n'ajoute +1 qu'au 1er passage).
+    check("workflow_prepare_vocal_recording",
+          not err(vox) and bool(vox_guid)
+          and vox.get("armed", {}).get("armed") is True and vox.get("undo_steps", 0) >= 1,
+          f"guid={vox_guid}, armed={vox.get('armed', {}).get('armed')}, "
+          f"undo_steps={vox.get('undo_steps')}")
+
+    # workflow_build_vocal_chain : sur la piste voix, chaîne stock + send reverb.
+    # Bus reverb nommé KLODY_VALIDATE* pour un cleanup sûr (jamais une vraie piste user).
+    chain_rev_guid = None
+    if vox_guid:
+        chain = wf_run(rwf.build_vocal_chain(
+            _acall, guid=vox_guid, reverb_bus="KLODY_VALIDATE_rev"))
+        added = [a.get("fx") for a in chain.get("added", [])]
+        reverb = chain.get("reverb") if isinstance(chain.get("reverb"), dict) else {}
+        chain_rev_guid = reverb.get("bus", {}).get("guid")
+        send = reverb.get("send") if isinstance(reverb.get("send"), dict) else {}
+        # REJOUABLE : `added` inclut les FX RÉUTILISÉS (created False) -> le test de nom
+        # tient au rejeu ; et on exige un send PRÉSENT (créé OU réutilisé, idempotent),
+        # pas forcément neuf.
+        check("workflow_build_vocal_chain",
+              not err(chain) and any("EQ" in (x or "") for x in added)
+              and any("Comp" in (x or "") for x in added)
+              and bool(send) and not err(send),
+              f"added={added}, missing={[m.get('fx') for m in chain.get('missing', [])]}, "
+              f"reverb_bus_guid={chain_rev_guid}, send_index={send.get('send_index')}")
+
+    # workflow_create_zouk_arrangement : régions de structure (loin des repères P2,
+    # start=200s). Idempotent : 2e passage = created False. Tempo restauré ensuite.
+    secs = [{"name": "KLODY_VALIDATE_A", "bars": 2}, {"name": "KLODY_VALIDATE_B", "bars": 2}]
+    arr = wf_run(rwf.create_zouk_arrangement(_acall, bpm=120.0, sections=secs, start=200.0))
+    arr2 = wf_run(rwf.create_zouk_arrangement(_acall, bpm=120.0, sections=secs, start=200.0))
+    regs = arr.get("regions", [])
+    contiguous = len(regs) == 2 and regs[0].get("end") == regs[1].get("start")
+    check("workflow_create_zouk_arrangement",
+          not err(arr) and contiguous and arr.get("seconds_per_bar") == 2.0,
+          f"régions={len(regs)}, s/bar={arr.get('seconds_per_bar')}, total={arr.get('total_seconds')}")
+    check("workflow_create_zouk_arrangement idempotent",
+          all(x.get("created") is False for x in arr2.get("regions", [])),
+          f"created2={[x.get('created') for x in arr2.get('regions', [])]}")
+    call("set_tempo", {"bpm": float(orig_tempo)})  # restaure (la 2e passe a remis 120)
+
+    # workflow_prepare_mix : bus d'effets stock (Reverb/Delay). On nettoie ceux qu'on
+    # a créés CE run (created True) — jamais une piste préexistante de l'utilisateur.
+    mix = wf_run(rwf.prepare_mix(_acall))
+    mix_buses = mix.get("buses", [])
+    check("workflow_prepare_mix",
+          not err(mix) and len(mix_buses) == 2
+          and all(not b.get("error") for b in mix_buses),
+          f"buses={[b.get('bus') for b in mix_buses]}, "
+          f"fx={[b.get('fx') for b in mix_buses]}")
+
+    # workflow_render_all_stems : rend chaque piste non vide en isolation (temp dir).
+    stems_dir = "/tmp/klody_reaper_stems"
+    stems = wf_run(rwf.render_all_stems(_acall, stems_dir))
+    stem_files = [f for s in stems.get("stems", []) for f in (s.get("output_files") or [])]
+    check("workflow_render_all_stems",
+          not err(stems) and stems.get("track_count", 0) >= 1
+          and isinstance(stems.get("stems"), list),
+          f"track_count={stems.get('track_count')}, rendered={stems.get('rendered')}, "
+          f"fichiers={len(stem_files)}")
+    for f in stem_files:  # cleanup des stems écrits
+        with contextlib.suppress(OSError):
+            os.remove(f)
+    with contextlib.suppress(OSError):
+        os.rmdir(stems_dir)
+
+    # Cleanup P5 : supprime EXACTEMENT ce que les workflows ont créé, par GUID connu
+    # (piste voix + bus reverb du chain + bus Reverb/Delay créés CE run par
+    # prepare_mix). On ne scanne PAS par préfixe de nom (qui pourrait emporter une
+    # piste user homonyme) et on garde explicitement la piste de test principale
+    # (`guid`, nettoyée en section 7). Régions/marqueurs restent (éphémères : projet
+    # jamais sauvegardé).
+    to_delete = [vox_guid, chain_rev_guid]
+    for b in mix_buses:  # Reverb/Delay seulement si créés ce run (jamais une piste préexistante)
+        if b.get("created") and b.get("guid"):
+            to_delete.append(b.get("guid"))
+    for g in to_delete:
+        if g and g != guid:  # jamais la piste de test principale
+            call("delete_track", {"guid": g})
 
     # 5. Transport (optionnel) — play/stop, jamais record (record écrit de l'audio).
     if args.transport:

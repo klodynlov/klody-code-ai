@@ -1,0 +1,326 @@
+"""Tests des workflows agentiques REAPER (klody_mcp.reaper_workflows).
+
+Les workflows sont de l'orchestration pure : ils n'appellent JAMAIS REAPER, mais
+un callable `call(cmd, args) -> dict` injecté. On injecte donc un FAUX pont
+(FakeBridge) qui simule l'état projet et l'idempotence des primitives — la suite
+tourne en CI sans REAPER. On vérifie : composition correcte, dégradation propre
+quand un plugin manque (jamais de supposition), idempotence (rejeu sans doublon),
+et le comptage `undo_steps`.
+"""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from klody_mcp import reaper_workflows as wf
+
+
+class FakeBridge:
+    """Faux pont REAPER : état projet en mémoire + primitives idempotentes.
+
+    `installed_fx=None` -> tous les effets sont « installés » ; sinon seuls ceux du
+    set le sont (add_fx renvoie une erreur pour les autres, comme le vrai pont quand
+    un plugin n'est pas présent).
+    """
+
+    def __init__(self, installed_fx: set[str] | None = None, tempo: float = 120.0):
+        self.tracks: list[dict] = []
+        self.tempo = tempo
+        self.regions: list[tuple[float, float, str]] = []
+        self.installed_fx = installed_fx
+        self._guid = 0
+        self.calls: list[str] = []
+
+    # -- utilitaires ---------------------------------------------------------
+    def _new_guid(self) -> str:
+        self._guid += 1
+        return "{GUID-%04d}" % self._guid
+
+    def add_existing_track(self, name: str, item_count: int = 0) -> dict:
+        tr = {"index": len(self.tracks), "guid": self._new_guid(), "name": name,
+              "item_count": item_count, "fx": [], "sends": [], "armed": False}
+        self.tracks.append(tr)
+        return tr
+
+    def _resolve(self, args: dict) -> dict:
+        guid = (args.get("guid") or "").strip()
+        if guid:
+            for t in self.tracks:
+                if t["guid"] == guid:
+                    return t
+            raise KeyError(guid)
+        idx = args.get("index", args.get("track_index"))
+        if idx is None or int(idx) < 0 or int(idx) >= len(self.tracks):
+            raise IndexError(idx)
+        return self.tracks[int(idx)]
+
+    # -- dispatch ------------------------------------------------------------
+    async def __call__(self, cmd: str, args: dict | None = None) -> dict:
+        self.calls.append(cmd)
+        args = args or {}
+        return getattr(self, "_cmd_" + cmd)(args)
+
+    def _cmd_list_tracks(self, args: dict) -> dict:
+        return {"count": len(self.tracks),
+                "tracks": [{"index": t["index"], "guid": t["guid"], "name": t["name"]}
+                           for t in self.tracks]}
+
+    def _cmd_get_project_snapshot(self, args: dict) -> dict:
+        full = str(args.get("detail")) == "full"
+        tracks = []
+        for t in self.tracks:
+            d = {"index": t["index"], "guid": t["guid"], "name": t["name"]}
+            if full:
+                d["item_count"] = t["item_count"]
+                d["fx_count"] = len(t["fx"])
+            tracks.append(d)
+        return {"project": {"tempo": self.tempo, "track_count": len(self.tracks)},
+                "tracks": tracks}
+
+    def _cmd_add_track(self, args: dict) -> dict:
+        tr = self.add_existing_track(args.get("name") or "")
+        return {"inserted_index": tr["index"], "guid": tr["guid"],
+                "name": tr["name"], "track_count": len(self.tracks)}
+
+    def _cmd_arm_track(self, args: dict) -> dict:
+        t = self._resolve(args)
+        t["armed"] = bool(args.get("armed", True))
+        return {"index": t["index"], "guid": t["guid"], "armed": t["armed"],
+                "rec_input": int(args.get("input", 0)), "monitor": bool(args.get("monitor", True))}
+
+    def _cmd_set_tempo(self, args: dict) -> dict:
+        bpm = float(args.get("bpm", 0))
+        if not (1.0 <= bpm <= 960.0):
+            return {"error": "bpm hors plage"}
+        self.tempo = bpm
+        return {"bpm": bpm}
+
+    def _cmd_add_fx(self, args: dict) -> dict:
+        t = self._resolve(args)
+        name = (args.get("name") or "").strip()
+        if self.installed_fx is not None and name not in self.installed_fx:
+            return {"error": f"effet introuvable: {name!r} (installé ?)"}
+        if name in t["fx"]:
+            return {"track_index": t["index"], "guid": t["guid"],
+                    "fx_index": t["fx"].index(name), "fx_name": name, "created": False}
+        t["fx"].append(name)
+        return {"track_index": t["index"], "guid": t["guid"],
+                "fx_index": len(t["fx"]) - 1, "fx_name": name, "created": True}
+
+    def _cmd_create_bus(self, args: dict) -> dict:
+        name = (args.get("name") or "").strip()
+        for t in self.tracks:
+            if t["name"] == name:
+                return {"index": t["index"], "guid": t["guid"], "name": name, "created": False}
+        tr = self.add_existing_track(name)
+        return {"index": tr["index"], "guid": tr["guid"], "name": name, "created": True}
+
+    def _cmd_create_send(self, args: dict) -> dict:
+        src = self._resolve(args)
+        dest_guid = (args.get("dest_guid") or "").strip()
+        if dest_guid in src["sends"]:
+            return {"send_index": src["sends"].index(dest_guid), "created": False}
+        src["sends"].append(dest_guid)
+        return {"send_index": len(src["sends"]) - 1, "created": True}
+
+    def _cmd_add_region(self, args: dict) -> dict:
+        start = float(args.get("start", 0))
+        end = float(args.get("end", 0))
+        name = args.get("name") or ""
+        for (s, e, _n) in self.regions:
+            if abs(s - start) < 1e-6 and abs(e - end) < 1e-6:
+                return {"start": start, "end": end, "name": name, "created": False}
+        self.regions.append((start, end, name))
+        return {"start": start, "end": end, "name": name,
+                "region_id": len(self.regions), "created": True}
+
+    def _cmd_render_track_isolated(self, args: dict) -> dict:
+        t = self._resolve(args)
+        out = args.get("out_path")
+        if t["item_count"] <= 0:
+            return {"track_index": t["index"], "guid": t["guid"], "out_path": out,
+                    "rendered": False, "output_files": []}
+        return {"track_index": t["index"], "guid": t["guid"], "out_path": out,
+                "rendered": True, "output_files": [out]}
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+# -- prepare_vocal_recording -------------------------------------------------
+
+
+def test_prepare_vocal_recording_creates_and_arms():
+    fb = FakeBridge()
+    r = run(wf.prepare_vocal_recording(fb, name="Lead", input_channel=0))
+    assert r["track"]["created"] is True
+    assert r["track"]["guid"].startswith("{GUID")
+    assert r["armed"]["armed"] is True
+    # création (1) + armement (1)
+    assert r["undo_steps"] == 2
+    assert len(fb.tracks) == 1 and fb.tracks[0]["armed"] is True
+
+
+def test_prepare_vocal_recording_idempotent_track():
+    fb = FakeBridge()
+    fb.add_existing_track("Lead")
+    r = run(wf.prepare_vocal_recording(fb, name="Lead"))
+    assert r["track"]["created"] is False
+    assert len(fb.tracks) == 1  # pas de doublon
+    assert r["undo_steps"] == 1  # juste l'armement
+
+
+def test_prepare_vocal_recording_with_chain():
+    fb = FakeBridge()
+    r = run(wf.prepare_vocal_recording(fb, name="Lead", build_chain=True))
+    assert r["chain"] is not None
+    assert [a["fx"] for a in r["chain"]["added"]] == ["ReaEQ", "ReaComp"]
+    # track + arm + 2 fx + bus + reverb fx + send
+    assert r["undo_steps"] >= 5
+
+
+# -- build_vocal_chain -------------------------------------------------------
+
+
+def test_build_vocal_chain_full():
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"]))
+    assert [a["fx"] for a in r["added"]] == ["ReaEQ", "ReaComp"]
+    assert r["missing"] == []
+    assert r["reverb"]["bus"]["created"] is True
+    assert r["reverb"]["send"]["created"] is True
+    assert "ReaEQ" in tr["fx"] and "ReaComp" in tr["fx"]
+
+
+def test_build_vocal_chain_requires_target():
+    fb = FakeBridge()
+    r = run(wf.build_vocal_chain(fb))  # ni guid ni index
+    assert "error" in r
+
+
+def test_build_vocal_chain_degrades_on_missing_plugin():
+    # Seul ReaEQ installé -> ReaComp doit être collecté dans `missing`, pas planter.
+    fb = FakeBridge(installed_fx={"ReaEQ", "ReaVerbate"})
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"]))
+    added = [a["fx"] for a in r["added"]]
+    missing = [m["fx"] for m in r["missing"]]
+    assert "ReaEQ" in added
+    assert "ReaComp" in missing
+    assert r["reverb"]["bus"]["created"] is True  # le reste du workflow continue
+
+
+def test_build_vocal_chain_idempotent():
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    run(wf.build_vocal_chain(fb, guid=tr["guid"]))
+    r2 = run(wf.build_vocal_chain(fb, guid=tr["guid"]))
+    # 2e passage : tout existe déjà -> rien créé -> aucun undo
+    assert all(a["created"] is False for a in r2["added"])
+    assert r2["undo_steps"] == 0
+    assert tr["fx"] == ["ReaEQ", "ReaComp"]  # pas de doublon
+
+
+# -- create_zouk_arrangement -------------------------------------------------
+
+
+def test_create_zouk_arrangement_default():
+    fb = FakeBridge()
+    r = run(wf.create_zouk_arrangement(fb, bpm=120.0))
+    assert r["bpm"] == 120.0
+    assert r["seconds_per_bar"] == 2.0  # 60/120 * 4
+    assert len(r["regions"]) == 8
+    # régions contiguës : la fin de l'une = le début de la suivante
+    for a, b in zip(r["regions"], r["regions"][1:]):
+        assert a["end"] == b["start"]
+    total_bars = sum(bars for _n, bars in wf._DEFAULT_ZOUK)
+    assert r["total_seconds"] == pytest.approx(total_bars * 2.0)
+    assert fb.tempo == 120.0
+
+
+def test_create_zouk_arrangement_custom_sections_and_idempotent():
+    fb = FakeBridge()
+    secs = [{"name": "A", "bars": 4}, {"name": "B", "bars": 8}]
+    r1 = run(wf.create_zouk_arrangement(fb, bpm=100.0, sections=secs))
+    assert [x["name"] for x in r1["regions"]] == ["A", "B"]
+    assert r1["seconds_per_bar"] == pytest.approx(2.4)  # 60/100 * 4
+    r2 = run(wf.create_zouk_arrangement(fb, bpm=100.0, sections=secs))
+    assert all(x["created"] is False for x in r2["regions"])  # idempotent
+    assert r2["undo_steps"] == 0
+    assert len(fb.regions) == 2  # pas de doublon
+
+
+def test_create_zouk_arrangement_uses_project_tempo():
+    fb = FakeBridge(tempo=90.0)
+    r = run(wf.create_zouk_arrangement(fb, sections=[{"name": "X", "bars": 1}]))
+    assert r["bpm"] == 90.0
+    assert r["seconds_per_bar"] == pytest.approx(60.0 / 90.0 * 4, abs=1e-3)
+
+
+# -- prepare_mix -------------------------------------------------------------
+
+
+def test_prepare_mix_creates_buses():
+    fb = FakeBridge()
+    r = run(wf.prepare_mix(fb))
+    names = [b["bus"] for b in r["buses"]]
+    assert names == ["Reverb", "Delay"]
+    assert all(b["created"] is True for b in r["buses"])
+    assert r["buses"][0]["fx"] == "ReaVerbate"
+    assert r["buses"][1]["fx"] == "ReaDelay"
+
+
+def test_prepare_mix_idempotent():
+    fb = FakeBridge()
+    run(wf.prepare_mix(fb))
+    r2 = run(wf.prepare_mix(fb))
+    assert all(b["created"] is False for b in r2["buses"])
+    assert r2["undo_steps"] == 0
+    assert len([t for t in fb.tracks if t["name"] in ("Reverb", "Delay")]) == 2
+
+
+def test_prepare_mix_degrades_on_missing_fx():
+    fb = FakeBridge(installed_fx=set())  # aucun effet installé
+    r = run(wf.prepare_mix(fb))
+    # les bus sont quand même créés ; le fx manquant est signalé, pas fatal
+    assert all(b["created"] is True for b in r["buses"])
+    assert all(b["fx"] is None and b["fx_error"] for b in r["buses"])
+
+
+# -- render_all_stems --------------------------------------------------------
+
+
+def test_render_all_stems_skips_empty(tmp_path):
+    fb = FakeBridge()
+    fb.add_existing_track("Vox", item_count=3)
+    fb.add_existing_track("Drums", item_count=2)
+    fb.add_existing_track("Reverb", item_count=0)  # bus vide -> sauté
+    out = tmp_path / "stems"
+    r = run(wf.render_all_stems(fb, str(out)))
+    assert r["track_count"] == 3
+    assert r["rendered"] == 2
+    skipped = [s for s in r["stems"] if s.get("skipped")]
+    assert len(skipped) == 1 and skipped[0]["name"] == "Reverb"
+    # noms de fichiers dérivés (index zéro-paddé + nom assaini)
+    paths = [s["output_files"][0] for s in r["stems"] if s.get("rendered")]
+    assert any("00_Vox.wav" in p for p in paths)
+    assert out.is_dir()
+
+
+def test_render_all_stems_include_empty(tmp_path):
+    fb = FakeBridge()
+    fb.add_existing_track("Vox", item_count=1)
+    fb.add_existing_track("Bus", item_count=0)
+    r = run(wf.render_all_stems(fb, str(tmp_path), include_empty=True))
+    # la piste vide est tentée (rendered False) mais pas sautée
+    assert all("skipped" not in s for s in r["stems"])
+    assert r["rendered"] == 1
+
+
+def test_render_all_stems_requires_out_dir():
+    fb = FakeBridge()
+    r = run(wf.render_all_stems(fb, ""))
+    assert "error" in r

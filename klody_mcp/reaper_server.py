@@ -664,6 +664,129 @@ async def analyze_master() -> dict:
 
 
 # ---------------------------------------------------------------------------- #
+# P5 — primitives manquantes pour les workflows : armement piste + tempo.       #
+# Mêmes RPR_* éprouvées côté pont ; mutations annulables (undo_last), sans save. #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def arm_track(
+    index: int = -1, guid: str = "", armed: bool = True,
+    input_channel: int = -1, monitor: bool = True,
+) -> dict:
+    """Arme (armed=True) ou désarme une piste pour l'enregistrement, ciblée par `guid`
+    (stable, prioritaire) ou `index`. `input_channel` >= 0 = entrée matérielle MONO
+    (0 = 1re entrée de l'interface, ex. Apollo Twin X) ; < 0 = inchangée. `monitor`
+    active l'écoute d'entrée. NE lance PAS l'enregistrement (aucun audio écrit ;
+    utiliser transport_record). Sans sauvegarde.
+
+    Returns: {"index","guid","armed","rec_input","monitor"} ou {"error": ...}.
+    """
+    payload: dict = {"index": index, "guid": guid, "armed": armed, "monitor": monitor}
+    if input_channel >= 0:
+        payload["input"] = input_channel
+    return await _bridge_call("arm_track", payload)
+
+
+@mcp.tool()
+async def set_tempo(bpm: float) -> dict:
+    """Règle le tempo (BPM) du projet REAPER (plage 1..960). Sans sauvegarde, annulable
+    (undo_last). Returns {"bpm": <valeur relue>} ou {"error": ...}.
+    """
+    return await _bridge_call("set_tempo", {"bpm": bpm})
+
+
+# ---------------------------------------------------------------------------- #
+# P5 — workflows agentiques : macros métier qui COMPOSENT les primitives P1-P3  #
+# (spec DAW agentique §8). La logique vit dans klody_mcp/reaper_workflows.py    #
+# (testable hors REAPER) ; ici on n'expose que des verbes de haut niveau.       #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def workflow_prepare_vocal_recording(
+    name: str = "Lead Vocal", input_channel: int = 0,
+    monitor: bool = True, build_chain: bool = False,
+) -> dict:
+    """Workflow : prépare une session voix. Crée (ou retrouve) une piste `name`, l'arme
+    (entrée mono `input_channel` + monitoring), et pose optionnellement la chaîne vocale
+    (`build_chain`). N'ENREGISTRE PAS. Renvoie le guid, l'état d'armement et `undo_steps`
+    (nombre de Cmd-Z pour tout annuler).
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.prepare_vocal_recording(
+        _bridge_call, name=name, input_channel=input_channel,
+        monitor=monitor, build_chain=build_chain,
+    )
+
+
+@mcp.tool()
+async def workflow_build_vocal_chain(
+    index: int = -1, guid: str = "", gate: bool = False,
+    reverb_send: bool = True, reverb_bus: str = "Reverb", reverb_db: float = -12.0,
+) -> dict:
+    """Workflow : pose une chaîne vocale stock (ReaEQ -> ReaComp [-> ReaGate]) sur la
+    piste ciblée (guid/index), + un send optionnel vers un bus reverb (ReaVerbate). Ne
+    suppose AUCUN plugin tiers : un effet absent est collecté dans `missing` sans planter.
+    Ne règle pas les paramètres (à affiner à l'oreille / via analyze_track).
+
+    Returns: {"added":[...],"missing":[...],"reverb":{...},"undo_steps"} ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.build_vocal_chain(
+        _bridge_call, index=index, guid=guid, gate=gate,
+        reverb_send=reverb_send, reverb_bus=reverb_bus, reverb_db=reverb_db,
+    )
+
+
+@mcp.tool()
+async def workflow_create_zouk_arrangement(
+    bpm: float | None = None, sections: list[dict] | None = None,
+    beats_per_bar: int = 4, start: float = 0.0,
+) -> dict:
+    """Workflow : pose une structure de morceau en RÉGIONS (intro/couplet/refrain/pont/
+    outro). Règle le tempo si `bpm` fourni, sinon utilise celui du projet. `sections` =
+    liste de {"name","bars"} (défaut : structure zouk 4/4). Idempotent (rejouer au même
+    tempo ne duplique rien).
+
+    Returns: {"bpm","seconds_per_bar","regions":[...],"total_seconds","undo_steps"} ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.create_zouk_arrangement(
+        _bridge_call, bpm=bpm, sections=sections,
+        beats_per_bar=beats_per_bar, start=start,
+    )
+
+
+@mcp.tool()
+async def workflow_prepare_mix(reverb: bool = True, delay: bool = True) -> dict:
+    """Workflow : prépare la structure de mix — bus d'effets stock (Reverb -> ReaVerbate,
+    Delay -> ReaDelay), idempotents. NE route PAS les pistes (l'agent enchaîne create_send
+    selon le besoin). Plugin absent -> collecté, le bus reste créé.
+
+    Returns: {"buses":[...],"undo_steps","hint"} ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.prepare_mix(_bridge_call, reverb=reverb, delay=delay)
+
+
+@mcp.tool()
+async def workflow_render_all_stems(
+    out_dir: str, include_empty: bool = False, prefix: str = "",
+) -> dict:
+    """Workflow : rend CHAQUE piste en isolation (stems) dans `out_dir` (créé au besoin).
+    Réutilise render_track_isolated (restaure exactement solo/mute après chaque rendu ->
+    état projet inchangé, net-zéro). Saute par défaut les pistes vides (0 item, ex. bus).
+
+    Returns: {"out_dir","track_count","rendered","stems":[...]} ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.render_all_stems(
+        _bridge_call, out_dir=out_dir, include_empty=include_empty, prefix=prefix,
+    )
+
+
+# ---------------------------------------------------------------------------- #
 # Entrée                                                                        #
 # ---------------------------------------------------------------------------- #
 

@@ -938,6 +938,49 @@ def _cmd_add_region(args):
             "region_id": rid, "created": True}
 
 
+# -- Handlers P5 (primitives manquantes pour les workflows agentiques) --------
+# Les workflows vivent cote serveur MCP (klody_mcp/reaper_workflows.py) : ils
+# COMPOSENT les primitives existantes. Deux trous restaient cote pont -- armer une
+# piste pour l'enregistrement (prepare_vocal_recording) et regler le tempo
+# (create_zouk_arrangement). Memes RPR_* deja eprouvees (SetMediaTrackInfo_Value
+# comme B_MUTE/I_SOLO) + SetCurrentBPM (verifiee dans reaper_python.py). Mutations
+# -> encadrees Undo (cf. _UNDO_LABELS) et bloquees en read_only.
+
+
+def _cmd_arm_track(args):
+    """Arme (armed=True) / desarme une piste pour l'enregistrement (I_RECARM). En
+    option : entree materielle MONO (I_RECINPUT, index 0-based) et monitoring
+    d'entree (I_RECMON). NE lance PAS l'enregistrement : aucun audio ecrit ici (c'est
+    transport_record qui ecrit). Cible par guid (stable) sinon index."""
+    tr, idx = _resolve_track(args)
+    armed = _as_bool(args.get("armed", True))
+    RPR_SetMediaTrackInfo_Value(tr, "I_RECARM", 1.0 if armed else 0.0)  # noqa: F821
+    rec_input = args.get("input")
+    if rec_input is not None:
+        # Entree audio MONO : la valeur = index 0-based de l'entree materielle
+        # (0 = 1re entree de l'interface, ex. Apollo Twin X).
+        RPR_SetMediaTrackInfo_Value(tr, "I_RECINPUT", float(int(rec_input)))  # noqa: F821
+    if "monitor" in args:
+        mon = _as_bool(args.get("monitor", True))
+        RPR_SetMediaTrackInfo_Value(tr, "I_RECMON", 1.0 if mon else 0.0)  # noqa: F821
+    _refresh()
+    return {"index": idx, "guid": _track_guid(tr), "armed": armed,
+            "rec_input": int(RPR_GetMediaTrackInfo_Value(tr, "I_RECINPUT")),  # noqa: F821
+            "monitor": bool(RPR_GetMediaTrackInfo_Value(tr, "I_RECMON"))}  # noqa: F821
+
+
+def _cmd_set_tempo(args):
+    """Regle le tempo (BPM) du projet. RPR_SetCurrentBPM(0, bpm, False) : le dernier
+    arg False = pas d'undo interne REAPER (notre bloc Undo encadre deja l'op -> sinon
+    double point d'annulation). Relit le tempo maitre pour confirmer."""
+    bpm = float(args.get("bpm", 0.0))
+    if not (1.0 <= bpm <= 960.0):
+        raise ValueError("bpm hors plage (1..960): %r" % bpm)
+    RPR_SetCurrentBPM(0, bpm, False)  # noqa: F821
+    _refresh()
+    return {"bpm": round(RPR_Master_GetTempo(), 4)}  # noqa: F821
+
+
 # Table de dispatch. PHASE 2 = uniquement ping + get_track_count.
 # PHASE 3 (effets de bord lourds) : ajouter ici en regard des outils MCP, mais
 # TOUJOURS sans sauvegarde implicite du projet. TODO cibles cote serveur MCP.
@@ -976,6 +1019,8 @@ _DISPATCH = {
     "create_bus": _cmd_create_bus,
     "add_marker": _cmd_add_marker,
     "add_region": _cmd_add_region,
+    "arm_track": _cmd_arm_track,
+    "set_tempo": _cmd_set_tempo,
 }
 
 # Commandes qui modifient l'ETAT DU PROJET -> encadrees dans un bloc Undo REAPER
@@ -1000,6 +1045,8 @@ _UNDO_LABELS = {
     "create_bus": "creation bus",
     "add_marker": "ajout marqueur",
     "add_region": "ajout region",
+    "arm_track": "armement piste",
+    "set_tempo": "tempo",
 }
 # transport_record ecrit de l'audio dans le projet -> bloque aussi en read_only
 # (pas d'undo : c'est un effet transport, pas une mutation d'etat encadrable).
