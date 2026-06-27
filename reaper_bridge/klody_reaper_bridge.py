@@ -518,6 +518,36 @@ def _cmd_render_project(args):
     return {"rendered": bool(files), "output_files": files}
 
 
+def _cmd_render_track_isolated(args):
+    """Rend UNE piste en isolation vers out_path (pour analyse audio, P3 spec 9).
+
+    Sauvegarde l'etat solo/mute de TOUTES les pistes, solo la cible (le master ne
+    contient alors qu'elle), demute la cible (le mute prime sur le solo), rend, puis
+    RESTAURE EXACTEMENT l'etat initial (jamais laisser un solo/mute different apres
+    l'analyse). Ecrit un fichier ; l'etat NET du projet est inchange (pas de mutation
+    -> ni bloc Undo ni blocage read_only ; c'est un primitive d'analyse comme render).
+    """
+    tr, idx = _resolve_track(args)
+    out = _check_out_path(args)
+    n = int(RPR_CountTracks(0))  # noqa: F821
+    tracks = [RPR_GetTrack(0, i) for i in range(n)]  # noqa: F821
+    state = [(RPR_GetMediaTrackInfo_Value(t, "I_SOLO"),  # noqa: F821
+              RPR_GetMediaTrackInfo_Value(t, "B_MUTE")) for t in tracks]  # noqa: F821
+    try:
+        for j, t in enumerate(tracks):
+            RPR_SetMediaTrackInfo_Value(t, "I_SOLO", 1.0 if j == idx else 0.0)  # noqa: F821
+            if j == idx:
+                RPR_SetMediaTrackInfo_Value(t, "B_MUTE", 0.0)  # noqa: F821  (mute > solo)
+        files = _render_to(out, 1)  # projet entier ; solo => seule la cible sonne
+    finally:
+        for t, (s, m) in zip(tracks, state):
+            RPR_SetMediaTrackInfo_Value(t, "I_SOLO", s)  # noqa: F821
+            RPR_SetMediaTrackInfo_Value(t, "B_MUTE", m)  # noqa: F821
+        _refresh()
+    return {"track_index": idx, "guid": _track_guid(tr), "out_path": out,
+            "rendered": bool(files), "output_files": files}
+
+
 # -- Handlers P1 (snapshot / undo / modes) -----------------------------------
 # Surete avant puissance (spec DAW agentique sections 4.3/4.4/5/6) : lecture
 # d'etat riche, reversibilite par bloc Undo, garde de mode. Aucun n'ajoute de
@@ -931,6 +961,7 @@ _DISPATCH = {
     "list_midi_notes": _cmd_list_midi_notes,
     "render_region": _cmd_render_region,
     "render_project": _cmd_render_project,
+    "render_track_isolated": _cmd_render_track_isolated,
     "get_project_snapshot": _cmd_get_project_snapshot,
     "undo": _cmd_undo,
     "redo": _cmd_redo,

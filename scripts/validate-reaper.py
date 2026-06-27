@@ -23,6 +23,7 @@ Code de sortie 0 = tout vert, 1 = au moins un rouge ou pont injoignable.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 
@@ -226,14 +227,48 @@ def main() -> int:
     # sauvegardé, ils disparaissent à la fermeture de REAPER.
     rg1 = call("add_region", {"start": 0.0, "end": 2.0, "name": TEST_TRACK + "_rgn"})
     rg2 = call("add_region", {"start": 0.0, "end": 2.0, "name": TEST_TRACK + "_rgn"})
+    # Idempotence : le 2e appel ne crée pas de doublon. `region_id` n'est présent QUE
+    # sur une vraie création (le chemin idempotent ne le renvoie pas) → on n'exige que
+    # created2=False, pour que le harnais soit REJOUABLE dans une même session REAPER
+    # (les régions ne sont pas nettoyées : éphémères, projet jamais sauvegardé).
     check("add_region idempotent",
-          isinstance(rg1.get("region_id") or rg2.get("region_id"), int)
-          and rg2.get("created") is False,
-          f"region_id={rg1.get('region_id')}, created2={rg2.get('created')}")
+          rg2.get("created") is False and not err(rg1) and not err(rg2),
+          f"created1={rg1.get('created')}, created2={rg2.get('created')}")
     mk1 = call("add_marker", {"position": 1.0, "name": TEST_TRACK + "_mk"})
     mk2 = call("add_marker", {"position": 1.0, "name": TEST_TRACK + "_mk"})
     check("add_marker idempotent", mk2.get("created") is False,
           f"marker_id={mk1.get('marker_id')}, created2={mk2.get('created')}")
+
+    # 4quater. P3 — oreilles : rendu isolé d'une piste + analyse audio. La piste de
+    # test est MIDI sans instrument → rendu silencieux, mais le PIPELINE (isolation,
+    # restauration EXACTE solo/mute, métriques) est exercé de bout en bout.
+    pre = call("list_tracks")
+    pre_tr = next((t for t in pre.get("tracks", []) if t.get("index") == idx), {})
+    iso_out = "/tmp/klody_reaper_iso.wav"
+    r = call("render_track_isolated", {"index": idx, "out_path": iso_out})
+    iso_files = r.get("output_files") or []
+    check("render_track_isolated", bool(r.get("rendered")) and bool(iso_files),
+          f"fichiers={iso_files}" if not err(r) else err(r))
+    post = call("list_tracks")
+    post_tr = next((t for t in post.get("tracks", []) if t.get("index") == idx), {})
+    check("solo/mute restauré après rendu isolé",
+          post_tr.get("solo") == pre_tr.get("solo") and post_tr.get("mute") == pre_tr.get("mute"),
+          f"avant solo={pre_tr.get('solo')}/mute={pre_tr.get('mute')}, "
+          f"après solo={post_tr.get('solo')}/mute={post_tr.get('mute')}")
+    if iso_files:
+        try:
+            from klody_mcp import audio_analysis
+            m = audio_analysis.analyze_file(iso_files[0])
+            check("analyse audio (métriques)",
+                  m.get("sample_rate", 0) > 0 and "peak_dbfs" in m and isinstance(m.get("used"), list),
+                  f"sr={m.get('sample_rate')}, peak={m.get('peak_dbfs')}dBFS, "
+                  f"silence={m.get('silence_ratio')}, libs={m.get('used')}")
+        except Exception as exc:  # on rapporte l'échec comme un rouge, pas de crash
+            check("analyse audio (métriques)", False, f"exception: {exc}")
+        finally:
+            for f in iso_files:
+                with contextlib.suppress(OSError):
+                    os.remove(f)
 
     # 5. Transport (optionnel) — play/stop, jamais record (record écrit de l'audio).
     if args.transport:
