@@ -14,6 +14,7 @@ rester une hypothèse : ce module ne renvoie que des nombres.
 """
 from __future__ import annotations
 
+import contextlib
 import math
 import wave
 
@@ -203,18 +204,17 @@ def _tempo_key(mono: np.ndarray, sr: int) -> tuple[dict, bool]:
     except ImportError:
         return out, False
     y = mono.astype(np.float32)
-    try:
+    # librosa peut échouer sur de l'audio court/pathologique -> on laisse les champs
+    # à None. contextlib.suppress plutôt qu'un except-vide (que CodeQL py/empty-except
+    # signale, bloquant via required_conversation_resolution).
+    with contextlib.suppress(Exception):
         tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         bpm = float(np.atleast_1d(tempo)[0])
         out["tempo_bpm"] = round(bpm, 1) if bpm > 0 else None  # 0 = pas de tempo clair
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         key, conf = _estimate_key(y, sr, librosa)
         out["key"] = key
         out["key_confidence"] = round(conf, 3)
-    except Exception:
-        pass
     return out, True
 
 
