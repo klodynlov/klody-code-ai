@@ -27,10 +27,13 @@ Voir reaper_bridge/README.md (config REAPER + procédure de test Gate 1).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import socket
+import tempfile
+import uuid
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -554,6 +557,110 @@ async def add_region(start: float, end: float, name: str = "", color: int = 0) -
     Returns: {"start","end","name","region_id","created"} ou {"error"}.
     """
     return await _bridge_call("add_region", {"start": start, "end": end, "name": name, "color": color})
+
+
+# ---------------------------------------------------------------------------- #
+# P3 — oreilles : analyse audio (rend en temp puis mesure hors REAPER). Voir   #
+# spec DAW agentique §9. Le calcul vit dans klody_mcp.audio_analysis (numpy/    #
+# scipy ; LUFS/tempo/tonalité optionnels via pyloudnorm/librosa).              #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def analyze_audio_file(path: str) -> dict:
+    """Analyse un fichier WAV déjà sur disque : niveau (peak/true-peak/RMS/crest),
+    dynamique, spectre (centroïde, rolloff, énergie par bandes), stéréo, silence,
+    clipping — + LUFS / tempo / tonalité si les libs sont présentes. Lecture pure.
+
+    Toute lecture subjective (« manque de présence ») est une HYPOTHÈSE à formuler
+    comme telle ; l'outil ne renvoie que des nombres.
+
+    Returns: dict de métriques, ou {"error": ...} si le fichier est introuvable/illisible.
+    """
+    from klody_mcp import audio_analysis
+    try:
+        return await asyncio.to_thread(audio_analysis.analyze_file, path)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def compare_audio_versions(path_a: str, path_b: str) -> dict:
+    """Compare deux WAV (avant/après) : analyse chacun + deltas (b − a) des
+    métriques clés (LUFS, RMS, peak, crest, centroïde, largeur stéréo…).
+
+    Returns: {"a": {...}, "b": {...}, "delta": {...}} ou {"error": ...}.
+    """
+    from klody_mcp import audio_analysis
+
+    def _do() -> dict:
+        return audio_analysis.compare(
+            audio_analysis.analyze_file(path_a),
+            audio_analysis.analyze_file(path_b),
+        )
+
+    try:
+        return await asyncio.to_thread(_do)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def analyze_track(index: int = -1, guid: str = "") -> dict:
+    """Rend une piste EN ISOLATION (fichier temporaire) puis l'analyse. Restaure
+    exactement l'état solo/mute du projet après coup. Piste ciblée par guid/index.
+
+    Utile pour « analyse ma voix » : renvoie des métriques objectives ; toute
+    conclusion (présence, compression…) est une HYPOTHÈSE à formuler comme telle.
+
+    Returns: métriques (cf. analyze_audio_file) + track_index/guid, ou {"error": ...}.
+    """
+    out = os.path.join(tempfile.gettempdir(), f"klody_analyze_{uuid.uuid4().hex}.wav")
+    r = await _bridge_call("render_track_isolated", {"index": index, "guid": guid, "out_path": out})
+    # `files` calculé AVANT le try -> le finally nettoie le rendu sur TOUTES les
+    # sorties (erreur, vide, succès, exception), jamais de fichier temp orphelin.
+    files = (r.get("output_files") or []) if isinstance(r, dict) else []
+    try:
+        if isinstance(r, dict) and r.get("error"):
+            return r
+        if not files:
+            return {"error": "rendu isolé vide (piste muette / sans contenu, ou render échoué)"}
+        from klody_mcp import audio_analysis
+        metrics = await asyncio.to_thread(audio_analysis.analyze_file, files[0])
+        metrics["track_index"] = r.get("track_index")
+        metrics["guid"] = r.get("guid")
+        return metrics
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        for f in files:
+            with contextlib.suppress(OSError):
+                os.remove(f)
+
+
+@mcp.tool()
+async def analyze_master() -> dict:
+    """Rend le master (mix complet, fichier temporaire) puis l'analyse. Pour garder
+    une marge avant mastering : surveiller true_peak_dbfs et lufs_integrated.
+
+    Returns: métriques (cf. analyze_audio_file), ou {"error": ...}.
+    """
+    out = os.path.join(tempfile.gettempdir(), f"klody_analyze_master_{uuid.uuid4().hex}.wav")
+    r = await _bridge_call("render_project", {"out_path": out})
+    files = (r.get("output_files") or []) if isinstance(r, dict) else []
+    try:
+        if isinstance(r, dict) and r.get("error"):
+            return r
+        if not files:
+            return {"error": "rendu master vide (projet silencieux ou render échoué)"}
+        from klody_mcp import audio_analysis
+        return await asyncio.to_thread(audio_analysis.analyze_file, files[0])
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        for f in files:
+            with contextlib.suppress(OSError):
+                os.remove(f)
 
 
 # ---------------------------------------------------------------------------- #
