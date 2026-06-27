@@ -161,10 +161,12 @@ async def add_track(name: str = "", index: int = -1) -> dict:
 async def list_tracks() -> dict:
     """Liste les pistes du projet : index, nom, volume_db, pan, mute, solo.
 
-    Lecture pure : ne modifie jamais le projet.
+    Lecture pure : ne modifie jamais le projet. Le `guid` de chaque piste est un
+    identifiant STABLE (contrairement à l'index, qui décale à chaque insert/delete) :
+    le réutiliser pour cibler une piste dans les autres outils.
 
     Returns:
-        {"count": <int>, "tracks": [{"index","name","volume_db","pan","mute","solo"}, ...]}.
+        {"count": <int>, "tracks": [{"index","guid","name","volume_db","pan","mute","solo"}, ...]}.
     """
     return await _bridge_call("list_tracks")
 
@@ -182,46 +184,52 @@ async def get_play_position() -> dict:
 
 
 @mcp.tool()
-async def rename_track(index: int, name: str) -> dict:
-    """Renomme la piste `index` (0-based). Modifie le projet, sans le sauvegarder."""
-    return await _bridge_call("rename_track", {"index": index, "name": name})
-
-
-@mcp.tool()
-async def delete_track(index: int) -> dict:
-    """Supprime la piste `index` (0-based). DESTRUCTIF mais annulable (Cmd-Z REAPER).
+async def rename_track(index: int = -1, name: str = "", guid: str = "") -> dict:
+    """Renomme une piste, ciblée par `guid` (stable, prioritaire) ou `index` 0-based.
     Modifie le projet, sans le sauvegarder.
 
-    Returns:
-        {"deleted_index": <int>, "track_count": <int>} ou {"error": ...}.
+    Returns: {"index","guid","name"} ou {"error": ...}.
     """
-    return await _bridge_call("delete_track", {"index": index})
+    return await _bridge_call("rename_track", {"index": index, "name": name, "guid": guid})
 
 
 @mcp.tool()
-async def set_track_volume(index: int, db: float) -> dict:
-    """Règle le volume de la piste `index` en dB (0 = unité, négatif = plus bas).
-    Modifie le projet, sans le sauvegarder."""
-    return await _bridge_call("set_track_volume", {"index": index, "db": db})
+async def delete_track(index: int = -1, guid: str = "") -> dict:
+    """Supprime une piste, ciblée par `guid` (stable, prioritaire) ou `index` 0-based.
+    DESTRUCTIF mais annulable (`undo_last`, ou Cmd-Z REAPER). Sans sauvegarde.
+
+    Returns:
+        {"deleted_index": <int>, "guid": <str>, "track_count": <int>} ou {"error": ...}.
+    """
+    return await _bridge_call("delete_track", {"index": index, "guid": guid})
 
 
 @mcp.tool()
-async def set_track_pan(index: int, pan: float) -> dict:
-    """Règle le pan de la piste `index` : -1.0 (gauche) .. 0.0 (centre) .. 1.0 (droite).
-    Hors borne = clampé. Modifie le projet, sans le sauvegarder."""
-    return await _bridge_call("set_track_pan", {"index": index, "pan": pan})
+async def set_track_volume(index: int = -1, db: float = 0.0, guid: str = "") -> dict:
+    """Règle le volume en dB (0 = unité, négatif = plus bas) d'une piste ciblée par
+    `guid` (stable, prioritaire) ou `index` 0-based. Sans sauvegarde."""
+    return await _bridge_call("set_track_volume", {"index": index, "db": db, "guid": guid})
 
 
 @mcp.tool()
-async def set_track_mute(index: int, mute: bool = True) -> dict:
-    """Mute (True) ou démute (False) la piste `index`. Sans sauvegarde."""
-    return await _bridge_call("set_track_mute", {"index": index, "mute": mute})
+async def set_track_pan(index: int = -1, pan: float = 0.0, guid: str = "") -> dict:
+    """Règle le pan : -1.0 (gauche) .. 0.0 (centre) .. 1.0 (droite). Hors borne =
+    clampé. Piste ciblée par `guid` (stable, prioritaire) ou `index`. Sans sauvegarde."""
+    return await _bridge_call("set_track_pan", {"index": index, "pan": pan, "guid": guid})
 
 
 @mcp.tool()
-async def set_track_solo(index: int, solo: bool = True) -> dict:
-    """Solo (True) ou unsolo (False) la piste `index`. Sans sauvegarde."""
-    return await _bridge_call("set_track_solo", {"index": index, "solo": solo})
+async def set_track_mute(index: int = -1, mute: bool = True, guid: str = "") -> dict:
+    """Mute (True) ou démute (False) une piste ciblée par `guid` (stable, prioritaire)
+    ou `index` 0-based. Sans sauvegarde."""
+    return await _bridge_call("set_track_mute", {"index": index, "mute": mute, "guid": guid})
+
+
+@mcp.tool()
+async def set_track_solo(index: int = -1, solo: bool = True, guid: str = "") -> dict:
+    """Solo (True) ou unsolo (False) une piste ciblée par `guid` (stable, prioritaire)
+    ou `index` 0-based. Sans sauvegarde."""
+    return await _bridge_call("set_track_solo", {"index": index, "solo": solo, "guid": guid})
 
 
 @mcp.tool()
@@ -255,33 +263,37 @@ async def transport_record() -> dict:
 
 @mcp.tool()
 async def insert_midi_note(
-    track_index: int,
-    pitch: int,
-    start: float,
-    length: float,
+    track_index: int = -1,
+    pitch: int = 60,
+    start: float = 0.0,
+    length: float = 0.5,
     velocity: int = 96,
     channel: int = 0,
+    guid: str = "",
 ) -> dict:
-    """Insère une note MIDI dans un nouvel item MIDI sur la piste `track_index`.
+    """Insère une note MIDI dans un nouvel item MIDI sur une piste ciblée.
 
     Chaque appel crée son propre item [start, start+length]. Sans sauvegarde.
 
     Args:
-        track_index: piste cible (0-based).
+        track_index: piste cible (0-based) — ou utiliser `guid`.
         pitch: note MIDI 0-127 (60 = Do central).
         start: début en secondes (temps projet).
         length: durée en secondes.
         velocity: vélocité 1-127 (défaut 96).
         channel: canal MIDI 0-15 (défaut 0).
+        guid: GUID de piste (identifiant stable, prioritaire sur track_index).
     """
     return await _bridge_call("insert_midi_note", {
         "track_index": track_index, "pitch": pitch, "start": start,
-        "length": length, "velocity": velocity, "channel": channel,
+        "length": length, "velocity": velocity, "channel": channel, "guid": guid,
     })
 
 
 @mcp.tool()
-async def insert_midi_notes(track_index: int, notes: list[dict]) -> dict:
+async def insert_midi_notes(
+    track_index: int = -1, notes: list[dict] | None = None, guid: str = "",
+) -> dict:
     """Insère une mélodie entière (plusieurs notes) dans UN SEUL item MIDI sur la piste.
 
     À préférer à `insert_midi_note` appelé en boucle : celui-ci crée un item par
@@ -293,30 +305,38 @@ async def insert_midi_notes(track_index: int, notes: list[dict]) -> dict:
     mcp__klodymusic__melodie_vers_midi : enchaîne donc directement les deux outils.
 
     Args:
-        track_index: piste cible (0-based).
+        track_index: piste cible (0-based) — ou utiliser `guid`.
         notes: liste de notes, chacune {pitch: 0-127, start: sec, length: sec,
             velocity?: 1-127 (défaut 96), channel?: 0-15 (défaut 0)}.
+        guid: GUID de piste (identifiant stable, prioritaire sur track_index).
 
     Returns:
-        {"track_index", "note_count", "item_start", "item_end"} ou {"error": "..."}.
+        {"track_index", "guid", "note_count", "item_start", "item_end"} ou {"error": "..."}.
     """
-    return await _bridge_call("insert_midi_notes", {"track_index": track_index, "notes": notes})
+    return await _bridge_call(
+        "insert_midi_notes",
+        {"track_index": track_index, "notes": notes or [], "guid": guid},
+    )
 
 
 @mcp.tool()
-async def list_midi_notes(track_index: int, item_index: int = 0) -> dict:
+async def list_midi_notes(track_index: int = -1, item_index: int = 0, guid: str = "") -> dict:
     """Liste les notes MIDI d'un item (pitch, start, length, velocity, channel).
 
     Lecture pure.
 
     Args:
-        track_index: piste (0-based).
+        track_index: piste (0-based) — ou utiliser `guid`.
         item_index: item MIDI de la piste (0-based, défaut 0).
+        guid: GUID de piste (identifiant stable, prioritaire sur track_index).
 
     Returns:
         {"note_count": <int>, "notes": [{"index","pitch","start","length","velocity","channel","muted"}, ...]}.
     """
-    return await _bridge_call("list_midi_notes", {"track_index": track_index, "item_index": item_index})
+    return await _bridge_call(
+        "list_midi_notes",
+        {"track_index": track_index, "item_index": item_index, "guid": guid},
+    )
 
 
 @mcp.tool()
@@ -347,6 +367,81 @@ async def render_project(out_path: str) -> dict:
         {"out_path", "rendered": <bool>} ou {"error"}.
     """
     return await _bridge_call("render_project", {"out_path": out_path})
+
+
+# ---------------------------------------------------------------------------- #
+# P1 — sûreté : snapshot (observe-avant-modifie), réversibilité (undo/redo),    #
+# modes d'exécution. Voir spec DAW agentique sections 4.3 / 4.4 / 5 / 6.        #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def get_project_snapshot(detail: str = "standard") -> dict:
+    """Snapshot lecture pure de l'état du projet REAPER (observe avant de modifier).
+
+    À appeler AVANT toute modification importante : donne pistes, tempo, signature,
+    sample rate, curseur et transport — et fournit les GUID (identifiants stables à
+    réutiliser pour cibler une piste, plutôt que l'index qui décale).
+
+    Args:
+        detail: "summary" (projet seul), "standard" (défaut : + liste pistes),
+            "full" (+ compteurs fx/items par piste).
+
+    Returns:
+        {"project": {"tempo","time_signature","sample_rate","edit_cursor","playing",...},
+         "tracks": [{"index","guid","name","volume_db","pan","mute","solo"}, ...]}.
+    """
+    return await _bridge_call("get_project_snapshot", {"detail": detail})
+
+
+@mcp.tool()
+async def undo_last() -> dict:
+    """Annule la DERNIÈRE opération (le dernier bloc Undo REAPER).
+
+    Chaque modification passée par ce serveur est encadrée dans un bloc Undo nommé
+    « klody: … » : un seul `undo_last` annule toute l'opération d'un coup. Renvoie
+    le libellé de ce qui a été annulé.
+
+    Returns:
+        {"undone": <bool>, "label": <str|null>} (+ "reason" si rien à annuler).
+    """
+    return await _bridge_call("undo")
+
+
+@mcp.tool()
+async def redo_last() -> dict:
+    """Rétablit la dernière opération annulée (redo REAPER).
+
+    Returns:
+        {"redone": <bool>, "label": <str|null>} (+ "reason" si rien à rétablir).
+    """
+    return await _bridge_call("redo")
+
+
+@mcp.tool()
+async def set_mode(mode: str) -> dict:
+    """Règle le mode d'exécution du pont (garde-fou, spec DAW agentique section 5).
+
+    Args:
+        mode: "read_only" (refuse toute modification du projet — inspection et
+            recommandations seulement), "assisted" ou "autonomous" (autorisent les
+            modifications ; la confirmation des opérations destructrices reste du
+            ressort de l'agent).
+
+    Returns:
+        {"mode": <str>} ou {"error": ...} si le mode est invalide.
+    """
+    return await _bridge_call("set_mode", {"mode": mode})
+
+
+@mcp.tool()
+async def get_mode() -> dict:
+    """Renvoie le mode d'exécution courant + la liste des modes (lecture pure).
+
+    Returns:
+        {"mode": <str>, "modes": ["read_only","assisted","autonomous"]}.
+    """
+    return await _bridge_call("get_mode")
 
 
 # ---------------------------------------------------------------------------- #

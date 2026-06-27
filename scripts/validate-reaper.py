@@ -123,6 +123,52 @@ def main() -> int:
           r.get("note_count", 0) >= 1 and note0.get("pitch") == SCALE[0],
           f"item0 note_count={r.get('note_count')}, pitch={note0.get('pitch')} (attendu {SCALE[0]})")
 
+    # 4bis. P1 — snapshot (observe), GUID (identité stable), undo (réversibilité),
+    # modes (garde-fou). Voir spec DAW agentique sections 4.3 / 4.4 / 5 / 6.
+    snap = call("get_project_snapshot", {"detail": "standard"})
+    proj = snap.get("project", {}) if isinstance(snap, dict) else {}
+    check("get_project_snapshot", isinstance(proj, dict) and "tempo" in proj,
+          f"tempo={proj.get('tempo')}, time_sig={proj.get('time_signature')}, "
+          f"tracks={len(snap.get('tracks', []))}")
+    snap_tr = next((t for t in snap.get("tracks", []) if t.get("index") == idx), {})
+    guid = snap_tr.get("guid")
+    check("snapshot expose le GUID", isinstance(guid, str) and guid.startswith("{"),
+          f"guid={guid}")
+
+    if isinstance(guid, str) and guid.startswith("{"):
+        # Ciblage par GUID (pas par index) : on agit puis on relit par GUID.
+        call("set_track_volume", {"guid": guid, "db": -9.0})
+        r = call("get_project_snapshot", {"detail": "standard"})
+        g_tr = next((t for t in r.get("tracks", []) if t.get("guid") == guid), {})
+        check("ciblage par GUID (set_track_volume)",
+              abs(g_tr.get("volume_db", 0) + 9.0) < 0.5,
+              f"lu volume_db={g_tr.get('volume_db')} (attendu -9.0)")
+
+        # Réversibilité : on change le volume puis undo -> retour à -9.0 (le bloc
+        # Undo encadre exactement la dernière mutation).
+        call("set_track_volume", {"guid": guid, "db": 0.0})
+        u = call("undo")
+        label = u.get("label") or ""
+        check("undo_last (bloc Undo agent)",
+              u.get("undone") is True and label.startswith("klody:"),
+              f"undone={u.get('undone')}, label={label!r}")
+        r = call("get_project_snapshot", {"detail": "standard"})
+        g_tr = next((t for t in r.get("tracks", []) if t.get("guid") == guid), {})
+        check("undo a bien annulé la dernière op",
+              abs(g_tr.get("volume_db", 0) + 9.0) < 0.5,
+              f"volume revenu à {g_tr.get('volume_db')} (attendu -9.0)")
+
+    # Modes : read_only doit REFUSER une mutation ; on restaure autonomous AVANT le
+    # cleanup (sinon delete_track serait bloqué).
+    call("set_mode", {"mode": "read_only"})
+    r = call("set_track_volume", {"index": idx, "db": -2.0})
+    check("mode read_only bloque la mutation",
+          bool(err(r)) and "read_only" in (err(r) or ""),
+          f"erreur attendue: {err(r)}")
+    mm = call("get_mode")
+    check("get_mode", mm.get("mode") == "read_only", f"mode={mm.get('mode')}")
+    call("set_mode", {"mode": "autonomous"})  # restaure pour autoriser le cleanup
+
     # 5. Transport (optionnel) — play/stop, jamais record (record écrit de l'audio).
     if args.transport:
         r = call("transport_play")
