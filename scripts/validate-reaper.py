@@ -95,7 +95,11 @@ def main() -> int:
         return 1
 
     # 3. Contrôles de mix — on écrit puis on relit pour confirmer l'effet réel.
-    call("set_track_volume", {"index": idx, "db": -6.0})
+    rv = call("set_track_volume", {"index": idx, "db": -6.0})
+    # Régression _track_at : une op ciblée par index doit ré-échoer l'INDEX (pas le
+    # nombre de pistes). Sur projet à 1 piste : index attendu 0, le bug renvoyait 1.
+    check("index ré-échoé correct (pas le count)", rv.get("index") == idx,
+          f"set_track_volume a renvoyé index={rv.get('index')} (attendu {idx})")
     call("set_track_pan", {"index": idx, "pan": -0.5})
     call("set_track_mute", {"index": idx, "mute": True})
     call("set_track_solo", {"index": idx, "solo": True})
@@ -168,6 +172,68 @@ def main() -> int:
     mm = call("get_mode")
     check("get_mode", mm.get("mode") == "read_only", f"mode={mm.get('mode')}")
     call("set_mode", {"mode": "autonomous"})  # restaure pour autoriser le cleanup
+
+    # 4ter. P2 — FX / routing / markers (spec 7.3 / 7.6 / 7.8). Effets stock REAPER
+    # (ReaEQ toujours installé) ; bus + send + region + marqueur IDEMPOTENTS.
+    r = call("add_fx", {"index": idx, "name": "ReaEQ"})
+    fxi = r.get("fx_index")
+    check("add_fx (ReaEQ)",
+          isinstance(fxi, int) and fxi >= 0 and "EQ" in (r.get("fx_name") or ""),
+          f"fx_index={fxi}, name={r.get('fx_name')}")
+    r2 = call("add_fx", {"index": idx, "name": "ReaEQ"})  # 2e add = pas de doublon
+    check("add_fx idempotent", r2.get("created") is False and r2.get("fx_index") == fxi,
+          f"created={r2.get('created')}, fx_index={r2.get('fx_index')}")
+    r = call("get_fx_params", {"index": idx, "fx": "ReaEQ"})
+    pc = r.get("param_count", 0)
+    check("get_fx_params", pc > 0 and isinstance(r.get("params"), list), f"param_count={pc}")
+    if pc > 0:
+        call("set_fx_param", {"index": idx, "fx": "ReaEQ", "param": 0, "value": 0.25})
+        r = call("get_fx_params", {"index": idx, "fx": "ReaEQ"})
+        p0 = (r.get("params") or [{}])[0]
+        check("set_fx_param (normalisé)", abs(p0.get("normalized", 0) - 0.25) < 0.02,
+              f"param0 normalized={p0.get('normalized')} (attendu 0.25)")
+    r = call("bypass_fx", {"index": idx, "fx": "ReaEQ", "bypass": True})
+    check("bypass_fx", r.get("bypassed") is True and r.get("enabled") is False,
+          f"bypassed={r.get('bypassed')}, enabled={r.get('enabled')}")
+    call("bypass_fx", {"index": idx, "fx": "ReaEQ", "bypass": False})
+    r = call("remove_fx", {"index": idx, "fx": "ReaEQ"})
+    check("remove_fx", r.get("ok") is True, f"removed={r.get('removed_fx')}")
+
+    # Bus + send idempotents (assertions repeatable : on exige l'idempotence du 2e
+    # appel, pas l'état frais — le harnais doit pouvoir tourner plusieurs fois).
+    bus_name = TEST_TRACK + "_bus"
+    b1 = call("create_bus", {"name": bus_name})
+    b2 = call("create_bus", {"name": bus_name})
+    bus_idx = b2.get("index")
+    check("create_bus idempotent",
+          isinstance(bus_idx, int) and b2.get("created") is False and bus_idx == b1.get("index"),
+          f"index={bus_idx}, created2={b2.get('created')}")
+    if isinstance(bus_idx, int) and bus_idx >= 0:
+        s1 = call("create_send", {"index": idx, "dest_index": bus_idx, "vol_db": -3.0})
+        s2 = call("create_send", {"index": idx, "dest_index": bus_idx})
+        check("create_send idempotent",
+              isinstance(s1.get("send_index"), int) and s2.get("created") is False
+              and s2.get("send_index") == s1.get("send_index"),
+              f"send_index={s1.get('send_index')}, created2={s2.get('created')}")
+        # cleanup du bus (piste KLODY_VALIDATE* ; le send vers lui part avec)
+        cr = call("list_tracks")
+        btr = next((t for t in cr.get("tracks", []) if t.get("index") == bus_idx), {})
+        if btr.get("name", "").startswith("KLODY_VALIDATE"):
+            call("delete_track", {"index": bus_idx})
+
+    # Région + marqueur : on prouve l'idempotence (2e appel created=False). Non
+    # nettoyés (pas de delete_marker en P2) mais éphémères — le projet n'est JAMAIS
+    # sauvegardé, ils disparaissent à la fermeture de REAPER.
+    rg1 = call("add_region", {"start": 0.0, "end": 2.0, "name": TEST_TRACK + "_rgn"})
+    rg2 = call("add_region", {"start": 0.0, "end": 2.0, "name": TEST_TRACK + "_rgn"})
+    check("add_region idempotent",
+          isinstance(rg1.get("region_id") or rg2.get("region_id"), int)
+          and rg2.get("created") is False,
+          f"region_id={rg1.get('region_id')}, created2={rg2.get('created')}")
+    mk1 = call("add_marker", {"position": 1.0, "name": TEST_TRACK + "_mk"})
+    mk2 = call("add_marker", {"position": 1.0, "name": TEST_TRACK + "_mk"})
+    check("add_marker idempotent", mk2.get("created") is False,
+          f"marker_id={mk1.get('marker_id')}, created2={mk2.get('created')}")
 
     # 5. Transport (optionnel) — play/stop, jamais record (record écrit de l'audio).
     if args.transport:
