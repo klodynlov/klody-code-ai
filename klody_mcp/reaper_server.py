@@ -445,6 +445,118 @@ async def get_mode() -> dict:
 
 
 # ---------------------------------------------------------------------------- #
+# P2 — portée musicale : FX (add/param/bypass/remove), routing (sends/bus       #
+# idempotents), markers/régions. Voir spec DAW agentique §7.3 / §7.6 / §7.8.    #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def add_fx(name: str, index: int = -1, guid: str = "") -> dict:
+    """Ajoute (ou retrouve) un effet par nom sur une piste (ciblée par guid/index).
+
+    Idempotent : si l'effet est déjà présent il est réutilisé (pas de doublon).
+    REAPER résout le nom par sous-chaîne (ex. "ReaEQ", "ReaComp", "Pro-Q"). L'effet
+    doit être INSTALLÉ — on ne suppose jamais un plugin présent : erreur claire sinon.
+
+    Returns: {"track_index","guid","fx_index","fx_name","created"} ou {"error"}.
+    """
+    return await _bridge_call("add_fx", {"name": name, "index": index, "guid": guid})
+
+
+@mcp.tool()
+async def remove_fx(fx: str, index: int = -1, guid: str = "") -> dict:
+    """Supprime un effet d'une piste. `fx` = index ("0","1"…) ou nom (sous-chaîne)."""
+    return await _bridge_call("remove_fx", {"fx": fx, "index": index, "guid": guid})
+
+
+@mcp.tool()
+async def bypass_fx(fx: str, bypass: bool = True, index: int = -1, guid: str = "") -> dict:
+    """Bypass (True) ou réactive (False) un effet. `fx` = index ou nom (sous-chaîne).
+    Utile pour laisser un traitement en place mais inactif en attente d'écoute humaine."""
+    return await _bridge_call("bypass_fx", {"fx": fx, "bypass": bypass, "index": index, "guid": guid})
+
+
+@mcp.tool()
+async def get_fx_params(index: int = -1, guid: str = "", fx: str = "") -> dict:
+    """Lecture pure. Sans `fx` : liste les effets de la piste (index, nom, enabled).
+    Avec `fx` (index ou nom) : liste ses paramètres (index, nom, valeur normalisée
+    0..1, valeur réelle) — à lire AVANT set_fx_param pour connaître les bons noms.
+
+    Returns: {"fx":[...]} ou {"fx_index","params":[{"param_index","name","normalized","value"}]}.
+    """
+    return await _bridge_call("get_fx_params", {"index": index, "guid": guid, "fx": fx})
+
+
+@mcp.tool()
+async def set_fx_param(
+    fx: str, param: str, value: float, raw: bool = False, index: int = -1, guid: str = "",
+) -> dict:
+    """Règle un paramètre d'effet. `fx`/`param` = index ou nom (sous-chaîne).
+
+    `value` est NORMALISÉE 0..1 par défaut (la surface exposée par REAPER ; ne jamais
+    se fier à la position visuelle d'un bouton). raw=True pour une valeur en unités
+    natives du plugin. Lire get_fx_params d'abord pour les noms/plages.
+
+    Returns: {"fx_index","fx_name","param_index","param_name","normalized"} ou {"error"}.
+    """
+    return await _bridge_call(
+        "set_fx_param",
+        {"fx": fx, "param": param, "value": value, "raw": raw, "index": index, "guid": guid},
+    )
+
+
+@mcp.tool()
+async def create_send(
+    dest_index: int = -1, dest_guid: str = "", index: int = -1, guid: str = "",
+    vol_db: float | None = None, pan: float | None = None,
+) -> dict:
+    """Crée un send d'une piste source vers une piste destination (ex. vers un bus
+    reverb/delay). IDEMPOTENT : pas de doublon si le send existe déjà.
+
+    Source ciblée par `guid`/`index`, destination par `dest_guid`/`dest_index`.
+    `vol_db` et `pan` optionnels (réglages du send).
+
+    Returns: {"src_index","dest_index","send_index","created"} ou {"error"}.
+    """
+    return await _bridge_call("create_send", {
+        "index": index, "guid": guid, "dest_index": dest_index, "dest_guid": dest_guid,
+        "vol_db": vol_db, "pan": pan,
+    })
+
+
+@mcp.tool()
+async def create_bus(name: str) -> dict:
+    """Crée (ou retrouve) une piste-bus par nom. IDEMPOTENT : si une piste porte déjà
+    ce nom exact, elle est renvoyée sans en créer une seconde — pratique pour des bus
+    'Reverb'/'Delay'/'Mix' stables. Router ensuite des pistes avec create_send.
+
+    Returns: {"index","guid","name","created"} ou {"error"}.
+    """
+    return await _bridge_call("create_bus", {"name": name})
+
+
+@mcp.tool()
+async def add_marker(position: float, name: str = "", color: int = 0) -> dict:
+    """Ajoute un marqueur à `position` (secondes). IDEMPOTENT par position (pas de
+    doublon au même endroit). `color` = entier RGB (0 = couleur par défaut).
+
+    Returns: {"position","name","marker_id","created"} ou {"error"}.
+    """
+    return await _bridge_call("add_marker", {"position": position, "name": name, "color": color})
+
+
+@mcp.tool()
+async def add_region(start: float, end: float, name: str = "", color: int = 0) -> dict:
+    """Ajoute une région [start, end] (secondes) — ex. structurer un morceau (intro,
+    couplet, refrain…). IDEMPOTENT par position. `color` = entier RGB (0 = défaut).
+    Une région se rend ensuite avec render_region.
+
+    Returns: {"start","end","name","region_id","created"} ou {"error"}.
+    """
+    return await _bridge_call("add_region", {"start": start, "end": end, "name": name, "color": color})
+
+
+# ---------------------------------------------------------------------------- #
 # Entrée                                                                        #
 # ---------------------------------------------------------------------------- #
 

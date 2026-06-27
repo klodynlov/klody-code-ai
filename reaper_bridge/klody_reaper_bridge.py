@@ -43,6 +43,7 @@ import glob
 import json
 import math
 import os
+import re
 import select
 import socket
 import traceback
@@ -149,13 +150,20 @@ def _as_bool(v):
 
 
 def _track_at(index):
-    """MediaTrack a `index` (0-based) ou IndexError -> {ok:false} cote appelant."""
+    """Renvoie (MediaTrack, index_resolu) pour `index` 0-based, ou IndexError.
+
+    NB : renvoie l'INDEX i (pas le nombre de pistes) -- les appelants
+    (_resolve_track / _resolve_dest_track) s'en servent comme index resolu dans
+    leur reponse. (Une revue adversariale a releve qu'on renvoyait `count` : les
+    ops ciblees par index echoaient alors le nombre de pistes au lieu de l'index ;
+    la piste mutee `tr` etait correcte, seul l'index renvoye etait faux.)
+    """
     count = int(RPR_CountTracks(0))  # noqa: F821
     i = int(index)
     if i < 0 or i >= count:
         msg = "aucune piste dans le projet" if count == 0 else "index %d hors borne (0..%d)" % (i, count - 1)
         raise IndexError(msg)
-    return RPR_GetTrack(0, i), count  # noqa: F821
+    return RPR_GetTrack(0, i), i  # noqa: F821
 
 
 def _track_name(tr):
@@ -619,6 +627,287 @@ def _cmd_get_mode(args):
     return {"mode": _MODE, "modes": list(_MODES)}
 
 
+# -- Handlers P2 (FX / routing / markers) ------------------------------------
+# Portee musicale (spec DAW agentique 7.3 / 7.6 / 7.8). Toutes les sigs RPR_*
+# verifiees dans reaper_python.py avant code. FX/sends/markers = mutations ->
+# encadrees Undo (cf. _UNDO_LABELS) ; get_fx_params est lecture pure.
+
+
+def _fx_name(tr, i):
+    """Nom de l'effet i. TrackFX_GetFXName -> (r,tr,fx,name,sz) ; name = index 3."""
+    res = RPR_TrackFX_GetFXName(tr, i, "", 256)  # noqa: F821
+    if isinstance(res, tuple) and len(res) >= 4:
+        return res[3] or ""
+    return ""
+
+
+def _resolve_fx(tr, fx):
+    """Resout un effet : entier/chaine-numerique = index ; chaine = 1er effet dont
+    le nom CONTIENT la chaine (insensible a la casse). Leve si absent/hors borne."""
+    # Garde tot : fx absent (None) -> str(None)='none' passerait le test de nom et
+    # chercherait un effet 'none' (erreur trompeuse). On exige fx explicite.
+    if fx is None or (isinstance(fx, str) and not fx.strip()):
+        raise ValueError("fx requis (index ou nom d'effet)")
+    cnt = int(RPR_TrackFX_GetCount(tr))  # noqa: F821
+    s = fx
+    if isinstance(s, str) and s.strip().lstrip("-").isdigit():
+        s = int(s.strip())
+    if isinstance(s, int) and not isinstance(s, bool):
+        if s < 0 or s >= cnt:
+            raise IndexError("fx index %d hors borne (%d effet(s) sur la piste)" % (s, cnt))
+        return s
+    needle = str(fx).strip().lower()
+    if not needle:
+        raise ValueError("fx requis (index ou nom d'effet)")
+    for i in range(cnt):
+        if needle in _fx_name(tr, i).lower():
+            return i
+    raise IndexError("aucun effet dont le nom contient %r (%d effet(s))" % (fx, cnt))
+
+
+def _resolve_param(tr, fxi, param):
+    """Resout un parametre d'effet : index numerique, ou 1re correspondance de nom."""
+    if param is None or (isinstance(param, str) and not param.strip()):
+        raise ValueError("param requis (index ou nom)")
+    npar = int(RPR_TrackFX_GetNumParams(tr, fxi))  # noqa: F821
+    s = param
+    if isinstance(s, str) and s.strip().lstrip("-").isdigit():
+        s = int(s.strip())
+    if isinstance(s, int) and not isinstance(s, bool):
+        if s < 0 or s >= npar:
+            raise IndexError("param index %d hors borne (%d parametre(s))" % (s, npar))
+        return s
+    needle = str(param).strip().lower()
+    if not needle:
+        raise ValueError("param requis (index ou nom)")
+    for p in range(npar):
+        nm = RPR_TrackFX_GetParamName(tr, fxi, p, "", 256)[4] or ""  # noqa: F821  (name=idx4)
+        if needle in nm.lower():
+            return p
+    raise IndexError("aucun parametre dont le nom contient %r" % param)
+
+
+def _cmd_add_fx(args):
+    """Ajoute (ou retrouve) un effet par nom sur une piste. Idempotent : query
+    d'abord (TrackFX_AddByName instantiate=0), cree seulement si absent (-1). REAPER
+    resout le nom (sous-chaine). Erreur claire si l'effet n'est pas installe -- on ne
+    suppose JAMAIS un plugin present (spec 7.6)."""
+    tr, idx = _resolve_track(args)
+    name = (args.get("name") or "").strip()
+    if not name:
+        raise ValueError("name d'effet requis")
+    fxi = int(RPR_TrackFX_AddByName(tr, name, False, 0))  # noqa: F821  (query existant)
+    created = False
+    if fxi < 0:
+        fxi = int(RPR_TrackFX_AddByName(tr, name, False, -1))  # noqa: F821  (cree)
+        created = fxi >= 0
+    if fxi < 0:
+        raise RuntimeError("effet introuvable: %r (est-il installe dans REAPER ?)" % name)
+    _refresh()
+    return {"track_index": idx, "guid": _track_guid(tr), "fx_index": fxi,
+            "fx_name": _fx_name(tr, fxi), "created": created}
+
+
+def _cmd_remove_fx(args):
+    """Supprime un effet (index ou nom) d'une piste."""
+    tr, idx = _resolve_track(args)
+    fxi = _resolve_fx(tr, args.get("fx"))
+    nm = _fx_name(tr, fxi)
+    ok = bool(RPR_TrackFX_Delete(tr, fxi))  # noqa: F821
+    _refresh()
+    return {"track_index": idx, "guid": _track_guid(tr), "removed_fx": nm, "ok": ok}
+
+
+def _cmd_bypass_fx(args):
+    """Bypass (True) ou reactive (False) un effet (enabled = not bypass)."""
+    tr, idx = _resolve_track(args)
+    fxi = _resolve_fx(tr, args.get("fx"))
+    bypass = _as_bool(args.get("bypass", True))
+    RPR_TrackFX_SetEnabled(tr, fxi, not bypass)  # noqa: F821
+    _refresh()
+    return {"track_index": idx, "guid": _track_guid(tr), "fx_index": fxi,
+            "fx_name": _fx_name(tr, fxi), "bypassed": bypass,
+            "enabled": bool(RPR_TrackFX_GetEnabled(tr, fxi))}  # noqa: F821
+
+
+def _cmd_get_fx_params(args):
+    """Lecture pure. Sans 'fx' : liste les effets (index, nom, enabled). Avec 'fx'
+    (index/nom) : liste ses parametres (index, nom, valeur normalisee 0..1, valeur
+    reelle)."""
+    tr, idx = _resolve_track(args)
+    cnt = int(RPR_TrackFX_GetCount(tr))  # noqa: F821
+    fx = args.get("fx")
+    if fx is None or fx == "":
+        fxs = [{"fx_index": i, "fx_name": _fx_name(tr, i),
+                "enabled": bool(RPR_TrackFX_GetEnabled(tr, i))} for i in range(cnt)]  # noqa: F821
+        return {"track_index": idx, "guid": _track_guid(tr), "fx_count": cnt, "fx": fxs}
+    fxi = _resolve_fx(tr, fx)
+    npar = int(RPR_TrackFX_GetNumParams(tr, fxi))  # noqa: F821
+    params = []
+    for p in range(npar):
+        pname = RPR_TrackFX_GetParamName(tr, fxi, p, "", 256)[4] or ""  # noqa: F821
+        norm = round(float(RPR_TrackFX_GetParamNormalized(tr, fxi, p)), 5)  # noqa: F821
+        raw = RPR_TrackFX_GetParam(tr, fxi, p, 0, 0)  # noqa: F821  (val, tr, fx, param, min, max)
+        params.append({"param_index": p, "name": pname, "normalized": norm,
+                       "value": round(float(raw[0]), 5)})
+    return {"track_index": idx, "guid": _track_guid(tr), "fx_index": fxi,
+            "fx_name": _fx_name(tr, fxi), "param_count": npar, "params": params}
+
+
+def _cmd_set_fx_param(args):
+    """Regle un parametre d'effet. Effet par index/nom, parametre par index/nom.
+    Valeur NORMALISEE 0..1 par defaut (surface exposee par REAPER, spec 7.6) ;
+    raw=True pour une valeur en unites natives du plugin."""
+    tr, idx = _resolve_track(args)
+    fxi = _resolve_fx(tr, args.get("fx"))
+    p = _resolve_param(tr, fxi, args.get("param"))
+    val = float(args.get("value", 0.0))
+    if _as_bool(args.get("raw", False)):
+        RPR_TrackFX_SetParam(tr, fxi, p, val)  # noqa: F821
+    else:
+        val = max(0.0, min(1.0, val))
+        RPR_TrackFX_SetParamNormalized(tr, fxi, p, val)  # noqa: F821
+    _refresh()
+    pname = RPR_TrackFX_GetParamName(tr, fxi, p, "", 256)[4] or ""  # noqa: F821
+    return {"track_index": idx, "guid": _track_guid(tr), "fx_index": fxi,
+            "fx_name": _fx_name(tr, fxi), "param_index": p, "param_name": pname,
+            "normalized": round(float(RPR_TrackFX_GetParamNormalized(tr, fxi, p)), 5)}  # noqa: F821
+
+
+def _resolve_dest_track(args):
+    """Cible 'dest' d'un send : par dest_guid (prioritaire) sinon dest_index."""
+    guid = (args.get("dest_guid") or "").strip()
+    if guid:
+        hit = _track_by_guid(guid)
+        if hit is None:
+            raise IndexError("aucune piste avec le GUID dest %s" % guid)
+        return hit
+    return _track_at(args.get("dest_index"))
+
+
+def _track_addr(tr):
+    """Adresse entiere d'un pointeur de piste ('(MediaTrack*)0x..'). Sert a comparer
+    une piste a un P_DESTTRACK (double) pour l'idempotence des sends. Sur macOS les
+    adresses utilisateur tiennent sous 2**53 -> int(double) exact."""
+    m = re.search(r"0x([0-9a-fA-F]+)", str(tr))
+    return int(m.group(1), 16) if m else None
+
+
+def _send_index_to(src_tr, dest_tr):
+    """Index du send src->dest s'il existe deja, sinon -1 (idempotence des sends)."""
+    dest_addr = _track_addr(dest_tr)
+    if dest_addr is None:
+        return -1  # comparaison impossible -> on laissera creer
+    n = int(RPR_GetTrackNumSends(src_tr, 0))  # noqa: F821  (0 = sends)
+    for i in range(n):
+        d = RPR_GetTrackSendInfo_Value(src_tr, 0, i, "P_DESTTRACK")  # noqa: F821
+        # int(d) = adresse du pointeur dest (dest_addr est garanti non nul : on a
+        # renvoye -1 plus haut si _track_addr a echoue). Pas de garde `and d` :
+        # int(0.0)=0 != dest_addr de toute facon, et `and d` masquerait un compare.
+        if int(d) == dest_addr:
+            return i
+    return -1
+
+
+def _cmd_create_send(args):
+    """Cree un send src -> dest (idempotent : pas de doublon vers la meme
+    destination, spec 4.5). src par guid/index, dest par dest_guid/dest_index.
+    vol_db / pan optionnels."""
+    src_tr, src_idx = _resolve_track(args)
+    dest_tr, dest_idx = _resolve_dest_track(args)
+    if _track_addr(src_tr) is not None and _track_addr(src_tr) == _track_addr(dest_tr):
+        raise ValueError("src et dest sont la meme piste")
+    existing = _send_index_to(src_tr, dest_tr)
+    if existing >= 0:
+        send_idx, created = existing, False
+    else:
+        send_idx = int(RPR_CreateTrackSend(src_tr, dest_tr))  # noqa: F821
+        created = send_idx >= 0
+        if not created:
+            raise RuntimeError("echec de creation du send")
+    if args.get("vol_db") is not None:
+        RPR_SetTrackSendInfo_Value(src_tr, 0, send_idx, "D_VOL", _db_to_ratio(float(args["vol_db"])))  # noqa: F821
+    if args.get("pan") is not None:
+        RPR_SetTrackSendInfo_Value(src_tr, 0, send_idx, "D_PAN", max(-1.0, min(1.0, float(args["pan"]))))  # noqa: F821
+    _refresh()
+    return {"src_index": src_idx, "src_guid": _track_guid(src_tr),
+            "dest_index": dest_idx, "dest_guid": _track_guid(dest_tr),
+            "send_index": send_idx, "created": created}
+
+
+def _cmd_create_bus(args):
+    """Cree (ou retrouve) une piste-bus par nom. Idempotent : si une piste porte deja
+    ce nom exact, la renvoie sans en creer une seconde (spec 4.5)."""
+    name = (args.get("name") or "").strip()
+    if not name:
+        raise ValueError("name requis pour le bus")
+    n = int(RPR_CountTracks(0))  # noqa: F821
+    for i in range(n):
+        tr = RPR_GetTrack(0, i)  # noqa: F821
+        if _track_name(tr) == name:
+            return {"index": i, "guid": _track_guid(tr), "name": name, "created": False}
+    RPR_InsertTrackAtIndex(n, True)  # noqa: F821  (append)
+    RPR_TrackList_AdjustWindows(False)  # noqa: F821
+    tr = RPR_GetTrack(0, n)  # noqa: F821
+    RPR_GetSetMediaTrackInfo_String(tr, "P_NAME", name, True)  # noqa: F821
+    RPR_UpdateArrange()  # noqa: F821
+    return {"index": n, "guid": _track_guid(tr), "name": name, "created": True}
+
+
+# Tolerance de position pour la dedup marqueur/region : 1 microseconde. Assez
+# fine pour ne PAS fusionner deux reperes distincts proches (< 0.1 echantillon a
+# 96 kHz), assez large pour absorber le bruit ULP d'un aller-retour float JSON ->
+# un re-appel a l'identique (meme position) est bien vu comme doublon.
+_MARKER_EPS = 1e-6
+
+
+def _marker_exists(isrgn, pos, end):
+    """True si un marqueur/region de meme type est deja a ~cette position (a
+    _MARKER_EPS pres). Le nom n'est PAS expose de facon fiable par
+    EnumProjectMarkers dans ce build -> dedup par type+position (spec 4.5)."""
+    total = int(RPR_CountProjectMarkers(0, 0, 0)[0])  # noqa: F821
+    for i in range(total):
+        res = RPR_EnumProjectMarkers(i, 0, 0.0, 0.0, "", 0)  # noqa: F821  (res[2]=isrgn,[3]=pos,[4]=end)
+        if bool(res[2]) != bool(isrgn):
+            continue
+        if abs(res[3] - pos) < _MARKER_EPS and (not isrgn or abs(res[4] - end) < _MARKER_EPS):
+            return True
+    return False
+
+
+def _marker_color(color):
+    """Entier RGB -> valeur couleur REAPER (drapeau 0x1000000 = custom) ; 0 = defaut."""
+    return (int(color) | 0x1000000) if color else 0
+
+
+def _cmd_add_marker(args):
+    """Ajoute un marqueur a `position` (sec). Idempotent par type+position. color
+    optionnel (entier RGB ; 0 = couleur par defaut)."""
+    pos = float(args.get("position", 0.0))
+    name = args.get("name") or ""
+    if _marker_exists(False, pos, pos):
+        return {"position": round(pos, 4), "name": name, "created": False}
+    mid = int(RPR_AddProjectMarker2(0, False, pos, 0.0, name, -1, _marker_color(args.get("color", 0))))  # noqa: F821
+    _refresh()
+    return {"position": round(pos, 4), "name": name, "marker_id": mid, "created": True}
+
+
+def _cmd_add_region(args):
+    """Ajoute une region [start, end] (sec). Idempotent par type+position. color
+    optionnel."""
+    start = float(args.get("start", 0.0))
+    end = float(args.get("end", start))
+    if end <= start:
+        raise ValueError("end doit etre > start")
+    name = args.get("name") or ""
+    if _marker_exists(True, start, end):
+        return {"start": round(start, 4), "end": round(end, 4), "name": name, "created": False}
+    rid = int(RPR_AddProjectMarker2(0, True, start, end, name, -1, _marker_color(args.get("color", 0))))  # noqa: F821
+    _refresh()
+    return {"start": round(start, 4), "end": round(end, 4), "name": name,
+            "region_id": rid, "created": True}
+
+
 # Table de dispatch. PHASE 2 = uniquement ping + get_track_count.
 # PHASE 3 (effets de bord lourds) : ajouter ici en regard des outils MCP, mais
 # TOUJOURS sans sauvegarde implicite du projet. TODO cibles cote serveur MCP.
@@ -647,6 +936,15 @@ _DISPATCH = {
     "redo": _cmd_redo,
     "set_mode": _cmd_set_mode,
     "get_mode": _cmd_get_mode,
+    "add_fx": _cmd_add_fx,
+    "remove_fx": _cmd_remove_fx,
+    "bypass_fx": _cmd_bypass_fx,
+    "get_fx_params": _cmd_get_fx_params,
+    "set_fx_param": _cmd_set_fx_param,
+    "create_send": _cmd_create_send,
+    "create_bus": _cmd_create_bus,
+    "add_marker": _cmd_add_marker,
+    "add_region": _cmd_add_region,
 }
 
 # Commandes qui modifient l'ETAT DU PROJET -> encadrees dans un bloc Undo REAPER
@@ -663,6 +961,14 @@ _UNDO_LABELS = {
     "set_track_solo": "solo piste",
     "insert_midi_note": "note MIDI",
     "insert_midi_notes": "melodie MIDI",
+    "add_fx": "ajout effet",
+    "remove_fx": "suppression effet",
+    "bypass_fx": "bypass effet",
+    "set_fx_param": "parametre effet",
+    "create_send": "creation send",
+    "create_bus": "creation bus",
+    "add_marker": "ajout marqueur",
+    "add_region": "ajout region",
 }
 # transport_record ecrit de l'audio dans le projet -> bloque aussi en read_only
 # (pas d'undo : c'est un effet transport, pas une mutation d'etat encadrable).
