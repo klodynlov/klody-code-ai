@@ -32,8 +32,10 @@ PROTOCOLE (line-delimited JSON sur TCP) :
   reponse  : {"ok": true,  "result": {"track_count": 3}}\\n
              {"ok": false, "error": "commande inconnue: 'foo'"}\\n
 
-Securite : lecture seule pour l'instant. AUCUN appel qui modifie ou sauvegarde le
-projet (pas de RPR_Main_SaveProject).
+Securite : modes d'execution (section 5 de la spec DAW agentique). read_only
+refuse toute mutation du projet ; assisted/autonomous l'autorisent. Chaque
+mutation est encadree dans un bloc Undo REAPER (un Cmd-Z = une operation agent).
+AUCUN appel ne sauvegarde le projet (jamais de RPR_Main_SaveProject).
 """
 
 import contextlib
@@ -69,6 +71,12 @@ _MAX_BUF = 64 * 1024  # garde-fou anti-balloon : ligne sans \n > 64 KiB = on cou
 _server_sock = None
 _clients = {}  # fileno -> [conn, bytearray(buffer)]
 _running = False
+# Mode d'execution (spec DAW agentique section 5). Defaut 'autonomous' = comportement
+# historique (tout autorise) -> aucune regression. 'read_only' refuse toute mutation
+# du projet. 'assisted' se comporte comme autonomous cote pont (la confirmation des
+# operations destructrices vit cote agent/MCP, phase ulterieure).
+_MODE = "autonomous"
+_MODES = ("read_only", "assisted", "autonomous")
 
 
 def _log(msg):
@@ -88,7 +96,7 @@ def _log(msg):
 def _cmd_ping(args):
     """Sonde de vivacite -- sert au G1 et au /health du serveur MCP."""
     ver = RPR_GetAppVersion() if _IN_REAPER else "offline"  # noqa: F821
-    return {"pong": True, "protocol": PROTOCOL_VERSION, "reaper": ver}
+    return {"pong": True, "protocol": PROTOCOL_VERSION, "reaper": ver, "mode": _MODE}
 
 
 def _cmd_get_track_count(args):
@@ -115,11 +123,12 @@ def _cmd_add_track(args):
         idx = count  # append
     RPR_InsertTrackAtIndex(idx, True)  # noqa: F821  (wantDefaults=True)
     RPR_TrackList_AdjustWindows(False)  # noqa: F821  (refresh TCP/MCP)
+    tr = RPR_GetTrack(0, idx)  # noqa: F821  (toujours : sert au GUID du retour)
     if name:
-        tr = RPR_GetTrack(0, idx)  # noqa: F821
         RPR_GetSetMediaTrackInfo_String(tr, "P_NAME", name, True)  # noqa: F821
     RPR_UpdateArrange()  # noqa: F821
-    return {"inserted_index": idx, "name": name, "track_count": int(RPR_CountTracks(0))}  # noqa: F821
+    return {"inserted_index": idx, "guid": _track_guid(tr), "name": name,
+            "track_count": int(RPR_CountTracks(0))}  # noqa: F821
 
 
 # -- Helpers Phase 3 ----------------------------------------------------------
@@ -160,6 +169,50 @@ def _track_name(tr):
     return str(res or "")
 
 
+def _track_guid(tr):
+    """GUID stable d'une piste. RPR_GetSetMediaTrackInfo_String(tr,'GUID','',False)
+    renvoie (retval, track, 'GUID', guid_str, setNewValue) -> GUID = index 3 (forme
+    '{XXXXXXXX-...}'). Identifiant durable (spec DAW agentique 4.3) la ou l'index
+    decale a chaque insert/delete de piste."""
+    res = RPR_GetSetMediaTrackInfo_String(tr, "GUID", "", False)  # noqa: F821
+    if isinstance(res, tuple) and len(res) >= 4:
+        return res[3] or ""
+    return ""
+
+
+def _track_by_guid(guid):
+    """Retrouve (piste, index) par GUID, ou None si absent du projet courant."""
+    g = (guid or "").strip()
+    if not g:
+        return None
+    n = int(RPR_CountTracks(0))  # noqa: F821
+    for i in range(n):
+        tr = RPR_GetTrack(0, i)  # noqa: F821
+        if _track_guid(tr) == g:
+            return tr, i
+    return None
+
+
+def _resolve_track(args):
+    """Resout la piste cible par GUID (prioritaire) sinon par index 0-based.
+
+    La spec impose le GUID comme identifiant durable ; on accepte les deux pour ne
+    rien casser (les appels index-seul marchent tels quels), mais si `guid` est
+    fourni il gagne. `index` ou `track_index` selon la commande. Renvoie
+    (MediaTrack, index_resolu) comme `_track_at`.
+    """
+    guid = (args.get("guid") or "").strip()
+    if guid:
+        hit = _track_by_guid(guid)
+        if hit is None:
+            raise IndexError("aucune piste avec le GUID %s dans le projet" % guid)
+        return hit
+    idx = args.get("index")
+    if idx is None:
+        idx = args.get("track_index")
+    return _track_at(idx)
+
+
 def _db_to_ratio(db):
     return 0.0 if db <= -150.0 else 10.0 ** (db / 20.0)
 
@@ -176,6 +229,7 @@ def _cmd_list_tracks(args):
         tr = RPR_GetTrack(0, i)  # noqa: F821
         out.append({
             "index": i,
+            "guid": _track_guid(tr),
             "name": _track_name(tr),
             "volume_db": round(_ratio_to_db(RPR_GetMediaTrackInfo_Value(tr, "D_VOL")), 2),  # noqa: F821
             "pan": round(RPR_GetMediaTrackInfo_Value(tr, "D_PAN"), 3),  # noqa: F821
@@ -199,56 +253,57 @@ def _cmd_get_play_position(args):
 
 def _cmd_rename_track(args):
     """Renomme la piste `index`. Effet de bord, sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
     name = args.get("name") or ""
     RPR_GetSetMediaTrackInfo_String(tr, "P_NAME", name, True)  # noqa: F821
     _refresh()
-    return {"index": int(args.get("index")), "name": name}
+    return {"index": idx, "guid": _track_guid(tr), "name": name}
 
 
 def _cmd_delete_track(args):
     """Supprime la piste `index`. DESTRUCTIF (annulable via Cmd-Z REAPER), sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
+    guid = _track_guid(tr)  # capture avant suppression (la piste disparait apres)
     RPR_DeleteTrack(tr)  # noqa: F821
     _refresh()
-    return {"deleted_index": int(args.get("index")), "track_count": int(RPR_CountTracks(0))}  # noqa: F821
+    return {"deleted_index": idx, "guid": guid, "track_count": int(RPR_CountTracks(0))}  # noqa: F821
 
 
 def _cmd_set_track_volume(args):
     """Regle le volume (dB) de la piste `index`. Effet de bord, sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
     db = float(args.get("db", 0.0))
     RPR_SetMediaTrackInfo_Value(tr, "D_VOL", _db_to_ratio(db))  # noqa: F821
     _refresh()
-    return {"index": int(args.get("index")), "volume_db": db}
+    return {"index": idx, "guid": _track_guid(tr), "volume_db": db}
 
 
 def _cmd_set_track_pan(args):
     """Regle le pan [-1..1] de la piste `index`. Effet de bord, sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
     pan = max(-1.0, min(1.0, float(args.get("pan", 0.0))))
     RPR_SetMediaTrackInfo_Value(tr, "D_PAN", pan)  # noqa: F821
     _refresh()
-    return {"index": int(args.get("index")), "pan": pan}
+    return {"index": idx, "guid": _track_guid(tr), "pan": pan}
 
 
 def _cmd_set_track_mute(args):
     """Mute/unmute la piste `index`. Effet de bord, sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
     mute = _as_bool(args.get("mute", True))
     RPR_SetMediaTrackInfo_Value(tr, "B_MUTE", 1.0 if mute else 0.0)  # noqa: F821
     _refresh()
-    return {"index": int(args.get("index")), "mute": mute}
+    return {"index": idx, "guid": _track_guid(tr), "mute": mute}
 
 
 def _cmd_set_track_solo(args):
     """Solo/unsolo la piste `index`. Effet de bord, sans save."""
-    tr, _ = _track_at(args.get("index"))
+    tr, idx = _resolve_track(args)
     solo = _as_bool(args.get("solo", True))
     # I_SOLO : 0=off, 1=solo, 2=SIP. On expose un booleen (solo oui/non) -> 1.0.
     RPR_SetMediaTrackInfo_Value(tr, "I_SOLO", 1.0 if solo else 0.0)  # noqa: F821
     _refresh()
-    return {"index": int(args.get("index")), "solo": solo}
+    return {"index": idx, "guid": _track_guid(tr), "solo": solo}
 
 
 def _cmd_transport_play(args):
@@ -336,8 +391,7 @@ def _cmd_insert_midi_note(args):
     args: track_index, pitch(0-127), start(sec), length(sec), velocity(1-127),
     channel(0-15). Chaque appel cree son propre item [start, start+length].
     """
-    ti = int(args.get("track_index"))
-    tr, _ = _track_at(ti)
+    tr, ti = _resolve_track(args)
     pitch = max(0, min(127, int(args.get("pitch", 60))))
     start = float(args.get("start", 0.0))
     length = max(0.001, float(args.get("length", 0.5)))
@@ -353,8 +407,8 @@ def _cmd_insert_midi_note(args):
     RPR_MIDI_InsertNote(take, False, False, sppq, eppq, chan, pitch, vel, False)  # noqa: F821
     RPR_MIDI_Sort(take)  # noqa: F821
     _refresh()
-    return {"track_index": ti, "pitch": pitch, "start": start, "length": length,
-            "velocity": vel, "channel": chan}
+    return {"track_index": ti, "guid": _track_guid(tr), "pitch": pitch, "start": start,
+            "length": length, "velocity": vel, "channel": chan}
 
 
 def _cmd_insert_midi_notes(args):
@@ -366,8 +420,7 @@ def _cmd_insert_midi_notes(args):
     comme insert_midi_note appele en boucle). noSort=True a chaque insert puis un
     seul MIDI_Sort a la fin (insertion par lot correcte + moins de tri).
     """
-    ti = int(args.get("track_index"))
-    tr, _ = _track_at(ti)
+    tr, ti = _resolve_track(args)
     notes = args.get("notes")
     if not isinstance(notes, list) or not notes:
         raise ValueError("notes doit etre une liste non vide de {pitch,start,length,...}")
@@ -397,7 +450,7 @@ def _cmd_insert_midi_notes(args):
         RPR_MIDI_InsertNote(take, False, False, sppq, eppq, chan, pitch, vel, True)  # noqa: F821
     RPR_MIDI_Sort(take)  # noqa: F821
     _refresh()
-    return {"track_index": ti, "note_count": len(norm),
+    return {"track_index": ti, "guid": _track_guid(tr), "note_count": len(norm),
             "item_start": round(item_start, 4), "item_end": round(item_end, 4)}
 
 
@@ -406,8 +459,7 @@ def _cmd_list_midi_notes(args):
 
     args: track_index, item_index (defaut 0). Renvoie pitch/start/length/vel/chan.
     """
-    ti = int(args.get("track_index"))
-    tr, _ = _track_at(ti)
+    tr, ti = _resolve_track(args)
     item_index = int(args.get("item_index", 0))
     n_items = int(RPR_CountTrackMediaItems(tr))  # noqa: F821
     if n_items == 0:
@@ -458,6 +510,115 @@ def _cmd_render_project(args):
     return {"rendered": bool(files), "output_files": files}
 
 
+# -- Handlers P1 (snapshot / undo / modes) -----------------------------------
+# Surete avant puissance (spec DAW agentique sections 4.3/4.4/5/6) : lecture
+# d'etat riche, reversibilite par bloc Undo, garde de mode. Aucun n'ajoute de
+# surface musicale neuve ; tous reutilisent des RPR_* deja verifiees dans le stub.
+
+
+def _cmd_get_project_snapshot(args):
+    """Snapshot lecture pure du projet (spec DAW agentique section 6).
+
+    args.detail : 'summary' (projet seul) | 'standard' (defaut : + pistes) |
+    'full' (+ compteurs fx/items par piste). Ne modifie jamais le projet.
+    """
+    detail = str(args.get("detail", "standard")).lower()
+    st = int(RPR_GetPlayState())  # noqa: F821  (bitmask 1=play 2=pause 4=rec)
+    proj = {
+        "tempo": round(RPR_Master_GetTempo(), 4),  # noqa: F821
+        "edit_cursor": round(RPR_GetCursorPosition(), 4),  # noqa: F821
+        "play_position": round(RPR_GetPlayPosition(), 4),  # noqa: F821
+        "playing": bool(st & 1),
+        "paused": bool(st & 2),
+        "recording": bool(st & 4),
+        "track_count": int(RPR_CountTracks(0)),  # noqa: F821
+    }
+    # Champs au format swig moins courant -> sous garde individuelle : un build qui
+    # exposerait une autre signature degrade a None plutot que de casser TOUT le
+    # snapshot (fail-soft, cf. discipline no-regression).
+    try:
+        proj["name"] = RPR_GetProjectName(0, "", 512)[1] or ""  # noqa: F821
+    except Exception:  # noqa: BLE001
+        proj["name"] = None
+    try:
+        ts = RPR_TimeMap_GetTimeSigAtTime(0, 0.0, 0, 0, 0)  # noqa: F821
+        proj["time_signature"] = "%d/%d" % (int(ts[2]), int(ts[3]))
+    except Exception:  # noqa: BLE001
+        proj["time_signature"] = None
+    try:
+        sr = int(RPR_GetSetProjectInfo(0, "PROJECT_SRATE", 0, False))  # noqa: F821
+        proj["sample_rate"] = sr or None  # 0 = "suit le peripherique audio"
+    except Exception:  # noqa: BLE001
+        proj["sample_rate"] = None
+
+    snap = {"project": proj}
+    if detail == "summary":
+        return snap
+    full = (detail == "full")
+    n = int(RPR_CountTracks(0))  # noqa: F821
+    tracks = []
+    for i in range(n):
+        tr = RPR_GetTrack(0, i)  # noqa: F821
+        t = {
+            "index": i,
+            "guid": _track_guid(tr),
+            "name": _track_name(tr),
+            "volume_db": round(_ratio_to_db(RPR_GetMediaTrackInfo_Value(tr, "D_VOL")), 2),  # noqa: F821
+            "pan": round(RPR_GetMediaTrackInfo_Value(tr, "D_PAN"), 3),  # noqa: F821
+            "mute": bool(RPR_GetMediaTrackInfo_Value(tr, "B_MUTE")),  # noqa: F821
+            "solo": bool(RPR_GetMediaTrackInfo_Value(tr, "I_SOLO")),  # noqa: F821
+        }
+        if full:
+            t["fx_count"] = int(RPR_TrackFX_GetCount(tr))  # noqa: F821
+            t["item_count"] = int(RPR_CountTrackMediaItems(tr))  # noqa: F821
+        tracks.append(t)
+    snap["tracks"] = tracks
+    return snap
+
+
+def _cmd_undo(args):
+    """Annule le dernier point d'annulation REAPER (operation agent encadree).
+
+    Chaque mutation du pont est encadree dans un bloc Undo (un Cmd-Z = une
+    operation). Renvoie le libelle de ce qui A ETE annule, ou rien a annuler.
+    """
+    label = RPR_Undo_CanUndo2(0) if _IN_REAPER else ""  # noqa: F821  ('' si rien)
+    if not label:
+        return {"undone": False, "label": None, "reason": "rien a annuler"}
+    RPR_Undo_DoUndo2(0)  # noqa: F821
+    _refresh()
+    return {"undone": True, "label": label}
+
+
+def _cmd_redo(args):
+    """Retablit le dernier point annule. Renvoie le libelle retabli, ou rien."""
+    label = RPR_Undo_CanRedo2(0) if _IN_REAPER else ""  # noqa: F821
+    if not label:
+        return {"redone": False, "label": None, "reason": "rien a retablir"}
+    RPR_Undo_DoRedo2(0)  # noqa: F821
+    _refresh()
+    return {"redone": True, "label": label}
+
+
+def _cmd_set_mode(args):
+    """Regle le mode d'execution du pont : read_only | assisted | autonomous.
+
+    read_only bloque toute commande qui modifie le projet (garde-fou dur, cf.
+    _WRITE_CMDS). Defaut autonomous (historique). Renvoie le mode effectif.
+    """
+    global _MODE
+    m = str(args.get("mode", "")).strip().lower()
+    if m not in _MODES:
+        raise ValueError("mode invalide %r (attendu: %s)" % (m, ", ".join(_MODES)))
+    _MODE = m
+    return {"mode": _MODE}
+
+
+def _cmd_get_mode(args):
+    """Renvoie le mode d'execution courant + la liste des modes (lecture pure)."""
+    return {"mode": _MODE, "modes": list(_MODES)}
+
+
 # Table de dispatch. PHASE 2 = uniquement ping + get_track_count.
 # PHASE 3 (effets de bord lourds) : ajouter ici en regard des outils MCP, mais
 # TOUJOURS sans sauvegarde implicite du projet. TODO cibles cote serveur MCP.
@@ -481,7 +642,31 @@ _DISPATCH = {
     "list_midi_notes": _cmd_list_midi_notes,
     "render_region": _cmd_render_region,
     "render_project": _cmd_render_project,
+    "get_project_snapshot": _cmd_get_project_snapshot,
+    "undo": _cmd_undo,
+    "redo": _cmd_redo,
+    "set_mode": _cmd_set_mode,
+    "get_mode": _cmd_get_mode,
 }
+
+# Commandes qui modifient l'ETAT DU PROJET -> encadrees dans un bloc Undo REAPER
+# (un seul Cmd-Z annule l'operation agent ; spec DAW agentique 4.4) ET bloquees en
+# mode read_only. Lectures, transport play/stop et render_* (ecriture fichier sur
+# un out_path explicite, pas l'etat projet -> sert l'analyse) en sont exclus.
+_UNDO_LABELS = {
+    "add_track": "ajout piste",
+    "rename_track": "renommage piste",
+    "delete_track": "suppression piste",
+    "set_track_volume": "volume piste",
+    "set_track_pan": "pan piste",
+    "set_track_mute": "mute piste",
+    "set_track_solo": "solo piste",
+    "insert_midi_note": "note MIDI",
+    "insert_midi_notes": "melodie MIDI",
+}
+# transport_record ecrit de l'audio dans le projet -> bloque aussi en read_only
+# (pas d'undo : c'est un effet transport, pas une mutation d'etat encadrable).
+_WRITE_CMDS = set(_UNDO_LABELS) | {"transport_record"}
 
 
 def _handle_line(raw):
@@ -495,8 +680,23 @@ def _handle_line(raw):
     handler = _DISPATCH.get(cmd)
     if handler is None:
         return {"ok": False, "error": "commande inconnue: %r" % cmd}
+    if _MODE == "read_only" and cmd in _WRITE_CMDS:
+        return {"ok": False,
+                "error": "mode read_only : commande '%s' (mutation) refusee" % cmd}
+    label = _UNDO_LABELS.get(cmd)
     try:
-        return {"ok": True, "result": handler(args)}
+        if label and _IN_REAPER:
+            # Encadre la mutation dans UN bloc Undo : un seul Cmd-Z annule toute
+            # l'operation agent (reversibilite, spec DAW agentique 4.4). finally
+            # garantit la fermeture du bloc meme si le handler leve une exception.
+            RPR_Undo_BeginBlock2(0)  # noqa: F821
+            try:
+                result = handler(args)
+            finally:
+                RPR_Undo_EndBlock2(0, "klody: " + label, -1)  # noqa: F821
+        else:
+            result = handler(args)
+        return {"ok": True, "result": result}
     except Exception as exc:  # noqa: BLE001  (jamais de crash silencieux)
         return {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
 
