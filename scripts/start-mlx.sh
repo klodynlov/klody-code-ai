@@ -22,6 +22,14 @@ set +a
 
 MODEL="${MLX_MODEL:-unsloth/Qwen3.6-35B-A3B-MLX-8bit}"
 PORT="${MLX_PORT:-8080}"
+# Draft model (speculative decoding). VIDE par défaut.
+# ⚠️ NE PAS activer un draft pour le brain Qwen3.6-35B-A3B : ce modèle (MoE) produit
+# un prompt cache de type `ArraysCache` NON-trimmable → mlx_lm 0.31.3 lève
+# `ValueError: Speculative decoding requires a trimmable prompt cache` à CHAQUE
+# requête (generate.py:531), peu importe le draft. Tenté 2026-06-28 pour forcer
+# is_batchable=False (anti-wedge, cf. investigation) : ÉCHEC, le brain renvoyait
+# une erreur sur toutes les complétions. Anti-wedge → passer par le patch mlx_lm
+# (extend() [None]→[[]]) ou un wrap try/except de server.py:838-920, PAS par --draft.
 DRAFT="${MLX_DRAFT_MODEL:-}"
 CHAT_ARGS="${MLX_CHAT_TEMPLATE_ARGS:-}"
 
@@ -48,12 +56,26 @@ if [[ -f "$SCRIPT_DIR/.venv/bin/activate" ]]; then
   source "$SCRIPT_DIR/.venv/bin/activate"
 fi
 
-# Construction de la commande
-CMD=(python -m mlx_lm.server
-  --model "$MODEL"
-  --port "$PORT"
-  --host "127.0.0.1"
-)
+# Construction de la commande.
+# Lanceur SUPERVISÉ (mlx_server_guarded.py) : enrobe ResponseGenerator._generate
+# pour redémarrer la boucle de génération au lieu de wedger le worker à 0% CPU si
+# elle crashe (boucle batchée mlx_lm sans garde-fou — investigation 2026-06-28).
+# Repli sur le module standard si le wrapper est absent.
+GUARD="$SCRIPT_DIR/scripts/mlx_server_guarded.py"
+if [[ -f "$GUARD" ]]; then
+  CMD=(python "$GUARD"
+    --model "$MODEL"
+    --port "$PORT"
+    --host "127.0.0.1"
+  )
+else
+  echo "  ⚠️  wrapper anti-wedge absent ($GUARD) — démarrage NON supervisé"
+  CMD=(python -m mlx_lm.server
+    --model "$MODEL"
+    --port "$PORT"
+    --host "127.0.0.1"
+  )
+fi
 
 # Speculative decoding si draft model fourni
 if [[ -n "$DRAFT" ]]; then
