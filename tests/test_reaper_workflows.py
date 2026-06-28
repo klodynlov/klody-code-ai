@@ -16,6 +16,15 @@ import pytest
 from klody_mcp import reaper_workflows as wf
 
 
+@pytest.fixture(autouse=True)
+def _empty_registry(monkeypatch, tmp_path):
+    """Registre plugins VIDE par défaut -> build_vocal_chain (prefer_installed=True
+    par défaut) retombe sur le stock Rea* de façon DÉTERMINISTE, hermétique quelle
+    que soit la machine (sinon il lirait les vrais plugins installés). Les tests qui
+    veulent un plugin installé monkeypatchent resolve_plugin eux-mêmes."""
+    monkeypatch.setenv("KLODY_REAPER_RESOURCE", str(tmp_path / "empty_registry"))
+
+
 class FakeBridge:
     """Faux pont REAPER : état projet en mémoire + primitives idempotentes.
 
@@ -144,6 +153,37 @@ class FakeBridge:
         return {"track_index": t["index"], "guid": t["guid"], "out_path": out,
                 "rendered": True, "output_files": [out]}
 
+    def _cmd_set_fx_param(self, args: dict) -> dict:
+        t = self._resolve(args)
+        fx = args.get("fx")
+        names = t["fx"]
+        if isinstance(fx, str) and not fx.strip().lstrip("-").isdigit():
+            fxn = next((n for n in names if fx.lower() in n.lower()), None)
+            if fxn is None:
+                return {"error": f"fx introuvable: {fx!r}"}
+        else:
+            i = int(fx)
+            if i < 0 or i >= len(names):
+                return {"error": "fx index hors borne"}
+            fxn = names[i]
+        t.setdefault("params", []).append({
+            "fx": fxn, "param": args.get("param"),
+            "value": args.get("value"), "raw": bool(args.get("raw")),
+        })
+        return {"fx_name": fxn, "param_name": args.get("param"), "normalized": 0.5}
+
+    def _cmd_insert_media(self, args: dict) -> dict:
+        t = self._resolve(args)
+        path = (args.get("path") or "").strip()
+        if not path:
+            return {"error": "path requis"}
+        pos = float(args.get("position", 0.0))
+        t.setdefault("items", []).append(path)
+        t["item_count"] += 1
+        return {"track_index": t["index"], "guid": t["guid"], "path": path,
+                "inserted": True, "item_index": len(t["items"]) - 1,
+                "position": pos, "length": 1.0}
+
 
 def run(coro):
     return asyncio.run(coro)
@@ -214,10 +254,12 @@ def test_build_vocal_chain_degrades_on_missing_plugin():
 
 
 def test_build_vocal_chain_idempotent():
+    # tune=False : on isole l'idempotence de l'AJOUT (set_fx_param du tune n'est pas
+    # idempotent — il re-règle les mêmes valeurs à chaque appel, ce qui est voulu).
     fb = FakeBridge()
     tr = fb.add_existing_track("Vox")
-    run(wf.build_vocal_chain(fb, guid=tr["guid"]))
-    r2 = run(wf.build_vocal_chain(fb, guid=tr["guid"]))
+    run(wf.build_vocal_chain(fb, guid=tr["guid"], tune=False))
+    r2 = run(wf.build_vocal_chain(fb, guid=tr["guid"], tune=False))
     # 2e passage : tout existe déjà -> rien créé -> aucun undo
     assert all(a["created"] is False for a in r2["added"])
     assert r2["undo_steps"] == 0
@@ -324,3 +366,94 @@ def test_render_all_stems_requires_out_dir():
     fb = FakeBridge()
     r = run(wf.render_all_stems(fb, ""))
     assert "error" in r
+
+
+# -- build_vocal_chain : presets (#3) ----------------------------------------
+
+
+def test_build_vocal_chain_tunes_stock_reacomp():
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"], chain=["ReaEQ", "ReaComp"],
+                                 reverb_send=False, tune=True))
+    assert r["chain_source"] == "explicit"
+    assert [a["fx"] for a in r["added"]] == ["ReaEQ", "ReaComp"]
+    # tune règle Ratio + Threshold sur ReaComp, en unités natives (raw=True)
+    assert {p["param"] for p in r["tuned"]} == {"Ratio", "Thresh"}
+    params = tr.get("params", [])
+    assert any(p["raw"] and p["param"] == "Ratio" and p["value"] == 3.0 for p in params)
+    assert any(p["raw"] and p["param"] == "Thresh" and p["value"] == -18.0 for p in params)
+
+
+def test_build_vocal_chain_tune_skips_unknown_comp():
+    # KaribVoice Compressor : layout inconnu -> on n'y touche PAS (spec : ne pas prétendre)
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"],
+                                 chain=["KaribVoice EQ", "KaribVoice Compressor"],
+                                 reverb_send=False, tune=True))
+    assert r["tuned"] == []
+    assert "params" not in tr or tr["params"] == []
+
+
+def test_build_vocal_chain_prefers_installed(monkeypatch):
+    def fake_resolve(role, installed=None):
+        return {
+            "eq": {"name": "KaribVoice EQ"}, "comp": {"name": "KaribVoice Compressor"},
+            "reverb": {"name": "KaribVoice Reverb"},
+        }.get(role)
+    monkeypatch.setattr(wf.reaper_plugins, "resolve_plugin", fake_resolve)
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"], prefer_installed=True))
+    assert r["chain_source"] == "installed"
+    added = [a["fx"] for a in r["added"]]
+    assert "KaribVoice EQ" in added and "KaribVoice Compressor" in added
+    assert r["reverb"]["fx"] == "KaribVoice Reverb"
+    assert r["tuned"] == []  # KaribVoice != ReaComp -> pas de tune
+
+
+def test_build_vocal_chain_installed_falls_back_to_stock(monkeypatch):
+    monkeypatch.setattr(wf.reaper_plugins, "resolve_plugin",
+                        lambda role, installed=None: None)
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Vox")
+    r = run(wf.build_vocal_chain(fb, guid=tr["guid"], prefer_installed=True))
+    assert [a["fx"] for a in r["added"]] == ["ReaEQ", "ReaComp"]
+    assert r["reverb"]["fx"] == "ReaVerbate"
+
+
+# -- place_sample (#1) -------------------------------------------------------
+
+
+def test_place_sample_imports_best(monkeypatch):
+    fake_hits = [
+        {"path": "/lib/kick_01.wav", "name": "kick_01.wav", "rel": "kick_01.wav", "root": "/lib", "score": 6},
+        {"path": "/lib/kick_02.wav", "name": "kick_02.wav", "rel": "kick_02.wav", "root": "/lib", "score": 3},
+    ]
+    monkeypatch.setattr(wf.reaper_samples, "search_samples",
+                        lambda q, root=None, limit=20: fake_hits)
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Drums")
+    r = run(wf.place_sample(fb, query="kick", guid=tr["guid"], position=2.0))
+    assert r["chosen"]["name"] == "kick_01.wav"
+    assert r["provenance"] == "/lib/kick_01.wav"  # source exacte
+    assert r["placed"]["inserted"] is True
+    assert r["undo_steps"] == 1
+    assert tr["item_count"] == 1
+    assert len(r["candidates"]) == 2
+
+
+def test_place_sample_no_hits(monkeypatch):
+    monkeypatch.setattr(wf.reaper_samples, "search_samples",
+                        lambda q, root=None, limit=20: [])
+    fb = FakeBridge()
+    tr = fb.add_existing_track("Drums")
+    r = run(wf.place_sample(fb, query="xyz", guid=tr["guid"]))
+    assert "error" in r and r["candidates"] == []
+
+
+def test_place_sample_validation():
+    fb = FakeBridge()
+    assert "error" in run(wf.place_sample(fb, query="", guid="x"))  # query vide
+    assert "error" in run(wf.place_sample(fb, query="kick"))  # ni guid ni index

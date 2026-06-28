@@ -724,18 +724,24 @@ async def workflow_prepare_vocal_recording(
 async def workflow_build_vocal_chain(
     index: int = -1, guid: str = "", gate: bool = False,
     reverb_send: bool = True, reverb_bus: str = "Reverb", reverb_db: float = -12.0,
+    prefer_installed: bool = True, tune: bool = True,
 ) -> dict:
-    """Workflow : pose une chaîne vocale stock (ReaEQ -> ReaComp [-> ReaGate]) sur la
-    piste ciblée (guid/index), + un send optionnel vers un bus reverb (ReaVerbate). Ne
-    suppose AUCUN plugin tiers : un effet absent est collecté dans `missing` sans planter.
-    Ne règle pas les paramètres (à affiner à l'oreille / via analyze_track).
+    """Workflow : pose une chaîne vocale sur la piste ciblée (guid/index) + send reverb.
 
-    Returns: {"added":[...],"missing":[...],"reverb":{...},"undo_steps"} ou {"error"}.
+    `prefer_installed` (défaut) : bâtit la chaîne à partir des plugins RÉELLEMENT
+    INSTALLÉS, en préférant ceux de l'utilisateur (KaribVoice/KlodVoice) au stock Rea*
+    (cf. list_installed_fx / resolve_plugin). Sinon : chaîne stock ReaEQ→ReaComp.
+    Ne suppose AUCUN plugin : un effet absent est collecté dans `missing` sans planter.
+    `tune` : règle quelques paramètres de DÉPART sûrs sur le ReaComp STOCK seulement
+    (Ratio/Threshold en unités natives) ; jamais sur un plugin au layout inconnu.
+
+    Returns: {"added","missing","reverb","tuned","chain_source","undo_steps"} ou {"error"}.
     """
     from klody_mcp import reaper_workflows
     return await reaper_workflows.build_vocal_chain(
         _bridge_call, index=index, guid=guid, gate=gate,
         reverb_send=reverb_send, reverb_bus=reverb_bus, reverb_db=reverb_db,
+        prefer_installed=prefer_installed, tune=tune,
     )
 
 
@@ -783,6 +789,91 @@ async def workflow_render_all_stems(
     from klody_mcp import reaper_workflows
     return await reaper_workflows.render_all_stems(
         _bridge_call, out_dir=out_dir, include_empty=include_empty, prefix=prefix,
+    )
+
+
+# ---------------------------------------------------------------------------- #
+# Optionnels : registre plugins (spec 7.6) + connecteur sample local (spec 8.8).#
+# Le registre lit les caches plugins de REAPER (aucun appel pont) ; la recherche#
+# sample lit le disque ; import_sample/place_sample passent par le pont.        #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def list_installed_fx(filter: str = "", kind: str = "all") -> dict:
+    """Liste les effets RÉELLEMENT INSTALLÉS dans REAPER (lecture des caches plugins ;
+    aucun appel au DAW). `filter` = sous-chaîne (insensible casse) sur le nom. `kind` =
+    "all" | "vst" | "jsfx". Sert à NE JAMAIS supposer un plugin présent (spec 7.6).
+
+    Returns: {"count": <int>, "fx": [{"name","kind","file"}, ...]}.
+    """
+    from klody_mcp import reaper_plugins
+    kinds = ("vst", "jsfx") if kind == "all" else (kind,)
+    try:
+        fx = await asyncio.to_thread(reaper_plugins.list_installed_fx, filter, kinds)
+        return {"count": len(fx), "fx": fx}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def resolve_plugin(role: str) -> dict:
+    """Résout un RÔLE musical vers le MEILLEUR plugin INSTALLÉ, en préférant ceux de
+    l'utilisateur (KaribVoice/KlodVoice) au stock Rea*. `role` ∈ {eq, comp, deesser,
+    reverb, delay, gate, limiter, saturation, harmonics}.
+
+    Returns: {"name","kind","file","role"} ou {"error": "aucun plugin pour ce rôle"}.
+    """
+    from klody_mcp import reaper_plugins
+    try:
+        r = await asyncio.to_thread(reaper_plugins.resolve_plugin, role)
+        return r if r else {"error": f"aucun plugin installé pour le rôle {role!r}"}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def search_samples(query: str, limit: int = 20, root: str = "") -> dict:
+    """Cherche des samples audio dans la bibliothèque LOCALE (racines via env
+    KLODY_SAMPLES_DIR ou `root`), classés par pertinence vs `query`. Lecture pure du
+    disque. Connecteur sample local (SampleBrain absent du repo).
+
+    Returns: {"count": <int>, "samples": [{"path","name","rel","root","score"}, ...]}.
+    """
+    from klody_mcp import reaper_samples
+    try:
+        hits = await asyncio.to_thread(
+            reaper_samples.search_samples, query, root or None, limit)
+        return {"count": len(hits), "samples": hits}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+@mcp.tool()
+async def import_sample(path: str, index: int = -1, guid: str = "", position: float = 0.0) -> dict:
+    """Importe un fichier audio comme media item sur une piste (ciblée par guid/index)
+    à `position` (sec). Sans sauvegarde, annulable (undo_last). Le fichier doit exister.
+
+    Returns: {"track_index","guid","path","inserted","item_index","position","length"} ou {"error"}.
+    """
+    return await _bridge_call(
+        "insert_media", {"path": path, "index": index, "guid": guid, "position": position})
+
+
+@mcp.tool()
+async def workflow_place_sample(
+    query: str, index: int = -1, guid: str = "", position: float = 0.0, root: str = "",
+) -> dict:
+    """Workflow : cherche un sample (bibliothèque locale), importe le MEILLEUR sur la
+    piste ciblée à `position`, et renvoie la PROVENANCE (chemin source). Spec 8.8
+    (search→rank→import→place→provenance). SampleBrain absent → bibliothèque filesystem.
+
+    Returns: {"chosen","candidates","placed","provenance","undo_steps"} ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.place_sample(
+        _bridge_call, query=query, index=index, guid=guid,
+        position=position, root=root or None,
     )
 
 

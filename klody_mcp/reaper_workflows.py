@@ -24,12 +24,19 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from klody_mcp import reaper_plugins, reaper_samples
+
 # Callable du pont : (cmd, args) -> dict, asynchrone (le _bridge_call du serveur MCP).
 Call = Callable[[str, dict], Awaitable[dict]]
 
 # Chaîne vocale stock REAPER (toujours installée). On reste sur les Rea* pour ne
 # jamais dépendre d'un plugin tiers ; si l'un manque, on dégrade (missing).
 _VOCAL_CHAIN = ("ReaEQ", "ReaComp")
+
+# Réglages de DÉPART conventionnels pour un ReaComp vocal, en unités NATIVES (raw) :
+# Ratio = nombre (3:1), Threshold = dB. Ce ne sont PAS des valeurs analysées sur le
+# signal (spec : ne jamais prétendre) — juste un point de départ sûr à affiner.
+_REACOMP_VOCAL = (("Ratio", 3.0), ("Thresh", -18.0))
 
 # Structure zouk par défaut (nom, nombre de mesures), 4/4. Modifiable via `sections`.
 _DEFAULT_ZOUK = (
@@ -40,6 +47,19 @@ _DEFAULT_ZOUK = (
 
 def _is_err(r: Any) -> bool:
     return isinstance(r, dict) and bool(r.get("error"))
+
+
+def _installed_chain(gate: bool) -> tuple[list[str], str]:
+    """Chaîne vocale bâtie sur les plugins INSTALLÉS (préfère ceux de l'utilisateur),
+    avec repli sur le stock Rea* par rôle. Renvoie (specs, nom_du_reverb_de_bus).
+    reaper_plugins.resolve_plugin est fail-soft (None si rien) -> on retombe sur le stock."""
+    def pick(role: str, fallback: str) -> str:
+        r = reaper_plugins.resolve_plugin(role)
+        return r["name"] if r else fallback
+    specs = [pick("eq", "ReaEQ"), pick("comp", "ReaComp")]
+    if gate:
+        specs.append(pick("gate", "ReaGate"))
+    return specs, pick("reverb", "ReaVerbate")
 
 
 def _sanitize(name: str) -> str:
@@ -103,16 +123,35 @@ async def prepare_vocal_recording(
 async def build_vocal_chain(
     call: Call, index: int = -1, guid: str = "", gate: bool = False,
     reverb_send: bool = True, reverb_bus: str = "Reverb", reverb_db: float = -12.0,
+    prefer_installed: bool = True, tune: bool = True,
+    chain: list[str] | None = None, reverb_fx: str | None = None,
 ) -> dict:
-    """Pose une chaîne vocale stock (ReaEQ -> ReaComp [-> ReaGate]) sur la piste ciblée
-    (guid prioritaire). Optionnel : send vers un bus reverb (créé si besoin, ReaVerbate
-    dessus). Ne SUPPOSE aucun plugin tiers ; un effet absent est COLLECTÉ dans `missing`
-    au lieu de planter. Ne règle PAS les paramètres (ils dépendent du signal réel ; à
-    affiner à l'oreille / via analyze_track)."""
+    """Pose une chaîne vocale sur la piste ciblée (guid prioritaire) + un send optionnel
+    vers un bus reverb.
+
+    `prefer_installed` (défaut) : la chaîne est bâtie à partir des plugins RÉELLEMENT
+    INSTALLÉS, en préférant ceux de l'utilisateur (KaribVoice/KlodVoice) au stock Rea*
+    (registre = reaper_plugins, spec 7.6 « détecter le réel »). Sinon : chaîne stock.
+    `chain` (liste de noms) force une chaîne explicite (court-circuite la résolution).
+    Ne SUPPOSE aucun plugin : un effet absent est COLLECTÉ dans `missing`, le workflow
+    continue. `tune` : règle quelques paramètres de DÉPART sûrs sur le ReaComp STOCK
+    uniquement (unités natives via raw — Ratio/Threshold) ; jamais sur un plugin au
+    layout inconnu (spec : ne jamais prétendre). À affiner ensuite (analyze_track)."""
     if not guid and index < 0:
         return {"error": "cible requise (guid ou index de piste)"}
     target = {"guid": guid, "index": index}
-    specs = list(_VOCAL_CHAIN) + (["ReaGate"] if gate else [])
+    # Décide la chaîne : explicite > installée (préférée) > stock.
+    if chain is not None:
+        specs = list(chain)
+        rev_name = reverb_fx or "ReaVerbate"
+        source = "explicit"
+    elif prefer_installed:
+        specs, rev_name = _installed_chain(gate)
+        source = "installed"
+    else:
+        specs = list(_VOCAL_CHAIN) + (["ReaGate"] if gate else [])
+        rev_name = reverb_fx or "ReaVerbate"
+        source = "stock"
     added: list[dict] = []
     missing: list[dict] = []
     undo_steps = 0
@@ -125,6 +164,20 @@ async def build_vocal_chain(
                       "created": r.get("created")})
         if r.get("created"):
             undo_steps += 1
+    # Presets : seulement sur un ReaComp STOCK (params/units connus). raw=True ->
+    # unités natives (Ratio = nombre, Threshold = dB), pas de devinette de normalisé.
+    tuned: list[dict] = []
+    if tune:
+        for a in added:
+            nm = a.get("fx") or ""
+            if "reacomp" in nm.lower():
+                for pname, val in _REACOMP_VOCAL:
+                    tr = await call("set_fx_param", {
+                        **target, "fx": nm, "param": pname, "value": val, "raw": True,
+                    })
+                    if not _is_err(tr):
+                        tuned.append({"fx": nm, "param": pname, "value": val})
+                        undo_steps += 1
     reverb: dict | None = None
     if reverb_send:
         bus = await call("create_bus", {"name": reverb_bus})
@@ -133,7 +186,7 @@ async def build_vocal_chain(
         else:
             if bus.get("created"):
                 undo_steps += 1
-            rev_fx = await call("add_fx", {"guid": bus.get("guid", ""), "name": "ReaVerbate"})
+            rev_fx = await call("add_fx", {"guid": bus.get("guid", ""), "name": rev_name})
             if not _is_err(rev_fx) and rev_fx.get("created"):
                 undo_steps += 1
             send = await call("create_send", {
@@ -149,7 +202,8 @@ async def build_vocal_chain(
                 "fx_error": rev_fx.get("error") if _is_err(rev_fx) else None,
                 "send": send,
             }
-    return {"added": added, "missing": missing, "reverb": reverb, "undo_steps": undo_steps}
+    return {"added": added, "missing": missing, "reverb": reverb, "tuned": tuned,
+            "chain_source": source, "undo_steps": undo_steps}
 
 
 def _normalize_sections(sections: Any) -> list[tuple[str, float]]:
@@ -288,3 +342,38 @@ async def render_all_stems(
             "error": r.get("error") if isinstance(r, dict) else None,
         })
     return {"out_dir": out_dir, "track_count": len(tracks), "rendered": rendered, "stems": stems}
+
+
+async def place_sample(
+    call: Call, query: str, index: int = -1, guid: str = "",
+    position: float = 0.0, root: str | None = None,
+) -> dict:
+    """Cherche un sample dans la bibliothèque LOCALE (search->rank), importe le MEILLEUR
+    sur la piste ciblée à `position` (sec), et renvoie la PROVENANCE (chemin source).
+    Spec 8.8 (search->rank->import->place->provenance). SampleBrain absent du repo ->
+    bibliothèque filesystem (racines via env KLODY_SAMPLES_DIR ou `root`)."""
+    if not (query or "").strip():
+        return {"error": "query requis (mot-clé de recherche du sample)"}
+    if not guid and index < 0:
+        return {"error": "cible requise (guid ou index de piste)"}
+    hits = reaper_samples.search_samples(query, root=root, limit=8)
+    if not hits:
+        return {"error": f"aucun sample trouvé pour {query!r}", "query": query,
+                "candidates": [], "roots": [str(p) for p in reaper_samples._roots(root)]}
+    best = hits[0]
+    r = await call("insert_media", {
+        "index": index, "guid": guid, "path": best["path"], "position": position,
+    })
+    if _is_err(r):
+        return {"error": r.get("error"), "chosen": best}
+    return {
+        "chosen": {"name": best["name"], "path": best["path"], "score": best["score"]},
+        "candidates": [{"name": h["name"], "score": h["score"]} for h in hits[:5]],
+        "placed": {
+            "track_index": r.get("track_index"), "guid": r.get("guid"),
+            "position": r.get("position"), "length": r.get("length"),
+            "inserted": r.get("inserted"),
+        },
+        "provenance": best["path"],  # source exacte (spec 8.8)
+        "undo_steps": 1 if r.get("inserted") else 0,
+    }

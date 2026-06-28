@@ -981,6 +981,49 @@ def _cmd_set_tempo(args):
     return {"bpm": round(RPR_Master_GetTempo(), 4)}  # noqa: F821
 
 
+def _cmd_insert_media(args):
+    """Importe un fichier audio comme media item sur une piste, a `position` (sec).
+    Connecteur sample LOCAL (spec 8.8, SampleBrain absent du repo). SetOnlyTrackSelected
+    (cible la piste) + SetEditCurPos (place le curseur) puis RPR_InsertMedia(path, 0)
+    (ajoute a la piste SELECTIONNEE, au curseur). Mutation -> Undo + read_only. Le
+    fichier doit exister (le pont et les samples sont sur la meme machine)."""
+    tr, idx = _resolve_track(args)
+    path = (args.get("path") or "").strip()
+    if not path:
+        raise ValueError("path requis (fichier audio a importer)")
+    if not os.path.isfile(path):
+        raise ValueError("fichier introuvable: %s" % path)
+    pos = float(args.get("position", 0.0))
+    if pos < 0:
+        pos = 0.0
+    # insert_media mute l'etat GLOBAL (selection de pistes + curseur d'edition) : on le
+    # sauvegarde et on le RESTAURE (effet net neutre sur l'etat, comme
+    # render_track_isolated restaure solo/mute -> l'agent n'est pas surpris).
+    n = int(RPR_CountTracks(0))  # noqa: F821
+    all_tracks = [RPR_GetTrack(0, i) for i in range(n)]  # noqa: F821
+    sel0 = [RPR_GetMediaTrackInfo_Value(t, "I_SELECTED") for t in all_tracks]  # noqa: F821
+    cur0 = RPR_GetCursorPosition()  # noqa: F821
+    n_before = int(RPR_CountTrackMediaItems(tr))  # noqa: F821
+    try:
+        RPR_SetOnlyTrackSelected(tr)  # noqa: F821  (la piste cible devient la selection)
+        RPR_SetEditCurPos(pos, False, False)  # noqa: F821  (curseur = point d'insertion)
+        RPR_InsertMedia(path, 0)  # noqa: F821  (0 = ajoute a la piste selectionnee, au curseur)
+        n_after = int(RPR_CountTrackMediaItems(tr))  # noqa: F821
+        inserted = n_after > n_before
+        # Le nouvel item est le dernier de la piste (insere au curseur).
+        item = RPR_GetTrackMediaItem(tr, n_after - 1) if inserted else None  # noqa: F821
+        item_pos = round(RPR_GetMediaItemInfo_Value(item, "D_POSITION"), 4) if item else None  # noqa: F821
+        item_len = round(RPR_GetMediaItemInfo_Value(item, "D_LENGTH"), 4) if item else None  # noqa: F821
+    finally:
+        for t, s in zip(all_tracks, sel0):
+            RPR_SetMediaTrackInfo_Value(t, "I_SELECTED", s)  # noqa: F821
+        RPR_SetEditCurPos(cur0, False, False)  # noqa: F821  (curseur restaure)
+        _refresh()
+    return {"track_index": idx, "guid": _track_guid(tr), "path": path,
+            "inserted": inserted, "item_index": (n_after - 1) if inserted else None,
+            "position": item_pos, "length": item_len}
+
+
 # Table de dispatch. PHASE 2 = uniquement ping + get_track_count.
 # PHASE 3 (effets de bord lourds) : ajouter ici en regard des outils MCP, mais
 # TOUJOURS sans sauvegarde implicite du projet. TODO cibles cote serveur MCP.
@@ -1021,6 +1064,7 @@ _DISPATCH = {
     "add_region": _cmd_add_region,
     "arm_track": _cmd_arm_track,
     "set_tempo": _cmd_set_tempo,
+    "insert_media": _cmd_insert_media,
 }
 
 # Commandes qui modifient l'ETAT DU PROJET -> encadrees dans un bloc Undo REAPER
@@ -1047,6 +1091,7 @@ _UNDO_LABELS = {
     "add_region": "ajout region",
     "arm_track": "armement piste",
     "set_tempo": "tempo",
+    "insert_media": "import sample",
 }
 # transport_record ecrit de l'audio dans le projet -> bloque aussi en read_only
 # (pas d'undo : c'est un effet transport, pas une mutation d'etat encadrable).

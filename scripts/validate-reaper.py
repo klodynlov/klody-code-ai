@@ -25,8 +25,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import math
 import os
+import shutil
+import struct
 import sys
+import tempfile
+import wave
 
 # Lancé comme `python scripts/validate-reaper.py`, sys.path[0] = scripts/ et non
 # la racine projet → klody_mcp introuvable. On insère la racine explicitement.
@@ -47,6 +52,18 @@ def wf_run(coro):
     """Exécute un workflow async depuis ce script synchrone (preuve bout-en-bout :
     workflow -> vrai pont -> vrai REAPER)."""
     return asyncio.run(coro)
+
+
+def _make_test_wav(path: str, dur: float = 0.2, freq: float = 440.0, sr: int = 44100) -> None:
+    """Écrit un petit WAV mono 16 bits (sinus) — sert de sample pour insert_media."""
+    n = int(dur * sr)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(b"".join(
+            struct.pack("<h", int(0.5 * 32767 * math.sin(2 * math.pi * freq * i / sr)))
+            for i in range(n)))
 
 TEST_TRACK = "KLODY_VALIDATE_melody"
 # Petite gamme de Do majeur (Do Ré Mi Fa Sol) — preuve de génération mélodie.
@@ -389,6 +406,73 @@ def main() -> int:
             to_delete.append(b.get("guid"))
     for g in to_delete:
         if g and g != guid:  # jamais la piste de test principale
+            call("delete_track", {"guid": g})
+
+    # 4sexies. OPTIONNELS — registre plugins (#2), import sample (#1), presets +
+    # prefer_installed (#3). Modules purs (plugins/samples) déjà couverts en unit ;
+    # ici on exerce les chemins qui TOUCHENT REAPER via le vrai pont, sur une piste
+    # dédiée nettoyée à la fin.
+    from klody_mcp import reaper_plugins as _rp
+
+    # #2 registre — lecture des caches plugins de CETTE machine (aucun appel pont).
+    allfx = _rp.list_installed_fx()
+    karib = [f["name"] for f in allfx if "karib" in f["name"].lower()]
+    check("list_installed_fx (registre plugins)", len(allfx) > 0,
+          f"{len(allfx)} plugins installés ; user KaribVoice: {len(karib)}")
+
+    ro = call("add_track", {"name": "KLODY_VALIDATE_opt", "index": -1})
+    opt_guid = ro.get("guid")
+    opt_rev_guid = None
+    check("add_track (piste optionnels)", bool(opt_guid), f"guid={opt_guid}")
+    if opt_guid:
+        # #1 insert_media — importe un petit WAV généré, vérifie l'item créé.
+        wav = os.path.join(tempfile.gettempdir(), "klody_opt_sample.wav")
+        _make_test_wav(wav)
+        snap_b = call("get_project_snapshot", {"detail": "full"})
+        items_before = next((t.get("item_count", 0) for t in snap_b.get("tracks", [])
+                             if t.get("guid") == opt_guid), 0)
+        im = call("insert_media", {"guid": opt_guid, "path": wav, "position": 0.0})
+        snap_a = call("get_project_snapshot", {"detail": "full"})
+        items_after = next((t.get("item_count", 0) for t in snap_a.get("tracks", [])
+                            if t.get("guid") == opt_guid), 0)
+        check("insert_media (import audio)",
+              not err(im) and im.get("inserted") is True and items_after == items_before + 1,
+              f"items {items_before}->{items_after}, length={im.get('length')}" if not err(im) else err(im))
+
+        # #3 build_vocal_chain prefer_installed — préfère KaribVoice si installé. Assert
+        # TOLÉRANT : on exige la résolution "installed" + AU MOINS un FX instancié (un
+        # plugin tiers peut ne pas s'instancier par son nom d'affichage exact -> il
+        # tombe dans `missing`, qu'on RAPPORTE sans rougir tout le run).
+        chain = wf_run(rwf.build_vocal_chain(_acall, guid=opt_guid, reverb_bus="KLODY_VALIDATE_optrev"))
+        crev = chain.get("reverb") if isinstance(chain.get("reverb"), dict) else {}
+        opt_rev_guid = (crev.get("bus") or {}).get("guid") if not crev.get("error") else None
+        added_names = [a.get("fx") for a in chain.get("added", [])]
+        check("build_vocal_chain prefer_installed (+presets)",
+              not err(chain) and chain.get("chain_source") == "installed" and len(added_names) >= 1,
+              f"source={chain.get('chain_source')}, added={added_names}, "
+              f"tuned={len(chain.get('tuned', []))}, missing={[m.get('fx') for m in chain.get('missing', [])]}")
+
+        # #1bis place_sample — bibliothèque = dossier tmp ISOLÉ ; search->import.
+        samp_dir = tempfile.mkdtemp(prefix="klody_opt_samples_")
+        shutil.copy(wav, os.path.join(samp_dir, "zoukkick_test.wav"))
+        os.environ["KLODY_SAMPLES_DIR"] = samp_dir
+        try:
+            ps = wf_run(rwf.place_sample(_acall, query="zoukkick", guid=opt_guid, position=1.0))
+            check("workflow_place_sample (search->import->provenance)",
+                  not err(ps) and (ps.get("placed") or {}).get("inserted") is True
+                  and bool(ps.get("provenance")),
+                  f"chosen={(ps.get('chosen') or {}).get('name')}, provenance={ps.get('provenance')}"
+                  if not err(ps) else err(ps))
+        finally:
+            os.environ.pop("KLODY_SAMPLES_DIR", None)
+        with contextlib.suppress(OSError):
+            os.remove(wav)
+        shutil.rmtree(samp_dir, ignore_errors=True)
+
+    # Cleanup optionnels : piste dédiée + son bus reverb, par GUID connu (jamais la
+    # piste de test principale).
+    for g in (opt_guid, opt_rev_guid):
+        if g and g != guid:
             call("delete_track", {"guid": g})
 
     # 5. Transport (optionnel) — play/stop, jamais record (record écrit de l'audio).
