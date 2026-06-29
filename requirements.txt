@@ -45,7 +45,7 @@ openpyxl>=3.1.5
 # sentence-transformers = provider "st" (embeddings bge-m3 in-process, sans Ollama).
 # ollama = import top-level de klody_memory.embedder (client léger, daemon non requis en st).
 sentence-transformers>=5.0
-sqlite-vec>=0.1.6
+sqlite-vec>=0.1.9
 ollama>=0.4.0
 
 # Planchers de sécurité — deps TRANSITIVES épinglées pour fermer des CVE (pip-audit).
