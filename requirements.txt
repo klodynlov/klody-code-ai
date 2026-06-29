@@ -30,7 +30,7 @@ bandit>=1.9.4
 pip-audit>=2.10.0
 
 # Qualité (lint + typage — job CI `quality`)
-ruff>=0.6
+ruff>=0.15.20
 mypy>=2.1.0
 
 # Monitoring (Vague 4 — observabilité)
