@@ -1381,18 +1381,29 @@ async def health(response: Response):
     # plutôt qu'une URL en dur : l'ancienne sonde tapait :8083 = modèle code MLX,
     # qui n'expose pas /mcp → toujours « down » à tort. Les endpoints /mcp
     # répondent 406 à un GET (négociation streamable-http).
-    mcp_urls = list(config.MCP_SERVERS.values())
+    # Seules les entrées http(s):// sont sondables : une valeur « chemin de
+    # script » (ex. dream-x-world) est un serveur stdio lancé à la demande par
+    # l'orchestrateur — la sonder en GET échouait toujours → « mcp: down »
+    # permanent, non actionnable (on ne savait pas QUI était tombé).
+    mcp_http = {
+        name: url for name, url in config.MCP_SERVERS.items()
+        if str(url).startswith(("http://", "https://"))
+    }
+    mcp_stdio = [name for name in config.MCP_SERVERS if name not in mcp_http]
 
     ollama_p, mlx_p, *mcp_ps = await asyncio.gather(
         _probe_url(ollama_url),
         _probe_url(mlx_url) if config.BACKEND == "mlx" else asyncio.sleep(0, result=None),
-        *[_probe_url(u, accept_status=(200, 405, 406)) for u in mcp_urls],
+        *[_probe_url(u, accept_status=(200, 405, 406)) for u in mcp_http.values()],
         return_exceptions=True,
     )
     ollama_ok = ollama_p is True
     mlx_ok = mlx_p is True if config.BACKEND == "mlx" else None
-    # ok si TOUS les serveurs configurés répondent ; None si aucun n'est configuré.
-    mcp_ok = all(p is True for p in mcp_ps) if mcp_urls else None
+    # ok si TOUS les serveurs HTTP configurés répondent ; None si aucun ne l'est.
+    mcp_ok = all(p is True for p in mcp_ps) if mcp_http else None
+    mcp_detail = {name: ("ok" if p is True else "down")
+                  for name, p in zip(mcp_http, mcp_ps)}
+    mcp_detail.update({name: "stdio" for name in mcp_stdio})
 
     # LLM principal selon BACKEND
     llm_ok = mlx_ok if config.BACKEND == "mlx" else ollama_ok
@@ -1402,6 +1413,8 @@ async def health(response: Response):
         "ollama": "ok" if ollama_ok else "down",
         "mcp": "off" if mcp_ok is None else ("ok" if mcp_ok else "down"),
     }
+    if mcp_detail:
+        checks["mcp_detail"] = mcp_detail
     if mlx_ok is not None:
         checks["mlx"] = "ok" if mlx_ok else "down"
 
