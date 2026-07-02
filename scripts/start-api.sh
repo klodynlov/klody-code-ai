@@ -25,6 +25,15 @@ cd "$ROOT"
 export HF_HUB_DISABLE_TELEMETRY=1
 export DISABLE_TELEMETRY=1
 
+# Mode 100% hors-ligne : tous les modèles HF sont déjà en cache local
+# (bge-m3 embeddings de la mémoire sémantique, etc.). Sans ce pin, une coupure
+# réseau fait boucler les HEAD probes HF (…/bge-m3/adapter_config.json) sur CHAQUE
+# embed → tempête de retries (5×1s) + flood de logs. Incident 2026-07-02 : ~3,8 Mo
+# de logs pendant une panne DNS nocturne. Posé ici (avant tout import Python) car
+# huggingface_hub/transformers lisent ces variables à l'import — trop tard via .env.
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
 # Venv si présent, sinon python3 du PATH.
 if [[ -f "$ROOT/.venv/bin/activate" ]]; then
   source "$ROOT/.venv/bin/activate"
