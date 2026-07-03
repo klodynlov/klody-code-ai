@@ -19,6 +19,18 @@ from typing import Literal
 
 from config import MEMORY_DIR
 
+# ASI06 (memory poisoning) : tout fait mémorisé peut provenir d'une conversation
+# contenant du contenu externe (RAG livres/web via l'extracteur auto) et est
+# réinjecté dans le system prompt À CHAQUE tour → double barrière sanitize :
+# à l'écriture (remember) ET au rendu (format_for_prompt, couvre le legacy disque).
+# Import souple : sans le paquet klody-memory, la mémoire reste fonctionnelle
+# (repli identité) — même dégradation douce que agent/semantic_memory.
+try:
+    from klody_memory.sanitizer import sanitize
+except Exception:  # pragma: no cover
+    def sanitize(text: str, strict: bool = False):
+        return text, []
+
 logger = logging.getLogger(__name__)
 
 Category = Literal["user", "project", "preference", "context"]
@@ -60,6 +72,14 @@ class LongTermMemory:
         key = key.strip().lower().replace(" ", "_")
         if not key or not content.strip():
             return "ERREUR: key et content sont requis."
+        # Barrière écriture : un fait porteur d'injection est neutralisé AVANT de
+        # persister (JSON plat + miroir sémantique). strict=True → span strippé.
+        key_clean, kflags = sanitize(key, strict=True)
+        content, cflags = sanitize(content, strict=True)
+        if kflags or cflags:
+            logger.warning("[LongTermMemory] injection suspecte strippée à l'écriture "
+                           "(key=%s, flags=%s)", key, kflags + cflags)
+        key = key_clean.strip().lower().replace(" ", "_") or key
         result = self._store(key, content, category)
         # Miroir vers l'archive sémantique (agent/semantic_memory) : contrairement
         # au JSON plat, elle n'est jamais purgée ni capée → un fait y reste
@@ -189,7 +209,14 @@ class LongTermMemory:
                 )[:_MAX_ENTRIES_PER_CATEGORY]
             lines.append(f"**{_CATEGORY_LABELS[cat]}** :")
             for item in sorted(items, key=lambda e: e["key"]):
-                lines.append(f"- {item['key']} : {item['content']}")
+                # Barrière rendu : couvre les entrées écrites AVANT la barrière
+                # d'écriture (legacy disque) — le prompt ne reçoit jamais de brut.
+                key, _ = sanitize(str(item["key"]), strict=True)
+                content, flags = sanitize(str(item["content"]), strict=True)
+                if flags:
+                    logger.warning("[LongTermMemory] injection suspecte strippée au "
+                                   "rendu (key=%s, flags=%s)", item["key"], flags)
+                lines.append(f"- {key} : {content}")
             if hidden:
                 lines.append(f"_(+{hidden} faits plus anciens, non affichés)_")
             lines.append("")

@@ -47,12 +47,17 @@ try:
     import klody_memory.retriever as _km_retriever
     from klody_memory.embedder import _load_vec, embed_book as _embed_book
     from klody_memory.retriever import HybridRetriever
+    from klody_memory.sanitizer import sanitize as _sanitize
 
     MEMORY_AVAILABLE = True
     _IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # ImportError, ou sqlite-vec/ollama/tqdm absents
     MEMORY_AVAILABLE = False
     _IMPORT_ERROR = exc
+
+    def _sanitize(text: str, strict: bool = False):  # repli identité, jamais
+        return text, []                              # atteint : recall_for_llm
+                                                     # sort avant si indisponible
 
 
 # ── Réglages (satisfont structurellement klody_memory.SettingsProvider) ───────
@@ -367,7 +372,15 @@ def recall_for_llm(query: str, top_k: int = 5, kind: str | None = None) -> str:
     for i, h in enumerate(hits, 1):
         label = h.title if (not h.author or h.author == h.kind) else f"{h.title} — {h.author}"
         rel = f", similarité {h.relevance:.2f}" if h.relevance is not None else ""
-        lines.append(f"{i}. [{h.kind}] {label}{rel}\n   {h.text}")
+        # ASI06 : l'archive n'est JAMAIS purgée → un souvenir empoisonné écrit
+        # avant la barrière d'écriture (ou par un autre écrivain du bus) vivrait
+        # pour toujours. Barrière au rendu : le LLM ne reçoit jamais de brut.
+        label, _ = _sanitize(label, strict=True)
+        text, flags = _sanitize(h.text, strict=True)
+        if flags:
+            logger.warning("[semantic_memory] injection suspecte strippée au rappel "
+                           "(titre=%s, flags=%s)", h.title, flags)
+        lines.append(f"{i}. [{h.kind}] {label}{rel}\n   {text}")
     return "\n".join(lines)
 
 
