@@ -57,8 +57,14 @@ class TestComposition:
     def test_feature_court_et_mentionne_action(self):
         """Feature prompt simplifié : court, mentionne preview_code/write_file."""
         s = compose_system_prompt("feature")
-        # Le prompt feature doit être court (≤ 2000 chars composé avec base)
-        assert len(s) < 2000
+        # Budget recalibré 2026-07-02 : l'ancien seuil 2000 datait d'un base.md
+        # de 771 chars ; base a grossi de gotchas validés (sandbox #57) et du
+        # routage dream-x-world (#82, dédupliqué). Composé ≈ 2280 aujourd'hui.
+        # Si ce seuil casse : chercher d'abord de la redondance dans base.md
+        # (partagé par tous les task_types) avant de le relever.
+        assert len(s) < 2600
+        # L'intention « court » = focalisation : toujours < prompt default
+        assert len(s) < len(compose_system_prompt(None))
         # Et mentionner les outils d'action
         assert "preview_code" in s or "write_file" in s
         assert "tool_call" in s.lower() or "outil" in s.lower()
