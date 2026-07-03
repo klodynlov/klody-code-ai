@@ -1402,7 +1402,7 @@ async def health(response: Response):
     # ok si TOUS les serveurs HTTP configurés répondent ; None si aucun ne l'est.
     mcp_ok = all(p is True for p in mcp_ps) if mcp_http else None
     mcp_detail = {name: ("ok" if p is True else "down")
-                  for name, p in zip(mcp_http, mcp_ps)}
+                  for name, p in zip(mcp_http, mcp_ps, strict=True)}
     mcp_detail.update({name: "stdio" for name in mcp_stdio})
 
     # LLM principal selon BACKEND

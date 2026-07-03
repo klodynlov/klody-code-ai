@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from klody_mcp import reaper_plugins, reaper_samples
+from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
 
 # Callable du pont : (cmd, args) -> dict, asynchrone (le _bridge_call du serveur MCP).
 Call = Callable[[str, dict], Awaitable[dict]]
@@ -310,6 +311,12 @@ async def render_all_stems(
     pistes vides (0 item — ex. bus). out_dir est créé au besoin."""
     if not (out_dir or "").strip():
         return {"error": "out_dir requis (dossier de sortie des stems)"}
+    try:
+        # ASI02 : confine le dossier (bloque out_dir=/etc). for_write : le dossier
+        # peut ne pas exister encore, son parent doit être sous une racine.
+        out_dir = str(safe_path(out_dir, for_write=True))
+    except PathGuardViolation as exc:
+        return {"error": str(exc)}
     try:
         os.makedirs(out_dir, exist_ok=True)
     except OSError as exc:

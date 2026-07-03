@@ -38,6 +38,8 @@ import uuid
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -356,6 +358,10 @@ async def render_region(region_index: int, out_path: str) -> dict:
     Returns:
         {"region_index","out_path","start","end","rendered": <bool>} ou {"error"}.
     """
+    try:
+        out_path = str(safe_path(out_path, for_write=True))  # ASI02
+    except PathGuardViolation as exc:
+        return {"error": str(exc)}
     return await _bridge_call("render_region", {"region_index": region_index, "out_path": out_path})
 
 
@@ -369,6 +375,10 @@ async def render_project(out_path: str) -> dict:
     Returns:
         {"out_path", "rendered": <bool>} ou {"error"}.
     """
+    try:
+        out_path = str(safe_path(out_path, for_write=True))  # ASI02
+    except PathGuardViolation as exc:
+        return {"error": str(exc)}
     return await _bridge_call("render_project", {"out_path": out_path})
 
 
@@ -856,6 +866,10 @@ async def import_sample(path: str, index: int = -1, guid: str = "", position: fl
 
     Returns: {"track_index","guid","path","inserted","item_index","position","length"} ou {"error"}.
     """
+    try:
+        path = str(safe_path(path))  # ASI02 : lecture confinée, doit exister
+    except (PathGuardViolation, FileNotFoundError) as exc:
+        return {"error": str(exc)}
     return await _bridge_call(
         "insert_media", {"path": path, "index": index, "guid": guid, "position": position})
 
