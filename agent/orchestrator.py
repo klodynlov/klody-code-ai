@@ -36,6 +36,7 @@ from config import (
     THINKING_BUDGET_MED,
     THINKING_BUDGET_NONE,
     THINKING_ENABLED,
+    THINKING_ON_CODER,
     match_allowed_root,
 )
 from rich.console import Console
@@ -649,8 +650,9 @@ class Orchestrator:
         Pin manuel (`_pinned_model`) : si l'utilisateur a explicitement épinglé un
         modèle dans le sélecteur, le routeur ne bascule JAMAIS — son choix prime.
         On aligne seulement `_code_model_active` sur le modèle épinglé (coder →
-        prompt slim + pas de thinking, exactement comme en routage auto) pour un
-        comportement identique quel que soit le chemin d'accès au coder.
+        prompt slim + thinking seulement sur `hard`, cf. _should_think, exactement
+        comme en routage auto) pour un comportement identique quel que soit le
+        chemin d'accès au coder.
         """
         self._code_model_active = False
         if self._pinned_model:
@@ -669,23 +671,31 @@ class Orchestrator:
     def _should_think(self) -> bool:
         """Active le mode raisonnement (CoT) pour CE tour.
 
-        Réservé aux tâches de RAISONNEMENT servies par le brain (Qwen3 thinking) :
-        `explain` ou difficulté `hard`. `explain` est le SEUL task_type qui reste
-        sur le brain (les types code partent sur le coder, instruct, sans thinking,
-        cf. _CODE_TASK_TYPES) → c'est là que le raisonnement fire réellement. L'A/B
-        (08/06) y a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT
-        aveugle, désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le
-        gate large redevient justifié. JAMAIS sur le coder ni en skill interactif
-        (un QCM dialogue, il ne raisonne pas en silence). Cf. config.THINKING_ENABLED
-        et llm.stream_chat."""
+        Brain : tâches de RAISONNEMENT — `explain` (le SEUL task_type qui reste
+        sur le brain, cf. _CODE_TASK_TYPES) ou difficulté `hard`. L'A/B (08/06) y
+        a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT aveugle,
+        désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le gate
+        large redevient justifié.
+
+        Coder : UNIQUEMENT sur `hard` (et si config.THINKING_ON_CODER). Depuis la
+        bascule Qwen3.6-35B-A3B (03/07) le coder partage la base thinking du brain
+        (lancé no-think par la gateway, réactivable par requête) ; l'A/B coder
+        (no-think 8/8 = 8/8) montre que le CoT ne vaut pas sa latence sur le code
+        standard, mais une feature hard/créative sans CoT échoue (vécu « canard
+        3D » 03/07). Rollback coder instruct → THINKING_ON_CODER=false.
+
+        JAMAIS en skill interactif (un QCM dialogue, il ne raisonne pas en
+        silence). Cf. config.THINKING_ENABLED et llm.stream_chat."""
         if not THINKING_ENABLED:
-            return False
-        if getattr(self, "_code_model_active", False):
             return False
         if getattr(self, "_interactive_skill_active", False):
             return False
         d = self.last_routing
-        return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+        if d is None:
+            return False
+        if getattr(self, "_code_model_active", False):
+            return THINKING_ON_CODER and d.difficulty == "hard"
+        return d.task_type == "explain" or d.difficulty == "hard"
 
     def _thinking_budget(self) -> int:
         """Budget de raisonnement (CoT) PAR TYPE DE TÂCHE pour ce tour.
@@ -696,11 +706,10 @@ class Orchestrator:
         FORWARD-COMPAT : forwardé dans chat_template_kwargs.thinking_budget (no-op
         aujourd'hui, effectif si un futur template l'honore) — il ne modifie PAS
         max_tokens (cf. llm.stream_chat, docs/thinking-budget-policy.md). Tiers :
-        - thinking OFF (coder, skill interactif, edit/medium…) → 0, aucun CoT.
-        - `hard` → tier HAUT (raisonnement profond).
+        - thinking OFF (skill interactif, edit/medium, coder non-hard…) → 0, aucun CoT.
+        - `hard` → tier HAUT (raisonnement profond) — brain ET coder (cf.
+          _should_think : le coder ne raisonne QUE sur hard depuis le 03/07).
         - `explain` medium → tier MOYEN ; `explain` easy → tier BAS.
-        NB archi : les tâches de CODE partent sur le coder instruct (sans thinking) →
-        budget 0 par construction ; le raisonnement fire sur le brain (explain/hard).
         """
         if not self._should_think():
             return THINKING_BUDGET_NONE
