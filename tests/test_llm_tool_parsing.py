@@ -157,6 +157,44 @@ class TestFormatXml:
         calls = client._parse_text_tool_calls(text, valid_tools)
         assert calls is None
 
+    def test_xml_param_non_ferme_n_avale_pas_le_suivant(self, client, valid_tools):
+        """Incident « canard 3D » (03/07) : un paramètre NON fermé (</parameter>
+        oublié par le modèle) suivi d'un paramètre bien fermé, le tout dans un
+        bloc <function> bien fermé. L'ancienne regex stricte faisait enjamber la
+        valeur du premier jusqu'au </parameter> du SUIVANT : le marqueur
+        '<parameter=content>' fuyait dans la valeur de path et content
+        disparaissait des args. La valeur d'un paramètre ne doit JAMAIS contenir
+        le marqueur d'ouverture d'un autre paramètre."""
+        text = (
+            '<function=write_file>\n'
+            '<parameter=path>duck.html\n'      # </parameter> oublié
+            '<parameter=content>canvas</parameter>\n'
+            '</function>'
+        )
+        calls = client._parse_text_tool_calls(text, valid_tools)
+        assert calls is not None and len(calls) == 1
+        args = json.loads(calls[0]["function"]["arguments"])
+        assert args["content"] == "canvas"
+        # path récupéré par la passe lenient, propre (sans marqueur avalé)
+        assert args["path"] == "duck.html"
+        assert "<parameter=" not in args["path"]
+
+    def test_xml_param_vide_conserve(self, client, valid_tools):
+        """Un paramètre explicitement vide (<parameter=js></parameter>) est
+        conservé tel quel ('') : c'est au consommateur (ex. preview_code) de
+        signaler qu'il est anormalement vide, pas au parser de le faire
+        disparaître silencieusement."""
+        text = (
+            '<function=write_file>'
+            '<parameter=path>x.py</parameter>'
+            '<parameter=content></parameter>'
+            '</function>'
+        )
+        calls = client._parse_text_tool_calls(text, valid_tools)
+        assert calls is not None and len(calls) == 1
+        args = json.loads(calls[0]["function"]["arguments"])
+        assert args == {"path": "x.py", "content": ""}
+
 
 # ── JSON cassé : repair triple-quotes ──────────────────────────────────────────
 

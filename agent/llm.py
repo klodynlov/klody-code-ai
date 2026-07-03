@@ -147,8 +147,19 @@ def _build_xml_tool_call(
         return None
 
     args: dict = {}
-    # 1) Paramètres bien fermés
-    for m in re.finditer(r'<parameter=(\w+)>([\s\S]*?)</parameter>', body, re.IGNORECASE):
+    # 1) Paramètres bien fermés. Regex « tempérée » : la valeur ne peut pas
+    # enjamber l'ouverture du paramètre suivant. Sans ça, un paramètre NON fermé
+    # (le modèle a oublié </parameter>) avalait tout jusqu'au </parameter> du
+    # paramètre SUIVANT : '<parameter=js>' fuyait dans la valeur de html et js
+    # disparaissait des args (vécu 03/07 : 11 previews « canard 3D » émises sans
+    # code). Le paramètre non fermé est ramassé proprement par la passe lenient.
+    # Contrepartie assumée : une valeur contenant LITTÉRALEMENT '<parameter='
+    # est coupée là — le format n'a aucun échappement pour ce cas.
+    for m in re.finditer(
+        r'<parameter=(\w+)>((?:(?!<parameter=)[\s\S])*?)</parameter>',
+        body,
+        re.IGNORECASE,
+    ):
         args[m.group(1)] = m.group(2).strip()
 
     # 2) Mode lenient : ramasser les paramètres ouverts mais non fermés
@@ -498,7 +509,11 @@ class LLMClient:
             ))
             results: list[dict] = []
             for m in xml_calls:
-                tc = _build_xml_tool_call(m.group(1), m.group(2), valid_tool_names)
+                # lenient=True même sur un bloc <function> bien fermé : un
+                # </parameter> peut manquer À L'INTÉRIEUR (vécu 03/07). La passe
+                # stricte tempérée ignore ce paramètre ; la passe lenient le
+                # récupère (valeur jusqu'au paramètre suivant) au lieu de le perdre.
+                tc = _build_xml_tool_call(m.group(1), m.group(2), valid_tool_names, lenient=True)
                 if tc:
                     results.append(tc)
 

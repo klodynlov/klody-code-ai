@@ -21,6 +21,12 @@ def _no_preview_bind(monkeypatch):
     attente de retry si 8899 est déjà pris."""
     monkeypatch.setattr("tools.preview._ensure_server", lambda: "http://localhost:8899")
     monkeypatch.setattr("tools.preview._stop_server", lambda: None)
+    # Et ne jamais OUVRIR le navigateur de la machine : le scénario #18 rejoue
+    # 5 preview_code d'affilée (5 onglets sinon).
+    monkeypatch.setattr(
+        "tools.preview.webbrowser",
+        type("W", (), {"open": staticmethod(lambda url: None)}),
+    )
 
 
 @pytest.fixture(autouse=True)

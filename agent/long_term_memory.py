@@ -28,7 +28,7 @@ from config import MEMORY_DIR
 try:
     from klody_memory.sanitizer import sanitize
 except Exception:  # pragma: no cover
-    def sanitize(text: str, strict: bool = False):
+    def sanitize(text: str, strict: bool = False) -> tuple[str, list]:
         return text, []
 
 logger = logging.getLogger(__name__)

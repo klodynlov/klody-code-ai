@@ -36,6 +36,7 @@ from config import (
     THINKING_BUDGET_MED,
     THINKING_BUDGET_NONE,
     THINKING_ENABLED,
+    THINKING_ON_CODER,
     match_allowed_root,
 )
 from rich.console import Console
@@ -351,6 +352,21 @@ _LOOP_REPEAT_BREAK = 4
 _SCAN_REPEAT_WARN = 8
 _SCAN_REPEAT_BREAK = 14
 
+# Anti-écho : un outil PRODUCTEUR réémis avec EXACTEMENT les mêmes arguments
+# refabrique le même artefact — jamais un progrès — mais son résultat peut
+# différer en surface (preview_code écrit preview-24, -25, -26… → URL neuve →
+# hash(résultat) différent → l'anti-boucle nom+args+résultat ne monte jamais).
+# Vécu 03/07 (« canard 3D ») : 11 preview_code identiques avec js vide (émission
+# XML du tool call cassée), chaque appel « réussissait », 25 itérations brûlées
+# puis dérive totale de l'agent. On compte la série CONSÉCUTIVE du même appel
+# producteur (nom+args, résultat IGNORÉ) : la série casse dès qu'un AUTRE appel
+# producteur passe (write_file puis re-preview du même fichier = workflow
+# légitime) ; les lectures/sondages intercalés ne la cassent pas (ils ne
+# changent pas l'appel réémis). Au WARN on signale l'écho au modèle (un argument
+# est probablement vide/tronqué) ; au BREAK on coupe et on force la synthèse.
+_ECHO_REPEAT_WARN = 3
+_ECHO_REPEAT_BREAK = 5
+
 # Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
 # projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
 # travaille vraiment — un échec en cours (ex: preview_file sur un HTML pas encore
@@ -634,8 +650,9 @@ class Orchestrator:
         Pin manuel (`_pinned_model`) : si l'utilisateur a explicitement épinglé un
         modèle dans le sélecteur, le routeur ne bascule JAMAIS — son choix prime.
         On aligne seulement `_code_model_active` sur le modèle épinglé (coder →
-        prompt slim + pas de thinking, exactement comme en routage auto) pour un
-        comportement identique quel que soit le chemin d'accès au coder.
+        prompt slim + thinking seulement sur `hard`, cf. _should_think, exactement
+        comme en routage auto) pour un comportement identique quel que soit le
+        chemin d'accès au coder.
         """
         self._code_model_active = False
         if self._pinned_model:
@@ -654,23 +671,31 @@ class Orchestrator:
     def _should_think(self) -> bool:
         """Active le mode raisonnement (CoT) pour CE tour.
 
-        Réservé aux tâches de RAISONNEMENT servies par le brain (Qwen3 thinking) :
-        `explain` ou difficulté `hard`. `explain` est le SEUL task_type qui reste
-        sur le brain (les types code partent sur le coder, instruct, sans thinking,
-        cf. _CODE_TASK_TYPES) → c'est là que le raisonnement fire réellement. L'A/B
-        (08/06) y a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT
-        aveugle, désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le
-        gate large redevient justifié. JAMAIS sur le coder ni en skill interactif
-        (un QCM dialogue, il ne raisonne pas en silence). Cf. config.THINKING_ENABLED
-        et llm.stream_chat."""
+        Brain : tâches de RAISONNEMENT — `explain` (le SEUL task_type qui reste
+        sur le brain, cf. _CODE_TASK_TYPES) ou difficulté `hard`. L'A/B (08/06) y
+        a mesuré un gain de QUALITÉ (8/10) ; son seul coût était un TTFT aveugle,
+        désormais corrigé en diffusant le CoT à l'UI (cf. stream_api) → le gate
+        large redevient justifié.
+
+        Coder : UNIQUEMENT sur `hard` (et si config.THINKING_ON_CODER). Depuis la
+        bascule Qwen3.6-35B-A3B (03/07) le coder partage la base thinking du brain
+        (lancé no-think par la gateway, réactivable par requête) ; l'A/B coder
+        (no-think 8/8 = 8/8) montre que le CoT ne vaut pas sa latence sur le code
+        standard, mais une feature hard/créative sans CoT échoue (vécu « canard
+        3D » 03/07). Rollback coder instruct → THINKING_ON_CODER=false.
+
+        JAMAIS en skill interactif (un QCM dialogue, il ne raisonne pas en
+        silence). Cf. config.THINKING_ENABLED et llm.stream_chat."""
         if not THINKING_ENABLED:
-            return False
-        if getattr(self, "_code_model_active", False):
             return False
         if getattr(self, "_interactive_skill_active", False):
             return False
         d = self.last_routing
-        return d is not None and (d.task_type == "explain" or d.difficulty == "hard")
+        if d is None:
+            return False
+        if getattr(self, "_code_model_active", False):
+            return THINKING_ON_CODER and d.difficulty == "hard"
+        return d.task_type == "explain" or d.difficulty == "hard"
 
     def _thinking_budget(self) -> int:
         """Budget de raisonnement (CoT) PAR TYPE DE TÂCHE pour ce tour.
@@ -681,11 +706,10 @@ class Orchestrator:
         FORWARD-COMPAT : forwardé dans chat_template_kwargs.thinking_budget (no-op
         aujourd'hui, effectif si un futur template l'honore) — il ne modifie PAS
         max_tokens (cf. llm.stream_chat, docs/thinking-budget-policy.md). Tiers :
-        - thinking OFF (coder, skill interactif, edit/medium…) → 0, aucun CoT.
-        - `hard` → tier HAUT (raisonnement profond).
+        - thinking OFF (skill interactif, edit/medium, coder non-hard…) → 0, aucun CoT.
+        - `hard` → tier HAUT (raisonnement profond) — brain ET coder (cf.
+          _should_think : le coder ne raisonne QUE sur hard depuis le 03/07).
         - `explain` medium → tier MOYEN ; `explain` easy → tier BAS.
-        NB archi : les tâches de CODE partent sur le coder instruct (sans thinking) →
-        budget 0 par construction ; le raisonnement fire sur le brain (explain/hard).
         """
         if not self._should_think():
             return THINKING_BUDGET_NONE
@@ -1915,6 +1939,11 @@ class Orchestrator:
         # (40 fichiers différents = 40 clés distinctes).
         tool_name_counts: dict[str, int] = {}
         scan_warned: set[str] = set()
+        # Anti-écho : série consécutive du même appel PRODUCTEUR (nom+args,
+        # résultat ignoré — cf. commentaire de _ECHO_REPEAT_WARN).
+        producer_echo_key: str | None = None
+        producer_echo_count = 0
+        echo_warned: set[str] = set()
         while True:
             iteration += 1
             if iteration >= max_iter:
@@ -2081,6 +2110,17 @@ class Orchestrator:
                         _worst_n_local = call_repeat_counts[_loop_key]
                         _worst_name_local = tool_name
 
+                    # Anti-écho : série consécutive du même appel producteur.
+                    # Résultat volontairement ignoré : réémis à l'identique,
+                    # preview_code « réussit » à chaque fois avec une URL neuve.
+                    if tool_name in _PRODUCING_TOOLS:
+                        _echo_key = f"{tool_name}|{_args_key}"
+                        if _echo_key == producer_echo_key:
+                            producer_echo_count += 1
+                        else:
+                            producer_echo_key = _echo_key
+                            producer_echo_count = 1
+
                     # Anti-scan : compte par NOM seul, restreint aux outils
                     # d'exploration (un producteur appelé en rafale = travail réel,
                     # pas une errance). Clé indépendante des args → capte le balayage
@@ -2189,6 +2229,58 @@ class Orchestrator:
                             "d'arguments, essaie une autre approche, ou si c'est un échec que "
                             "tu ne peux pas résoudre, explique-le à l'utilisateur au lieu de "
                             "retenter."
+                        ),
+                        "timestamp": None,
+                    })
+
+                # Anti-écho producteur : même appel réémis en série, résultat
+                # ignoré — là où l'anti-boucle ci-dessus exige un résultat
+                # identique et reste aveugle quand chaque réémission « réussit »
+                # (cf. _ECHO_REPEAT_WARN, incident « canard 3D » du 03/07).
+                if producer_echo_count >= _ECHO_REPEAT_BREAK:
+                    _echo_tool = (producer_echo_key or "").split("|", 1)[0]
+                    logger.warning(
+                        "[anti-écho] %s réémis %d× à l'identique (résultats "
+                        "distincts) → coupe + synthèse finale",
+                        _echo_tool, producer_echo_count)
+                    console.print(
+                        f"\n[yellow]  ⚠  Écho détecté — `{_echo_tool}` réémis "
+                        f"{producer_echo_count}× avec les mêmes arguments. "
+                        "Arrêt et synthèse.[/yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"STOP. Tu as émis {producer_echo_count} fois de suite le même "
+                            f"appel `{_echo_tool}` avec exactement les mêmes arguments : tu "
+                            "refabriques le même artefact en boucle. N'appelle plus AUCUN "
+                            "outil. Explique à l'utilisateur ce que tu essayais de produire "
+                            "et ce qui bloque (par exemple un paramètre que tu n'arrives pas "
+                            "à remplir), puis rédige maintenant ta réponse finale."
+                        ),
+                        "timestamp": None,
+                    })
+                    self._forced_final_synthesis()
+                    break
+                if (
+                    producer_echo_key is not None
+                    and producer_echo_count >= _ECHO_REPEAT_WARN
+                    and producer_echo_key not in echo_warned
+                ):
+                    echo_warned.add(producer_echo_key)
+                    _echo_tool = producer_echo_key.split("|", 1)[0]
+                    logger.info("[anti-écho] %s réémis %d× → avertissement injecté",
+                                _echo_tool, producer_echo_count)
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"⚠ Tu viens d'émettre {producer_echo_count} fois de suite "
+                            f"EXACTEMENT le même appel `{_echo_tool}` (mêmes arguments) : le "
+                            "réémettre reproduira le même artefact. Relis les avertissements "
+                            "du dernier résultat d'outil et vérifie tes arguments — l'un "
+                            "d'eux est peut-être vide ou tronqué (par exemple le code oublié "
+                            "dans `js`). Corrige l'appel ou change d'approche ; ne réémets "
+                            "pas le même appel à l'identique."
                         ),
                         "timestamp": None,
                     })

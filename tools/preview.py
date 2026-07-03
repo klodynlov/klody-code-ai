@@ -626,6 +626,21 @@ def preview_code(
         html, css, js, _as_list(scripts), _as_list(styles), title
     )
 
+    # Garde-fou « page inerte » : des librairies JS externes sont chargées mais
+    # le paramètre js est VIDE — typiquement un tool call tronqué/mal parsé
+    # (incident 03/07 : 11 previews « canard 3D » émises avec js='', chaque
+    # appel répondait « succès » → le modèle réémettait à l'identique). On le
+    # signale dans le résultat pour provoquer une réémission AVEC le code.
+    # Pas de faux positif si le code vit déjà dans `html` (document complet
+    # avec <script> inline, sans attribut src) : la page n'est alors pas inerte.
+    _inline_script = re.search(r"<script(?![^>]*\bsrc\s*=)[^>]*>", html or "", re.IGNORECASE)
+    if _as_list(scripts) and not (js or "").strip() and not _inline_script:
+        warnings.append(
+            "le paramètre `js` est VIDE alors que des librairies externes sont "
+            f"chargées ({', '.join(_as_list(scripts))}) : la page est inerte. "
+            "Réémets preview_code avec ton code complet dans le paramètre `js`."
+        )
+
     # Nom dérivé du <title> du document (lisible : « Hello World » → hello_world)
     # plutôt que du prompt tronqué passé en `title`. Repli sur `title` si le doc
     # n'a pas de titre exploitable. Dédup pour ne pas écraser un aperçu existant.

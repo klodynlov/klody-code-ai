@@ -577,3 +577,47 @@ class TestPreviewFileIntrouvable:
         assert preview_file("rien_du_tout_42.html").startswith(
             "ERREUR: Fichier introuvable:"
         )
+
+
+# ── garde-fou page inerte : js vide + librairies externes chargées ────────────
+
+class TestPageInerteWarning:
+    """Incident « canard 3D » (03/07, suite) : preview_code appelé avec js=''
+    mais three.js chargé en CDN (tool call tronqué au parsing) → page inerte
+    retournée comme un succès muet, le modèle réémettait à l'identique. Le
+    résultat doit maintenant AVERTIR pour provoquer une réémission avec le code."""
+
+    def test_js_vide_avec_scripts_avertit(self):
+        msg = preview_code(
+            '<canvas id="c"></canvas>',
+            js="",
+            scripts=["https://cdn.example/three.min.js"],
+            title="Canard",
+        )
+        assert "VIDE" in msg
+        assert "inerte" in msg
+
+    def test_js_fourni_pas_d_avertissement(self):
+        msg = preview_code(
+            '<canvas id="c"></canvas>',
+            js="console.log('duck');",
+            scripts=["https://cdn.example/three.min.js"],
+            title="Canard",
+        )
+        assert "inerte" not in msg
+
+    def test_script_inline_dans_html_pas_d_avertissement(self):
+        """Document avec <script> inline : le code vit dans html, la page n'est
+        pas inerte même si le paramètre js est vide."""
+        msg = preview_code(
+            '<canvas id="c"></canvas><script>console.log("duck");</script>',
+            js="",
+            scripts=["https://cdn.example/three.min.js"],
+            title="Canard",
+        )
+        assert "inerte" not in msg
+
+    def test_sans_scripts_pas_d_avertissement(self):
+        """Page statique légitime : pas de libs externes → js vide est normal."""
+        msg = preview_code("<h1>Statique</h1>", title="Doc")
+        assert "inerte" not in msg

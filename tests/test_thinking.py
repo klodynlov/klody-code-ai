@@ -247,11 +247,45 @@ class TestShouldThink:
         o.last_routing = _routing(task_type="edit", difficulty="medium")
         assert o._should_think() is False
 
-    def test_coder_jamais(self, monkeypatch):
+    def test_coder_hard_active(self, monkeypatch):
+        """Depuis la bascule Qwen3.6-35B-A3B (03/07) le coder est thinking-capable :
+        une tâche `hard` sur le coder raisonne (vécu « canard 3D » : feature
+        hard/créative sans CoT = échec)."""
         monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", True)
         o = _orch()
         o._code_model_active = True
-        o.last_routing = _routing(task_type="explain", difficulty="hard")
+        o.last_routing = _routing(task_type="feature", difficulty="hard")
+        assert o._should_think() is True
+
+    def test_coder_medium_inactif(self, monkeypatch):
+        """Sur le coder, le CoT ne vaut pas sa latence hors `hard` (A/B 03/07 :
+        no-think 8/8 = 8/8 sur les goldens standard)."""
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", True)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="feature", difficulty="medium")
+        assert o._should_think() is False
+
+    def test_coder_explain_medium_inactif(self, monkeypatch):
+        """Pin manuel du coder + tâche explain non-hard : le gate `explain` est
+        celui du BRAIN, il ne s'applique pas au coder."""
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", True)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="explain", difficulty="medium")
+        assert o._should_think() is False
+
+    def test_coder_hard_inactif_si_rollback_instruct(self, monkeypatch):
+        """THINKING_ON_CODER=false = rollback vers un coder instruct sans mode
+        thinking (Qwen3-Coder-Next) : jamais de CoT sur le coder."""
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", False)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="feature", difficulty="hard")
         assert o._should_think() is False
 
     def test_skill_interactif_jamais(self, monkeypatch):
@@ -302,12 +336,32 @@ class TestThinkingBudget:
         o.last_routing = _routing(task_type="feature", difficulty="hard")
         assert o._thinking_budget() == THINKING_BUDGET_HIGH
 
-    def test_coder_budget_nul(self, monkeypatch):
-        # Même hard/explain : sur le coder, jamais de CoT → budget 0.
+    def test_coder_hard_budget_haut(self, monkeypatch):
+        # Coder thinking-capable (03/07) : hard sur le coder → tier HAUT,
+        # comme sur le brain.
         monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", True)
         o = _orch()
         o._code_model_active = True
-        o.last_routing = _routing(task_type="explain", difficulty="hard")
+        o.last_routing = _routing(task_type="feature", difficulty="hard")
+        assert o._thinking_budget() == THINKING_BUDGET_HIGH
+
+    def test_coder_non_hard_budget_nul(self, monkeypatch):
+        # Hors hard, jamais de CoT sur le coder → budget 0.
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", True)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="explain", difficulty="medium")
+        assert o._thinking_budget() == 0
+
+    def test_coder_rollback_budget_nul(self, monkeypatch):
+        # Rollback coder instruct (THINKING_ON_CODER=false) : budget 0 même hard.
+        monkeypatch.setattr("agent.orchestrator.THINKING_ENABLED", True)
+        monkeypatch.setattr("agent.orchestrator.THINKING_ON_CODER", False)
+        o = _orch()
+        o._code_model_active = True
+        o.last_routing = _routing(task_type="feature", difficulty="hard")
         assert o._thinking_budget() == 0
 
     def test_modulation_demontree(self, monkeypatch):

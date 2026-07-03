@@ -110,9 +110,17 @@ ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "tru
 # RÉACTIVE par requête sur le brain pour les tâches de raisonnement (`explain` —
 # le seul type qui reste sur le brain — ou difficulté `hard` ; cf. _should_think).
 # Le CoT est diffusé à l'UI (panneau « Raisonnement… ») pour que l'attente ne soit
-# pas un écran figé (A/B 08/06 : sans diffusion, TTFT aveugle jusqu'à 66 s). Le
-# coder (instruct) n'a pas de mode thinking → jamais activé pour lui.
+# pas un écran figé (A/B 08/06 : sans diffusion, TTFT aveugle jusqu'à 66 s).
 THINKING_ENABLED: bool = os.getenv("THINKING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+# Thinking sur le CODER : depuis la bascule Qwen3.6-35B-A3B-UD-4bit (03/07), le
+# coder partage la base thinking du brain (lancé no-think par la gateway,
+# réactivable PAR REQUÊTE exactement comme le brain). On ne raisonne que sur les
+# tâches `hard` (cf. _should_think) : l'A/B coder du 03/07 (no-think 8/8 = 8/8)
+# montre que le CoT ne vaut pas sa latence sur le code standard, mais une feature
+# hard/créative sans CoT échoue (vécu « canard 3D » 03/07). Mettre à false si
+# rollback vers un coder INSTRUCT sans mode thinking
+# (KLODY_CORE_CODER_MODEL=mlx-community/Qwen3-Coder-Next-4bit).
+THINKING_ON_CODER: bool = os.getenv("THINKING_ON_CODER", "true").lower() in ("1", "true", "yes", "on")
 # Le raisonnement consomme beaucoup de tokens AVANT la réponse : on élargit le
 # plafond de génération quand il est actif (sinon le CoT mange tout et la réponse
 # n'a plus de place). Mesuré à l'A/B (08/06) : P95 du CoT ≈ 1800 tokens, donc 8192

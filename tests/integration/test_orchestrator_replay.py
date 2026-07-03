@@ -31,6 +31,7 @@ SCENARIOS = [
     "15_anti_scan_warn_distinct_files",
     "16_anti_scan_break_synthesis",
     "17_forced_final_empty_fallback",
+    "18_producer_echo_break",
 ]
 
 
@@ -203,6 +204,45 @@ def _assert_expectations(
         assert scan_break_seen, (
             "Anti-scan n'a PAS coupé le balayage (message d'arrêt scan absent). "
             f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+
+    # 10. Anti-écho (fixture #18) — producteur réémis à l'identique avec des
+    # résultats DISTINCTS (URL de preview neuve à chaque appel) : l'anti-boucle
+    # nom+args+résultat reste aveugle, l'anti-écho doit avertir au 3e écho puis
+    # couper au 5e avec synthèse forcée.
+    if exp.get("echo_warn_fired"):
+        echo_warn_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "ne réémets pas le même appel à l'identique" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert echo_warn_seen, (
+            "Anti-écho n'a PAS injecté d'avertissement alors que la fixture le "
+            f"prévoit. Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+    if exp.get("echo_break_fired"):
+        echo_break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "STOP. Tu as émis" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert echo_break_seen, (
+            "Anti-écho n'a PAS coupé la série (message d'arrêt absent). "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+        # Et c'est bien l'anti-écho qui a coupé, pas l'anti-boucle classique
+        # (résultats distincts → elle ne devait jamais monter).
+        loop_break_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "STOP. Tu as appelé" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert not loop_break_seen, (
+            "L'anti-boucle classique a coupé alors que les résultats étaient "
+            "distincts — l'anti-écho devait être le seul garde-fou déclenché."
         )
 
 
