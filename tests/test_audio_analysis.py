@@ -12,7 +12,6 @@ import wave
 
 import numpy as np
 import pytest
-
 from klody_mcp import audio_analysis as aa
 
 
@@ -129,8 +128,13 @@ def test_silence_is_json_safe(tmp_path):
     assert _all_finite(m)
 
 
-def test_missing_file_raises():
-    with pytest.raises(FileNotFoundError):
+def test_missing_file_raises(tmp_path):
+    # ASI02 : un chemin HORS des racines autorisées est refusé AVANT tout accès
+    # disque (ne fuite pas l'existence hors sandbox) → PermissionError.
+    with pytest.raises(PermissionError):
         aa.analyze_file("/nonexistent/path/to/nowhere.wav")
+    # Un fichier absent mais DANS une racine autorisée ($TMPDIR) → FileNotFoundError.
+    with pytest.raises(FileNotFoundError):
+        aa.analyze_file(str(tmp_path / "absent.wav"))
     with pytest.raises(ValueError):
         aa.analyze_file("")

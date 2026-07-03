@@ -258,13 +258,19 @@ def analyze_wav(path: str) -> dict:
 
 
 def analyze_file(path: str) -> dict:
-    """Valide le chemin puis analyse. Lève FileNotFoundError/ValueError si invalide."""
-    import os
+    """Valide le chemin puis analyse. Lève FileNotFoundError/ValueError si invalide.
+
+    ASI02 : safe_path confine sous les racines autorisées (bloque la traversal
+    vers /etc, ~/.ssh…) ; les rendus temporaires de REAPER passent car $TMPDIR
+    est une racine autorisée."""
+    from klody_mcp._pathguard import PathGuardViolation, safe_path
     if not isinstance(path, str) or not path:
         raise ValueError("chemin requis")
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"fichier introuvable: {path}")
-    return analyze_wav(path)
+    try:
+        resolved = safe_path(path)
+    except PathGuardViolation as exc:
+        raise PermissionError(str(exc)) from exc
+    return analyze_wav(str(resolved))
 
 
 # Champs numériques comparés en avant/après (delta = b - a).

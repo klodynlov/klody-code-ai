@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -43,6 +44,20 @@ LOCALSUNO_DIR = Path(os.getenv("LOCALSUNO_DIR", str(Path.home() / "local-suno"))
 LOCALSUNO_PY = Path(os.getenv("LOCALSUNO_PY", str(LOCALSUNO_DIR / ".venv" / "bin" / "python")))
 RVC_LOG_DIR = Path.home() / ".vocalbrain" / "rvc_logs"
 HTTP_TIMEOUT = float(os.getenv("VOCALBRAIN_MCP_TIMEOUT", "30"))
+
+# ASI02 : `nom_modele` (contrôlé par le LLM) sert de composant de chemin
+# (`{nom}_train.log`, `{nom}.pth`, `model_name` en aval) ET est injecté dans du
+# code Python `-c`. Le repr protège la string, mais `../` ferait fuir le chemin
+# du log/modèle. Allowlist stricte : alphanum + _ - (NI point NI séparateur, donc
+# ni `..` ni extension), longueur bornée. Rejette tout le reste.
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
+
+def _valid_model_name(nom: str) -> str | None:
+    """Retourne le nom si conforme à l'allowlist, sinon None."""
+    nom = (nom or "").strip()
+    return nom if _MODEL_NAME_RE.match(nom) else None
+
 
 mcp = FastMCP("VocalBrain")
 
@@ -307,9 +322,10 @@ def entrainer_voix(nom_modele: str, epochs: int = 300) -> dict:
     Returns:
         {"status", "modele", "epochs", "echantillons", "log"} ou {"error": "..."}.
     """
-    nom = (nom_modele or "").strip()
+    nom = _valid_model_name(nom_modele)
     if not nom:
-        return {"error": "nom_modele requis"}
+        return {"error": "nom_modele invalide (attendu : lettres/chiffres/_/-, "
+                         "1-64 caractères, sans séparateur ni '..')"}
     samples_dir = LOCALSUNO_DIR / "samples"
     n_samples = len(list(samples_dir.glob("segment_*.wav"))) if samples_dir.is_dir() else 0
     if n_samples == 0:
@@ -364,9 +380,10 @@ def statut_entrainement(nom_modele: str) -> dict:
     Returns:
         {"modele", "termine", "log_extrait"} ou {"error": "..."}.
     """
-    nom = (nom_modele or "").strip()
+    nom = _valid_model_name(nom_modele)
     if not nom:
-        return {"error": "nom_modele requis"}
+        return {"error": "nom_modele invalide (attendu : lettres/chiffres/_/-, "
+                         "1-64 caractères, sans séparateur ni '..')"}
     termine = (LOCALSUNO_DIR / "models" / f"{nom}.pth").exists()
     log_path = RVC_LOG_DIR / f"{nom}_train.log"
     extrait = ""

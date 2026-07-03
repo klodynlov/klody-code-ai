@@ -27,6 +27,8 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -116,7 +118,10 @@ def _analyser_tessiture(
     Returns:
         dict résultat (voir evaluer_tessiture) ou {"error": "..."}.
     """
-    p = Path(chemin_audio).expanduser()
+    try:
+        p = safe_path(chemin_audio)  # ASI02 : bloque la traversal (../etc, ~/.ssh)
+    except (PathGuardViolation, FileNotFoundError) as exc:
+        return {"error": str(exc)}
     if not p.is_file():
         return {"error": f"fichier introuvable : {p}"}
 
@@ -673,9 +678,12 @@ def _transcrire(chemin_audio: str):
     except ImportError:
         return None
     try:
-        r = mlx_whisper.transcribe(
-            str(Path(chemin_audio).expanduser()), path_or_hf_repo=WHISPER_MODEL
-        )
+        chemin = safe_path(chemin_audio)  # ASI02
+    except (PathGuardViolation, FileNotFoundError) as exc:
+        logger.warning("transcription refusée (chemin) : %s", exc)
+        return None
+    try:
+        r = mlx_whisper.transcribe(str(chemin), path_or_hf_repo=WHISPER_MODEL)
         texte = (r.get("text") or "").strip()
         if not texte:
             return None
@@ -697,7 +705,11 @@ def _extract_features(chemin_audio: str, transcrire: bool = True) -> dict:
     except ImportError:
         return {"error": _LIBROSA_MANQUANT}
     try:
-        y, sr = librosa.load(str(Path(chemin_audio).expanduser()), sr=ANALYSE_SR, mono=True)
+        chemin = safe_path(chemin_audio)  # ASI02
+    except (PathGuardViolation, FileNotFoundError) as exc:
+        return {"error": str(exc)}
+    try:
+        y, sr = librosa.load(str(chemin), sr=ANALYSE_SR, mono=True)
         tempo = float(np.atleast_1d(librosa.beat.beat_track(y=y, sr=sr)[0])[0])
         cent = float(librosa.feature.spectral_centroid(y=y, sr=sr).mean())
         rms = float(librosa.feature.rms(y=y).mean())
