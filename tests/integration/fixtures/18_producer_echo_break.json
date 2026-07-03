@@ -1,0 +1,90 @@
+{
+  "name": "producer_echo_break",
+  "description": "Incident « canard 3D » (03/07) : preview_code réémis À L'IDENTIQUE avec js vide (tool call tronqué au parsing). Chaque appel « réussit » avec une URL NEUVE (preview-24, -25…) → l'anti-boucle (clé nom+args+résultat) ne monte jamais et 25 itérations partent en fumée avant la dérive. L'anti-écho compte la série consécutive nom+args (résultat IGNORÉ) : avertissement au 3e écho, coupe + synthèse forcée au 5e.",
+  "user_prompt": "Crée un canard 3D avec three.js et montre-le moi.",
+  "router_decision": {
+    "difficulty": "hard",
+    "task_type": "feature",
+    "reasoning": "budget large (25) : prouver que l'anti-écho coupe bien avant le cap"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "e00",
+          "type": "function",
+          "function": {
+            "name": "preview_code",
+            "arguments": "{\"html\": \"<canvas id=\\\"c\\\"></canvas>\", \"css\": \"\", \"js\": \"\", \"scripts\": [\"https://cdn.example/three.min.js\"], \"title\": \"Canard 3D\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "e01",
+          "type": "function",
+          "function": {
+            "name": "preview_code",
+            "arguments": "{\"html\": \"<canvas id=\\\"c\\\"></canvas>\", \"css\": \"\", \"js\": \"\", \"scripts\": [\"https://cdn.example/three.min.js\"], \"title\": \"Canard 3D\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "e02",
+          "type": "function",
+          "function": {
+            "name": "preview_code",
+            "arguments": "{\"html\": \"<canvas id=\\\"c\\\"></canvas>\", \"css\": \"\", \"js\": \"\", \"scripts\": [\"https://cdn.example/three.min.js\"], \"title\": \"Canard 3D\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "e03",
+          "type": "function",
+          "function": {
+            "name": "preview_code",
+            "arguments": "{\"html\": \"<canvas id=\\\"c\\\"></canvas>\", \"css\": \"\", \"js\": \"\", \"scripts\": [\"https://cdn.example/three.min.js\"], \"title\": \"Canard 3D\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "e04",
+          "type": "function",
+          "function": {
+            "name": "preview_code",
+            "arguments": "{\"html\": \"<canvas id=\\\"c\\\"></canvas>\", \"css\": \"\", \"js\": \"\", \"scripts\": [\"https://cdn.example/three.min.js\"], \"title\": \"Canard 3D\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Je n'arrive pas à joindre le code three.js : le paramètre js part vide à chaque appel. Voici ce qui bloque et le plan pour finir le canard."
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 6,
+    "max_llm_calls": 6,
+    "echo_warn_fired": true,
+    "echo_break_fired": true,
+    "final_content_contains": [
+      "bloque"
+    ]
+  },
+  "max_iterations": 25
+}
