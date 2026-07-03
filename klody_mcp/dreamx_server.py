@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import subprocess
-import time
 import uuid
 from pathlib import Path
 
@@ -76,7 +75,9 @@ def _tail_progress(log_path: Path) -> str:
         for line in reversed(txt.splitlines()):
             if "/" in line and ("it/s" in line or "s/it" in line or "%|" in line):
                 return line.strip()[:120]
-    except Exception:
+    except OSError:
+        # Lecture best-effort d'un log de progression : un fichier tronqué/verrouillé
+        # ne doit jamais casser la sonde de statut → on renvoie vide.
         pass
     return ""
 
