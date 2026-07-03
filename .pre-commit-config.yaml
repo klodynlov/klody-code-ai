@@ -1,0 +1,26 @@
+# pre-commit — gates locaux avant chaque commit (roadmap H2-2026 P1).
+# Installer une fois par clone : pre-commit install
+# Les revs sont épinglées par `pre-commit autoupdate`.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=5000"] # bloque un commit accidentel de poids/DB
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-ll", "-q"] # sévérité medium+ : du signal SAST, pas du bruit
+        exclude: ^tests?/
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
