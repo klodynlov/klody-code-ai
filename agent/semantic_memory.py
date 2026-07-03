@@ -378,8 +378,10 @@ def recall_for_llm(query: str, top_k: int = 5, kind: str | None = None) -> str:
         label, _ = _sanitize(label, strict=True)
         text, flags = _sanitize(h.text, strict=True)
         if flags:
+            # %r : un titre de souvenir porteur de \n/\r forgerait de fausses
+            # lignes de log (log injection, CodeQL) — repr les échappe.
             logger.warning("[semantic_memory] injection suspecte strippée au rappel "
-                           "(titre=%s, flags=%s)", h.title, flags)
+                           "(titre=%r, flags=%s)", h.title, flags)
         lines.append(f"{i}. [{h.kind}] {label}{rel}\n   {text}")
     return "\n".join(lines)
 

@@ -77,8 +77,10 @@ class LongTermMemory:
         key_clean, kflags = sanitize(key, strict=True)
         content, cflags = sanitize(content, strict=True)
         if kflags or cflags:
+            # %r sur la valeur user : une key porteuse de \n/\r forgerait de
+            # fausses lignes de log (log injection, CodeQL) — repr les échappe.
             logger.warning("[LongTermMemory] injection suspecte strippée à l'écriture "
-                           "(key=%s, flags=%s)", key, kflags + cflags)
+                           "(key=%r, flags=%s)", key, kflags + cflags)
         key = key_clean.strip().lower().replace(" ", "_") or key
         result = self._store(key, content, category)
         # Miroir vers l'archive sémantique (agent/semantic_memory) : contrairement
@@ -215,7 +217,7 @@ class LongTermMemory:
                 content, flags = sanitize(str(item["content"]), strict=True)
                 if flags:
                     logger.warning("[LongTermMemory] injection suspecte strippée au "
-                                   "rendu (key=%s, flags=%s)", item["key"], flags)
+                                   "rendu (key=%r, flags=%s)", item["key"], flags)
                 lines.append(f"- {key} : {content}")
             if hidden:
                 lines.append(f"_(+{hidden} faits plus anciens, non affichés)_")
