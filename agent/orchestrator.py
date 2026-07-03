@@ -98,6 +98,25 @@ from agent.profiler import get_profiler
 from agent.prompts import compose_system_prompt
 
 logger = logging.getLogger(__name__)
+
+# ASI06 : bouclier anti-poisoning des sections mémoire auto-apprises injectées au
+# system prompt. Import souple — même dégradation douce que agent/semantic_memory.
+try:
+    from klody_memory.sanitizer import sanitize as _mem_sanitize
+except Exception:  # paquet klody-memory absent : le cœur de Klody survit
+    _mem_sanitize = None
+
+
+def _shield(section: str, label: str) -> str:
+    """Sanitize strict d'une section de prompt auto-apprise. Ne strippe que les
+    spans d'attaque (marqueur de rédaction), le contenu légitime passe intact."""
+    if not section or _mem_sanitize is None:
+        return section
+    text, flags = _mem_sanitize(section, strict=True)
+    if flags:
+        logger.warning("[prompt-shield] injection suspecte strippée (section %s, "
+                       "flags=%s)", label, flags)
+    return text
 console = Console()
 
 
@@ -926,17 +945,22 @@ class Orchestrator:
                 skills = select_skills(load_skills(), query)
             self._injected_skill_slugs = [s.get("slug", "") for s in skills]
             skills_section = format_skills_for_prompt(skills) if skills else ""
-            lt_section = self.lt_memory.format_for_prompt()
-            profile_section = self.profiler.get_profile_for_prompt()
+            lt_section = self.lt_memory.format_for_prompt()  # sanitize interne (ASI06)
+            # ASI06 : profil/conventions/erreurs sont APPRIS automatiquement (requêtes,
+            # sorties d'outils, contenu de fichiers) → mêmes canaux de poisoning que la
+            # mémoire long terme. Bouclier au point d'injection dans le system prompt :
+            # sanitize strict ne strippe que les spans d'attaque, le reste passe intact.
+            profile_section = _shield(self.profiler.get_profile_for_prompt(), "profil")
             # Conventions auto-détectées + erreurs récurrentes (Roadmap v2 #8)
             conv_section = ""
             err_section = ""
             try:
-                conv_section = self.conventions.detect().format_for_prompt()
+                conv_section = _shield(
+                    self.conventions.detect().format_for_prompt(), "conventions")
             except Exception as exc:
                 logger.debug("Convention detection skipped: %s", exc)
             try:
-                err_section = self.error_memory.format_for_prompt()
+                err_section = _shield(self.error_memory.format_for_prompt(), "erreurs")
             except Exception as exc:
                 logger.debug("Error memory format skipped: %s", exc)
             content = (
