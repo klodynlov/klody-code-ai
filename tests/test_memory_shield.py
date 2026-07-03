@@ -8,6 +8,14 @@ rendu plat (format_for_prompt, couvre le legacy disque) et rappel sémantique
 """
 
 import pytest
+
+# Les barrières reposent sur klody_memory.sanitizer (paquet local du memory bus).
+# Absent (ex. CI sans l'extra [memory]) : les imports souples retombent sur
+# l'identité → le strip ne s'applique pas et ces tests n'ont plus rien à vérifier.
+# importorskip = on saute proprement là où le contrôle est inerte, on l'exerce là
+# où il est actif (prod/local, klody_memory présent). Cf. test_semantic_memory.
+pytest.importorskip("klody_memory.sanitizer")
+
 from agent import semantic_memory
 from agent.long_term_memory import LongTermMemory
 from agent.orchestrator import _shield
