@@ -51,7 +51,22 @@ SMTP_HOST = os.getenv("GMAIL_SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("GMAIL_SMTP_PORT", "465"))
 BODY_MAX_CHARS = int(os.getenv("GMAIL_BODY_MAX_CHARS", "5000"))
 
+# ASI03 (Privilege Abuse) : un app password Google n'est PAS scopable (accès
+# compte total). Faute de pouvoir réduire le credential, on réduit la CAPACITÉ :
+# GMAIL_READONLY=1 bloque toute mutation (envoi, brouillon, labels) au niveau du
+# serveur — un modèle empoisonné ne peut plus envoyer/modifier même s'il appelle
+# l'outil. Défaut "0" : comportement inchangé (non-cassant).
+GMAIL_READONLY = os.getenv("GMAIL_READONLY", "0").strip().lower() in ("1", "true", "yes", "on")
+
 mcp = FastMCP("Gmail")
+
+
+def _write_blocked(action: str) -> dict | None:
+    """Retourne une erreur si le serveur est en lecture seule (ASI03), sinon None."""
+    if GMAIL_READONLY:
+        return {"error": f"'{action}' refusé : serveur Gmail en lecture seule "
+                         "(GMAIL_READONLY=1). Retire le flag pour autoriser."}
+    return None
 
 
 # ---------------------------------------------------------------------------- #
@@ -328,6 +343,8 @@ def send_email(to: str, subject: str, body: str, cc: str = "", bcc: str = "") ->
     Returns:
         {"status": "sent", "to", "subject"} ou {"error"}
     """
+    if (blocked := _write_blocked("send_email")):  # ASI03
+        return blocked
     try:
         _require_creds()
         msg = _build_message(to, subject, body, cc, bcc)
@@ -356,6 +373,8 @@ def create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "") 
     Returns:
         {"status": "draft_created", "folder", "subject"} ou {"error"}
     """
+    if (blocked := _write_blocked("create_draft")):  # ASI03
+        return blocked
     try:
         msg = _build_message(to, subject, body, cc, bcc)
         with _imap() as conn:
@@ -408,6 +427,8 @@ def modify_labels(
     Returns:
         {"uid", "added", "removed"} ou {"error"}
     """
+    if (blocked := _write_blocked("modify_labels")):  # ASI03
+        return blocked
     add = add or []
     remove = remove or []
     try:
