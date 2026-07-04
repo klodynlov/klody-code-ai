@@ -102,7 +102,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install "ruff>=0.6" "mypy>=1.11"
+      # Outils épinglés aux versions exactes du .venv local — seul un bump
+      # délibéré change le comportement du lint (vécu 2026-07-03 : mypy 2.1.0
+      # non épinglé a cassé la CI de la PR #94 sur une erreur préexistante
+      # de main, fix 1dbcbb9).
+      # Procédure de bump :
+      #   1. pip install -U ruff mypy dans .venv local
+      #   2. ruff check + mypy verts en local (corriger le code si besoin)
+      #   3. reporter les versions exactes ici, dans le même commit que les fixes
+      - run: pip install "ruff==0.15.15" "mypy==2.1.0"
       - name: Ruff (lint)
         run: ruff check agent/ tools/ api/ klody_mcp/ config.py main.py services.py bench/ scripts/
       - name: Mypy (cœur typé — voir [tool.mypy].files dans pyproject.toml)
@@ -124,7 +132,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install "bandit>=1.7.9"
+      # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality
+      - run: pip install "bandit==1.9.4"
       - name: Bandit scan (fail on HIGH)
         run: bandit -r agent/ tools/ api/ --severity-level high
 
@@ -144,7 +153,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install "pip-audit>=2.7.3"
+      # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality
+      - run: pip install "pip-audit==2.10.0"
       - name: Audit lockfile
         # CVE-2025-3000 (torch.jit.script, corruption mémoire) : aucune release corrigée
         # au 2026-06-12 ; vecteur local-only (AV:L/PR:L, impacts L), jit.script sur entrée
@@ -187,7 +197,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install "pip-tools>=7.4.1"
+      # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality
+      - run: pip install "pip-tools==7.5.3"
       - name: Re-compile lockfile and diff
         run: |
           cp requirements.lock requirements.lock.bak
