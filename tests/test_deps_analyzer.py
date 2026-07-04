@@ -4,10 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from tools.deps_analyzer import (
-    analyze_dependencies,
-    format_dependency_report,
     _parse_go_mod,
     _parse_requirements,
+    analyze_dependencies,
+    format_dependency_report,
 )
 
 
