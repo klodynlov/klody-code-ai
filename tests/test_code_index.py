@@ -162,3 +162,46 @@ class TestStats:
         assert s["files"] == 2
         assert s["symbols"] >= 4  # greet, Calculator, add, multiply
         assert s["references"] > 0
+
+
+class TestLangagesEtendus:
+    """Registre des langages étendus (Roadmap v2 #10) — sans dépendance grammaire."""
+
+    def test_extensions_etendues_mappees(self):
+        from tools.code_index import _EXT_TO_LANG
+        assert _EXT_TO_LANG[".rs"] == "rust"
+        assert _EXT_TO_LANG[".go"] == "go"
+        assert _EXT_TO_LANG[".java"] == "java"
+        assert _EXT_TO_LANG[".php"] == "php"
+
+    def test_registres_coherents(self):
+        # Chaque langage optionnel a un loader, une spec et au moins une extension.
+        from tools.code_index import _EXT_TO_LANG, _LANG_SPEC, _OPTIONAL_LOADERS
+        assert set(_OPTIONAL_LOADERS) == set(_LANG_SPEC)
+        mapped_langs = set(_EXT_TO_LANG.values())
+        for lang in _OPTIONAL_LOADERS:
+            assert lang in mapped_langs, lang
+
+    def test_spec_a_des_types_de_noeuds(self):
+        from tools.code_index import _LANG_SPEC
+        for lang, spec in _LANG_SPEC.items():
+            union = spec.class_nodes | spec.method_nodes | spec.func_nodes
+            assert union, f"{lang}: aucun node de définition"
+            assert spec.call_nodes, f"{lang}: aucun node d'appel"
+
+    def test_grammaire_absente_ignore_le_fichier_sans_crash(self, python_repo):
+        # Un .rs sans grammaire installée ne doit ni crasher ni polluer l'index ;
+        # les fichiers Python restent indexés normalement.
+        idx = CodeIndex(python_repo)
+        if not idx.is_available():
+            pytest.skip("tree-sitter base indisponible")
+        (python_repo / "lib.rs").write_text(
+            "fn helper() -> i32 { 42 }\n", encoding="utf-8"
+        )
+        idx.refresh()  # ne doit pas lever
+        # greet (Python) toujours trouvé quelle que soit la dispo de la grammaire Rust.
+        assert idx.find_symbol("greet")
+        from tools.code_index import _PARSERS
+        if "rust" not in _PARSERS:
+            # Grammaire Rust non installée → helper non indexé (langage dormant).
+            assert idx.find_symbol("helper") == []

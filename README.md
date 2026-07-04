@@ -40,9 +40,9 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | | |
 |---|---|
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
-| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 6 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
+| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 47 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 48 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,7 +63,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (47)"]
+    subgraph TOOLS["🧰 Outils natifs (48)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -89,13 +89,13 @@ flowchart TD
 | # | Feature | Détail |
 |---|---|---|
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
-| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 6 task_types → budget d'itérations + planner + Best-of-N (F1≈0,85). |
+| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 12 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
 | 4 | **Sandbox isolé multi-racines** | venv jetable par racine, `ALLOWED_ROOTS`, exec auto après write (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
 | 6 | **Serveurs MCP fournis** | Gmail (IMAP/SMTP) + Web (fetch/search **lecture seule**, anti-SSRF) — branchés par une ligne de `.env`. |
 | 7 | **Serveur MCP Klody** | Klody = plateforme pour d'autres agents (Cline, Zed, Continue.dev). |
-| 8 | **Retrieval code-aware** | tree-sitter (symboles/refs) + embeddings bge-m3 (`find_symbol`, `find_relevant_files`). |
+| 8 | **Retrieval code-aware** | tree-sitter (symboles/refs) + embeddings bge-m3 (`find_symbol`, `find_relevant_files`). Python/JS/TS de base ; Rust/Go/Java/PHP en option (grammaires chargées dynamiquement). |
 | 9 | **Best-of-N + mémoire** | N candidats T variés + action override ; conventions auto-détectées + mémoire d'erreurs. |
 
 ## Stack technique
@@ -172,12 +172,12 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (47 natifs + connecteurs MCP)
+## Outils disponibles (48 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
-| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files` |
+| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies` |
 | **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |

@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 Difficulty = Literal["easy", "medium", "hard"]
-TaskType = Literal["edit", "refactor", "bug_fix", "feature", "explain", "self_dev"]
+TaskType = Literal[
+    "edit", "refactor", "bug_fix", "feature", "explain", "self_dev",
+    # Capacités étendues (Roadmap v2 #10) — workflows dédiés, prompts focalisés.
+    "review", "test_gen", "security", "docs", "perf", "migrate",
+]
 
 # Nb d'essais LLM supplémentaires après l'appel initial sur échec de validation.
 # 1 appel initial + _ROUTER_MAX_RETRIES retries = (_ROUTER_MAX_RETRIES + 1) appels max.
@@ -69,17 +73,25 @@ class RoutingDecision:
 
 _MAX_ITER = {"easy": 6, "medium": 14, "hard": 25}
 
+# Task_types multi-étapes : sur une tâche `medium`, ils déclenchent quand même le
+# planner (audit sécu, migration, perf, génération de tests d'intégration… se
+# décomposent en étapes même quand la difficulté est jugée moyenne).
+_PLANNER_MEDIUM_TYPES = (
+    "feature", "refactor", "self_dev",
+    "security", "migrate", "perf", "test_gen",
+)
+
 
 def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:
     """Dérive use_planner / use_best_of_n / max_iter depuis la classif.
 
     Règles :
-    - Planner si hard, ou (medium + feature/refactor/self_dev) → multi-étapes
+    - Planner si hard, ou (medium + type multi-étapes) → cf. _PLANNER_MEDIUM_TYPES
     - Best-of-N si hard OU self_dev (changements de code critique)
     - max_iter dérivé de la difficulty
     """
     use_planner = (difficulty == "hard") or (
-        difficulty == "medium" and task_type in ("feature", "refactor", "self_dev")
+        difficulty == "medium" and task_type in _PLANNER_MEDIUM_TYPES
     )
     use_best_of_n = difficulty == "hard" or task_type == "self_dev"
     return {
@@ -95,7 +107,7 @@ _ROUTER_SYSTEM = """\
 Tu es un router de tâches. Classifie chaque demande de coding.
 
 Réponds UNIQUEMENT par un objet JSON valide, sans markdown, sans texte avant ou après :
-{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev", "reasoning": "phrase courte"}
+{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev|review|test_gen|security|docs|perf|migrate", "reasoning": "phrase courte"}
 
 DIFFICULTY :
 - easy   : 1 fichier, modification localisée (<30s). Rename, fix typo, add import, add docstring, add 1 test simple.
@@ -114,6 +126,24 @@ TASK_TYPE :
              Mots-clés : "améliore-toi", "ajoute-toi un outil", "modifie ton code",
              "optimise tes algorithmes", "intègre une nouvelle bibliothèque dans
              ton repo", "ajoute une fonctionnalité à Klody".
+- review   : relire/critiquer du code existant SANS le modifier → rapport de revue
+             (bugs, sécurité, perf, lisibilité). Mots-clés : "relis", "revue de code",
+             "que penses-tu de ce code", "code review", "cherche des bugs dans".
+- test_gen : écrire des tests (unitaires ou d'intégration) pour du code existant.
+             Mots-clés : "écris des tests", "génère les tests", "couvre X de tests",
+             "tests unitaires", "tests d'intégration".
+- security : audit de sécurité / OWASP, recherche de vulnérabilités → rapport.
+             Mots-clés : "audit sécurité", "vulnérabilités", "OWASP", "injection SQL",
+             "faille", "est-ce sécurisé".
+- docs     : générer/mettre à jour de la documentation (docstrings, README, doc d'API).
+             Mots-clés : "documente", "ajoute des docstrings", "écris le README",
+             "génère la doc".
+- perf     : analyse de performance / optimisation mémoire (mesure puis optimise).
+             Mots-clés : "optimise les perfs", "c'est lent", "réduis la mémoire",
+             "profile", "goulot d'étranglement".
+- migrate  : migration de version (langage, framework, lib) ou de dépendances.
+             Mots-clés : "migre vers", "mets à jour la version", "passe de X à Y",
+             "migration", "upgrade les dépendances".
 
 Exemples :
 - "renomme `usr` en `user` dans app.py" → {"difficulty":"easy","task_type":"edit","reasoning":"rename localisé 1 fichier"}
@@ -125,6 +155,12 @@ Exemples :
 - "explique-moi comment fonctionne ce module" → {"difficulty":"easy","task_type":"explain","reasoning":"lecture sans modif"}
 - "ajoute-toi un outil pour compter les lignes d'un fichier" → {"difficulty":"medium","task_type":"self_dev","reasoning":"nouveau tool dans le repo Klody"}
 - "améliore tes performances de retrieval" → {"difficulty":"hard","task_type":"self_dev","reasoning":"optimisation interne Klody"}
+- "relis parser.py et dis-moi ce qui cloche" → {"difficulty":"medium","task_type":"review","reasoning":"revue de code sans modif"}
+- "écris des tests unitaires pour utils.py" → {"difficulty":"medium","task_type":"test_gen","reasoning":"génération de tests"}
+- "audite la sécurité de ce endpoint" → {"difficulty":"hard","task_type":"security","reasoning":"audit OWASP flux non fiable"}
+- "ajoute des docstrings à ce module" → {"difficulty":"easy","task_type":"docs","reasoning":"documentation localisée"}
+- "cette fonction est trop lente, optimise-la" → {"difficulty":"hard","task_type":"perf","reasoning":"analyse perf + optim"}
+- "migre ce code de Python 3.9 vers 3.12" → {"difficulty":"hard","task_type":"migrate","reasoning":"migration de version"}
 """
 
 # Message de correction réinjecté entre deux essais quand la validation échoue.
@@ -132,7 +168,8 @@ _CORRECTION_PROMPT = (
     "Ta réponse précédente n'était pas un JSON valide conforme au schéma attendu. "
     "Réponds UNIQUEMENT par cet objet JSON, sans markdown ni texte autour : "
     '{"difficulty":"easy|medium|hard",'
-    '"task_type":"edit|refactor|bug_fix|feature|explain|self_dev",'
+    '"task_type":"edit|refactor|bug_fix|feature|explain|self_dev|'
+    'review|test_gen|security|docs|perf|migrate",'
     '"reasoning":"phrase courte"}'
 )
 

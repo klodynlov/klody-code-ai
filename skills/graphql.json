@@ -1,0 +1,23 @@
+[
+  {
+    "id": "graphql-schema-first",
+    "domain": "graphql",
+    "title": "Schema-first et conception du type system",
+    "content": "Concevoir le schéma (SDL) avant les resolvers : c'est le contrat. Modéliser par le domaine métier, pas par les tables. Types non-nuls (`String!`) par défaut, nullables seulement quand l'absence est un état légitime. Préférer des types objets riches aux scalaires plats. Interfaces et unions pour le polymorphisme. Enums plutôt que des strings libres. Versionner par évolution additive (ajouter des champs) + directive `@deprecated`, jamais par /v2. Pas de `Query`/`Mutation` fourre-tout : nommer par intention (`createOrder`, pas `saveData`).",
+    "tags": ["schema", "sdl", "type-system", "versioning"]
+  },
+  {
+    "id": "graphql-n-plus-1-dataloader",
+    "domain": "graphql",
+    "title": "Problème N+1 et DataLoader",
+    "content": "Le piège n°1 de GraphQL : résoudre une liste de N éléments déclenche N requêtes pour un champ imbriqué. Solution : le pattern DataLoader — batch (regrouper les clés d'un même tick d'event-loop en une requête `WHERE id IN (...)`) + cache par requête. Un DataLoader par entité, instancié PAR requête HTTP (jamais partagé entre requêtes → fuite de données). Mesurer avec un log du nombre de requêtes SQL par requête GraphQL. Combiner avec des projections pour ne charger que les colonnes demandées.",
+    "tags": ["n+1", "dataloader", "batching", "performance"]
+  },
+  {
+    "id": "graphql-errors-pagination",
+    "domain": "graphql",
+    "title": "Erreurs, pagination et sécurité",
+    "content": "Pagination : curseurs (Relay Connections: `edges`/`node`/`pageInfo`) plutôt qu'offset pour la stabilité sous écriture concurrente. Erreurs : distinguer erreurs techniques (tableau `errors`) et erreurs métier attendues (résultats typés, ex. union `LoginResult = User | InvalidCredentials`). Sécurité : borner la profondeur et la complexité des requêtes (depth/cost limiting) contre les requêtes malveillantes, désactiver l'introspection en prod si non public, appliquer l'autorisation AU NIVEAU DES CHAMPS et dans les resolvers, jamais seulement à la racine.",
+    "tags": ["pagination", "errors", "security", "complexity"]
+  }
+]

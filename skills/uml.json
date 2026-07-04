@@ -1,0 +1,23 @@
+[
+  {
+    "id": "uml-diagram-types",
+    "domain": "uml",
+    "title": "Choisir le bon diagramme",
+    "content": "Structure : diagramme de CLASSES (entités, attributs, relations, cardinalités), de COMPOSANTS (modules et interfaces), de DÉPLOIEMENT (nœuds/artefacts). Comportement : diagramme de SÉQUENCE (interactions ordonnées dans le temps, idéal pour un flux d'API/appel), d'ÉTATS (cycle de vie d'un objet), d'ACTIVITÉ (workflow/branchements), de CAS D'USAGE (acteurs × fonctions). Règle : un diagramme = une question. Ne pas tout mettre sur un seul schéma ; préférer plusieurs vues ciblées à un diagramme illisible.",
+    "tags": ["class", "sequence", "state", "component"]
+  },
+  {
+    "id": "uml-relations-class",
+    "domain": "uml",
+    "title": "Relations dans un diagramme de classes",
+    "content": "Distinguer les relations : association (connaît), agrégation (losange vide, « a-un » sans possession du cycle de vie), composition (losange plein, le tout possède la partie), héritage (triangle, « est-un »), réalisation (interface, pointillés), dépendance (flèche pointillée, usage transitoire). Noter les cardinalités (1, 0..1, *, 1..*) aux deux bouts. Éviter l'abus d'héritage : préférer la composition. Le diagramme doit refléter le code réel — le générer/mettre à jour depuis les symboles (classes, champs, références), pas depuis une intention supposée.",
+    "tags": ["association", "composition", "inheritance", "cardinality"]
+  },
+  {
+    "id": "uml-as-code-mermaid",
+    "domain": "uml",
+    "title": "Diagrammes-as-code (Mermaid / PlantUML)",
+    "content": "Préférer le texte au dessin : Mermaid (`classDiagram`, `sequenceDiagram`, `stateDiagram-v2`) et PlantUML sont versionnables, diffables et rendus par GitHub/GitLab et de nombreux outils. Colocaliser le diagramme avec le code/doc qu'il décrit pour qu'il vieillisse moins vite. Exemple séquence Mermaid : `sequenceDiagram; Client->>API: POST /order; API->>DB: INSERT; DB-->>API: id; API-->>Client: 201`. Garder les diagrammes petits et régénérables ; un diagramme obsolète est pire que pas de diagramme.",
+    "tags": ["mermaid", "plantuml", "as-code", "versioning"]
+  }
+]

@@ -27,6 +27,13 @@ _TASK_PROMPT_FILES: dict[str, str] = {
     "feature": "feature.md",
     "explain": "explain.md",
     "self_dev": "self_dev.md",
+    # Capacités étendues (Roadmap v2 #10)
+    "review": "review.md",
+    "test_gen": "test_gen.md",
+    "security": "security.md",
+    "docs": "docs.md",
+    "perf": "perf.md",
+    "migrate": "migrate.md",
 }
 
 _BASE_FILE = "base.md"

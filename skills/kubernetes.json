@@ -1,0 +1,23 @@
+[
+  {
+    "id": "k8s-workloads-probes",
+    "domain": "kubernetes",
+    "title": "Workloads, probes et ressources",
+    "content": "Choisir le bon contrôleur : Deployment (stateless), StatefulSet (identité/stockage stable), DaemonSet (un pod par nœud), Job/CronJob (batch). Toujours définir `resources.requests` (planification) ET `limits` (garde-fou) — sans requests, le scheduler est aveugle. Trois probes distinctes : `readiness` (retirer du service si pas prêt), `liveness` (redémarrer si bloqué), `startup` (protéger un démarrage lent). Une liveness mal réglée provoque des redémarrages en boucle : la faire pointer sur un check léger, jamais sur une dépendance externe.",
+    "tags": ["deployment", "statefulset", "probes", "resources"]
+  },
+  {
+    "id": "k8s-config-secrets",
+    "domain": "kubernetes",
+    "title": "Configuration, secrets et RBAC",
+    "content": "Externaliser la config en ConfigMap, les données sensibles en Secret (chiffrées au repos via encryption-at-rest ou un gestionnaire externe : Sealed Secrets, External Secrets, Vault). Un Secret Kubernetes est encodé base64, PAS chiffré par défaut. Monter en volume plutôt qu'en env quand la rotation compte. Appliquer le moindre privilège via RBAC (Role/RoleBinding namespacé de préférence à ClusterRole). ServiceAccount dédié par app, jamais `default`. NetworkPolicy pour segmenter le trafic est-ouest (deny par défaut).",
+    "tags": ["configmap", "secrets", "rbac", "networkpolicy"]
+  },
+  {
+    "id": "k8s-rollouts-declaratif",
+    "domain": "kubernetes",
+    "title": "Déploiement déclaratif et rollouts",
+    "content": "Tout en déclaratif versionné (GitOps : Argo CD / Flux réconcilient l'état du cluster sur le repo). Éviter `kubectl edit` en prod (drift). Rolling update avec `maxSurge`/`maxUnavailable` maîtrisés ; `kubectl rollout undo` pour revenir en arrière. Packager avec Helm ou Kustomize pour paramétrer par environnement sans dupliquer. PodDisruptionBudget pour préserver la disponibilité pendant les opérations de nœud. Labels/annotations cohérents (`app.kubernetes.io/*`) pour le requêtage et l'observabilité.",
+    "tags": ["gitops", "rollout", "helm", "kustomize"]
+  }
+]

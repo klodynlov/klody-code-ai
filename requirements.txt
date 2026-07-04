@@ -15,6 +15,14 @@ tree-sitter>=0.25.2
 tree-sitter-python>=0.25.0
 tree-sitter-javascript>=0.25.0
 tree-sitter-typescript>=0.23.2
+# Langages étendus (Roadmap v2 #10) — OPTIONNELS et chargés dynamiquement :
+# décommenter pour activer le retrieval code-aware (find_symbol/find_references)
+# sur ces langages, puis relancer :
+#   pip-compile requirements.txt --output-file requirements.lock --strip-extras
+# tree-sitter-rust>=0.24.0
+# tree-sitter-go>=0.25.0
+# tree-sitter-java>=0.23.5
+# tree-sitter-php>=0.24.2
 
 # MCP server expose (Roadmap v2 #9 — Klody-as-platform)
 # fastmcp + pytest-asyncio pour les tests d'intégration MCP

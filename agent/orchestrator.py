@@ -382,9 +382,13 @@ _PRODUCING_TOOLS = frozenset({
 })
 
 # Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
-# Orchestrator._route_model). `explain` en est exclu : il reste sur le
-# généraliste, meilleur en conversation/explication.
-_CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
+# Orchestrator._route_model). Ceux qui PRODUISENT/MODIFIENT du code y vont ;
+# ceux qui produisent surtout de la PROSE ou un RAPPORT (`explain`, `review`,
+# `security`, `docs`) restent sur le généraliste, meilleur en analyse/rédaction.
+_CODE_TASK_TYPES = frozenset({
+    "edit", "refactor", "bug_fix", "feature", "self_dev",
+    "test_gen", "perf", "migrate",
+})
 
 # Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
 # « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
@@ -1323,6 +1327,7 @@ class Orchestrator:
             "find_references": self._tool_find_references,
             "find_relevant_files": self._tool_find_relevant_files,
             "code_graph": self._tool_code_graph,
+            "analyze_dependencies": self._tool_analyze_dependencies,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1421,6 +1426,15 @@ class Orchestrator:
     def _tool_code_graph(self, a: dict) -> str:
         from tools import code_graph
         return code_graph.query(self.file_manager.root, a)
+
+    def _tool_analyze_dependencies(self, a: dict) -> str:
+        from tools.deps_analyzer import analyze_dependencies, format_dependency_report
+        target = (a.get("path") or ".").strip() or "."
+        p = Path(target).expanduser()
+        base = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
+        if match_allowed_root(base, self.file_manager.allowed_roots) is None:
+            return f"ERREUR SÉCURITÉ: chemin hors des racines autorisées: {target}"
+        return format_dependency_report(analyze_dependencies(base))
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

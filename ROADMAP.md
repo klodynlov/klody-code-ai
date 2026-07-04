@@ -69,13 +69,37 @@ Coût marginal nul (même contexte conservé), qualité ++.
 | ✅ 7 | **Best-of-N conditionnel** (LLM-as-judge)        | done   | infra prête, gated par router ; gain non mesurable sur hard synthétique |
 | ✅ 8 | **Memory utile** (conventions + erreurs)         | done   | **5 conventions** sur Klody en 583ms (cible ≥3)          |
 | ✅ 9 | **Optims** (MCP expose ✅, LoRA scaffolding ✅, spec decoding ⚠) | done | Klody MCP server 8 outils ; pipeline LoRA prêt ; spec decoding sans gain sur MoE |
+| ✅ 10 | **Expansion des capacités** (task_types + langages + outil + skills) | done | +6 task_types focalisés (review/test_gen/security/docs/perf/migrate) ; retrieval Rust/Go/Java/PHP (optionnel) ; outil `analyze_dependencies` ; 6 skills de domaine (graphql/docker/kubernetes/cicd/sdk/uml) |
 
-**Total : 9/9 étapes livrées, 460 tests, ~12 commits.**
+**Total : 10/10 étapes livrées.**
 
 Klody est passé d'un ReAct mono-modèle Ollama qwen2.5-coder:32b à un système
 agentique adaptatif MLX multi-modèles avec routing, hot-swap prompts, sandbox
 auto-feedback, retrieval code-aware, best-of-N gated, memory de conventions,
 mémoire d'erreurs récurrentes, et exposé comme serveur MCP pour d'autres agents.
+
+### Étape 10 — Expansion des capacités (4 leviers, additif)
+
+Les « capacités » de Klody ne sont pas une liste en dur : ce sont 4 leviers
+composables. L'étape 10 les actionne sans casser l'existant :
+
+1. **`task_types` du routeur** (+ prompts focalisés) — 6 nouveaux workflows
+   dédiés : `review` (revue de code), `test_gen` (tests unitaires + intégration),
+   `security` (audit OWASP), `docs` (documentation), `perf` (perf + mémoire),
+   `migrate` (versions + dépendances). Routage : `test_gen/perf/migrate` → modèle
+   coder ; `review/security/docs` → généraliste (analyse/rédaction). Planner activé
+   sur medium pour les types multi-étapes ; best-of-N inchangé (hard/self_dev).
+2. **Langages tree-sitter** — retrieval code-aware étendu à Rust/Go/Java/PHP via un
+   registre data-driven (`_LANG_SPEC`) + chargement de grammaire **optionnel et
+   isolé** : un paquet absent laisse le langage dormant, sans jamais compromettre
+   Python/JS/TS. Aucune dépendance dure ajoutée (pas de drift du lockfile).
+3. **Nouvel outil** — `analyze_dependencies` : inventaire multi-écosystèmes
+   (pip/npm/cargo/go/composer) en lecture seule, confiné aux racines autorisées.
+4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
+   `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml` (drop-in, loader générique).
+
+Principe : privilégier l'additif et la dégradation gracieuse. Les langages
+étendus et les grammaires optionnelles n'imposent rien à l'installation de base.
 
 ## Métriques du bench (étape 1)
 

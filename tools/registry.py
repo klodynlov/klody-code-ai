@@ -465,7 +465,8 @@ MCP_TOOLS = [
                 "Utilise cet outil avant de générer du code pour respecter les conventions "
                 "du projet dans ce domaine. "
                 "Domaines disponibles : symfony, nextjs, python, mlx, claude_code "
-                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent)."
+                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent), "
+                "graphql, docker, kubernetes, cicd (CI/CD), sdk (conception de SDK), uml (diagrammes)."
             ),
             "parameters": {
                 "type": "object",
@@ -473,7 +474,10 @@ MCP_TOOLS = [
                     "domain": {
                         "type": "string",
                         "description": "Domaine technique cible",
-                        "enum": ["symfony", "nextjs", "python", "mlx", "claude_code"],
+                        "enum": [
+                            "symfony", "nextjs", "python", "mlx", "claude_code",
+                            "graphql", "docker", "kubernetes", "cicd", "sdk", "uml",
+                        ],
                     },
                 },
                 "required": ["domain"],
@@ -1325,7 +1329,39 @@ CODE_GRAPH_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS]
+DEPS_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_dependencies",
+            "description": (
+                "Inventorie les dépendances DÉCLARÉES d'un projet à partir de ses "
+                "manifestes (lecture seule, aucun réseau, aucune installation). "
+                "Reconnaît requirements*.txt, pyproject.toml (PEP 621 + Poetry), "
+                "package.json, Cargo.toml, go.mod et composer.json. Utilise cet "
+                "outil avant une MIGRATION, un AUDIT ou une REVUE pour savoir quelles "
+                "librairies et quelles versions sont en jeu, et combien. Passe un "
+                "répertoire (scan des manifestes à sa racine) ou un fichier manifeste précis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Répertoire ou fichier manifeste (relatif au projet ou "
+                            "absolu sous une racine autorisée). Défaut : racine du projet."
+                        ),
+                        "default": ".",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
