@@ -466,7 +466,8 @@ MCP_TOOLS = [
                 "du projet dans ce domaine. "
                 "Domaines disponibles : symfony, nextjs, python, mlx, claude_code "
                 "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent), "
-                "graphql, docker, kubernetes, cicd (CI/CD), sdk (conception de SDK), uml (diagrammes)."
+                "graphql, docker, kubernetes, cicd (CI/CD), sdk (conception de SDK), uml (diagrammes), "
+                "sql (requêtes, indexation, transactions)."
             ),
             "parameters": {
                 "type": "object",
@@ -476,7 +477,7 @@ MCP_TOOLS = [
                         "description": "Domaine technique cible",
                         "enum": [
                             "symfony", "nextjs", "python", "mlx", "claude_code",
-                            "graphql", "docker", "kubernetes", "cicd", "sdk", "uml",
+                            "graphql", "docker", "kubernetes", "cicd", "sdk", "uml", "sql",
                         ],
                     },
                 },

@@ -12,7 +12,7 @@ import pytest
 from config import SKILLS_DIR
 from tools.mcp_client import _is_domain_file, get_skills
 
-_NOUVEAUX_DOMAINES = ["graphql", "docker", "kubernetes", "cicd", "sdk", "uml"]
+_NOUVEAUX_DOMAINES = ["graphql", "docker", "kubernetes", "cicd", "sdk", "uml", "sql"]
 
 
 @pytest.mark.parametrize("domain", _NOUVEAUX_DOMAINES)
