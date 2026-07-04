@@ -1362,7 +1362,60 @@ DEPS_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS]
+SQL_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_sql",
+            "description": (
+                "Exécute UNE requête SQL sur un fichier de base SQLite LOCAL, dans le "
+                "sandbox de Klody (base confinée aux racines autorisées, aucune évasion "
+                "possible). Par défaut en LECTURE SEULE (mode='read') : idéal pour "
+                "explorer un schéma (`SELECT * FROM sqlite_master`), inspecter des "
+                "données, valider une requête. Le mode 'write' (INSERT/UPDATE/CREATE…) "
+                "n'est possible que si l'écriture est activée côté serveur. Utilise des "
+                "placeholders `?` + 'params' plutôt que de concaténer des valeurs. "
+                "Une seule instruction par appel. Le résultat est plafonné (lignes/octets)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "La requête SQL (une seule instruction). Ex: 'SELECT * FROM users WHERE id = ?'",
+                    },
+                    "database": {
+                        "type": "string",
+                        "description": (
+                            "Chemin du fichier SQLite (relatif au projet ou absolu sous "
+                            "une racine autorisée). Doit exister. Pas une URI."
+                        ),
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "'read' (défaut, lecture seule) ou 'write' (si activé côté serveur).",
+                        "enum": ["read", "write"],
+                        "default": "read",
+                    },
+                    "params": {
+                        "type": "array",
+                        "items": {},
+                        "description": "Valeurs liées aux placeholders `?` de la requête (anti-injection).",
+                        "default": [],
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": "Nombre max de lignes retournées (défaut 100, max 1000).",
+                        "default": 100,
+                    },
+                },
+                "required": ["query", "database"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

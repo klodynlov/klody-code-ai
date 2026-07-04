@@ -99,6 +99,13 @@ SUBPROCESS_TIMEOUT: int = int(os.getenv("SUBPROCESS_TIMEOUT", 30))
 SANDBOX_AUTO_EXEC: bool = os.getenv("SANDBOX_AUTO_EXEC", "true").lower() in ("1", "true", "yes", "on")
 SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", 20))
 
+# --- Outil SQL runtime (Roadmap v2 #10) ---
+# Exécution SQL locale sandboxée (sqlite3). Le mode 'write' est DÉSACTIVÉ par défaut
+# (sûr par défaut, comme GMAIL_READONLY) : l'outil ne peut que LIRE tant que ce flag
+# n'est pas explicitement activé. Le confinement (racines autorisées, authorizer
+# default-deny, verrou ATTACH, anti-DoS) s'applique dans les DEUX modes.
+SQL_WRITE_ENABLED: bool = os.getenv("SQL_WRITE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+
 # --- Router adaptatif (Roadmap v2 #4) ---
 # Classifie le prompt avant la boucle ReAct → adapte max_iterations + stratégie.
 ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "true", "yes", "on")

@@ -1328,6 +1328,7 @@ class Orchestrator:
             "find_relevant_files": self._tool_find_relevant_files,
             "code_graph": self._tool_code_graph,
             "analyze_dependencies": self._tool_analyze_dependencies,
+            "run_sql": self._tool_run_sql,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1435,6 +1436,21 @@ class Orchestrator:
         if match_allowed_root(base, self.file_manager.allowed_roots) is None:
             return f"ERREUR SÉCURITÉ: chemin hors des racines autorisées: {target}"
         return format_dependency_report(analyze_dependencies(base))
+
+    def _tool_run_sql(self, a: dict) -> str:
+        from tools.sql_runner import format_sql_result, run_sql
+        try:
+            max_rows = int(a.get("max_rows", 100) or 100)
+        except (TypeError, ValueError):
+            max_rows = 100
+        res = run_sql(
+            a.get("query", ""),
+            a.get("database", ""),
+            mode=a.get("mode", "read"),
+            params=a.get("params"),
+            max_rows=max_rows,
+        )
+        return format_sql_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

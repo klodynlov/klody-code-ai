@@ -93,10 +93,16 @@ composables. L'étape 10 les actionne sans casser l'existant :
    registre data-driven (`_LANG_SPEC`) + chargement de grammaire **optionnel et
    isolé** : un paquet absent laisse le langage dormant, sans jamais compromettre
    Python/JS/TS. Aucune dépendance dure ajoutée (pas de drift du lockfile).
-3. **Nouvel outil** — `analyze_dependencies` : inventaire multi-écosystèmes
+3. **Nouveaux outils** — `analyze_dependencies` : inventaire multi-écosystèmes
    (pip/npm/cargo/go/composer) en lecture seule, confiné aux racines autorisées.
+   Puis `run_sql` (premier outil **runtime**) : exécution SQL sur une base SQLite
+   locale, sandboxée. Conçue via un **threat-model adversarial** (workflow multi-agents
+   sur les vecteurs ATTACH / VACUUM INTO / load_extension / injection d'URI / DoS) :
+   authorizer sqlite3 *default-deny*, verrou `SQLITE_LIMIT_ATTACHED=0`, URI
+   percent-encodée, échéance wall-clock, une seule instruction, **écriture désactivée
+   par défaut** (`SQL_WRITE_ENABLED`). 23 tests dont un par vecteur d'évasion.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
-   `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml` (drop-in, loader générique).
+   `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.
