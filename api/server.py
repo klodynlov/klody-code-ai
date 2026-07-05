@@ -171,6 +171,26 @@ def _load_project_info() -> dict:
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _session_file(session_id: str) -> Path | None:
+    """Chemin du fichier d'une session, ou None si l'id est invalide.
+
+    `session_id` vient de l'URL / du WebSocket (donnée non maîtrisée) → défense
+    anti-traversée : on n'accepte qu'un id alphanumérique (plus `_`/`-`), ce qui
+    exclut `/`, `.` et `..`, AVANT de construire le chemin ; puis on vérifie que
+    le fichier résolu reste bien sous MEMORY_DIR. Casse la chaîne de « tainted
+    path » signalée par CodeQL (uncontrolled data used in path expression).
+    """
+    if not _SESSION_ID_RE.match(session_id or ""):
+        return None
+    p = config.MEMORY_DIR / f"memory_{session_id}.json"
+    if p.resolve().parent != config.MEMORY_DIR.resolve():
+        return None
+    return p
+
+
 @app.get("/api/sessions")
 async def list_sessions(filter: str = "active"):
     """Liste les sessions, la plus récente d'abord.
@@ -261,8 +281,8 @@ async def delete_skill_route(slug: str):
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str):
     from fastapi.responses import PlainTextResponse
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return PlainTextResponse("Session introuvable", status_code=404)
     data = json.loads(f.read_text())
     title = data.get("title") or session_id
@@ -405,8 +425,8 @@ async def upload_image(file: UploadFile = _UPLOAD_FILE):
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Supprime définitivement le fichier de session."""
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
         f.unlink()
@@ -422,8 +442,8 @@ async def rename_session(session_id: str, request: Request):
     title = (body.get("title") or "").strip()[:80]
     if not title:
         return {"ok": False, "message": "Titre vide"}
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
@@ -445,8 +465,8 @@ async def archive_session(session_id: str, request: Request):
     """
     body = await request.json()
     archived = bool(body.get("archived", True))
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
@@ -796,8 +816,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg["type"] == "session_load":
                 sid = msg.get("session_id", "")
-                f = config.MEMORY_DIR / f"memory_{sid}.json"
-                if f.exists():
+                f = _session_file(sid)
+                if f and f.exists():
                     memory = ConversationMemory.load_from_file(f)
                     await ws.send_json({
                         "type": "session_loaded",

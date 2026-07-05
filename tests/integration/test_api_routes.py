@@ -273,6 +273,24 @@ class TestSessionArchive:
         ids = {s["id"] for s in c.get("/api/sessions?filter=all").json()}
         assert ids == {"live", "stored"}
 
+    def test_session_file_rejects_path_traversal(self, client):
+        """Le garde anti-traversée rejette tout id non alphanumérique avant de
+        toucher au disque (CodeQL: uncontrolled data in path expression)."""
+        import config
+        from api.server import _session_file
+        for bad in ("../../etc/passwd", "foo/bar", "a.b", "..", "", "x" * 65):
+            assert _session_file(bad) is None, bad
+        good = _session_file("abcd1234")
+        assert good is not None
+        assert good.parent == config.MEMORY_DIR
+        assert good.name == "memory_abcd1234.json"
+
+    def test_archive_traversal_id_is_not_found(self, client):
+        c, _ = client
+        r = c.post("/api/sessions/..%2F..%2Fsecret/archive", json={"archived": True})
+        # Route peut renvoyer 404 (FastAPI) ou ok:false (garde) — jamais d'écriture
+        assert r.status_code == 404 or r.json().get("ok") is False
+
     def test_archive_survives_reuse_via_ws(self, client):
         """Réutiliser (charger + chatter) une session archivée ne la
         désarchive pas : le drapeau est sticky à travers save()."""
