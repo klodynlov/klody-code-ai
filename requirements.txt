@@ -55,7 +55,7 @@ ollama>=0.4.0
 #   python-multipart CVE-2026-53538/53539/53540 -> 0.0.31
 #   starlette        CVE-2026-54282/54283       -> 1.3.1
 cryptography>=49.0.0
-python-multipart>=0.0.31
+python-multipart>=0.0.32
 starlette>=1.3.1
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
