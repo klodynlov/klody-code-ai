@@ -27,9 +27,11 @@ def repo(tmp_path: Path, monkeypatch) -> Path:
     if not _HAS_GIT:
         pytest.skip("git absent")
     _run("init", "-q", "-b", "main", ".", cwd=tmp_path)
+    _run("config", "user.email", "t@t", cwd=tmp_path)
+    _run("config", "user.name", "t", cwd=tmp_path)
     (tmp_path / "hello.py").write_text("print('hi')\n", encoding="utf-8")
-    _run("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A", cwd=tmp_path)
-    _run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init", cwd=tmp_path)
+    _run("add", "-A", cwd=tmp_path)
+    _run("commit", "-q", "-m", "init", cwd=tmp_path)
     monkeypatch.setattr(git_tools, "_GIT_ROOTS", [tmp_path.resolve()])
     return tmp_path
 
@@ -60,16 +62,17 @@ class TestLectureReelle:
 
 
 class TestValidation:
-    def test_action_mutante_refusee(self, repo):
-        for bad in ("commit", "push", "checkout", "reset", "add"):
+    def test_action_inconnue_refusee(self, repo):
+        for bad in ("frobnicate", "gc", "fsck"):
             assert git_control(bad, path=str(repo))["ok"] is False
 
-    def test_mutations_absentes_de_lenum(self):
+    def test_mutations_dangereuses_absentes_de_lenum(self):
+        # add/commit sont autorisés (gated) ; push/pull et les destructives, jamais.
         from tools.registry import TOOLS
         tool = next(t for t in TOOLS if t["function"]["name"] == "git_control")
         enum = set(tool["function"]["parameters"]["properties"]["action"]["enum"])
-        assert enum.isdisjoint({"commit", "add", "push", "pull", "checkout",
-                                "reset", "merge", "rebase", "clean", "stash", "config"})
+        assert enum.isdisjoint({"push", "pull", "checkout", "reset", "merge",
+                                "rebase", "clean", "rm", "stash", "config"})
 
     def test_blame_sans_fichier_refuse(self, repo):
         assert git_control("blame", path=str(repo))["ok"] is False
@@ -103,6 +106,46 @@ class TestEnvironnement:
         res = git_control("status", path=str(tmp_path))
         assert res["ok"] is False
         assert "dépôt Git" in res["error"]
+
+
+class TestMutations:
+    """add/commit : gated par GIT_WRITE_ENABLED, jamais destructif."""
+
+    def test_add_desactive_par_defaut(self, repo, monkeypatch):
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", False)
+        res = git_control("add", path=str(repo), file=".")
+        assert res["ok"] is False and "désactivée" in res["error"]
+
+    def test_commit_desactive_par_defaut(self, repo, monkeypatch):
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", False)
+        res = git_control("commit", path=str(repo), message="x")
+        assert res["ok"] is False and "désactivée" in res["error"]
+
+    def test_add_puis_commit_si_active(self, repo, monkeypatch):
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", True)
+        (repo / "new.txt").write_text("data\n", encoding="utf-8")
+        assert git_control("add", path=str(repo), file="new.txt")["ok"] is True
+        assert git_control("commit", path=str(repo), message="ajoute new.txt")["ok"] is True
+        log = git_control("log", path=str(repo))
+        assert "ajoute new.txt" in log["output"]
+
+    def test_commit_sans_message_refuse(self, repo, monkeypatch):
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", True)
+        assert git_control("commit", path=str(repo))["ok"] is False
+
+    def test_add_sans_fichier_refuse(self, repo, monkeypatch):
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", True)
+        assert git_control("add", path=str(repo))["ok"] is False
+
+    def test_message_avec_metacaracteres_est_sur(self, repo, monkeypatch):
+        # Le message passe en argv : aucune exécution shell, le dépôt reste intact.
+        monkeypatch.setattr(git_tools, "GIT_WRITE_ENABLED", True)
+        (repo / "sentinel").write_text("keep\n", encoding="utf-8")
+        git_control("add", path=str(repo), file=".")
+        res = git_control("commit", path=str(repo), message="feat: x; rm -rf / $(id) `whoami`")
+        assert res["ok"] is True
+        assert (repo / "sentinel").exists()  # rien n'a été supprimé
+        assert "rm -rf" in git_control("log", path=str(repo))["output"]
 
 
 class TestFormat:

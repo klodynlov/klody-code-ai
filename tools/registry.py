@@ -1519,21 +1519,22 @@ GIT_TOOLS: list[dict] = [
         "function": {
             "name": "git_control",
             "description": (
-                "Inspecte un dépôt Git local en LECTURE SEULE (aucune mutation : ni "
-                "commit, ni add, ni push/pull, ni checkout/reset/merge/rebase). "
-                "Préfère cet outil à execute_command pour comprendre l'état du repo "
-                "sans confirmation. Actions : status, log, diff, show, blame, branch, "
-                "tag, remote, shortlog. 'ref' cible un commit/branche/tag (ou plage "
-                "a..b) ; 'file' restreint à un fichier ('blame' l'exige)."
+                "Inspecte un dépôt Git local (LECTURE SEULE) et, si activé côté "
+                "serveur, effectue des mutations LOCALES (add/commit ; jamais "
+                "push/pull ni reset/checkout/merge/rebase/clean). Préfère cet outil "
+                "à execute_command pour l'état du repo. Lecture : status, log, diff, "
+                "show, blame, branch, tag, remote, shortlog. Mutation : 'add' (indexe "
+                "'file', '.' pour tout), 'commit' (exige 'message'). 'ref' cible un "
+                "commit/branche/tag (ou plage a..b)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "Opération lecture seule.",
+                        "description": "Opération (lecture seule, ou add/commit si l'écriture est activée).",
                         "enum": ["status", "log", "diff", "show", "blame",
-                                 "branch", "tag", "remote", "shortlog"],
+                                 "branch", "tag", "remote", "shortlog", "add", "commit"],
                     },
                     "path": {
                         "type": "string",
@@ -1554,6 +1555,11 @@ GIT_TOOLS: list[dict] = [
                         "type": "integer",
                         "description": "Pour 'log' : nombre de commits (défaut 20, max 200).",
                         "default": 20,
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message de commit (requis pour l'action 'commit').",
+                        "default": "",
                     },
                 },
                 "required": ["action"],

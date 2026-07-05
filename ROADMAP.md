@@ -110,9 +110,13 @@ composables. L'étape 10 les actionne sans casser l'existant :
    Puis `git_control` : introspection Git **lecture seule** (status/log/diff/show/blame/
    branch/tag/remote/shortlog), dépôt confiné aux racines autorisées, ref & fichier
    validés (pas de `..`, pas de flag injectable) — préférable à `execute_command`
-   (sans confirmation TTY) pour comprendre l'état d'un repo. 23 tests.
-   Les mutations Docker/k8s/Git (`run`/`build`/`exec`/`apply`/`delete`/`scale`/`commit`/
-   `push`) — primitives d'évasion de l'hôte / de mutation — sont réservées à un incrément sécurisé dédié.
+   (sans confirmation TTY) pour comprendre l'état d'un repo. 23 tests. Puis premières
+   **mutations sécurisées** : `git add`/`commit` **locaux**, gated par `GIT_WRITE_ENABLED`
+   (défaut false), même posture sûr-par-défaut que le SQL ; message de commit passé en
+   argv (test prouvant qu'un `; rm -rf /` ne s'exécute pas). 29 tests.
+   Les mutations restantes (`docker run`/`build`, `kubectl apply`/`delete`/`scale`,
+   `git push`/`reset`) — primitives d'évasion de l'hôte / de cluster / sortantes — sont
+   réservées aux prochains incréments sécurisés.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 

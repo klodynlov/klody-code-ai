@@ -106,6 +106,13 @@ SANDBOX_TIMEOUT: int = int(os.getenv("SANDBOX_TIMEOUT", 20))
 # default-deny, verrou ATTACH, anti-DoS) s'applique dans les DEUX modes.
 SQL_WRITE_ENABLED: bool = os.getenv("SQL_WRITE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
 
+# --- Outil Git runtime (git_control) ---
+# Introspection Git toujours en lecture seule. Les mutations LOCALES (add, commit)
+# sont DÉSACTIVÉES par défaut (sûr par défaut) ; `push`/`pull` et les opérations
+# destructives (reset/checkout/clean/rebase) restent hors de l'outil quel que soit
+# ce flag. Confinement (racines autorisées) + validation s'appliquent toujours.
+GIT_WRITE_ENABLED: bool = os.getenv("GIT_WRITE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+
 # --- Router adaptatif (Roadmap v2 #4) ---
 # Classifie le prompt avant la boucle ReAct → adapte max_iterations + stratégie.
 ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "true", "yes", "on")

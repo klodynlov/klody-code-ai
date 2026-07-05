@@ -1492,6 +1492,7 @@ class Orchestrator:
             ref=a.get("ref", ""),
             file=a.get("file", ""),
             max_count=max_count,
+            message=a.get("message", ""),
         )
         return format_git_result(res)
 

@@ -21,7 +21,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from config import PROJECT_ROOT, build_allowed_roots, match_allowed_root
+from config import (
+    GIT_WRITE_ENABLED,
+    PROJECT_ROOT,
+    build_allowed_roots,
+    match_allowed_root,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +34,7 @@ _TIMEOUT_S = 15
 _MAX_OUTPUT = 30_000
 _DEFAULT_COUNT = 20
 _MAX_COUNT = 200
+_MAX_MSG = 2000
 
 # Racines autorisées (PROJECT_ROOT + ALLOWED_ROOTS). Overridable en test.
 _GIT_ROOTS: list[Path] = build_allowed_roots(PROJECT_ROOT, None)
@@ -42,7 +48,11 @@ _FILE_RE = re.compile(r"^[a-zA-Z0-9._][a-zA-Z0-9._/\- ]{0,255}$")
 _READ_ACTIONS = frozenset({
     "status", "log", "diff", "show", "blame", "branch", "tag", "remote", "shortlog",
 })
-_NEEDS_FILE = frozenset({"blame"})
+# Mutations LOCALES uniquement, réversibles, gated par GIT_WRITE_ENABLED. Jamais
+# push/pull (sortant/réseau) ni destructif (reset/checkout/clean/rebase/rm).
+_WRITE_ACTIONS = frozenset({"add", "commit"})
+_ALL_ACTIONS = _READ_ACTIONS | _WRITE_ACTIONS
+_NEEDS_FILE = frozenset({"blame", "add"})
 
 
 class GitToolError(Exception):
@@ -65,10 +75,14 @@ def _resolve_repo(path: str) -> Path:
     return resolved
 
 
-def _argv(action: str, ref: str, file: str, count: int) -> list[str]:
-    """argv Git figé pour une action lecture seule (entrées déjà validées)."""
+def _argv(action: str, ref: str, file: str, count: int, message: str) -> list[str]:
+    """argv Git figé pour une action (entrées déjà validées)."""
     ref_arg = [ref] if ref else []
     file_arg = ["--", file] if file else []
+    if action == "add":
+        return ["add", "--", file]
+    if action == "commit":
+        return ["commit", "-m", message]
     if action == "status":
         return ["status", "--short", "--branch"]
     if action == "log":
@@ -92,24 +106,36 @@ def _argv(action: str, ref: str, file: str, count: int) -> list[str]:
 
 
 def git_control(action: str, path: str = "", ref: str = "", file: str = "",
-                max_count: int = _DEFAULT_COUNT) -> dict:
-    """Exécute une commande Git LECTURE SEULE. Retourne un dict structuré."""
+                max_count: int = _DEFAULT_COUNT, message: str = "") -> dict:
+    """Exécute une commande Git. Lecture seule, ou mutation locale gated (add/commit)."""
     action = (action or "").strip().lower()
-    if action not in _READ_ACTIONS:
+    if action not in _ALL_ACTIONS:
         return {"ok": False, "error": (
-            f"Action '{action}' non supportée. Actions lecture seule : "
-            f"{', '.join(sorted(_READ_ACTIONS))}."
+            f"Action '{action}' non supportée. Lecture seule : "
+            f"{', '.join(sorted(_READ_ACTIONS))} ; mutation locale : "
+            f"{', '.join(sorted(_WRITE_ACTIONS))}."
+        )}
+    if action in _WRITE_ACTIONS and not GIT_WRITE_ENABLED:
+        return {"ok": False, "error": (
+            f"Mutation '{action}' désactivée (GIT_WRITE_ENABLED=false). "
+            "Active le flag côté serveur pour autoriser add/commit locaux."
         )}
 
     ref = (ref or "").strip()
     file = (file or "").strip()
+    message = (message or "").strip()
 
     if ref and not _REF_RE.match(ref):
         return {"ok": False, "error": "Ref invalide (commit/branche/tag ; pas de métacaractère ni '-' initial)."}
     if file and (".." in file or not _FILE_RE.match(file)):
         return {"ok": False, "error": "Chemin de fichier invalide (repo-relatif, sans '..')."}
     if action in _NEEDS_FILE and not file:
-        return {"ok": False, "error": f"L'action '{action}' requiert un 'file'."}
+        return {"ok": False, "error": f"L'action '{action}' requiert un 'file' (ex: '.' pour tout indexer)."}
+    if action == "commit":
+        if not message:
+            return {"ok": False, "error": "L'action 'commit' requiert un 'message'."}
+        if len(message) > _MAX_MSG:
+            return {"ok": False, "error": f"Message de commit trop long (> {_MAX_MSG} caractères)."}
 
     try:
         count = max(1, min(int(max_count), _MAX_COUNT))
@@ -124,7 +150,7 @@ def git_control(action: str, path: str = "", ref: str = "", file: str = "",
     if shutil.which("git") is None:
         return {"ok": False, "error": "git introuvable (binaire absent du PATH)."}
 
-    argv = ["git", "-C", str(repo), *_argv(action, ref, file, count)]
+    argv = ["git", "-C", str(repo), *_argv(action, ref, file, count, message)]
     try:
         # argv figé + shell=False + entrées validées → pas d'injection de commande.
         proc = subprocess.run(
