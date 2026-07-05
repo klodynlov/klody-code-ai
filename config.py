@@ -113,6 +113,18 @@ SQL_WRITE_ENABLED: bool = os.getenv("SQL_WRITE_ENABLED", "false").lower() in ("1
 # ce flag. Confinement (racines autorisées) + validation s'appliquent toujours.
 GIT_WRITE_ENABLED: bool = os.getenv("GIT_WRITE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
 
+# --- Outil Docker runtime (docker_control) ---
+# Introspection Docker toujours en lecture seule. `docker run` (mutation) est
+# DÉSACTIVÉ par défaut ET doublement borné : il exige AUSSI une allowlist d'images
+# non vide. Aucun flag utilisateur n'est accepté — l'outil impose un durcissement
+# figé (--network none, --cap-drop ALL, no-new-privileges, limites ressources).
+DOCKER_WRITE_ENABLED: bool = os.getenv("DOCKER_WRITE_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Images autorisées pour `docker run` (CSV). Vide = aucune (run refusé). Match par
+# nom exact, par repo (sans tag) ou par préfixe. Ex: "python:3.12,alpine,ghcr.io/moi/".
+DOCKER_ALLOWED_IMAGES: list[str] = [
+    s.strip() for s in os.getenv("DOCKER_ALLOWED_IMAGES", "").split(",") if s.strip()
+]
+
 # --- Router adaptatif (Roadmap v2 #4) ---
 # Classifie le prompt avant la boucle ReAct → adapte max_iterations + stratégie.
 ROUTER_ENABLED: bool = os.getenv("ROUTER_ENABLED", "true").lower() in ("1", "true", "yes", "on")

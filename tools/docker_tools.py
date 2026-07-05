@@ -21,31 +21,63 @@ import re
 import shutil
 import subprocess
 
+from config import DOCKER_ALLOWED_IMAGES, DOCKER_WRITE_ENABLED
+
 logger = logging.getLogger(__name__)
 
 _TIMEOUT_S = 15
+_RUN_TIMEOUT_S = 60           # `docker run` peut être plus long qu'une introspection
 _MAX_OUTPUT = 20_000          # octets de sortie max réinjectés au LLM
 _MAX_TAIL = 500               # lignes de logs max
 _DEFAULT_TAIL = 200
+_MAX_CMD_ARGS = 64            # args de commande conteneur max
 
 # Cible autorisée : nom/ID Docker. Alphanumérique + . _ - : / (pas d'espace, pas de
 # métacaractère shell, ne commence jamais par '-' → aucun flag injectable).
 _TARGET_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,127}$")
+# Référence d'image : repo[/...][:tag][@sha256:...]. Jamais de '-' initial ni métacar.
+_IMAGE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:/@-]{0,255}$")
 
-# Actions LECTURE SEULE → argv Docker figé. `{target}`/`{tail}` sont substitués par
-# des valeurs VALIDÉES, insérées comme éléments argv distincts (jamais concaténés).
+# Overridable en test.
+_ALLOWED_IMAGES: list[str] = list(DOCKER_ALLOWED_IMAGES)
+
+# Durcissement FIGÉ imposé à tout `docker run` (aucun flag utilisateur accepté) :
+# pas de réseau, aucune capability, pas d'escalade de privilèges, ressources bornées.
+_RUN_HARDENING: tuple[str, ...] = (
+    "--rm",
+    "--network", "none",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges",
+    "--pids-limit", "256",
+    "--memory", "512m",
+    "--cpus", "1",
+)
+
 _NEEDS_TARGET = frozenset({"inspect", "logs"})
 _READ_ACTIONS = frozenset({
     "ps", "images", "inspect", "logs", "stats", "version", "df",
 })
+# Mutation gated : `docker run` uniquement, ultra-contraint. Jamais build/exec/rm/
+# rmi/kill/stop/cp/commit/push (évasion hôte ou effets de bord).
+_WRITE_ACTIONS = frozenset({"run"})
+_ALL_ACTIONS = _READ_ACTIONS | _WRITE_ACTIONS
 
 
 class DockerToolError(Exception):
     """Entrée invalide (action inconnue, cible malformée)."""
 
 
-def _argv(action: str, target: str, tail: int) -> list[str]:
-    """Construit l'argv Docker figé pour une action lecture seule."""
+def _image_allowed(image: str) -> bool:
+    """L'image correspond-elle à l'allowlist (exact, repo sans tag, ou préfixe) ?"""
+    repo = image.split("@", 1)[0].split(":", 1)[0]
+    return any(image == pat or repo == pat or image.startswith(pat) for pat in _ALLOWED_IMAGES)
+
+
+def _argv(action: str, target: str, tail: int,
+          image: str = "", command: list[str] | None = None) -> list[str]:
+    """Construit l'argv Docker figé pour l'action (entrées déjà validées)."""
+    if action == "run":
+        return ["run", *_RUN_HARDENING, image, *(command or [])]
     if action == "ps":
         return ["ps", "--all", "--no-trunc", "--format",
                 "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"]
@@ -66,20 +98,48 @@ def _argv(action: str, target: str, tail: int) -> list[str]:
     raise DockerToolError(f"action inconnue : '{action}'")  # pragma: no cover
 
 
-def docker_control(action: str, target: str = "", tail: int = _DEFAULT_TAIL) -> dict:
-    """Exécute une commande Docker LECTURE SEULE et renvoie un dict structuré.
+def docker_control(action: str, target: str = "", tail: int = _DEFAULT_TAIL,
+                   image: str = "", command: list | None = None) -> dict:
+    """Exécute une commande Docker (introspection lecture seule, ou `run` gated).
 
     Retour : {ok, action, output} ou {ok: False, error}.
     """
     action = (action or "").strip().lower()
-    if action not in _READ_ACTIONS:
+    if action not in _ALL_ACTIONS:
         return {"ok": False, "error": (
-            f"Action '{action}' non supportée. Actions lecture seule : "
-            f"{', '.join(sorted(_READ_ACTIONS))}."
+            f"Action '{action}' non supportée. Lecture seule : "
+            f"{', '.join(sorted(_READ_ACTIONS))} ; mutation : run."
         )}
 
     target = (target or "").strip()
-    if action in _NEEDS_TARGET:
+    image = (image or "").strip()
+    cmd_args: list[str] = []
+
+    if action == "run":
+        if not DOCKER_WRITE_ENABLED:
+            return {"ok": False, "error": (
+                "Mutation 'run' désactivée (DOCKER_WRITE_ENABLED=false)."
+            )}
+        if not _ALLOWED_IMAGES:
+            return {"ok": False, "error": (
+                "Aucune image autorisée (DOCKER_ALLOWED_IMAGES vide) : `run` refusé."
+            )}
+        if not image or not _IMAGE_RE.match(image):
+            return {"ok": False, "error": "Image invalide (ne commence pas par '-', sans métacaractère)."}
+        if not _image_allowed(image):
+            return {"ok": False, "error": (
+                f"Image '{image}' hors de l'allowlist (DOCKER_ALLOWED_IMAGES)."
+            )}
+        if command is not None:
+            if not isinstance(command, (list, tuple)):
+                return {"ok": False, "error": "'command' doit être une liste de chaînes."}
+            if len(command) > _MAX_CMD_ARGS:
+                return {"ok": False, "error": f"Trop d'arguments de commande (> {_MAX_CMD_ARGS})."}
+            for c in command:
+                if not isinstance(c, str) or "\x00" in c:
+                    return {"ok": False, "error": "Chaque 'command' doit être une chaîne sans octet nul."}
+            cmd_args = [str(c) for c in command]
+    elif action in _NEEDS_TARGET:
         if not target:
             return {"ok": False, "error": f"L'action '{action}' requiert un 'target' (nom/ID)."}
         if not _TARGET_RE.match(target):
@@ -98,19 +158,20 @@ def docker_control(action: str, target: str = "", tail: int = _DEFAULT_TAIL) -> 
     if shutil.which("docker") is None:
         return {"ok": False, "error": "Docker introuvable (binaire 'docker' absent du PATH)."}
 
-    argv = ["docker", *_argv(action, target, tail)]
+    timeout = _RUN_TIMEOUT_S if action == "run" else _TIMEOUT_S
+    argv = ["docker", *_argv(action, target, tail, image, cmd_args)]
     try:
-        # argv figé + shell=False + cible validée → pas d'injection de commande.
+        # argv figé + shell=False + entrées validées → pas d'injection de commande.
         proc = subprocess.run(
             argv,
             capture_output=True,
             text=True,
-            timeout=_TIMEOUT_S,
+            timeout=timeout,
             shell=False,
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": f"Commande Docker expirée (>{_TIMEOUT_S}s)."}
+        return {"ok": False, "error": f"Commande Docker expirée (>{timeout}s)."}
     except OSError as exc:
         return {"ok": False, "error": f"Échec d'exécution Docker : {exc}"}
 

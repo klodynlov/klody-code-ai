@@ -1421,21 +1421,23 @@ DOCKER_TOOLS: list[dict] = [
         "function": {
             "name": "docker_control",
             "description": (
-                "Inspecte l'état Docker LOCAL en LECTURE SEULE (aucune mutation du "
-                "démon : ni run, ni build, ni exec, ni stop/rm). Utilise cet outil "
-                "pour répondre à « qu'est-ce qui tourne ? », voir les images, les "
-                "logs ou les stats d'un conteneur, ou diagnostiquer un service "
-                "conteneurisé. Actions : ps (conteneurs), images, inspect, logs, "
-                "stats, version, df. 'inspect' et 'logs' exigent un 'target' "
-                "(nom ou ID de conteneur/image)."
+                "Inspecte l'état Docker LOCAL (lecture seule) et, si activé côté "
+                "serveur, lance un conteneur ULTRA-CONTRAINT (`run`). Lecture : ps, "
+                "images, inspect, logs, stats, version, df ('inspect'/'logs' exigent "
+                "'target'). Mutation 'run' : exécute 'image' (obligatoirement dans "
+                "l'allowlist serveur) avec 'command' optionnelle ; l'outil impose "
+                "--rm, --network none, --cap-drop ALL, no-new-privileges et des "
+                "limites ressources — aucun montage, aucun flag utilisateur, aucun "
+                "réseau. Jamais build/exec/rm/stop."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "Opération lecture seule.",
-                        "enum": ["ps", "images", "inspect", "logs", "stats", "version", "df"],
+                        "description": "Opération (lecture seule, ou 'run' si l'écriture est activée).",
+                        "enum": ["ps", "images", "inspect", "logs", "stats",
+                                 "version", "df", "run"],
                     },
                     "target": {
                         "type": "string",
@@ -1444,6 +1446,17 @@ DOCKER_TOOLS: list[dict] = [
                             "'logs'). Charset strict : [a-zA-Z0-9 . _ - : /]."
                         ),
                         "default": "",
+                    },
+                    "image": {
+                        "type": "string",
+                        "description": "Pour 'run' : image à lancer (doit être dans l'allowlist serveur). Ex: python:3.12.",
+                        "default": "",
+                    },
+                    "command": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Pour 'run' : commande + args exécutés DANS le conteneur (ex: ['python','-c','print(1)']).",
+                        "default": [],
                     },
                     "tail": {
                         "type": "integer",

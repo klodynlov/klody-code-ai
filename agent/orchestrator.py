@@ -1461,7 +1461,10 @@ class Orchestrator:
             tail = int(a.get("tail", 200) or 200)
         except (TypeError, ValueError):
             tail = 200
-        res = docker_control(a.get("action", ""), a.get("target", ""), tail=tail)
+        res = docker_control(
+            a.get("action", ""), a.get("target", ""), tail=tail,
+            image=a.get("image", ""), command=a.get("command"),
+        )
         return format_docker_result(res)
 
     def _tool_kubectl_control(self, a: dict) -> str:

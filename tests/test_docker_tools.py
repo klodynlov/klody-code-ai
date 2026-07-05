@@ -44,16 +44,10 @@ class TestActions:
         assert "--all" in argv
 
     def test_action_inconnue_refusee(self, fake_docker):
-        res = docker_control("run")  # mutation → non supportée
+        res = docker_control("build")  # non supportée
         assert res["ok"] is False
         assert "non supportée" in res["error"]
         assert fake_docker.calls == []  # jamais exécuté
-
-    def test_mutations_absentes_de_lenum(self):
-        from tools.registry import TOOLS
-        tool = next(t for t in TOOLS if t["function"]["name"] == "docker_control")
-        enum = set(tool["function"]["parameters"]["properties"]["action"]["enum"])
-        assert enum.isdisjoint({"run", "build", "exec", "rm", "stop", "kill", "cp"})
 
     def test_logs_tail_clampe(self, fake_docker):
         docker_control("logs", "web", tail=99999)
@@ -118,6 +112,70 @@ class TestEnvironnement:
         monkeypatch.setattr(docker_tools.subprocess, "run", _boom)
         res = docker_control("ps")
         assert res["ok"] is False and "expirée" in res["error"]
+
+
+class TestRunContraint:
+    """`docker run` : gated + allowlist + durcissement figé, aucun flag utilisateur."""
+
+    def _enable(self, monkeypatch, images):
+        monkeypatch.setattr(docker_tools, "DOCKER_WRITE_ENABLED", True)
+        monkeypatch.setattr(docker_tools, "_ALLOWED_IMAGES", list(images))
+
+    def test_run_desactive_par_defaut(self, fake_docker, monkeypatch):
+        monkeypatch.setattr(docker_tools, "DOCKER_WRITE_ENABLED", False)
+        res = docker_control("run", image="python:3.12")
+        assert res["ok"] is False and "désactivée" in res["error"]
+        assert fake_docker.calls == []
+
+    def test_run_allowlist_vide_refuse(self, fake_docker, monkeypatch):
+        self._enable(monkeypatch, [])
+        res = docker_control("run", image="python:3.12")
+        assert res["ok"] is False and "Aucune image" in res["error"]
+        assert fake_docker.calls == []
+
+    def test_run_image_hors_allowlist_refusee(self, fake_docker, monkeypatch):
+        self._enable(monkeypatch, ["alpine"])
+        res = docker_control("run", image="python:3.12")
+        assert res["ok"] is False and "allowlist" in res["error"]
+        assert fake_docker.calls == []
+
+    @pytest.mark.parametrize("bad", ["-v/etc", "--privileged", "img; rm", "a b", "$(x)"])
+    def test_run_image_malformee_refusee(self, fake_docker, monkeypatch, bad):
+        self._enable(monkeypatch, [bad, "python"])  # même dans l'allowlist, le regex prime
+        res = docker_control("run", image=bad)
+        assert res["ok"] is False
+        assert fake_docker.calls == []
+
+    def test_run_impose_le_durcissement(self, fake_docker, monkeypatch):
+        self._enable(monkeypatch, ["python"])
+        res = docker_control("run", image="python:3.12", command=["python", "-c", "print(1)"])
+        assert res["ok"] is True
+        argv = fake_docker.calls[0]
+        # Durcissement présent…
+        assert argv[:2] == ["docker", "run"]
+        for flag in ("--rm", "--cap-drop", "ALL", "no-new-privileges", "--pids-limit", "--memory"):
+            assert flag in argv
+        assert argv[argv.index("--network") + 1] == "none"
+        # …image + commande en éléments argv distincts, APRÈS les flags.
+        assert argv.index("python:3.12") > argv.index("--rm")
+        assert argv[-3:] == ["python", "-c", "print(1)"]
+        # …et AUCUN flag dangereux injecté.
+        for danger in ("--privileged", "-v", "--volume", "--cap-add", "--device"):
+            assert danger not in argv
+        assert "host" not in argv  # ni --network host ni --pid host
+
+    def test_run_command_doit_etre_liste(self, fake_docker, monkeypatch):
+        self._enable(monkeypatch, ["python"])
+        res = docker_control("run", image="python", command="rm -rf /")
+        assert res["ok"] is False and "liste" in res["error"]
+        assert fake_docker.calls == []
+
+    def test_run_present_mutations_dangereuses_absentes(self):
+        from tools.registry import TOOLS
+        tool = next(t for t in TOOLS if t["function"]["name"] == "docker_control")
+        enum = set(tool["function"]["parameters"]["properties"]["action"]["enum"])
+        assert "run" in enum
+        assert enum.isdisjoint({"build", "exec", "rm", "rmi", "kill", "stop", "cp", "commit", "push"})
 
 
 class TestSortie:

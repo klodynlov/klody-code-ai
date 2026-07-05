@@ -114,9 +114,13 @@ composables. L'étape 10 les actionne sans casser l'existant :
    **mutations sécurisées** : `git add`/`commit` **locaux**, gated par `GIT_WRITE_ENABLED`
    (défaut false), même posture sûr-par-défaut que le SQL ; message de commit passé en
    argv (test prouvant qu'un `; rm -rf /` ne s'exécute pas). 29 tests.
-   Les mutations restantes (`docker run`/`build`, `kubectl apply`/`delete`/`scale`,
-   `git push`/`reset`) — primitives d'évasion de l'hôte / de cluster / sortantes — sont
-   réservées aux prochains incréments sécurisés.
+   Puis `docker run` **ultra-contraint** (gated par `DOCKER_WRITE_ENABLED` ET une
+   allowlist d'images non vide) : aucun flag utilisateur, durcissement figé
+   (`--network none`, `--cap-drop ALL`, `no-new-privileges`, limites ressources, pas
+   de montage), image validée+allowlistée, `command` en argv isolée dans le conteneur.
+   36 tests dont la preuve qu'aucun flag dangereux (`--privileged`/`-v`/`host`) n'est
+   émis. Les mutations restantes (`docker build`/`exec`, `kubectl apply`/`delete`/`scale`,
+   `git push`/`reset`) — évasion hôte/cluster ou sortantes — restent hors scope.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 
