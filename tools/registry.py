@@ -1457,7 +1457,63 @@ DOCKER_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS]
+K8S_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "kubectl_control",
+            "description": (
+                "Inspecte un cluster Kubernetes en LECTURE SEULE via kubectl (aucune "
+                "mutation : ni apply, ni create, ni delete, ni scale, ni exec, ni "
+                "rollout). Utilise cet outil pour lister/décrire des ressources, lire "
+                "les logs d'un pod, voir la consommation (top), ou l'état du cluster. "
+                "Actions : get, describe, logs, top, version, cluster-info, "
+                "api-resources. 'get'/'describe'/'top' exigent 'resource' (ex: pods, "
+                "deployments) ; 'describe'/'logs' exigent 'name'. 'namespace' optionnel "
+                "('all' pour tous les namespaces)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération lecture seule.",
+                        "enum": ["get", "describe", "logs", "top", "version",
+                                 "cluster-info", "api-resources"],
+                    },
+                    "resource": {
+                        "type": "string",
+                        "description": "Type de ressource (ex: pods, deployments, svc). Requis pour get/describe/top.",
+                        "default": "",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Nom de la ressource/pod (requis pour describe et logs).",
+                        "default": "",
+                    },
+                    "namespace": {
+                        "type": "string",
+                        "description": "Namespace cible ('all' = tous). Défaut : namespace courant du contexte.",
+                        "default": "",
+                    },
+                    "container": {
+                        "type": "string",
+                        "description": "Pour 'logs' : conteneur précis d'un pod multi-conteneurs.",
+                        "default": "",
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Pour 'logs' : dernières lignes (défaut 200, max 500).",
+                        "default": 200,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

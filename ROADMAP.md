@@ -104,8 +104,11 @@ composables. L'étape 10 les actionne sans casser l'existant :
    Puis `docker_control` : introspection Docker **lecture seule** (ps/images/inspect/
    logs/stats/version/df), aucune mutation du démon ; `subprocess` en argv sans shell,
    sous-commandes hardcodées, cible validée → pas d'injection de commande. 25 tests.
-   Les mutations Docker (`run`/`build`/`exec`) — primitive d'évasion de l'hôte — sont
-   réservées à un incrément sécurisé dédié.
+   Puis `kubectl_control` : introspection Kubernetes **lecture seule** (get/describe/
+   logs/top/version/cluster-info/api-resources), même patron (argv sans shell, verbes
+   hardcodés, resource/name/namespace/container validés, `--request-timeout`). 26 tests.
+   Les mutations Docker/k8s (`run`/`build`/`exec`/`apply`/`delete`/`scale`) — primitives
+   d'évasion de l'hôte / de mutation de cluster — sont réservées à un incrément sécurisé dédié.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 
