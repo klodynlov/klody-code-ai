@@ -132,6 +132,8 @@ composables. L'étape 10 les actionne sans casser l'existant :
 7. **Génération de SDK** — `scaffold_sdk` : client Python typé (dataclass + `httpx.Client`,
    list/get/create/update/delete) consommant l'API générée ; validation partagée avec
    `scaffold_api`, code garanti compilable.
+8. **Génération NoSQL** — `scaffold_nosql` : repository MongoDB typé (dataclass + `pymongo`,
+   CRUD + `ObjectId`) depuis ressource + champs ; validation partagée, code garanti compilable.
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.

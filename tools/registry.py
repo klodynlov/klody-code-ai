@@ -1715,7 +1715,57 @@ SDK_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS]
+NOSQL_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_nosql",
+            "description": (
+                "Génère un repository NoSQL typé pour une ressource. En MongoDB : une "
+                "dataclass + une classe Repository (pymongo) avec list/get/create/update/"
+                "delete/find_by et gestion d'ObjectId. Code déterministe qui compile. "
+                "Utilise cet outil quand on demande de générer un accès MongoDB / une "
+                "couche de données NoSQL. Écris ensuite le code avec write_file ou "
+                "empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs de la ressource (l'_id Mongo est géré à part).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "backend": {
+                        "type": "string",
+                        "description": "Backend NoSQL (mongodb uniquement pour l'instant).",
+                        "enum": ["mongodb"],
+                        "default": "mongodb",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS, *NOSQL_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

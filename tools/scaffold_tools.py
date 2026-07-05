@@ -310,6 +310,79 @@ class %RES%Client:
 '''
 
 
+_NOSQL_TEMPLATE = '''"""Repository MongoDB %RES% — généré par Klody (scaffold_nosql). \
+Nécessite pymongo. Passe une Collection au constructeur."""
+from __future__ import annotations
+%IMPORTS%
+from dataclasses import asdict, dataclass
+from typing import Any
+
+from bson import ObjectId
+from pymongo.collection import Collection
+
+
+@dataclass
+class %RES%:
+%FIELDS%
+
+
+class %RES%Repository:
+    """Accès CRUD à la collection '%PLURAL%' (MongoDB)."""
+
+    def __init__(self, collection: Collection) -> None:
+        self._col = collection
+
+    def list(self, limit: int = 100) -> list[dict[str, Any]]:
+        return list(self._col.find().limit(limit))
+
+    def get(self, oid: str) -> dict[str, Any] | None:
+        return self._col.find_one({"_id": ObjectId(oid)})
+
+    def create(self, item: %RES%) -> str:
+        result = self._col.insert_one(asdict(item))
+        return str(result.inserted_id)
+
+    def update(self, oid: str, item: %RES%) -> int:
+        result = self._col.update_one({"_id": ObjectId(oid)}, {"$set": asdict(item)})
+        return result.modified_count
+
+    def delete(self, oid: str) -> int:
+        result = self._col.delete_one({"_id": ObjectId(oid)})
+        return result.deleted_count
+
+    def find_by(self, **query: Any) -> list[dict[str, Any]]:
+        return list(self._col.find(query))
+'''
+
+
+def _render_mongo(res: str, plural: str,
+                  specs: list[tuple[str, str]], dt_import: str) -> str:
+    fields = "\n".join(f"    {n}: {a}" for n, a in specs)
+    code = (
+        _NOSQL_TEMPLATE
+        .replace("%IMPORTS%", dt_import.rstrip("\n"))
+        .replace("%FIELDS%", fields)
+        .replace("%PLURAL%", plural)
+        .replace("%RES%", res)
+    )
+    return code if dt_import else code.replace("\n\nfrom dataclasses", "\nfrom dataclasses")
+
+
+def scaffold_nosql(resource: str, fields: list | None = None,
+                   backend: str = "mongodb") -> dict:
+    """Génère un repository NoSQL typé pour une ressource. Retourne {ok, code, filename}."""
+    backend = (backend or "mongodb").strip().lower()
+    if backend != "mongodb":
+        return {"ok": False, "error": f"Backend '{backend}' non supporté (mongodb uniquement pour l'instant)."}
+    try:
+        resource, specs, needs_datetime = _validate_resource_fields(resource, fields)
+    except _ScaffoldInvalid as exc:
+        return {"ok": False, "error": str(exc)}
+    dt_import = "from datetime import datetime\n" if needs_datetime else ""
+    code = _render_mongo(_pascal(resource), resource + "s", specs, dt_import)
+    return {"ok": True, "code": code, "filename": f"{resource}_repository.py", "backend": "mongodb"}
+
+
 def _render_python_sdk(res: str, resource: str, plural: str,
                        specs: list[tuple[str, str]], dt_import: str) -> str:
     fields = "\n".join(f"    {n}: {a}" for n, a in specs)
@@ -341,7 +414,9 @@ def scaffold_sdk(resource: str, fields: list | None = None,
 def format_scaffold_result(res: dict) -> str:
     if not res.get("ok"):
         return res.get("error", "Erreur de génération.")
-    if "language" in res:
+    if "backend" in res:
+        kind = "repository MongoDB (pymongo)"
+    elif "language" in res:
         kind = "SDK client Python"
     elif res.get("framework") == "graphql":
         kind = "schéma GraphQL (Strawberry)"
