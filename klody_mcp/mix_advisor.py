@@ -186,3 +186,128 @@ def analyser_balance_tonale(analyse: dict, style: str = "neutre") -> dict:
         "note": "Score de PROXIMITÉ à une courbe heuristique — un repère, pas une note "
         "de qualité. Un mix peut sonner très bien loin de la référence selon l'intention.",
     }
+
+
+# --------------------------------------------------------------------------- #
+# Compression                                                                 #
+# --------------------------------------------------------------------------- #
+
+# Attaque/relâchement de DÉPART par source (ms). Points de départ conventionnels.
+_COMP_SOURCE = {
+    "voix": {"attack_ms": 8, "release_ms": 120, "knee": "douce",
+             "note": "attaque moyenne : garde les consonnes, dompte les tenues"},
+    "mix": {"attack_ms": 30, "release_ms": 150, "knee": "douce",
+            "note": "bus mix : compression collante, peu de réduction (glue)"},
+    "bus": {"attack_ms": 30, "release_ms": 150, "knee": "douce",
+            "note": "bus de groupe : colle sans écraser les transitoires"},
+    "basse": {"attack_ms": 15, "release_ms": 90, "knee": "douce",
+              "note": "tient le niveau ; attaque pas trop rapide pour garder le punch"},
+    "batterie": {"attack_ms": 10, "release_ms": 80, "knee": "dure",
+                 "note": "attaque plus lente = plus de punch ; release calé au tempo"},
+}
+
+
+def recommander_compression(analyse: dict, source: str = "mix") -> dict:
+    """Recommande des réglages de compression à partir de la DYNAMIQUE mesurée.
+
+    Utilise le crest factor (peak − rms) : plus il est haut, plus le signal est
+    dynamique et gagne à être compressé. Déduit ratio + réduction cible + seuil de
+    départ ; attaque/relâchement viennent de la `source`. Points de départ à affiner."""
+    if not isinstance(analyse, dict):
+        return {"error": "analyse invalide."}
+    crest = analyse.get("crest_factor_db")
+    rms = analyse.get("rms_dbfs")
+    if not isinstance(crest, (int, float)) or not isinstance(rms, (int, float)):
+        return {"error": "crest_factor_db / rms_dbfs manquants (analyse audio incomplète)."}
+    src = (source or "mix").strip().lower()
+    if src not in _COMP_SOURCE:
+        src = "mix"
+    tempo = _COMP_SOURCE[src]
+
+    # Ratio + réduction cible selon la dynamique (crest en dB).
+    if crest >= 18:
+        ratio, reduction, dyn = 4.0, "4–6 dB", "très dynamique"
+    elif crest >= 12:
+        ratio, reduction, dyn = 3.0, "3–5 dB", "dynamique"
+    elif crest >= 8:
+        ratio, reduction, dyn = 2.0, "2–3 dB", "modérée"
+    else:
+        ratio, reduction, dyn = 1.5, "1–2 dB (ou rien)", "déjà dense"
+    # Seuil de départ : quelques dB sous le pic moyen (≈ rms + un tiers du crest),
+    # pour n'attraper que le haut de la dynamique. Indicatif.
+    seuil = round(rms + max(2.0, crest / 3.0), 1)
+
+    conseils = []
+    if crest < 8:
+        conseils.append("dynamique déjà faible : peu ou pas de compression, sinon ça pompe.")
+    if src == "batterie":
+        conseils.append("cale le release sur le tempo pour un 'pompage' musical ; essaie la compression parallèle.")
+    if src == "voix":
+        conseils.append("en série léger (3:1) + un 2e comp lent pour le niveau, plutôt qu'un seul fort.")
+
+    return {
+        "source": src, "dynamique": dyn,
+        "crest_factor_db": round(float(crest), 1),
+        "ratio": ratio,
+        "reduction_cible_db": reduction,
+        "seuil_depart_dbfs": seuil,
+        "attack_ms": tempo["attack_ms"], "release_ms": tempo["release_ms"],
+        "knee": tempo["knee"],
+        "note": tempo["note"],
+        "conseils": conseils,
+        "note_methode": "Réglages DÉRIVÉS du crest factor mesuré — points de départ. "
+        "Règle le seuil pour viser la réduction cible au VU, puis affine à l'oreille.",
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Saturation                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def recommander_saturation(analyse: dict, style: str = "neutre") -> dict:
+    """Recommande un type et un dosage de saturation à partir du spectre + dynamique.
+
+    Un signal terne (peu de présence/air) gagne à une saturation qui génère des
+    harmoniques ; un signal déjà brillant en a moins besoin. Le crest oriente le
+    dosage (matériau dynamique = encaisse plus de drive). Points de départ."""
+    be = _band_energy(analyse)
+    if be is None:
+        return {"error": "band_energy manquant dans l'analyse (spectre non calculé)."}
+    crest = analyse.get("crest_factor_db")
+    haut = be["presence"] + be["air"]      # énergie du haut du spectre
+    bas = be["sub"] + be["low"]
+
+    # Type + cible selon le profil spectral. Le cas « bas dominant » est le plus
+    # spécifique : on le teste AVANT la ternité (un morceau très basseux appelle
+    # d'abord un travail des basses, même s'il manque aussi d'aigus).
+    if bas > 0.52:
+        type_sat, cible, pourquoi = "bande (tape)", "bas 120–500 Hz (parallèle)", \
+            "bas dominant : la bande colle et arrondit sans boueux"
+    elif haut < 0.20:
+        type_sat, cible, pourquoi = "lampe (tube)", "présence 2–6 kHz", \
+            "spectre terne : les harmoniques paires réchauffent et ouvrent le haut"
+    else:
+        type_sat, cible, pourquoi = "bande (tape)", "bus global (léger)", \
+            "profil équilibré : une bande douce en bus pour la cohésion"
+
+    # Dosage selon la dynamique.
+    if isinstance(crest, (int, float)) and crest >= 14:
+        drive_pct, dose = 30, "matériau dynamique : peut encaisser un drive marqué"
+    elif isinstance(crest, (int, float)) and crest < 8:
+        drive_pct, dose = 10, "déjà dense : drive léger sinon ça devient dur/fatigant"
+    else:
+        drive_pct, dose = 20, "drive modéré"
+
+    mode = "parallèle" if "parallèle" in cible else "série"
+    return {
+        "style": _resoudre_style(style)[0],
+        "type": type_sat, "cible": cible, "mode": mode,
+        "drive_pct": drive_pct, "dosage_note": dose, "pourquoi": pourquoi,
+        "conseils": [
+            "compense le volume après saturation (elle monte le niveau perçu — compare à niveau égal).",
+            "en parallèle : sature une copie et dose au fader, l'original reste propre.",
+        ],
+        "note_methode": "Type/dosage DÉRIVÉS du spectre et du crest mesurés — points de "
+        "départ. La saturation ajoute des harmoniques : vérifie qu'elle n'agresse pas les aigus.",
+    }

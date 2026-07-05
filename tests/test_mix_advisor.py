@@ -163,3 +163,78 @@ def test_sorties_json_serialisables():
         ma.analyser_balance_tonale(lead, "trap"),
     ):
         json.dumps(r, ensure_ascii=False)
+
+
+# --------------------------------------------------------------------------- #
+# recommander_compression                                                     #
+# --------------------------------------------------------------------------- #
+
+
+def _dyn(crest, rms=-18.0, peak=0.0):
+    return {"crest_factor_db": crest, "rms_dbfs": rms, "peak_dbfs": peak}
+
+
+def test_compression_signal_dynamique_ratio_eleve():
+    r = ma.recommander_compression(_dyn(20.0), "mix")
+    assert r["ratio"] >= 4.0
+    assert r["dynamique"] == "très dynamique"
+
+
+def test_compression_signal_dense_ratio_faible():
+    r = ma.recommander_compression(_dyn(6.0), "mix")
+    assert r["ratio"] <= 1.5
+    assert "déjà dense" in r["dynamique"]
+    assert r["conseils"]  # avertit qu'il faut peu/pas compresser
+
+
+def test_compression_source_change_attaque_release():
+    voix = ma.recommander_compression(_dyn(14.0), "voix")
+    batterie = ma.recommander_compression(_dyn(14.0), "batterie")
+    assert voix["attack_ms"] != batterie["attack_ms"] or voix["release_ms"] != batterie["release_ms"]
+
+
+def test_compression_source_inconnue_retombe_mix():
+    r = ma.recommander_compression(_dyn(14.0), "kazoo")
+    assert r["source"] == "mix"
+
+
+def test_compression_seuil_lie_au_rms():
+    r = ma.recommander_compression(_dyn(12.0, rms=-20.0), "mix")
+    assert r["seuil_depart_dbfs"] > -20.0  # au-dessus du rms
+
+
+def test_compression_metriques_manquantes():
+    assert "error" in ma.recommander_compression({}, "mix")
+    assert "error" in ma.recommander_compression({"crest_factor_db": 10.0}, "mix")
+
+
+# --------------------------------------------------------------------------- #
+# recommander_saturation                                                      #
+# --------------------------------------------------------------------------- #
+
+
+def test_saturation_spectre_terne_propose_tube_presence():
+    terne = _an(0.15, 0.35, 0.35, 0.10, 0.05)
+    terne["crest_factor_db"] = 12.0
+    r = ma.recommander_saturation(terne, "rnb")
+    assert "tube" in r["type"]
+    assert "présence" in r["cible"]
+
+
+def test_saturation_bas_dominant_propose_tape_parallele():
+    bassy = _an(0.35, 0.30, 0.20, 0.10, 0.05)  # bas = 0.65 > 0.52
+    bassy["crest_factor_db"] = 8.0
+    r = ma.recommander_saturation(bassy, "trap")
+    assert "tape" in r["type"]
+    assert r["mode"] == "parallèle"
+
+
+def test_saturation_dosage_selon_dynamique():
+    equilibre = _an(0.12, 0.30, 0.33, 0.17, 0.08)
+    dyn = dict(equilibre, crest_factor_db=16.0)
+    dense = dict(equilibre, crest_factor_db=6.0)
+    assert ma.recommander_saturation(dyn)["drive_pct"] > ma.recommander_saturation(dense)["drive_pct"]
+
+
+def test_saturation_sans_band_energy():
+    assert "error" in ma.recommander_saturation({"crest_factor_db": 10.0}, "pop")

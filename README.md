@@ -186,7 +186,9 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
 | **Musique — composition** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `suggerer_tonalites`, `harmoniser`, `suggerer_accords`, `analyser_progression`, `reharmoniser`, `moduler`, `melodie_vers_midi`, `generer_basse`, `harmonies_vocales`, `idees_chanson`, `composer_demo` |
-| **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
+| **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale`, `recommander_compression`, `recommander_saturation` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
+| **Musique — chant** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `analyser_justesse` (écart en cents vs gamme), `recommander_autotune` (gamme/vitesse/force), `harmonies_vocales` |
+| **Musique — sound design** (`mcp__klodymusic__*`) | `generer_preset_synth` (patch synthé agnostique par rôle/caractère), `organiser_banque` (rangement de samples par catégorie) |
 | **Musique — DAW / voix** | `mcp__reaper__*` (pistes, FX, bus/sends, MIDI, régions, rendu stems, chaîne vocale, arrangement), `mcp__vocalbrain__*` (génération/entraînement de chant) |
 | **🖥️ macOS** (Apple Silicon) | `run_applescript`, `spotlight_search`, `run_shortcut` (HomeKit/Automator), `list_shortcuts`, `reveal_in_finder` |
 | **🏠 Maison / IoT** | `mqtt_publish`, `mqtt_subscribe` (ESP32, Raspberry Pi, Home Assistant, pont HomeKit) |

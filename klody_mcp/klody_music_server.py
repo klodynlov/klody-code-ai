@@ -849,6 +849,126 @@ def analyser_balance_tonale(chemin_audio: str, style: str = "neutre") -> dict:
     return mix_advisor.analyser_balance_tonale(analyse, style)
 
 
+@mcp.tool()
+def recommander_compression(chemin_audio: str, source: str = "mix") -> dict:
+    """Recommande des réglages de compression d'après la dynamique mesurée (crest factor).
+
+    Args:
+        chemin_audio: Chemin du WAV à analyser (absolu ou ~).
+        source: "voix", "mix", "bus", "basse" ou "batterie" (règle attaque/relâchement).
+
+    Returns:
+        {"source","dynamique","crest_factor_db","ratio","reduction_cible_db",
+         "seuil_depart_dbfs","attack_ms","release_ms","knee","conseils"} ou {"error": "..."}.
+    """
+    from klody_mcp import mix_advisor
+    analyse = _analyser_pour_mix(chemin_audio)
+    if "error" in analyse:
+        return analyse
+    return mix_advisor.recommander_compression(analyse, source)
+
+
+@mcp.tool()
+def recommander_saturation(chemin_audio: str, style: str = "neutre") -> dict:
+    """Recommande un type et un dosage de saturation d'après le spectre + la dynamique.
+
+    Args:
+        chemin_audio: Chemin du WAV à analyser (absolu ou ~).
+        style: "neutre","pop","rnb","zouk","afro","trap"/"trap soul","reggae".
+
+    Returns:
+        {"type","cible","mode","drive_pct","dosage_note","pourquoi","conseils"}
+        ou {"error": "..."}.
+    """
+    from klody_mcp import mix_advisor
+    analyse = _analyser_pour_mix(chemin_audio)
+    if "error" in analyse:
+        return analyse
+    return mix_advisor.recommander_saturation(analyse, style)
+
+
+# ---------------------------------------------------------------------------- #
+# Outils MCP — coaching vocal & AutoTune. Cœurs purs dans klody_mcp.vocal_coach. #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+def analyser_justesse(chemin_audio: str, ton: str, tolerance_cents: float = 25.0) -> dict:
+    """Mesure la justesse d'une prise voix vs une gamme (écart en cents, note /100).
+
+    Voix nue / a cappella recommandée (pitch-tracking monophonique).
+
+    Args:
+        chemin_audio: Chemin du WAV (voix seule de préférence), absolu ou ~.
+        ton: Tonalité de référence ("C", "Am", "F#"…).
+        tolerance_cents: Seuil de justesse par frame (défaut 25 = quart de ton).
+
+    Returns:
+        {"ton","note_justesse","verdict","ecart_moyen_cents","tendance","stabilite_cents",
+         "pct_dans_tolerance","pire_ecart","frames","conseils"} ou {"error": "..."}.
+    """
+    from klody_mcp import vocal_coach
+    return vocal_coach.analyser_justesse(chemin_audio, ton, tolerance_cents=tolerance_cents)
+
+
+@mcp.tool()
+def recommander_autotune(ton: str, style: str = "pop", justesse_cents: float | None = None) -> dict:
+    """Réglages de départ pour un correcteur de hauteur (gamme, vitesse, force).
+
+    Args:
+        ton: Tonalité de la prise ("C", "Am", "F#"…) — définit la gamme à charger.
+        style: "trap"/"trap soul","drill","pop","afro","zouk","rnb","soul","ballade","jazz".
+        justesse_cents: Écart moyen mesuré (sortie d'analyser_justesse) pour doser la force.
+
+    Returns:
+        {"ton","style","gamme_a_charger","note_reference","retune_speed_ms","force_pct",
+         "reglages_complementaires","note"} ou {"error": "..."}.
+    """
+    from klody_mcp import vocal_coach
+    return vocal_coach.recommander_autotune(ton, style, justesse_cents=justesse_cents)
+
+
+# ---------------------------------------------------------------------------- #
+# Outils MCP — sound design (presets de synthé + banques). Cœurs purs dans       #
+# klody_mcp.sound_design.                                                        #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+def generer_preset_synth(role: str, caractere: str = "neutre", ton: str = "") -> dict:
+    """Génère un patch de synthé soustractif agnostique (osc/filtre/env/LFO/effets).
+
+    Args:
+        role: "basse","sub","lead","pad","pluck","keys","brass","arp" (alias : 808→basse…).
+        caractere: "neutre","chaud","brillant","sombre","agressif","doux","large","vintage".
+        ton: Note de référence optionnelle ("C","F#"…).
+
+    Returns:
+        {"nom","role","caractere","patch":{oscillateurs,filtre,amp_env,filtre_env,lfo,
+         unison,glide_ms,polyphonie,effets,drive?},"note"} ou {"error": "..."}.
+    """
+    from klody_mcp import sound_design
+    return sound_design.generer_preset_synth(role, caractere, ton)
+
+
+@mcp.tool()
+def organiser_banque(root: str = "", limit: int = 5000) -> dict:
+    """Range une banque de samples locale par catégorie (kick/snare/hat/808/synth/vocal…).
+
+    Lecture seule : ne déplace rien, propose une arborescence. Catégorie déduite du nom.
+
+    Args:
+        root: Racine de la banque (dossier). Vide = env KLODY_SAMPLES_DIR.
+        limit: Nombre max de fichiers parcourus (défaut 5000).
+
+    Returns:
+        {"root","total_fichiers","categories","counts","midi","presets",
+         "non_categorises","arborescence_suggeree"} ou {"error": "..."}.
+    """
+    from klody_mcp import sound_design
+    return sound_design.organiser_banque(root or None, limit=limit)
+
+
 # ---------------------------------------------------------------------------- #
 # Idéation de chanson (features audio + paroles + brain créatif)                #
 # ---------------------------------------------------------------------------- #
