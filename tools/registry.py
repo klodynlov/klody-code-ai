@@ -1325,7 +1325,306 @@ CODE_GRAPH_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS]
+# ─────────────────────────────────────────────────────────────────────────────
+# Pilotage de l'environnement (macOS Apple Silicon) — AppleScript, Spotlight,
+# Raccourcis (HomeKit/Automator), Finder. Cf. tools/mac_control.py.
+# ─────────────────────────────────────────────────────────────────────────────
+MAC_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_applescript",
+            "description": (
+                "macOS uniquement. Exécute un AppleScript (`osascript`) pour piloter "
+                "n'importe quelle app scriptable (Music, Notes, Mail, Finder…). "
+                "Les verbes destructeurs (suppression, vidage corbeille, extinction, "
+                "`do shell script`, contrôle UI synthétique) sont refusés."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script": {
+                        "type": "string",
+                        "description": 'Source AppleScript, ex. tell application "Music" to play',
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Pourquoi cette automatisation (traçabilité).",
+                    },
+                },
+                "required": ["script"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spotlight_search",
+            "description": (
+                "macOS uniquement. Recherche indexée Spotlight (`mdfind`), lecture "
+                "seule : retrouve fichiers/apps par nom ou contenu."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Requête Spotlight (texte, ou expression kMDItem…).",
+                    },
+                    "only_in": {
+                        "type": "string",
+                        "description": "Dossier où restreindre la recherche (optionnel).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Résultats max (défaut 20, plafond 200).",
+                        "default": 20,
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_shortcuts",
+            "description": (
+                "macOS uniquement. Liste les Raccourcis Apple disponibles "
+                "(`shortcuts list`), lecture seule."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shortcut",
+            "description": (
+                "macOS uniquement. Exécute un Raccourci Apple par son nom "
+                "(`shortcuts run`). Passerelle universelle : HomeKit (scènes, "
+                "accessoires), Automator/Quick Actions, et toute automatisation créée "
+                "par l'utilisateur."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Nom exact du raccourci (voir list_shortcuts).",
+                    },
+                    "input_text": {
+                        "type": "string",
+                        "description": "Entrée texte passée au raccourci (optionnel).",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reveal_in_finder",
+            "description": (
+                "macOS uniquement. Révèle un fichier/dossier dans le Finder "
+                "(`open -R`). Chemin confiné aux racines autorisées."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Chemin à révéler."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Maison connectée / IoT (MQTT) — ESP32, Raspberry Pi, Home Assistant, HomeKit
+# via pont. Cf. tools/home_automation.py.
+# ─────────────────────────────────────────────────────────────────────────────
+HOME_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "mqtt_publish",
+            "description": (
+                "Publie un message MQTT (commande un appareil domotique : lampe, "
+                "relais ESP32, capteur Raspberry Pi, pont HomeKit…). Broker local "
+                "par défaut. Nécessite paho-mqtt."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic MQTT, ex. maison/salon/lampe/set"},
+                    "payload": {"type": "string", "description": "Charge utile, ex. ON ou {\"state\":\"on\"}"},
+                    "host": {"type": "string", "description": "Broker (défaut : broker local)."},
+                    "port": {"type": "integer", "description": "Port broker (défaut 1883)."},
+                    "retain": {"type": "boolean", "description": "Message retenu (dernière valeur).", "default": False},
+                    "qos": {"type": "integer", "description": "QoS MQTT 0/1/2 (défaut 0).", "default": 0},
+                },
+                "required": ["topic", "payload"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mqtt_subscribe",
+            "description": (
+                "Écoute un topic MQTT pendant un temps BORNÉ et renvoie les messages "
+                "reçus (lit l'état d'un capteur, vérifie qu'un appareil répond). "
+                "S'arrête au timeout ou à max_messages. Nécessite paho-mqtt."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic/filtre, ex. maison/# ou capteurs/+/temp"},
+                    "host": {"type": "string", "description": "Broker (défaut : broker local)."},
+                    "port": {"type": "integer", "description": "Port broker (défaut 1883)."},
+                    "timeout": {"type": "integer", "description": "Durée d'écoute max en s (plafond 60).", "default": 10},
+                    "max_messages": {"type": "integer", "description": "Messages max (plafond 50).", "default": 10},
+                },
+                "required": ["topic"],
+            },
+        },
+    },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Automatisation de fichiers — renommage, organisation, sauvegarde, synchro.
+# Sandboxé multi-racines. Cf. tools/automation.py.
+# ─────────────────────────────────────────────────────────────────────────────
+AUTOMATION_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "batch_rename",
+            "description": (
+                "Renomme en lot les fichiers d'un dossier (motif → remplacement). "
+                "dry_run=True par défaut : montre d'abord le plan. Fichiers sensibles "
+                "ignorés."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Dossier cible."},
+                    "pattern": {"type": "string", "description": "Sous-chaîne (ou regex) à trouver dans le nom."},
+                    "replacement": {"type": "string", "description": "Texte de remplacement."},
+                    "use_regex": {"type": "boolean", "description": "Interpréter pattern comme regex.", "default": False},
+                    "recursive": {"type": "boolean", "description": "Descendre dans les sous-dossiers.", "default": False},
+                    "dry_run": {"type": "boolean", "description": "Simuler sans renommer (défaut True).", "default": True},
+                },
+                "required": ["directory", "pattern", "replacement"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "organize_directory",
+            "description": (
+                "Range les fichiers d'un dossier dans des sous-dossiers, par type "
+                "(catégorie d'extension) ou par date (AAAA-MM). dry_run=True par défaut."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Dossier à organiser."},
+                    "by": {"type": "string", "enum": ["type", "date"], "description": "Critère (défaut type).", "default": "type"},
+                    "dry_run": {"type": "boolean", "description": "Simuler sans déplacer (défaut True).", "default": True},
+                },
+                "required": ["directory"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "backup_directory",
+            "description": (
+                "Crée une archive .tar.gz horodatée d'un dossier (sauvegarde). "
+                "Destination par défaut : le dossier parent de la source."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Dossier à sauvegarder."},
+                    "destination": {"type": "string", "description": "Dossier où écrire l'archive (optionnel)."},
+                },
+                "required": ["source"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_directories",
+            "description": (
+                "Synchronise (copie incrémentale) un dossier source vers une "
+                "destination. delete=True fait un vrai miroir (supprime les extras). "
+                "dry_run=True par défaut."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Dossier source (référence)."},
+                    "destination": {"type": "string", "description": "Dossier destination (mis à jour)."},
+                    "delete": {"type": "boolean", "description": "Supprimer de la dest les fichiers absents de la source.", "default": False},
+                    "dry_run": {"type": "boolean", "description": "Simuler sans écrire (défaut True).", "default": True},
+                },
+                "required": ["source", "destination"],
+            },
+        },
+    },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Toolsmithing — Klody fabrique ses propres outils. Cf. tools/toolsmith.py.
+# ─────────────────────────────────────────────────────────────────────────────
+TOOLSMITH_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_tool",
+            "description": (
+                "Fabrique un outil neuf et écrit ses fichiers (au lieu de seulement "
+                "utiliser des outils, Klody en construit). kind ∈ python_script, cli, "
+                "api, mcp_server, workflow, pipeline, klody_plugin, web_interface. "
+                "Chaque artefact Python généré est valide et livré avec son test."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "python_script", "cli", "api", "mcp_server",
+                            "workflow", "pipeline", "klody_plugin", "web_interface",
+                        ],
+                        "description": "Type d'artefact à générer.",
+                    },
+                    "name": {"type": "string", "description": "Nom de l'outil (→ dossier + identifiant assaini)."},
+                    "target_dir": {"type": "string", "description": "Dossier parent (racine autorisée ; défaut : courant)."},
+                    "description": {"type": "string", "description": "Courte description injectée dans les fichiers."},
+                },
+                "required": ["kind", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tool_kinds",
+            "description": "Liste les types d'outils que Klody sait fabriquer (toolsmithing).",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

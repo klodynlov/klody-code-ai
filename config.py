@@ -273,6 +273,12 @@ GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
 PROJECTS_DIR: Path = Path(os.getenv("PROJECTS_DIR", str(Path.home() / "Projets"))).resolve()
 PYCHARM_CMD: str = os.getenv("PYCHARM_CMD", "/usr/local/bin/pycharm")
 
+# --- Maison connectée / IoT (MQTT) ---
+# Broker par défaut visé par les outils mqtt_publish / mqtt_subscribe. Défaut :
+# broker local (Mosquitto, Home Assistant…). Surchargeable en .env.
+MQTT_DEFAULT_HOST: str = os.getenv("MQTT_DEFAULT_HOST", "127.0.0.1")
+MQTT_DEFAULT_PORT: int = int(os.getenv("MQTT_DEFAULT_PORT", "1883"))
+
 # --- Sandbox multi-racines (lecture/écriture) ---
 # Liste de dossiers (séparés par os.pathsep, ':' sur macOS/Linux) où Klody peut
 # lire et écrire. Le projet courant (PROJECT_ROOT) est toujours autorisé même
