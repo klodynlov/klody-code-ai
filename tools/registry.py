@@ -1581,7 +1581,40 @@ GIT_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS]
+DIAGRAM_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_uml",
+            "description": (
+                "Génère un diagramme de CLASSES UML au format Mermaid à partir de la "
+                "STRUCTURE RÉELLE du code (classes + méthodes), via l'index tree-sitter "
+                "— fidèle au code, pas à une intention supposée. Sortie 100 % texte "
+                "(bloc ```mermaid) rendue par l'UI / GitHub. Utilise cet outil quand on "
+                "demande un diagramme de classes, une vue d'ensemble structurelle ou un "
+                "schéma UML d'un module/projet. Langages indexés : Python, JS, TS."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Dossier à diagrammer (relatif au projet ou absolu sous racine autorisée). Défaut : projet courant.",
+                        "default": "",
+                    },
+                    "max_classes": {
+                        "type": "integer",
+                        "description": "Nombre max de classes dans le diagramme (défaut 40).",
+                        "default": 40,
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

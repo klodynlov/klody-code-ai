@@ -42,7 +42,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
 | 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 52 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 53 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,7 +63,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (52)"]
+    subgraph TOOLS["🧰 Outils natifs (53)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -172,12 +172,12 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (52 natifs + connecteurs MCP)
+## Outils disponibles (53 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
-| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies` |
+| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies`, `generate_uml` (diagramme de classes Mermaid depuis le code) |
 | **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
 | **Ops / runtime** | `docker_control` (Docker : ps/images/inspect/logs/stats en lecture seule ; `run` ultra-contraint si activé), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…), `git_control` (Git : status, log, diff, show, blame… en lecture seule ; add/commit locaux si `GIT_WRITE_ENABLED`) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |

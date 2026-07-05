@@ -123,6 +123,8 @@ composables. L'étape 10 les actionne sans casser l'existant :
    `git push`/`reset`) — évasion hôte/cluster ou sortantes — restent hors scope.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
+5. **Diagrammes UML** — `generate_uml` : diagramme de classes **Mermaid** dérivé de la
+   structure réelle du code (via l'index tree-sitter), sortie texte confinée aux racines.
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.

@@ -455,6 +455,14 @@ class CodeIndex:
                     out.append(s)
         return out
 
+    def iter_symbols(self) -> list[Symbol]:
+        """Tous les symboles indexés (vues d'ensemble : diagrammes UML, stats)."""
+        self.refresh()
+        out: list[Symbol] = []
+        for idx in self._files.values():
+            out.extend(idx.symbols)
+        return out
+
     def find_references(self, name: str, max_results: int = 50) -> list[Reference]:
         """Liste les références à un nom dans tout le projet."""
         self.refresh()

@@ -1332,6 +1332,7 @@ class Orchestrator:
             "docker_control": self._tool_docker_control,
             "kubectl_control": self._tool_kubectl_control,
             "git_control": self._tool_git_control,
+            "generate_uml": self._tool_generate_uml,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1498,6 +1499,15 @@ class Orchestrator:
             message=a.get("message", ""),
         )
         return format_git_result(res)
+
+    def _tool_generate_uml(self, a: dict) -> str:
+        from tools.diagram_tools import format_diagram_result, generate_class_diagram
+        try:
+            max_classes = int(a.get("max_classes", 40) or 40)
+        except (TypeError, ValueError):
+            max_classes = 40
+        res = generate_class_diagram(a.get("path", ""), max_classes=max_classes)
+        return format_diagram_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio
