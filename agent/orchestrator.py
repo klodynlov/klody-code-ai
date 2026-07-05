@@ -45,6 +45,12 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+from tools.automation import (
+    backup_directory as auto_backup,
+    batch_rename as auto_rename,
+    organize_directory as auto_organize,
+    sync_directories as auto_sync,
+)
 from tools.file_manager import FileManager, SandboxViolation
 from tools.github_reader import (
     browse_repo as gh_browse_repo,
@@ -53,8 +59,19 @@ from tools.github_reader import (
     list_indexed_repos as gh_list_indexed,
     read_github_file as gh_read_file,
 )
+from tools.home_automation import (
+    mqtt_publish as home_mqtt_publish,
+    mqtt_subscribe as home_mqtt_subscribe,
+)
 from tools.library_distiller import distill_theme
 from tools.llm_import import import_llm_export, list_imports
+from tools.mac_control import (
+    list_shortcuts as mac_list_shortcuts,
+    reveal_in_finder as mac_reveal,
+    run_applescript as mac_applescript,
+    run_shortcut as mac_run_shortcut,
+    spotlight_search as mac_spotlight,
+)
 from tools.mcp_client import (
     catalog_lookup as mcp_catalog,
     get_skills as mcp_get_skills,
@@ -87,6 +104,7 @@ from tools.skills import (
     select_skills,
 )
 from tools.terminal import CommandBlocked, Terminal
+from tools.toolsmith import list_kinds as ts_list_kinds, scaffold_tool as ts_scaffold
 from tools.vision import analyser_image as vn_analyser_image
 from tools.voice import speak as vc_speak
 
@@ -379,6 +397,10 @@ _PRODUCING_TOOLS = frozenset({
     # Générateurs d'artefacts téléchargeables (même piège : produire un .xlsx
     # puis « tu as fini ? » routé `explain` ne doit pas dead-locker).
     "generate_excel", "generate_text_file", "bundle_zip", "import_llm_export",
+    # Toolsmithing + automatisation de fichiers : produisent des artefacts sur
+    # disque (même piège anti-boucle que write_file — ne pas dead-locker après).
+    "scaffold_tool", "backup_directory", "batch_rename", "organize_directory",
+    "sync_directories",
 })
 
 # Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
@@ -1393,6 +1415,35 @@ class Orchestrator:
             "generate_excel": self._tool_generate_excel,
             "generate_text_file": self._tool_generate_text_file,
             "bundle_zip": self._tool_bundle_zip,
+            # Pilotage macOS (Apple Silicon)
+            "run_applescript": lambda a: mac_applescript(a["script"], a.get("reason", "")),
+            "spotlight_search": lambda a: mac_spotlight(
+                a["query"], a.get("only_in", ""), int(a.get("limit", 20) or 20)),
+            "list_shortcuts": lambda a: mac_list_shortcuts(),
+            "run_shortcut": lambda a: mac_run_shortcut(a["name"], a.get("input_text", "")),
+            "reveal_in_finder": lambda a: mac_reveal(a["path"]),
+            # Maison connectée / IoT (MQTT)
+            "mqtt_publish": lambda a: home_mqtt_publish(
+                a["topic"], a["payload"], a.get("host", ""), int(a.get("port", 0) or 0),
+                _as_bool(a.get("retain", False)), int(a.get("qos", 0) or 0)),
+            "mqtt_subscribe": lambda a: home_mqtt_subscribe(
+                a["topic"], a.get("host", ""), int(a.get("port", 0) or 0),
+                int(a.get("timeout", 10) or 10), int(a.get("max_messages", 10) or 10)),
+            # Automatisation de fichiers
+            "batch_rename": lambda a: auto_rename(
+                a["directory"], a["pattern"], a["replacement"],
+                _as_bool(a.get("use_regex", False)), _as_bool(a.get("recursive", False)),
+                _as_bool(a.get("dry_run", True))),
+            "organize_directory": lambda a: auto_organize(
+                a["directory"], a.get("by", "type"), _as_bool(a.get("dry_run", True))),
+            "backup_directory": lambda a: auto_backup(a["source"], a.get("destination", "")),
+            "sync_directories": lambda a: auto_sync(
+                a["source"], a["destination"], _as_bool(a.get("delete", False)),
+                _as_bool(a.get("dry_run", True))),
+            # Toolsmithing — Klody fabrique ses outils
+            "scaffold_tool": lambda a: ts_scaffold(
+                a["kind"], a["name"], a.get("target_dir", ""), a.get("description", "")),
+            "list_tool_kinds": lambda a: ts_list_kinds(),
         }
         # Audio : 6 outils, même handler paramétré par le nom (n=_name fige la
         # valeur de boucle dans le défaut → pas de closure tardive).
