@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -178,17 +179,16 @@ def _session_file(session_id: str) -> Path | None:
     """Chemin du fichier d'une session, ou None si l'id est invalide.
 
     `session_id` vient de l'URL / du WebSocket (donnée non maîtrisée) → défense
-    anti-traversée : on n'accepte qu'un id alphanumérique (plus `_`/`-`), ce qui
-    exclut `/`, `.` et `..`, AVANT de construire le chemin ; puis on vérifie que
-    le fichier résolu reste bien sous MEMORY_DIR. Casse la chaîne de « tainted
-    path » signalée par CodeQL (uncontrolled data used in path expression).
+    anti-traversée : on le passe par `os.path.basename` (neutralise toute
+    composante de chemin — `/`, `..`, chemin absolu), on exige qu'il n'ait pas
+    changé ET qu'il tienne dans l'allowlist [A-Za-z0-9_-] ; SEUL cet id assaini
+    construit le chemin. `basename` est le sanitizer reconnu par CodeQL qui casse
+    la chaîne « uncontrolled data used in path expression ».
     """
-    if not _SESSION_ID_RE.match(session_id or ""):
+    safe = os.path.basename(session_id or "")
+    if safe != session_id or not _SESSION_ID_RE.fullmatch(safe):
         return None
-    p = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if p.resolve().parent != config.MEMORY_DIR.resolve():
-        return None
-    return p
+    return config.MEMORY_DIR / f"memory_{safe}.json"
 
 
 @app.get("/api/sessions")
