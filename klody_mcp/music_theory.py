@@ -207,11 +207,9 @@ def analyser_progression(accords, ton: str = "") -> dict:
         if ton:
             k = _parse_key(ton, m21)
             infere = False
-            confiance = None
         else:
             k, diat, total = _inferer_tonalite(chords, m21)
             infere = True
-            confiance = round(diat / total, 2) if total else None
 
         analyse = []
         degres = []
@@ -235,7 +233,9 @@ def analyser_progression(accords, ton: str = "") -> dict:
             "(tension → veut résoudre vers la Tonique).",
         }
         if infere:
-            out["confiance_tonalite"] = confiance
+            # diat/total ne sont liés que dans la branche `else` ci-dessus — lus
+            # UNIQUEMENT ici, sous la même condition (infere) : toujours définis.
+            out["confiance_tonalite"] = round(diat / total, 2) if total else None
             out["note_tonalite"] = (
                 "Tonalité INFÉRÉE (hypothèse) : passe `ton` explicitement pour l'imposer."
             )
