@@ -42,7 +42,9 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
 | 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 6 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 47 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 60 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🖥️ **Pilote ton environnement** | macOS (AppleScript, Spotlight, Raccourcis→HomeKit/Automator, Finder), maison connectée (MQTT : ESP32, Raspberry Pi), automatisation fichiers (renommage, organisation, sauvegarde, synchro). |
+| 🔨 **Toolsmithing** | Klody ne se contente pas d'utiliser des outils, il les **fabrique** : scripts, CLI, APIs FastAPI, serveurs MCP, workflows, pipelines, plugins Klody, interfaces web — chacun livré avec son test. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,11 +65,12 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (47)"]
+    subgraph TOOLS["🧰 Outils natifs (60)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
         T3["github · preview<br/>audio · skills · mémoire"]
+        T4["macOS · MQTT<br/>automatisation · toolsmithing"]
     end
 
     MCPC -->|outils Gmail| GM["📧 Serveur MCP Gmail · :8084"]
@@ -172,7 +175,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (47 natifs + connecteurs MCP)
+## Outils disponibles (60 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
@@ -185,15 +188,44 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **Musique — composition** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `suggerer_tonalites`, `harmoniser`, `suggerer_accords`, `analyser_progression`, `reharmoniser`, `moduler`, `melodie_vers_midi`, `generer_basse`, `harmonies_vocales`, `idees_chanson`, `composer_demo` |
 | **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
 | **Musique — DAW / voix** | `mcp__reaper__*` (pistes, FX, bus/sends, MIDI, régions, rendu stems, chaîne vocale, arrangement), `mcp__vocalbrain__*` (génération/entraînement de chant) |
+| **🖥️ macOS** (Apple Silicon) | `run_applescript`, `spotlight_search`, `run_shortcut` (HomeKit/Automator), `list_shortcuts`, `reveal_in_finder` |
+| **🏠 Maison / IoT** | `mqtt_publish`, `mqtt_subscribe` (ESP32, Raspberry Pi, Home Assistant, pont HomeKit) |
+| **🧹 Automatisation** | `batch_rename`, `organize_directory`, `backup_directory`, `sync_directories` (sandboxés, `dry_run` par défaut) |
+| **🔨 Toolsmithing** | `scaffold_tool` (script, cli, api, mcp_server, workflow, pipeline, klody_plugin, web_interface), `list_tool_kinds` |
 | **RAG / Skills** | `search_books`, `learn_from_books`, `get_skills`, `save_skill`, `list_skills`, `delete_skill` |
 | **Mémoire** | `remember_fact`, `forget_fact` |
 | **Connecteurs MCP** | `mcp__gmail__*` (8 outils), `mcp__web__*` (fetch_url, web_search), + tout serveur MCP branché |
+
+### 🔨 Toolsmithing — Klody fabrique ses propres outils
+
+Le module le plus puissant : plutôt que de seulement *utiliser* des outils, Klody
+en **construit** de neufs, prêts à l'emploi et livrés avec leur test.
+
+```
+scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
+→ capteurs_maison/capteurs_maison_server.py  (serveur MCP FastMCP)
+  capteurs_maison/test_capteurs_maison_server.py
+  capteurs_maison/requirements.txt + README.md
+```
+
+| `kind` | Produit |
+|---|---|
+| `python_script` | script CLI autonome (argparse) + test |
+| `cli` | CLI multi-commandes (sous-commandes) + test |
+| `api` | API FastAPI (health + echo) + test TestClient |
+| `mcp_server` | serveur MCP FastMCP branchable dans Klody + test |
+| `workflow` | orchestrateur d'étapes séquentielles + test |
+| `pipeline` | pipeline ETL (extract → transform → load) + test |
+| `klody_plugin` | plugin outil Klody (schéma registry + handler) |
+| `web_interface` | interface web statique autonome (HTML + JS) |
 
 ## Sécurité
 
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
 - **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
+- **Pilotage macOS** : garde plateforme (hors macOS → message clair, jamais d'exception) ; **blocklist AppleScript** (suppression, vidage corbeille, extinction, `do shell script`, contrôle UI synthétique refusés) ; `reveal_in_finder`/Spotlight confinés aux racines autorisées ; timeouts + sortie plafonnée.
+- **Automatisation & toolsmithing** : opérations de masse en **`dry_run` par défaut** (montrent le plan avant d'agir) ; fichiers sensibles exclus partout ; destinations confinées aux racines autorisées ; refus d'écraser un dossier existant. **MQTT** borné (écoute à timeout dur, payload plafonné, broker local par défaut).
 - **Secrets** : `.env` gitignoré, jamais hardcodés ni loggés. **Commits signés** (ED25519), branch protection sur `main`.
 - **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI.
 

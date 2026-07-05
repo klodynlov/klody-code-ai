@@ -69,13 +69,36 @@ Coût marginal nul (même contexte conservé), qualité ++.
 | ✅ 7 | **Best-of-N conditionnel** (LLM-as-judge)        | done   | infra prête, gated par router ; gain non mesurable sur hard synthétique |
 | ✅ 8 | **Memory utile** (conventions + erreurs)         | done   | **5 conventions** sur Klody en 583ms (cible ≥3)          |
 | ✅ 9 | **Optims** (MCP expose ✅, LoRA scaffolding ✅, spec decoding ⚠) | done | Klody MCP server 8 outils ; pipeline LoRA prêt ; spec decoding sans gain sur MoE |
+| ✅ 10 | **Pilotage de l'environnement + Toolsmithing** | done | macOS (AppleScript/Spotlight/Raccourcis/Finder), maison (MQTT), automatisation fichiers, et **toolsmithing** (Klody fabrique scripts/CLI/API/serveurs MCP/workflows/pipelines/plugins/interfaces). 60 outils au total, chaque artefact généré livré avec son test. |
 
-**Total : 9/9 étapes livrées, 460 tests, ~12 commits.**
+**Total : 10/10 étapes livrées.**
 
 Klody est passé d'un ReAct mono-modèle Ollama qwen2.5-coder:32b à un système
 agentique adaptatif MLX multi-modèles avec routing, hot-swap prompts, sandbox
 auto-feedback, retrieval code-aware, best-of-N gated, memory de conventions,
 mémoire d'erreurs récurrentes, et exposé comme serveur MCP pour d'autres agents.
+
+### Étape 10 — Pilotage de l'environnement & Toolsmithing
+
+Avec Apple Silicon et les bons connecteurs, Klody pilote l'environnement — et,
+surtout, **fabrique ses propres outils** plutôt que de seulement les utiliser.
+
+- **Mac** (`tools/mac_control.py`) — `run_applescript` (toute app scriptable),
+  `spotlight_search` (`mdfind`), `run_shortcut` + `list_shortcuts` (passerelle
+  Raccourcis → HomeKit / Automator / automatisations), `reveal_in_finder`. Terminal
+  déjà couvert par `execute_command`. Garde plateforme hors macOS + blocklist
+  AppleScript (destruction / shell / contrôle UI refusés).
+- **Maison** (`tools/home_automation.py`) — `mqtt_publish` / `mqtt_subscribe` :
+  dénominateur commun d'ESP32, Raspberry Pi, Home Assistant et ponts HomeKit.
+  paho-mqtt optionnel, écoute bornée (timeout dur + max messages).
+- **Automatisation** (`tools/automation.py`) — `batch_rename`, `organize_directory`
+  (par type ou date), `backup_directory` (archive horodatée), `sync_directories`
+  (miroir incrémental). Sandboxés, `dry_run` par défaut, fichiers sensibles exclus.
+- **Toolsmithing** (`tools/toolsmith.py`) — `scaffold_tool(kind, name, …)` génère un
+  artefact réel et testé : `python_script`, `cli`, `api` (FastAPI), `mcp_server`
+  (FastMCP), `workflow`, `pipeline` (ETL), `klody_plugin`, `web_interface`. Chaque
+  Python généré est valide (vérifié par `compile` dans les tests) ; les artefacts à
+  test sont livrés avec leur `pytest`.
 
 ## Métriques du bench (étape 1)
 
