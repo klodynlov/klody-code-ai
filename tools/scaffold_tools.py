@@ -91,16 +91,81 @@ def delete_%res%(item_id: int) -> None:
 '''
 
 
+_GRAPHQL_TEMPLATE = '''"""Schéma GraphQL %RES% — généré par Klody (scaffold_api, Strawberry). \
+Store en mémoire ; brancher une vraie persistance en production."""
+from __future__ import annotations
+%IMPORTS%
+import strawberry
+
+
+@strawberry.type
+class %RES%:
+    id: int
+%INPUT_FIELDS%
+
+
+@strawberry.input
+class %RES%Input:
+%INPUT_FIELDS%
+
+
+_store: dict[int, %RES%] = {}
+_next_id = 1
+
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    def %res%s(self) -> list[%RES%]:
+        return list(_store.values())
+
+    @strawberry.field
+    def %res%(self, id: int) -> %RES% | None:
+        return _store.get(id)
+
+
+@strawberry.type
+class Mutation:
+    @strawberry.mutation
+    def create_%res%(self, data: %RES%Input) -> %RES%:
+        global _next_id
+        obj = %RES%(id=_next_id, %CTOR%)
+        _store[_next_id] = obj
+        _next_id += 1
+        return obj
+
+    @strawberry.mutation
+    def update_%res%(self, id: int, data: %RES%Input) -> %RES% | None:
+        if id not in _store:
+            return None
+        obj = %RES%(id=id, %CTOR%)
+        _store[id] = obj
+        return obj
+
+    @strawberry.mutation
+    def delete_%res%(self, id: int) -> bool:
+        return _store.pop(id, None) is not None
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation)
+'''
+
+
 def _pascal(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_")) or "Resource"
+
+
+_FRAMEWORKS = frozenset({"fastapi", "graphql"})
 
 
 def scaffold_api(resource: str, fields: list | None = None,
                  framework: str = "fastapi") -> dict:
     """Génère un module CRUD. Retourne {ok, code, filename, framework} ou {ok:False,error}."""
     framework = (framework or "fastapi").strip().lower()
-    if framework != "fastapi":
-        return {"ok": False, "error": f"Framework '{framework}' non supporté (fastapi uniquement pour l'instant)."}
+    if framework not in _FRAMEWORKS:
+        return {"ok": False, "error": (
+            f"Framework '{framework}' non supporté. Choix : {', '.join(sorted(_FRAMEWORKS))}."
+        )}
 
     resource = (resource or "").strip().lower()
     if not _IDENT_RE.match(resource):
@@ -114,7 +179,7 @@ def scaffold_api(resource: str, fields: list | None = None,
     if len(fields) > _MAX_FIELDS:
         return {"ok": False, "error": f"Trop de champs (> {_MAX_FIELDS})."}
 
-    field_lines: list[str] = []
+    specs: list[tuple[str, str]] = []  # (nom, annotation) — partagé entre renderers
     needs_datetime = False
     seen: set[str] = set()
     for f in fields:
@@ -124,7 +189,7 @@ def scaffold_api(resource: str, fields: list | None = None,
         ftype = str(f.get("type", "")).strip().lower()
         if not _IDENT_RE.match(fname):
             return {"ok": False, "error": f"Nom de champ invalide : '{fname}'."}
-        if fname in ("id",) or fname in seen:
+        if fname == "id" or fname in seen:
             return {"ok": False, "error": f"Champ '{fname}' réservé ou dupliqué."}
         if ftype not in _TYPES:
             return {"ok": False, "error": (
@@ -133,33 +198,58 @@ def scaffold_api(resource: str, fields: list | None = None,
         seen.add(fname)
         annotation, dt = _TYPES[ftype]
         needs_datetime = needs_datetime or dt
-        field_lines.append(f"    {fname}: {annotation}")
+        specs.append((fname, annotation))
 
-    if not field_lines:
-        field_lines.append("    name: str")  # défaut sensé si aucun champ fourni
+    if not specs:
+        specs.append(("name", "str"))  # défaut sensé si aucun champ fourni
 
     res = _pascal(resource)
-    plural = resource + "s"
-    imports = "from datetime import datetime\n" if needs_datetime else ""
+    dt_import = "from datetime import datetime\n" if needs_datetime else ""
+    if framework == "graphql":
+        code = _render_graphql(res, resource, specs, dt_import)
+        filename = f"{resource}_schema.py"
+    else:
+        code = _render_fastapi(res, resource + "s", resource, specs, dt_import)
+        filename = f"{resource}_api.py"
+
+    return {"ok": True, "code": code, "filename": filename, "framework": framework}
+
+
+def _render_fastapi(res: str, plural: str, resource: str,
+                    specs: list[tuple[str, str]], dt_import: str) -> str:
+    fields = "\n".join(f"    {n}: {a}" for n, a in specs)
     code = (
         _TEMPLATE
-        .replace("%IMPORTS%", imports.rstrip("\n"))
-        .replace("%FIELDS%", "\n".join(field_lines))
+        .replace("%IMPORTS%", dt_import.rstrip("\n"))
+        .replace("%FIELDS%", fields)
         .replace("%PLURAL%", plural)
         .replace("%RES%", res)
         .replace("%res%", resource)
     )
-    # Nettoie une éventuelle ligne d'import vide.
-    code = code.replace("\n\nfrom fastapi", "\nfrom fastapi") if not imports else code
+    return code if dt_import else code.replace("\n\nfrom fastapi", "\nfrom fastapi")
 
-    return {"ok": True, "code": code, "filename": f"{resource}_api.py", "framework": "fastapi"}
+
+def _render_graphql(res: str, resource: str,
+                    specs: list[tuple[str, str]], dt_import: str) -> str:
+    input_fields = "\n".join(f"    {n}: {a}" for n, a in specs)
+    ctor = ", ".join(f"{n}=data.{n}" for n, _ in specs)
+    code = (
+        _GRAPHQL_TEMPLATE
+        .replace("%IMPORTS%", dt_import.rstrip("\n"))
+        .replace("%INPUT_FIELDS%", input_fields)
+        .replace("%CTOR%", ctor)
+        .replace("%RES%", res)
+        .replace("%res%", resource)
+    )
+    return code if dt_import else code.replace("\n\nimport strawberry", "\nimport strawberry")
 
 
 def format_scaffold_result(res: dict) -> str:
     if not res.get("ok"):
         return res.get("error", "Erreur de génération d'API.")
+    kind = "schéma GraphQL (Strawberry)" if res.get("framework") == "graphql" else "module FastAPI CRUD"
     return (
-        f"Module FastAPI CRUD généré ({res['filename']}). "
+        f"{kind} généré ({res['filename']}). "
         f"Enregistre-le avec write_file, ou empaquette-le avec bundle_zip :\n\n"
         f"```python\n{res['code']}\n```"
     )

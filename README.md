@@ -183,7 +183,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
-| **Génération** | `generate_uml` (diagramme de classes Mermaid), `scaffold_api` (module FastAPI CRUD idiomatique) |
+| **Génération** | `generate_uml` (diagramme de classes Mermaid), `scaffold_api` (squelette CRUD idiomatique : **REST FastAPI** ou **GraphQL Strawberry**) |
 | **RAG / Skills** | `search_books`, `learn_from_books`, `get_skills`, `save_skill`, `list_skills`, `delete_skill` |
 | **Mémoire** | `remember_fact`, `forget_fact` |
 | **Connecteurs MCP** | `mcp__gmail__*` (8 outils), `mcp__web__*` (fetch_url, web_search), + tout serveur MCP branché |

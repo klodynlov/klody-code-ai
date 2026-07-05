@@ -1620,13 +1620,13 @@ SCAFFOLD_TOOLS: list[dict] = [
         "function": {
             "name": "scaffold_api",
             "description": (
-                "Génère un module d'API REST CRUD complet et idiomatique (FastAPI + "
-                "Pydantic v2 : modèle, router, endpoints list/get/create/update/delete, "
-                "store en mémoire) à partir d'un nom de ressource et de champs typés. "
-                "Le code produit est déterministe et compile. Utilise cet outil quand "
-                "on demande de « générer une API REST », un endpoint CRUD ou un "
-                "squelette d'API. Ensuite écris le résultat avec write_file ou "
-                "empaquette-le avec bundle_zip."
+                "Génère un squelette d'API CRUD complet et idiomatique à partir d'un "
+                "nom de ressource et de champs typés. framework='fastapi' (REST : "
+                "Pydantic v2, router, endpoints list/get/create/update/delete) ou "
+                "'graphql' (schéma Strawberry : type, input, Query, Mutation). Le code "
+                "produit est déterministe et compile. Utilise cet outil quand on "
+                "demande de générer une API REST/GraphQL ou un endpoint CRUD. Ensuite "
+                "écris le résultat avec write_file ou empaquette-le avec bundle_zip."
             ),
             "parameters": {
                 "type": "object",
@@ -1654,8 +1654,8 @@ SCAFFOLD_TOOLS: list[dict] = [
                     },
                     "framework": {
                         "type": "string",
-                        "description": "Framework cible (fastapi uniquement pour l'instant).",
-                        "enum": ["fastapi"],
+                        "description": "Cible : 'fastapi' (REST) ou 'graphql' (schéma Strawberry).",
+                        "enum": ["fastapi", "graphql"],
                         "default": "fastapi",
                     },
                 },

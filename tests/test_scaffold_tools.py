@@ -42,6 +42,36 @@ class TestGeneration:
         assert 'prefix="/order_items"' in code
 
 
+class TestGraphQL:
+    def test_schema_compile(self):
+        res = scaffold_api("user", [{"name": "email", "type": "str"},
+                                    {"name": "age", "type": "int"}], framework="graphql")
+        assert res["ok"] is True and res["framework"] == "graphql"
+        compile(res["code"], "<gen>", "exec")
+        assert res["filename"] == "user_schema.py"
+
+    def test_schema_idiomatique(self):
+        code = scaffold_api("product", [{"name": "price", "type": "float"}],
+                            framework="graphql")["code"]
+        assert "import strawberry" in code
+        assert "@strawberry.type" in code and "@strawberry.input" in code
+        assert "class Product:" in code and "class ProductInput:" in code
+        assert "id: int" in code  # le type porte id…
+        # …et l'input ne porte QUE les champs métier (price), pas id.
+        input_block = code.split("class ProductInput:")[1].split("_store")[0]
+        assert "price: float" in input_block and "id: int" not in input_block
+        for op in ("def products", "def product", "def create_product",
+                   "def update_product", "def delete_product"):
+            assert op in code
+        assert "strawberry.Schema(query=Query, mutation=Mutation)" in code
+
+    def test_graphql_datetime_conditionnel(self):
+        code = scaffold_api("evt", [{"name": "at", "type": "datetime"}],
+                            framework="graphql")["code"]
+        assert "from datetime import datetime" in code
+        compile(code, "<gen>", "exec")
+
+
 class TestValidation:
     @pytest.mark.parametrize("bad", ["1abc", "a-b", "a b", "", "a.b", "é"])
     def test_ressource_invalide(self, bad):

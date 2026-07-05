@@ -125,9 +125,10 @@ composables. L'étape 10 les actionne sans casser l'existant :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 5. **Diagrammes UML** — `generate_uml` : diagramme de classes **Mermaid** dérivé de la
    structure réelle du code (via l'index tree-sitter), sortie texte confinée aux racines.
-6. **Scaffolding d'API REST** — `scaffold_api` : génère un module **FastAPI CRUD**
-   idiomatique (Pydantic v2, router, endpoints) depuis une ressource + champs typés ;
-   code déterministe et garanti compilable (test `compile()`), entrées validées.
+6. **Scaffolding d'API** — `scaffold_api` : génère un squelette CRUD idiomatique
+   depuis une ressource + champs typés, en **REST (FastAPI/Pydantic v2)** ou
+   **GraphQL (schéma Strawberry : type/input/Query/Mutation)** ; code déterministe et
+   garanti compilable (test `compile()` sur les deux cibles), entrées validées.
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.
