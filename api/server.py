@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -171,17 +172,55 @@ def _load_project_info() -> dict:
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _session_file(session_id: str) -> Path | None:
+    """Chemin du fichier d'une session, ou None si l'id est invalide.
+
+    `session_id` vient de l'URL / du WebSocket (donnée non maîtrisée) → défense
+    anti-traversée : on le passe par `os.path.basename` (neutralise toute
+    composante de chemin — `/`, `..`, chemin absolu), on exige qu'il n'ait pas
+    changé ET qu'il tienne dans l'allowlist [A-Za-z0-9_-] ; SEUL cet id assaini
+    construit le chemin. `basename` est le sanitizer reconnu par CodeQL qui casse
+    la chaîne « uncontrolled data used in path expression ».
+    """
+    safe = os.path.basename(session_id or "")
+    if safe != session_id or not _SESSION_ID_RE.fullmatch(safe):
+        return None
+    return config.MEMORY_DIR / f"memory_{safe}.json"
+
+
 @app.get("/api/sessions")
-async def list_sessions():
+async def list_sessions(filter: str = "active"):
+    """Liste les sessions, la plus récente d'abord.
+
+    `filter` ∈ {active, archived, all} :
+    - active   : non archivées (défaut, comportement historique) ;
+    - archived : uniquement les sessions rangées (« anciennes » réutilisables) ;
+    - all      : les deux — le client ventile via le champ `archived` sans
+                 second appel.
+
+    Le filtrage précède le plafond (50) : archiver une session ne fait donc pas
+    tomber une active hors de la liste, et les archives anciennes restent
+    joignables même au-delà des 20 dernières sessions actives.
+    """
+    if filter not in ("active", "archived", "all"):
+        filter = "active"
     files = sorted(
         config.MEMORY_DIR.glob("memory_*.json"),
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
     sessions = []
-    for f in files[:20]:
+    for f in files:
         try:
             data = json.loads(f.read_text())
+            archived = bool(data.get("archived", False))
+            if filter == "active" and archived:
+                continue
+            if filter == "archived" and not archived:
+                continue
             msgs = [m for m in data.get("messages", []) if m.get("role") not in ("system", "tool")]
             sessions.append({
                 "id": data.get("session_id", f.stem.replace("memory_", "")),
@@ -189,7 +228,10 @@ async def list_sessions():
                 "messages": len(msgs),
                 "modified": f.stat().st_mtime,
                 "preview": msgs[0]["content"][:60] if msgs else "",
+                "archived": archived,
             })
+            if len(sessions) >= 50:
+                break
         except Exception:
             continue
     return sessions
@@ -239,8 +281,8 @@ async def delete_skill_route(slug: str):
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str):
     from fastapi.responses import PlainTextResponse
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return PlainTextResponse("Session introuvable", status_code=404)
     data = json.loads(f.read_text())
     title = data.get("title") or session_id
@@ -383,8 +425,8 @@ async def upload_image(file: UploadFile = _UPLOAD_FILE):
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Supprime définitivement le fichier de session."""
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
         f.unlink()
@@ -400,14 +442,37 @@ async def rename_session(session_id: str, request: Request):
     title = (body.get("title") or "").strip()[:80]
     if not title:
         return {"ok": False, "message": "Titre vide"}
-    f = config.MEMORY_DIR / f"memory_{session_id}.json"
-    if not f.exists():
+    f = _session_file(session_id)
+    if f is None or not f.exists():
         return {"ok": False, "message": "Session introuvable"}
     try:
         data = json.loads(f.read_text(encoding="utf-8"))
         data["title"] = title
         f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "title": title}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+@app.post("/api/sessions/{session_id}/archive")
+async def archive_session(session_id: str, request: Request):
+    """Archive ou désarchive une session (booléen `archived` dans le JSON).
+
+    Body : {"archived": true|false} (défaut true). Archiver range une ancienne
+    session hors de la liste active sans la détruire : elle reste chargeable
+    (`session_load`) et donc réutilisable à l'identique. Désarchiver la remet
+    dans les actives.
+    """
+    body = await request.json()
+    archived = bool(body.get("archived", True))
+    f = _session_file(session_id)
+    if f is None or not f.exists():
+        return {"ok": False, "message": "Session introuvable"}
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        data["archived"] = archived
+        f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "archived": archived}
     except Exception as e:
         return {"ok": False, "message": str(e)}
 
@@ -751,8 +816,8 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg["type"] == "session_load":
                 sid = msg.get("session_id", "")
-                f = config.MEMORY_DIR / f"memory_{sid}.json"
-                if f.exists():
+                f = _session_file(sid)
+                if f and f.exists():
                     memory = ConversationMemory.load_from_file(f)
                     await ws.send_json({
                         "type": "session_loaded",
@@ -1432,5 +1497,8 @@ async def health(response: Response):
 
 
 if __name__ == "__main__":
+    import os
+
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    _log_level = os.getenv("UVICORN_LOG_LEVEL", "warning")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level=_log_level)

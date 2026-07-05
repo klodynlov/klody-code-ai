@@ -8,7 +8,9 @@
   },
   "/api/sessions": {
     "GET": {
-      "params": [],
+      "params": [
+        "filter"
+      ],
       "has_body": false,
       "body_required": false
     }
@@ -85,6 +87,15 @@
     }
   },
   "/api/sessions/{session_id}/rename": {
+    "POST": {
+      "params": [
+        "session_id"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/sessions/{session_id}/archive": {
     "POST": {
       "params": [
         "session_id"
