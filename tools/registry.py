@@ -1415,7 +1415,49 @@ SQL_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS]
+DOCKER_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_control",
+            "description": (
+                "Inspecte l'état Docker LOCAL en LECTURE SEULE (aucune mutation du "
+                "démon : ni run, ni build, ni exec, ni stop/rm). Utilise cet outil "
+                "pour répondre à « qu'est-ce qui tourne ? », voir les images, les "
+                "logs ou les stats d'un conteneur, ou diagnostiquer un service "
+                "conteneurisé. Actions : ps (conteneurs), images, inspect, logs, "
+                "stats, version, df. 'inspect' et 'logs' exigent un 'target' "
+                "(nom ou ID de conteneur/image)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération lecture seule.",
+                        "enum": ["ps", "images", "inspect", "logs", "stats", "version", "df"],
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Nom ou ID du conteneur/image (requis pour 'inspect' et "
+                            "'logs'). Charset strict : [a-zA-Z0-9 . _ - : /]."
+                        ),
+                        "default": "",
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Pour 'logs' : nombre de dernières lignes (défaut 200, max 500).",
+                        "default": 200,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

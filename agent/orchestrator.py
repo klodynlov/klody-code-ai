@@ -1329,6 +1329,7 @@ class Orchestrator:
             "code_graph": self._tool_code_graph,
             "analyze_dependencies": self._tool_analyze_dependencies,
             "run_sql": self._tool_run_sql,
+            "docker_control": self._tool_docker_control,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1451,6 +1452,15 @@ class Orchestrator:
             max_rows=max_rows,
         )
         return format_sql_result(res)
+
+    def _tool_docker_control(self, a: dict) -> str:
+        from tools.docker_tools import docker_control, format_docker_result
+        try:
+            tail = int(a.get("tail", 200) or 200)
+        except (TypeError, ValueError):
+            tail = 200
+        res = docker_control(a.get("action", ""), a.get("target", ""), tail=tail)
+        return format_docker_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

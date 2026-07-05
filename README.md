@@ -42,7 +42,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
 | 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 49 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 50 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,7 +63,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (49)"]
+    subgraph TOOLS["🧰 Outils natifs (50)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -172,13 +172,14 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (49 natifs + connecteurs MCP)
+## Outils disponibles (50 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
 | **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies` |
 | **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
+| **Ops / runtime** | `docker_control` (introspection Docker **lecture seule** : ps, images, inspect, logs, stats) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
@@ -191,6 +192,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
 - **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
 - **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
+- **Docker en lecture seule** (`docker_control`) : introspection uniquement (ps/images/inspect/logs/stats/version/df), **aucune mutation** du démon ; `subprocess` en argv (**pas de shell**), sous-commandes hardcodées, cible validée (anti-injection de commande), sortie plafonnée.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
 - **Secrets** : `.env` gitignoré, jamais hardcodés ni loggés. **Commits signés** (ED25519), branch protection sur `main`.
 - **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI.

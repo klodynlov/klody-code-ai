@@ -101,6 +101,11 @@ composables. L'étape 10 les actionne sans casser l'existant :
    authorizer sqlite3 *default-deny*, verrou `SQLITE_LIMIT_ATTACHED=0`, URI
    percent-encodée, échéance wall-clock, une seule instruction, **écriture désactivée
    par défaut** (`SQL_WRITE_ENABLED`). 23 tests dont un par vecteur d'évasion.
+   Puis `docker_control` : introspection Docker **lecture seule** (ps/images/inspect/
+   logs/stats/version/df), aucune mutation du démon ; `subprocess` en argv sans shell,
+   sous-commandes hardcodées, cible validée → pas d'injection de commande. 25 tests.
+   Les mutations Docker (`run`/`build`/`exec`) — primitive d'évasion de l'hôte — sont
+   réservées à un incrément sécurisé dédié.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 
