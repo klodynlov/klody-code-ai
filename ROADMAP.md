@@ -129,6 +129,9 @@ composables. L'étape 10 les actionne sans casser l'existant :
    depuis une ressource + champs typés, en **REST (FastAPI/Pydantic v2)** ou
    **GraphQL (schéma Strawberry : type/input/Query/Mutation)** ; code déterministe et
    garanti compilable (test `compile()` sur les deux cibles), entrées validées.
+7. **Génération de SDK** — `scaffold_sdk` : client Python typé (dataclass + `httpx.Client`,
+   list/get/create/update/delete) consommant l'API générée ; validation partagée avec
+   `scaffold_api`, code garanti compilable.
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.

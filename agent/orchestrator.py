@@ -1334,6 +1334,7 @@ class Orchestrator:
             "git_control": self._tool_git_control,
             "generate_uml": self._tool_generate_uml,
             "scaffold_api": self._tool_scaffold_api,
+            "scaffold_sdk": self._tool_scaffold_sdk,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1516,6 +1517,15 @@ class Orchestrator:
             a.get("resource", ""),
             fields=a.get("fields"),
             framework=a.get("framework", "fastapi"),
+        )
+        return format_scaffold_result(res)
+
+    def _tool_scaffold_sdk(self, a: dict) -> str:
+        from tools.scaffold_tools import format_scaffold_result, scaffold_sdk
+        res = scaffold_sdk(
+            a.get("resource", ""),
+            fields=a.get("fields"),
+            language=a.get("language", "python"),
         )
         return format_scaffold_result(res)
 

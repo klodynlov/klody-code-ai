@@ -42,7 +42,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
 | 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 54 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 55 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,7 +63,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (54)"]
+    subgraph TOOLS["🧰 Outils natifs (55)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -172,7 +172,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (54 natifs + connecteurs MCP)
+## Outils disponibles (55 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
@@ -183,7 +183,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
-| **Génération** | `generate_uml` (diagramme de classes Mermaid), `scaffold_api` (squelette CRUD idiomatique : **REST FastAPI** ou **GraphQL Strawberry**) |
+| **Génération** | `generate_uml` (diagramme de classes Mermaid), `scaffold_api` (squelette CRUD : **REST FastAPI** ou **GraphQL Strawberry**), `scaffold_sdk` (client Python typé httpx) |
 | **RAG / Skills** | `search_books`, `learn_from_books`, `get_skills`, `save_skill`, `list_skills`, `delete_skill` |
 | **Mémoire** | `remember_fact`, `forget_fact` |
 | **Connecteurs MCP** | `mcp__gmail__*` (8 outils), `mcp__web__*` (fetch_url, web_search), + tout serveur MCP branché |

@@ -1665,7 +1665,57 @@ SCAFFOLD_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS]
+SDK_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_sdk",
+            "description": (
+                "Génère un CLIENT SDK typé pour consommer une API REST CRUD (le pendant "
+                "client de scaffold_api). En Python : une dataclass de la ressource + une "
+                "classe Client (httpx) avec list/get/create/update/delete typés. Code "
+                "déterministe qui compile. Utilise cet outil quand on demande de générer "
+                "un SDK ou un client d'API. Écris ensuite le résultat avec write_file ou "
+                "empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs de la ressource (hors 'id', ajouté automatiquement).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Langage du SDK (python uniquement pour l'instant).",
+                        "enum": ["python"],
+                        "default": "python",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
