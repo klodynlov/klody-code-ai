@@ -1333,6 +1333,7 @@ class Orchestrator:
             "kubectl_control": self._tool_kubectl_control,
             "git_control": self._tool_git_control,
             "generate_uml": self._tool_generate_uml,
+            "scaffold_api": self._tool_scaffold_api,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1508,6 +1509,15 @@ class Orchestrator:
             max_classes = 40
         res = generate_class_diagram(a.get("path", ""), max_classes=max_classes)
         return format_diagram_result(res)
+
+    def _tool_scaffold_api(self, a: dict) -> str:
+        from tools.scaffold_tools import format_scaffold_result, scaffold_api
+        res = scaffold_api(
+            a.get("resource", ""),
+            fields=a.get("fields"),
+            framework=a.get("framework", "fastapi"),
+        )
+        return format_scaffold_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

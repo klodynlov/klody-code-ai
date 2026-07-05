@@ -1614,7 +1614,58 @@ DIAGRAM_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS]
+SCAFFOLD_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_api",
+            "description": (
+                "Génère un module d'API REST CRUD complet et idiomatique (FastAPI + "
+                "Pydantic v2 : modèle, router, endpoints list/get/create/update/delete, "
+                "store en mémoire) à partir d'un nom de ressource et de champs typés. "
+                "Le code produit est déterministe et compile. Utilise cet outil quand "
+                "on demande de « générer une API REST », un endpoint CRUD ou un "
+                "squelette d'API. Ensuite écris le résultat avec write_file ou "
+                "empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user', 'product').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs du modèle (hors 'id', ajouté automatiquement).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "framework": {
+                        "type": "string",
+                        "description": "Framework cible (fastapi uniquement pour l'instant).",
+                        "enum": ["fastapi"],
+                        "default": "fastapi",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().
