@@ -1331,6 +1331,7 @@ class Orchestrator:
             "run_sql": self._tool_run_sql,
             "docker_control": self._tool_docker_control,
             "kubectl_control": self._tool_kubectl_control,
+            "git_control": self._tool_git_control,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1478,6 +1479,21 @@ class Orchestrator:
             tail=tail,
         )
         return format_kubectl_result(res)
+
+    def _tool_git_control(self, a: dict) -> str:
+        from tools.git_tools import format_git_result, git_control
+        try:
+            max_count = int(a.get("max_count", 20) or 20)
+        except (TypeError, ValueError):
+            max_count = 20
+        res = git_control(
+            a.get("action", ""),
+            path=a.get("path", ""),
+            ref=a.get("ref", ""),
+            file=a.get("file", ""),
+            max_count=max_count,
+        )
+        return format_git_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

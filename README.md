@@ -42,7 +42,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
 | 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 51 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 52 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -63,7 +63,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (51)"]
+    subgraph TOOLS["🧰 Outils natifs (52)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -172,14 +172,14 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (51 natifs + connecteurs MCP)
+## Outils disponibles (52 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
 | **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies` |
 | **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
-| **Ops / runtime** | `docker_control` (introspection Docker **lecture seule** : ps, images, inspect, logs, stats), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…) |
+| **Ops / runtime** | `docker_control` (introspection Docker **lecture seule** : ps, images, inspect, logs, stats), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…), `git_control` (introspection Git **lecture seule** : status, log, diff, show, blame…) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
@@ -192,7 +192,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
 - **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
 - **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
-- **Docker / Kubernetes en lecture seule** (`docker_control`, `kubectl_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats/version/df ; k8s : get/describe/logs/top/version/cluster-info/api-resources), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, container) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`…) ; sortie plafonnée, timeout borné.
+- **Ops en lecture seule** (`docker_control`, `kubectl_control`, `git_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats… ; k8s : get/describe/logs/top… ; Git : status/log/diff/show/blame…), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, ref, fichier) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`, `--output`…) ; dépôt Git confiné aux racines autorisées ; sortie plafonnée, timeout borné.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
 - **Secrets** : `.env` gitignoré, jamais hardcodés ni loggés. **Commits signés** (ED25519), branch protection sur `main`.
 - **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI.

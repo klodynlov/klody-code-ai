@@ -1513,7 +1513,56 @@ K8S_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS]
+GIT_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "git_control",
+            "description": (
+                "Inspecte un dépôt Git local en LECTURE SEULE (aucune mutation : ni "
+                "commit, ni add, ni push/pull, ni checkout/reset/merge/rebase). "
+                "Préfère cet outil à execute_command pour comprendre l'état du repo "
+                "sans confirmation. Actions : status, log, diff, show, blame, branch, "
+                "tag, remote, shortlog. 'ref' cible un commit/branche/tag (ou plage "
+                "a..b) ; 'file' restreint à un fichier ('blame' l'exige)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération lecture seule.",
+                        "enum": ["status", "log", "diff", "show", "blame",
+                                 "branch", "tag", "remote", "shortlog"],
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Dossier du dépôt (relatif au projet ou absolu sous racine autorisée). Défaut : projet courant.",
+                        "default": "",
+                    },
+                    "ref": {
+                        "type": "string",
+                        "description": "Commit/branche/tag ou plage (ex: HEAD, main, a1b2c3, v1.0, main..dev).",
+                        "default": "",
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "Fichier repo-relatif pour restreindre log/diff/blame (requis pour blame).",
+                        "default": "",
+                    },
+                    "max_count": {
+                        "type": "integer",
+                        "description": "Pour 'log' : nombre de commits (défaut 20, max 200).",
+                        "default": 20,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

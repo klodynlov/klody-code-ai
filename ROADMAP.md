@@ -107,8 +107,12 @@ composables. L'étape 10 les actionne sans casser l'existant :
    Puis `kubectl_control` : introspection Kubernetes **lecture seule** (get/describe/
    logs/top/version/cluster-info/api-resources), même patron (argv sans shell, verbes
    hardcodés, resource/name/namespace/container validés, `--request-timeout`). 26 tests.
-   Les mutations Docker/k8s (`run`/`build`/`exec`/`apply`/`delete`/`scale`) — primitives
-   d'évasion de l'hôte / de mutation de cluster — sont réservées à un incrément sécurisé dédié.
+   Puis `git_control` : introspection Git **lecture seule** (status/log/diff/show/blame/
+   branch/tag/remote/shortlog), dépôt confiné aux racines autorisées, ref & fichier
+   validés (pas de `..`, pas de flag injectable) — préférable à `execute_command`
+   (sans confirmation TTY) pour comprendre l'état d'un repo. 23 tests.
+   Les mutations Docker/k8s/Git (`run`/`build`/`exec`/`apply`/`delete`/`scale`/`commit`/
+   `push`) — primitives d'évasion de l'hôte / de mutation — sont réservées à un incrément sécurisé dédié.
 4. **Skills de domaine** — connaissance reformulée servie par `get_skills` :
    `graphql`, `docker`, `kubernetes`, `cicd`, `sdk`, `uml`, `sql` (drop-in, loader générique).
 
