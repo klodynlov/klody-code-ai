@@ -25,6 +25,13 @@ def _slugify(name: str) -> str:
     return slug[:40].strip("_-") or "skill"
 
 
+# Barrière anti-traversée pour delete_skill : un slug fourni par le modèle
+# (tool `delete_skill`) ou par l'URL (DELETE /api/skills/{slug}) ne doit contenir
+# QUE [a-z0-9_-] — exactement ce que `_slugify` produit. Exclut '/', '..' et les
+# chemins absolus. Barrière reconnue par CodeQL (py/path-injection).
+_SKILL_SLUG_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+
+
 def save_skill(name: str, description: str, content: str, code_compatible: bool = False) -> str:
     """Sauvegarde une compétence ou un pattern utile.
 
@@ -83,6 +90,10 @@ def list_skills() -> str:
 
 def delete_skill(slug: str) -> str:
     """Supprime une compétence utilisateur par son slug."""
+    if not _SKILL_SLUG_RE.fullmatch(slug or ""):
+        # Slug non maîtrisé (traversée / caractères hors allowlist) → refus net,
+        # même message que « introuvable » pour ne rien divulguer.
+        return f"Skill '{slug}' introuvable."
     path = SKILLS_DIR / f"{slug}.json"
     if not path.exists():
         available = [f.stem for f in sorted(SKILLS_DIR.glob("*.json"))
