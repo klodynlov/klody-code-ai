@@ -182,6 +182,9 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
+| **Musique — composition** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `suggerer_tonalites`, `harmoniser`, `suggerer_accords`, `analyser_progression`, `reharmoniser`, `moduler`, `melodie_vers_midi`, `generer_basse`, `harmonies_vocales`, `idees_chanson`, `composer_demo` |
+| **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
+| **Musique — DAW / voix** | `mcp__reaper__*` (pistes, FX, bus/sends, MIDI, régions, rendu stems, chaîne vocale, arrangement), `mcp__vocalbrain__*` (génération/entraînement de chant) |
 | **RAG / Skills** | `search_books`, `learn_from_books`, `get_skills`, `save_skill`, `list_skills`, `delete_skill` |
 | **Mémoire** | `remember_fact`, `forget_fact` |
 | **Connecteurs MCP** | `mcp__gmail__*` (8 outils), `mcp__web__*` (fetch_url, web_search), + tout serveur MCP branché |

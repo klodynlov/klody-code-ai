@@ -637,6 +637,219 @@ def melodie_vers_midi(
 
 
 # ---------------------------------------------------------------------------- #
+# Outils MCP — composition avancée (analyse harmonique, reharmo, modulation,     #
+# basse, harmonies vocales). Cœurs purs dans klody_mcp.music_theory.             #
+# ---------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+def analyser_progression(accords: list[str], ton: str = "") -> dict:
+    """Analyse harmonique d'une suite d'accords : degrés, fonctions tonales, cadence.
+
+    Donne le chiffrage romain (I, ii, V7…), la fonction (Tonique/Sous-dominante/
+    Dominante) et la cadence finale. Si `ton` est vide, la tonalité est INFÉRÉE et
+    signalée comme hypothèse (avec une confiance).
+
+    Args:
+        accords: Suite d'accords en symboles, ex: ["C","G","Am","F"] (accepte ♯/♭, 7e…).
+        ton: Tonalité imposée ("C", "Am", "F#"…) ; vide = inférée.
+
+    Returns:
+        {"ton", "ton_infere", "accords": [{"accord","degre","fonction","diatonique"}],
+         "cadence_finale", "confiance_tonalite"?} ou {"error": "..."}.
+    """
+    from klody_mcp import music_theory
+    return music_theory.analyser_progression(accords, ton)
+
+
+@mcp.tool()
+def reharmoniser(accords: list[str], ton: str = "") -> dict:
+    """Propose des substitutions harmoniques par accord (couleur, tension).
+
+    Trois familles : substitut diatonique (relatif), substitut TRITONIQUE des
+    dominantes 7e, et dominante SECONDAIRE d'approche de l'accord suivant.
+
+    Args:
+        accords: Suite d'accords, ex: ["C","Am","F","G"].
+        ton: Tonalité imposée ; vide = inférée.
+
+    Returns:
+        {"ton", "ton_infere", "propositions": [{"accord","substituts":
+         [{"accord","type","explication"}]}], "note"} ou {"error": "..."}.
+    """
+    from klody_mcp import music_theory
+    return music_theory.reharmoniser(accords, ton)
+
+
+@mcp.tool()
+def moduler(ton_depart: str, ton_arrivee: str) -> dict:
+    """Trouve un chemin de modulation entre deux tonalités (accords pivots + dominante).
+
+    Un pivot est un accord commun aux deux tonalités : on bascule dessus sans rupture.
+
+    Args:
+        ton_depart: Tonalité de départ ("C", "Am"…).
+        ton_arrivee: Tonalité d'arrivée ("G", "E♭"…).
+
+    Returns:
+        {"depart", "arrivee", "distance_quintes", "pivots": [{"accord",
+         "degre_depart","degre_arrivee"}], "approche_dominante", "note"}
+        ou {"error": "..."}.
+    """
+    from klody_mcp import music_theory
+    return music_theory.moduler(ton_depart, ton_arrivee)
+
+
+@mcp.tool()
+def generer_basse(
+    accords: list[str], motif: str = "fondamentale", duree_accord: float = 2.0,
+    debut: float = 0.0, velocity: int = 100,
+) -> dict:
+    """Génère une ligne de basse à partir d'accords → événements MIDI prêts pour REAPER.
+
+    Pont déterministe : les hauteurs sont repliées dans le registre grave et les temps
+    calculés par l'outil (pas inventés par le LLM). Enchaîne avec insert_midi_note.
+
+    Args:
+        accords: Suite d'accords, ex: ["C","G","Am","F"].
+        motif: "fondamentale", "quinte", "octave" ou "walking" (marche jazz).
+        duree_accord: Durée par accord en secondes (défaut 2.0 = ~1 mesure lente).
+        debut: Temps de début en secondes (défaut 0.0).
+        velocity: Vélocité MIDI 1-127 (défaut 100).
+
+    Returns:
+        {"motif","events":[{"pitch","start","length","velocity","note"}],"count",
+         "duree_totale_sec","ambitus_midi","note"} ou {"error": "..."}.
+    """
+    from klody_mcp import music_theory
+    return music_theory.generer_basse(
+        accords, motif=motif, duree_accord=duree_accord, debut=debut, velocity=velocity)
+
+
+@mcp.tool()
+def harmonies_vocales(
+    notes: list[str], ton: str, intervalle: str = "tierce", direction: str = "haut",
+    duree_note: float = 0.5, durees: list[float] | None = None, debut: float = 0.0,
+    velocity: int = 88, double_octave: bool = False,
+) -> dict:
+    """Génère une voix d'harmonie DIATONIQUE pour une mélodie → événements MIDI.
+
+    Tierce/sixte/quinte diatoniques au-dessus ou en dessous (reste dans la tonalité).
+    Option `double_octave` : ajoute un double à l'octave inférieure. Les notes aiguës
+    (≥ passaggio) sont signalées comme candidates falsetto (chaîne vocale plus légère).
+
+    Args:
+        notes: Mélodie en noms de notes, ex: ["E4","F#4","G4","A4"] (accepte ♯/♭).
+        ton: Tonalité de la mélodie ("D", "Am"…) — impose l'harmonie diatonique.
+        intervalle: "tierce", "sixte", "quinte" ou "octave".
+        direction: "haut" (au-dessus) ou "bas" (en dessous).
+        duree_note: Durée par note si `durees` non fourni (défaut 0.5).
+        durees: Durées par note (1 valeur/note) ; prioritaire sur duree_note.
+        debut: Temps de début en secondes (défaut 0.0).
+        velocity: Vélocité MIDI 1-127 (défaut 88, sous la lead).
+        double_octave: Ajoute une piste de double à l'octave inférieure.
+
+    Returns:
+        {"ton","intervalle","direction","events":[{"pitch","start","length",
+         "velocity","note","melodie"}],"count","duree_totale_sec","falsetto",
+         "double_octave"?} ou {"error": "..."}.
+    """
+    from klody_mcp import music_theory
+    return music_theory.harmonies_vocales(
+        notes, ton, intervalle=intervalle, direction=direction, duree_note=duree_note,
+        durees=durees, debut=debut, velocity=velocity, double_octave=double_octave)
+
+
+# ---------------------------------------------------------------------------- #
+# Outils MCP — conseil de mixage (dérivé des mesures objectives). Cœurs purs      #
+# dans klody_mcp.mix_advisor ; l'analyse spectrale vient d'audio_analysis.        #
+# ---------------------------------------------------------------------------- #
+
+
+def _analyser_pour_mix(chemin_audio: str) -> dict:
+    """Analyse un WAV (audio_analysis, avec garde de chemin ASI02). Dict de métriques
+    ou {"error": ...}. Isole l'import numpy/scipy en lazy (démarrage serveur léger)."""
+    try:
+        from klody_mcp import audio_analysis
+    except ImportError as exc:  # numpy absent -> message clair, pas de crash serveur
+        return {"error": f"analyse audio indisponible ({exc}) — `pip install numpy scipy`."}
+    try:
+        return audio_analysis.analyze_file(chemin_audio)
+    except (FileNotFoundError, ValueError, PermissionError) as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        logger.error("_analyser_pour_mix: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+@mcp.tool()
+def recommander_eq(chemin_audio: str, style: str = "neutre") -> dict:
+    """Recommande des mouvements EQ en comparant le spectre mesuré à une référence.
+
+    Analyse le fichier (énergie par bandes) puis propose, par bande, de creuser /
+    renforcer / laisser, avec plage Hz et ~dB indicatif. Gestes doux à valider à l'oreille.
+
+    Args:
+        chemin_audio: Chemin du WAV à analyser (absolu ou ~).
+        style: "neutre","pop","rnb","zouk","afro","trap"/"trap soul","reggae"/"dancehall".
+
+    Returns:
+        {"style","mouvements":[{"bande","plage_hz","mesure","cible","ecart",
+         "db_indicatif","action"}],"prioritaires","note"} ou {"error": "..."}.
+    """
+    from klody_mcp import mix_advisor
+    analyse = _analyser_pour_mix(chemin_audio)
+    if "error" in analyse:
+        return analyse
+    return mix_advisor.recommander_eq(analyse, style)
+
+
+@mcp.tool()
+def detecter_masquage(chemin_lead: str, chemin_accomp: str, seuil: float = 0.12) -> dict:
+    """Détecte le masquage fréquentiel entre deux éléments (ex. voix vs instru).
+
+    Analyse les deux fichiers et repère les bandes où les deux ont une énergie forte
+    (le lead est couvert). Conseil : EQ soustractif doux / ducking sur l'accompagnement.
+
+    Args:
+        chemin_lead: WAV de l'élément à privilégier (ex. voix).
+        chemin_accomp: WAV de l'accompagnement (ex. instrumental).
+        seuil: Fraction d'énergie minimale des DEUX côtés pour signaler (défaut 0.12).
+
+    Returns:
+        {"seuil","risques":[{"bande","plage_hz","energie_lead","energie_accomp",
+         "severite","conseil"}],"bande_la_plus_masquee","note"} ou {"error": "..."}.
+    """
+    from klody_mcp import mix_advisor
+    a = _analyser_pour_mix(chemin_lead)
+    if "error" in a:
+        return {"error": f"lead : {a['error']}"}
+    b = _analyser_pour_mix(chemin_accomp)
+    if "error" in b:
+        return {"error": f"accompagnement : {b['error']}"}
+    return mix_advisor.detecter_masquage(a, b, seuil=seuil)
+
+
+@mcp.tool()
+def analyser_balance_tonale(chemin_audio: str, style: str = "neutre") -> dict:
+    """Note la balance tonale d'un mix vs une courbe de référence (0..1) + verdict/bande.
+
+    Args:
+        chemin_audio: Chemin du WAV à analyser (absolu ou ~).
+        style: "neutre","pop","rnb","zouk","afro","trap"/"trap soul","reggae".
+
+    Returns:
+        {"style","score","verdict","par_bande":{bande: "trop"|"ok"|"pas assez"},
+         "note"} ou {"error": "..."}.
+    """
+    from klody_mcp import mix_advisor
+    analyse = _analyser_pour_mix(chemin_audio)
+    if "error" in analyse:
+        return analyse
+    return mix_advisor.analyser_balance_tonale(analyse, style)
+
+
+# ---------------------------------------------------------------------------- #
 # Idéation de chanson (features audio + paroles + brain créatif)                #
 # ---------------------------------------------------------------------------- #
 
