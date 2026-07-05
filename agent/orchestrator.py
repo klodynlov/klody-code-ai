@@ -404,9 +404,13 @@ _PRODUCING_TOOLS = frozenset({
 })
 
 # Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
-# Orchestrator._route_model). `explain` en est exclu : il reste sur le
-# généraliste, meilleur en conversation/explication.
-_CODE_TASK_TYPES = frozenset({"edit", "refactor", "bug_fix", "feature", "self_dev"})
+# Orchestrator._route_model). Ceux qui PRODUISENT/MODIFIENT du code y vont ;
+# ceux qui produisent surtout de la PROSE ou un RAPPORT (`explain`, `review`,
+# `security`, `docs`) restent sur le généraliste, meilleur en analyse/rédaction.
+_CODE_TASK_TYPES = frozenset({
+    "edit", "refactor", "bug_fix", "feature", "self_dev",
+    "test_gen", "perf", "migrate",
+})
 
 # Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
 # « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
@@ -1345,6 +1349,15 @@ class Orchestrator:
             "find_references": self._tool_find_references,
             "find_relevant_files": self._tool_find_relevant_files,
             "code_graph": self._tool_code_graph,
+            "analyze_dependencies": self._tool_analyze_dependencies,
+            "run_sql": self._tool_run_sql,
+            "docker_control": self._tool_docker_control,
+            "kubectl_control": self._tool_kubectl_control,
+            "git_control": self._tool_git_control,
+            "generate_uml": self._tool_generate_uml,
+            "scaffold_api": self._tool_scaffold_api,
+            "scaffold_sdk": self._tool_scaffold_sdk,
+            "scaffold_nosql": self._tool_scaffold_nosql,
             # Skills
             "list_skills": lambda a: list_skills(),
             "delete_skill": lambda a: delete_skill(a["slug"]),
@@ -1472,6 +1485,110 @@ class Orchestrator:
     def _tool_code_graph(self, a: dict) -> str:
         from tools import code_graph
         return code_graph.query(self.file_manager.root, a)
+
+    def _tool_analyze_dependencies(self, a: dict) -> str:
+        from tools.deps_analyzer import analyze_dependencies, format_dependency_report
+        target = (a.get("path") or ".").strip() or "."
+        p = Path(target).expanduser()
+        base = p.resolve() if p.is_absolute() else (self.file_manager.root / p).resolve()
+        if match_allowed_root(base, self.file_manager.allowed_roots) is None:
+            return f"ERREUR SÉCURITÉ: chemin hors des racines autorisées: {target}"
+        return format_dependency_report(analyze_dependencies(base))
+
+    def _tool_run_sql(self, a: dict) -> str:
+        from tools.sql_runner import format_sql_result, run_sql
+        try:
+            max_rows = int(a.get("max_rows", 100) or 100)
+        except (TypeError, ValueError):
+            max_rows = 100
+        res = run_sql(
+            a.get("query", ""),
+            a.get("database", ""),
+            mode=a.get("mode", "read"),
+            params=a.get("params"),
+            max_rows=max_rows,
+        )
+        return format_sql_result(res)
+
+    def _tool_docker_control(self, a: dict) -> str:
+        from tools.docker_tools import docker_control, format_docker_result
+        try:
+            tail = int(a.get("tail", 200) or 200)
+        except (TypeError, ValueError):
+            tail = 200
+        res = docker_control(
+            a.get("action", ""), a.get("target", ""), tail=tail,
+            image=a.get("image", ""), command=a.get("command"),
+        )
+        return format_docker_result(res)
+
+    def _tool_kubectl_control(self, a: dict) -> str:
+        from tools.k8s_tools import format_kubectl_result, kubectl_control
+        try:
+            tail = int(a.get("tail", 200) or 200)
+        except (TypeError, ValueError):
+            tail = 200
+        res = kubectl_control(
+            a.get("action", ""),
+            resource=a.get("resource", ""),
+            name=a.get("name", ""),
+            namespace=a.get("namespace", ""),
+            container=a.get("container", ""),
+            tail=tail,
+        )
+        return format_kubectl_result(res)
+
+    def _tool_git_control(self, a: dict) -> str:
+        from tools.git_tools import format_git_result, git_control
+        try:
+            max_count = int(a.get("max_count", 20) or 20)
+        except (TypeError, ValueError):
+            max_count = 20
+        res = git_control(
+            a.get("action", ""),
+            path=a.get("path", ""),
+            ref=a.get("ref", ""),
+            file=a.get("file", ""),
+            max_count=max_count,
+            message=a.get("message", ""),
+        )
+        return format_git_result(res)
+
+    def _tool_generate_uml(self, a: dict) -> str:
+        from tools.diagram_tools import format_diagram_result, generate_class_diagram
+        try:
+            max_classes = int(a.get("max_classes", 40) or 40)
+        except (TypeError, ValueError):
+            max_classes = 40
+        res = generate_class_diagram(a.get("path", ""), max_classes=max_classes)
+        return format_diagram_result(res)
+
+    def _tool_scaffold_api(self, a: dict) -> str:
+        from tools.scaffold_tools import format_scaffold_result, scaffold_api
+        res = scaffold_api(
+            a.get("resource", ""),
+            fields=a.get("fields"),
+            framework=a.get("framework", "fastapi"),
+        )
+        return format_scaffold_result(res)
+
+    def _tool_scaffold_sdk(self, a: dict) -> str:
+        from tools.scaffold_tools import format_scaffold_result, scaffold_sdk
+        res = scaffold_sdk(
+            a.get("resource", ""),
+            fields=a.get("fields"),
+            language=a.get("language", "python"),
+        )
+        return format_scaffold_result(res)
+
+    def _tool_scaffold_nosql(self, a: dict) -> str:
+        from tools.scaffold_tools import format_scaffold_result, scaffold_nosql
+        res = scaffold_nosql(
+            a.get("resource", ""),
+            fields=a.get("fields"),
+            backend=a.get("backend", "mongodb"),
+        )
+        return format_scaffold_result(res)
 
     def _tool_audio(self, name: str, a: dict) -> str:
         from tools import audio as _audio

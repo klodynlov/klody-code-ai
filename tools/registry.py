@@ -465,7 +465,9 @@ MCP_TOOLS = [
                 "Utilise cet outil avant de générer du code pour respecter les conventions "
                 "du projet dans ce domaine. "
                 "Domaines disponibles : symfony, nextjs, python, mlx, claude_code "
-                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent)."
+                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent), "
+                "graphql, docker, kubernetes, cicd (CI/CD), sdk (conception de SDK), uml (diagrammes), "
+                "sql (requêtes, indexation, transactions)."
             ),
             "parameters": {
                 "type": "object",
@@ -473,7 +475,10 @@ MCP_TOOLS = [
                     "domain": {
                         "type": "string",
                         "description": "Domaine technique cible",
-                        "enum": ["symfony", "nextjs", "python", "mlx", "claude_code"],
+                        "enum": [
+                            "symfony", "nextjs", "python", "mlx", "claude_code",
+                            "graphql", "docker", "kubernetes", "cicd", "sdk", "uml", "sql",
+                        ],
                     },
                 },
                 "required": ["domain"],
@@ -1624,7 +1629,442 @@ TOOLSMITH_TOOLS: list[dict] = [
     },
 ]
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS]
+DEPS_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_dependencies",
+            "description": (
+                "Inventorie les dépendances DÉCLARÉES d'un projet à partir de ses "
+                "manifestes (lecture seule, aucun réseau, aucune installation). "
+                "Reconnaît requirements*.txt, pyproject.toml (PEP 621 + Poetry), "
+                "package.json, Cargo.toml, go.mod et composer.json. Utilise cet "
+                "outil avant une MIGRATION, un AUDIT ou une REVUE pour savoir quelles "
+                "librairies et quelles versions sont en jeu, et combien. Passe un "
+                "répertoire (scan des manifestes à sa racine) ou un fichier manifeste précis."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Répertoire ou fichier manifeste (relatif au projet ou "
+                            "absolu sous une racine autorisée). Défaut : racine du projet."
+                        ),
+                        "default": ".",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+SQL_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_sql",
+            "description": (
+                "Exécute UNE requête SQL sur un fichier de base SQLite LOCAL, dans le "
+                "sandbox de Klody (base confinée aux racines autorisées, aucune évasion "
+                "possible). Par défaut en LECTURE SEULE (mode='read') : idéal pour "
+                "explorer un schéma (`SELECT * FROM sqlite_master`), inspecter des "
+                "données, valider une requête. Le mode 'write' (INSERT/UPDATE/CREATE…) "
+                "n'est possible que si l'écriture est activée côté serveur. Utilise des "
+                "placeholders `?` + 'params' plutôt que de concaténer des valeurs. "
+                "Une seule instruction par appel. Le résultat est plafonné (lignes/octets)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "La requête SQL (une seule instruction). Ex: 'SELECT * FROM users WHERE id = ?'",
+                    },
+                    "database": {
+                        "type": "string",
+                        "description": (
+                            "Chemin du fichier SQLite (relatif au projet ou absolu sous "
+                            "une racine autorisée). Doit exister. Pas une URI."
+                        ),
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "'read' (défaut, lecture seule) ou 'write' (si activé côté serveur).",
+                        "enum": ["read", "write"],
+                        "default": "read",
+                    },
+                    "params": {
+                        "type": "array",
+                        "items": {},
+                        "description": "Valeurs liées aux placeholders `?` de la requête (anti-injection).",
+                        "default": [],
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": "Nombre max de lignes retournées (défaut 100, max 1000).",
+                        "default": 100,
+                    },
+                },
+                "required": ["query", "database"],
+            },
+        },
+    },
+]
+
+DOCKER_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "docker_control",
+            "description": (
+                "Inspecte l'état Docker LOCAL (lecture seule) et, si activé côté "
+                "serveur, lance un conteneur ULTRA-CONTRAINT (`run`). Lecture : ps, "
+                "images, inspect, logs, stats, version, df ('inspect'/'logs' exigent "
+                "'target'). Mutation 'run' : exécute 'image' (obligatoirement dans "
+                "l'allowlist serveur) avec 'command' optionnelle ; l'outil impose "
+                "--rm, --network none, --cap-drop ALL, no-new-privileges et des "
+                "limites ressources — aucun montage, aucun flag utilisateur, aucun "
+                "réseau. Jamais build/exec/rm/stop."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération (lecture seule, ou 'run' si l'écriture est activée).",
+                        "enum": ["ps", "images", "inspect", "logs", "stats",
+                                 "version", "df", "run"],
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Nom ou ID du conteneur/image (requis pour 'inspect' et "
+                            "'logs'). Charset strict : [a-zA-Z0-9 . _ - : /]."
+                        ),
+                        "default": "",
+                    },
+                    "image": {
+                        "type": "string",
+                        "description": "Pour 'run' : image à lancer (doit être dans l'allowlist serveur). Ex: python:3.12.",
+                        "default": "",
+                    },
+                    "command": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Pour 'run' : commande + args exécutés DANS le conteneur (ex: ['python','-c','print(1)']).",
+                        "default": [],
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Pour 'logs' : nombre de dernières lignes (défaut 200, max 500).",
+                        "default": 200,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+K8S_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "kubectl_control",
+            "description": (
+                "Inspecte un cluster Kubernetes en LECTURE SEULE via kubectl (aucune "
+                "mutation : ni apply, ni create, ni delete, ni scale, ni exec, ni "
+                "rollout). Utilise cet outil pour lister/décrire des ressources, lire "
+                "les logs d'un pod, voir la consommation (top), ou l'état du cluster. "
+                "Actions : get, describe, logs, top, version, cluster-info, "
+                "api-resources. 'get'/'describe'/'top' exigent 'resource' (ex: pods, "
+                "deployments) ; 'describe'/'logs' exigent 'name'. 'namespace' optionnel "
+                "('all' pour tous les namespaces)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération lecture seule.",
+                        "enum": ["get", "describe", "logs", "top", "version",
+                                 "cluster-info", "api-resources"],
+                    },
+                    "resource": {
+                        "type": "string",
+                        "description": "Type de ressource (ex: pods, deployments, svc). Requis pour get/describe/top.",
+                        "default": "",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Nom de la ressource/pod (requis pour describe et logs).",
+                        "default": "",
+                    },
+                    "namespace": {
+                        "type": "string",
+                        "description": "Namespace cible ('all' = tous). Défaut : namespace courant du contexte.",
+                        "default": "",
+                    },
+                    "container": {
+                        "type": "string",
+                        "description": "Pour 'logs' : conteneur précis d'un pod multi-conteneurs.",
+                        "default": "",
+                    },
+                    "tail": {
+                        "type": "integer",
+                        "description": "Pour 'logs' : dernières lignes (défaut 200, max 500).",
+                        "default": 200,
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+GIT_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "git_control",
+            "description": (
+                "Inspecte un dépôt Git local (LECTURE SEULE) et, si activé côté "
+                "serveur, effectue des mutations LOCALES (add/commit ; jamais "
+                "push/pull ni reset/checkout/merge/rebase/clean). Préfère cet outil "
+                "à execute_command pour l'état du repo. Lecture : status, log, diff, "
+                "show, blame, branch, tag, remote, shortlog. Mutation : 'add' (indexe "
+                "'file', '.' pour tout), 'commit' (exige 'message'). 'ref' cible un "
+                "commit/branche/tag (ou plage a..b)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Opération (lecture seule, ou add/commit si l'écriture est activée).",
+                        "enum": ["status", "log", "diff", "show", "blame",
+                                 "branch", "tag", "remote", "shortlog", "add", "commit"],
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Dossier du dépôt (relatif au projet ou absolu sous racine autorisée). Défaut : projet courant.",
+                        "default": "",
+                    },
+                    "ref": {
+                        "type": "string",
+                        "description": "Commit/branche/tag ou plage (ex: HEAD, main, a1b2c3, v1.0, main..dev).",
+                        "default": "",
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "Fichier repo-relatif pour restreindre log/diff/blame (requis pour blame).",
+                        "default": "",
+                    },
+                    "max_count": {
+                        "type": "integer",
+                        "description": "Pour 'log' : nombre de commits (défaut 20, max 200).",
+                        "default": 20,
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Message de commit (requis pour l'action 'commit').",
+                        "default": "",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+DIAGRAM_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_uml",
+            "description": (
+                "Génère un diagramme de CLASSES UML au format Mermaid à partir de la "
+                "STRUCTURE RÉELLE du code (classes + méthodes), via l'index tree-sitter "
+                "— fidèle au code, pas à une intention supposée. Sortie 100 % texte "
+                "(bloc ```mermaid) rendue par l'UI / GitHub. Utilise cet outil quand on "
+                "demande un diagramme de classes, une vue d'ensemble structurelle ou un "
+                "schéma UML d'un module/projet. Langages indexés : Python, JS, TS."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Dossier à diagrammer (relatif au projet ou absolu sous racine autorisée). Défaut : projet courant.",
+                        "default": "",
+                    },
+                    "max_classes": {
+                        "type": "integer",
+                        "description": "Nombre max de classes dans le diagramme (défaut 40).",
+                        "default": 40,
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
+SCAFFOLD_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_api",
+            "description": (
+                "Génère un squelette d'API CRUD complet et idiomatique à partir d'un "
+                "nom de ressource et de champs typés. framework='fastapi' (REST : "
+                "Pydantic v2, router, endpoints list/get/create/update/delete) ou "
+                "'graphql' (schéma Strawberry : type, input, Query, Mutation). Le code "
+                "produit est déterministe et compile. Utilise cet outil quand on "
+                "demande de générer une API REST/GraphQL ou un endpoint CRUD. Ensuite "
+                "écris le résultat avec write_file ou empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user', 'product').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs du modèle (hors 'id', ajouté automatiquement).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "framework": {
+                        "type": "string",
+                        "description": "Cible : 'fastapi' (REST) ou 'graphql' (schéma Strawberry).",
+                        "enum": ["fastapi", "graphql"],
+                        "default": "fastapi",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+SDK_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_sdk",
+            "description": (
+                "Génère un CLIENT SDK typé pour consommer une API REST CRUD (le pendant "
+                "client de scaffold_api). En Python : une dataclass de la ressource + une "
+                "classe Client (httpx) avec list/get/create/update/delete typés. Code "
+                "déterministe qui compile. Utilise cet outil quand on demande de générer "
+                "un SDK ou un client d'API. Écris ensuite le résultat avec write_file ou "
+                "empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs de la ressource (hors 'id', ajouté automatiquement).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Langage du SDK (python uniquement pour l'instant).",
+                        "enum": ["python"],
+                        "default": "python",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+NOSQL_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "scaffold_nosql",
+            "description": (
+                "Génère un repository NoSQL typé pour une ressource. En MongoDB : une "
+                "dataclass + une classe Repository (pymongo) avec list/get/create/update/"
+                "delete/find_by et gestion d'ObjectId. Code déterministe qui compile. "
+                "Utilise cet outil quand on demande de générer un accès MongoDB / une "
+                "couche de données NoSQL. Écris ensuite le code avec write_file ou "
+                "empaquette-le avec bundle_zip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "description": "Nom de la ressource au singulier, minuscules (ex: 'user').",
+                    },
+                    "fields": {
+                        "type": "array",
+                        "description": "Champs de la ressource (l'_id Mongo est géré à part).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Nom du champ (minuscules)."},
+                                "type": {
+                                    "type": "string",
+                                    "description": "Type du champ.",
+                                    "enum": ["str", "int", "float", "bool", "datetime"],
+                                },
+                            },
+                            "required": ["name", "type"],
+                        },
+                        "default": [],
+                    },
+                    "backend": {
+                        "type": "string",
+                        "description": "Backend NoSQL (mongodb uniquement pour l'instant).",
+                        "enum": ["mongodb"],
+                        "default": "mongodb",
+                    },
+                },
+                "required": ["resource"],
+            },
+        },
+    },
+]
+
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS, *NOSQL_TOOLS]
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

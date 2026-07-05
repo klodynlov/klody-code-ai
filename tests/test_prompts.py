@@ -97,6 +97,47 @@ class TestCache:
 
 
 class TestAvailableTypes:
-    def test_6_types_disponibles(self):
+    def test_types_disponibles(self):
         types = available_task_types()
-        assert set(types) == {"edit", "refactor", "bug_fix", "feature", "explain", "self_dev"}
+        assert set(types) == {
+            "edit", "refactor", "bug_fix", "feature", "explain", "self_dev",
+            "review", "test_gen", "security", "docs", "perf", "migrate",
+        }
+
+
+class TestCapacitesEtendues:
+    """Prompts focalisés des task_types étendus (Roadmap v2 #10)."""
+
+    def test_review_lecture_seule(self):
+        s = compose_system_prompt("review")
+        assert "revue" in s.lower()
+        assert "read_file" in s
+
+    def test_test_gen_mentionne_sandbox(self):
+        s = compose_system_prompt("test_gen")
+        assert "test" in s.lower()
+        assert "sandbox" in s.lower() or "pytest" in s.lower()
+
+    def test_security_mentionne_owasp(self):
+        s = compose_system_prompt("security")
+        assert "owasp" in s.lower()
+        assert "sécurité" in s.lower() or "vulnérabilit" in s.lower()
+
+    def test_docs_mentionne_documentation(self):
+        s = compose_system_prompt("docs")
+        assert "documentation" in s.lower() or "docstring" in s.lower()
+
+    def test_perf_mentionne_mesure_et_memoire(self):
+        s = compose_system_prompt("perf")
+        assert "mesure" in s.lower()
+        assert "mémoire" in s.lower()
+
+    def test_migrate_mentionne_dependances(self):
+        s = compose_system_prompt("migrate")
+        assert "migration" in s.lower()
+        assert "dépendance" in s.lower() or "analyze_dependencies" in s
+
+    def test_prompts_etendus_plus_courts_que_default(self):
+        default = compose_system_prompt(None)
+        for tt in ("review", "test_gen", "security", "docs", "perf", "migrate"):
+            assert len(compose_system_prompt(tt)) < len(default), tt

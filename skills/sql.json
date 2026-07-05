@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sql-parametrized-queries",
+    "domain": "sql",
+    "title": "Requêtes paramétrées (anti-injection)",
+    "content": "Ne JAMAIS concaténer une valeur externe dans une requête SQL. Utiliser des placeholders liés par le driver (`?` en SQLite/positionnel, `%s` en psycopg, `:nom` en named). Les identifiants (noms de table/colonne) ne peuvent pas être paramétrés : les valider contre une whitelist, jamais les interpoler depuis l'entrée. Une requête paramétrée est aussi plus rapide (plan réutilisé) et robuste au typage. En Python sqlite3 : `cur.execute('SELECT * FROM t WHERE id = ?', (id,))`.",
+    "tags": ["injection", "parameters", "security", "prepared"]
+  },
+  {
+    "id": "sql-indexing",
+    "domain": "sql",
+    "title": "Indexation et plans d'exécution",
+    "content": "Indexer les colonnes des clauses WHERE, JOIN et ORDER BY à forte sélectivité. Un index composite suit la règle du préfixe gauche : `(a, b)` sert `WHERE a` et `WHERE a AND b`, pas `WHERE b` seul. Éviter d'indexer une colonne à faible cardinalité (booléen). Lire le plan avec `EXPLAIN QUERY PLAN` (SQLite) / `EXPLAIN ANALYZE` (Postgres) : traquer les scans séquentiels sur grosses tables et les tris non indexés. Attention : chaque index ralentit les écritures et occupe de l'espace — indexer ce qui est mesuré, pas par réflexe.",
+    "tags": ["index", "explain", "query-plan", "performance"]
+  },
+  {
+    "id": "sql-transactions",
+    "domain": "sql",
+    "title": "Transactions et intégrité (ACID)",
+    "content": "Regrouper les écritures liées dans UNE transaction : soit tout réussit, soit rien (atomicité). Choisir le niveau d'isolation selon le besoin (READ COMMITTED par défaut ; SERIALIZABLE contre les anomalies de concurrence, au prix de retries). Garder les transactions COURTES pour limiter le verrouillage. Gérer les deadlocks par retry avec backoff. Contraintes déclaratives (FOREIGN KEY, UNIQUE, CHECK, NOT NULL) plutôt que validation applicative : la base est le dernier rempart d'intégrité. En SQLite, activer `PRAGMA foreign_keys=ON` (off par défaut).",
+    "tags": ["transaction", "acid", "isolation", "constraints"]
+  },
+  {
+    "id": "sql-modeling-portability",
+    "domain": "sql",
+    "title": "Modélisation et portabilité",
+    "content": "Normaliser d'abord (3NF) pour éviter les anomalies de mise à jour, dénormaliser ensuite seulement sur un besoin de lecture mesuré. Types précis (DECIMAL pour la monnaie, jamais FLOAT ; TIMESTAMP WITH TIME ZONE pour le temps). Clés primaires stables et non signifiantes. Pagination par curseur (`WHERE id > :last ORDER BY id LIMIT n`) plutôt que `OFFSET` sur gros volumes. Rester conscient des différences de dialecte (SQLite typage dynamique et `AUTOINCREMENT`, Postgres `SERIAL`/`GENERATED`, MySQL `AUTO_INCREMENT`) ; isoler le SQL spécifique.",
+    "tags": ["normalization", "types", "pagination", "portability"]
+  }
+]

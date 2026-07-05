@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cicd-pipeline-structure",
+    "domain": "cicd",
+    "title": "Structure d'un pipeline fiable",
+    "content": "Découper en étapes rapides d'abord (fail fast) : lint → typecheck → tests unitaires → build → tests d'intégration → déploiement. Paralléliser ce qui est indépendant. Un pipeline doit être reproductible et hermétique : dépendances épinglées (lockfile), pas d'état implicite de la machine, cache explicite (deps, layers Docker). Le vert doit être un vrai signal : pas de test flaky toléré, pas d'étape `|| true` qui masque l'échec. Idempotent et rejouable sur le même commit.",
+    "tags": ["pipeline", "fail-fast", "reproducibility", "caching"]
+  },
+  {
+    "id": "cicd-quality-gates",
+    "domain": "cicd",
+    "title": "Gates de qualité et sécurité",
+    "content": "Bloquer le merge sur des gates objectives : tests verts, couverture minimale, lint/format, typecheck. Sécurité dans la CI : SAST (bandit, semgrep), scan de secrets (gitleaks), audit des dépendances (pip-audit, npm audit), scan d'image conteneur. Vérifier la fraîcheur du lockfile (re-compile + diff). Branch protection + revue obligatoire + statuts requis. Signer les commits/artefacts quand la chaîne d'approvisionnement compte. Traiter un warning de sécurité HIGH comme un échec, pas un avertissement.",
+    "tags": ["quality-gate", "sast", "coverage", "supply-chain"]
+  },
+  {
+    "id": "cicd-deploy-strategies",
+    "domain": "cicd",
+    "title": "Stratégies de déploiement",
+    "content": "Séparer build et deploy : construire l'artefact UNE fois, le promouvoir d'un environnement à l'autre (jamais rebuild par env). Déploiements progressifs : blue-green (bascule instantanée réversible) ou canary (montée en charge progressive avec surveillance des métriques). Migrations de schéma compatibles en avant (expand/contract) pour permettre le rollback applicatif. Automatiser le rollback sur seuil d'erreur. Secrets injectés au déploiement, jamais dans l'artefact. Un déploiement échoué doit laisser le système dans un état sain.",
+    "tags": ["blue-green", "canary", "rollback", "promotion"]
+  }
+]

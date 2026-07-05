@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sdk-api-design",
+    "domain": "sdk",
+    "title": "Conception d'API d'un SDK",
+    "content": "Le SDK est une façade : masquer le transport (HTTP, ret/pagination, auth) derrière des objets et méthodes idiomatiques du langage cible. Concevoir pour la découvrabilité : autocomplétion, noms explicites, valeurs par défaut sûres. Minimiser la surface publique (facile d'ajouter, impossible de retirer sans casser). Erreurs typées et hiérarchisées (une exception de base du SDK + sous-classes par catégorie), jamais des codes bruts. Idempotence et timeouts/retries avec backoff exponentiel + jitter intégrés. Async ET sync si l'écosystème l'attend.",
+    "tags": ["api-design", "facade", "errors", "idiomatic"]
+  },
+  {
+    "id": "sdk-versioning-compat",
+    "domain": "sdk",
+    "title": "Versioning et compatibilité",
+    "content": "SemVer strict : MAJOR = cassure, MINOR = ajout rétrocompatible, PATCH = correctif. Documenter la politique de dépréciation (préavis + avertissements runtime avant retrait). Négocier la version d'API côté serveur via en-tête, découplée de la version du SDK. Tester la compatibilité ascendante en CI. Fournir un changelog et un guide de migration à chaque MAJOR. Éviter de fuiter les types de dépendances tierces dans l'API publique (sinon leur bump devient une cassure).",
+    "tags": ["semver", "deprecation", "compatibility", "changelog"]
+  },
+  {
+    "id": "sdk-generation-dx",
+    "domain": "sdk",
+    "title": "Génération et expérience développeur",
+    "content": "Générer le client depuis une spec machine (OpenAPI, GraphQL, gRPC/protobuf) pour garantir la cohérence avec l'API et régénérer sans effort. Séparer le code généré (transport, modèles) d'une couche « main-écrite » ergonomique par-dessus. DX = temps jusqu'au premier appel réussi : README avec un exemple exécutable en < 5 lignes, auth simple, messages d'erreur actionnables. Fournir des types (typing/TS), une pagination itérable, et des logs configurables. Publier sur le gestionnaire de paquets standard du langage.",
+    "tags": ["codegen", "openapi", "dx", "packaging"]
+  }
+]

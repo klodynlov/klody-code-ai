@@ -51,6 +51,48 @@ _EXT_TO_LANG = {
     ".jsx": "javascript",
     ".ts":  "typescript",
     ".tsx": "tsx",
+    # Langages étendus (Roadmap v2 #10) — actifs UNIQUEMENT si la grammaire
+    # tree-sitter correspondante est installée (chargement optionnel plus bas).
+    # Sinon les fichiers sont simplement ignorés à l'indexation (aucune régression).
+    ".rs":   "rust",
+    ".go":   "go",
+    ".java": "java",
+    ".php":  "php",
+}
+
+
+def _load_rust():
+    import tree_sitter_rust
+    return tree_sitter_rust.language()
+
+
+def _load_go():
+    import tree_sitter_go
+    return tree_sitter_go.language()
+
+
+def _load_java():
+    import tree_sitter_java
+    return tree_sitter_java.language()
+
+
+def _load_php():
+    import tree_sitter_php as m
+    # Selon la version du paquet, l'entrée s'appelle language_php() ou language().
+    fn = getattr(m, "language_php", None) or getattr(m, "language", None)
+    if fn is None:  # pragma: no cover - dépend de la version installée
+        raise AttributeError("tree_sitter_php: language() introuvable")
+    return fn()
+
+
+# Grammaires OPTIONNELLES : chacune tentée indépendamment dans _init_languages.
+# Un paquet absent laisse le langage dormant — jamais une régression sur les
+# langages de base (python/js/ts), qui seuls gouvernent _AVAILABLE.
+_OPTIONAL_LOADERS = {
+    "rust": _load_rust,
+    "go":   _load_go,
+    "java": _load_java,
+    "php":  _load_php,
 }
 
 
@@ -62,6 +104,12 @@ def _init_languages() -> None:
     _LANGUAGES["javascript"] = Language(tree_sitter_javascript.language())
     _LANGUAGES["typescript"] = Language(tree_sitter_typescript.language_typescript())
     _LANGUAGES["tsx"] = Language(tree_sitter_typescript.language_tsx())
+    # Langages étendus — best effort, chacun isolé (import manquant → ignoré).
+    for lang_key, loader in _OPTIONAL_LOADERS.items():
+        try:
+            _LANGUAGES[lang_key] = Language(loader())
+        except Exception as exc:  # ImportError ou API de grammaire différente
+            logger.debug("grammaire tree-sitter optionnelle absente (%s): %s", lang_key, exc)
     for name, lang in _LANGUAGES.items():
         _PARSERS[name] = Parser(lang)
 
@@ -217,6 +265,107 @@ def _extract_javascript_like(src: bytes, rel_path: str, lang_key: str) -> tuple[
     return syms, refs
 
 
+@dataclass(frozen=True)
+class _LangSpec:
+    """Types de nœuds tree-sitter par langage pour l'extracteur générique.
+
+    Best-effort et data-driven : ajouter un langage = une entrée dans _LANG_SPEC
+    (+ un loader dans _OPTIONAL_LOADERS + une extension dans _EXT_TO_LANG). Les
+    node-types sont ceux des grammaires tree-sitter courantes ; si un langage
+    sous-extrait, ajuster les frozenset ici plutôt que de coder un extracteur
+    dédié. Toujours résistant : un type absent ou une grammaire différente ne
+    produit que MOINS de symboles, jamais une exception (refresh() gère tout).
+    """
+    class_nodes: frozenset   # → kind 'class' (struct/enum/trait/interface inclus)
+    method_nodes: frozenset  # → kind 'method'
+    func_nodes: frozenset    # → kind 'function'
+    call_nodes: frozenset    # nœuds traités comme un appel (→ Reference)
+
+
+_LANG_SPEC: dict[str, _LangSpec] = {
+    "rust": _LangSpec(
+        class_nodes=frozenset({"struct_item", "enum_item", "trait_item"}),
+        method_nodes=frozenset(),
+        func_nodes=frozenset({"function_item"}),
+        call_nodes=frozenset({"call_expression"}),
+    ),
+    "go": _LangSpec(
+        class_nodes=frozenset({"type_spec"}),
+        method_nodes=frozenset({"method_declaration"}),
+        func_nodes=frozenset({"function_declaration"}),
+        call_nodes=frozenset({"call_expression"}),
+    ),
+    "java": _LangSpec(
+        class_nodes=frozenset({"class_declaration", "interface_declaration", "enum_declaration"}),
+        method_nodes=frozenset({"method_declaration", "constructor_declaration"}),
+        func_nodes=frozenset(),
+        call_nodes=frozenset({"method_invocation"}),
+    ),
+    "php": _LangSpec(
+        class_nodes=frozenset({"class_declaration", "interface_declaration", "trait_declaration"}),
+        method_nodes=frozenset({"method_declaration"}),
+        func_nodes=frozenset({"function_definition"}),
+        call_nodes=frozenset({"function_call_expression", "member_call_expression", "scoped_call_expression"}),
+    ),
+}
+
+
+def _extract_generic(src: bytes, rel_path: str, lang_key: str) -> tuple[list[Symbol], list[Reference]]:
+    """Extraction data-driven (symboles + appels) pilotée par _LANG_SPEC.
+
+    Sert les langages étendus (rust/go/java/php). Ne capture en référence que les
+    identifiants FEUILLES (comme les extracteurs python/js) : un appel qualifié
+    (`a.b.c()`) est ignoré plutôt que mal attribué."""
+    parser = _PARSERS[lang_key]
+    spec = _LANG_SPEC[lang_key]
+    tree = parser.parse(src)
+    syms: list[Symbol] = []
+    refs: list[Reference] = []
+
+    def _ctx(node: Any) -> str:
+        line_start = src.rfind(b"\n", 0, node.start_byte) + 1
+        line_end = src.find(b"\n", node.end_byte)
+        if line_end == -1:
+            line_end = len(src)
+        return src[line_start:line_end].decode("utf-8", errors="replace").strip()[:120]
+
+    def _emit_def(node: Any, kind: str) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            syms.append(Symbol(
+                name=name_node.text.decode("utf-8", errors="replace"),
+                kind=kind, file=rel_path, line=name_node.start_point[0] + 1,
+            ))
+
+    def walk(node: Any) -> None:
+        t = node.type
+        if t in spec.class_nodes:
+            _emit_def(node, "class")
+        elif t in spec.method_nodes:
+            _emit_def(node, "method")
+        elif t in spec.func_nodes:
+            _emit_def(node, "function")
+        elif t in spec.call_nodes:
+            callee = node.child_by_field_name("name") or node.child_by_field_name("function")
+            if callee is None:
+                for child in node.children:
+                    if "identifier" in child.type:
+                        callee = child
+                        break
+            # Feuille uniquement : évite de capter une sous-expression entière.
+            if callee is not None and callee.child_count == 0:
+                refs.append(Reference(
+                    name=callee.text.decode("utf-8", errors="replace"),
+                    file=rel_path, line=callee.start_point[0] + 1, context=_ctx(node),
+                ))
+
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
+    return syms, refs
+
+
 # ---------------------------------------------------------------------------- #
 # CodeIndex                                                                    #
 # ---------------------------------------------------------------------------- #
@@ -270,11 +419,16 @@ class CodeIndex:
             except (OSError, MemoryError):
                 continue
             lang_key = _EXT_TO_LANG[path.suffix]
+            # Grammaire non chargée (langage étendu sans paquet installé) → dormant.
+            if lang_key not in _PARSERS:
+                continue
             try:
                 if lang_key == "python":
                     syms, refs = _extract_python(src, rel)
-                else:
+                elif lang_key in ("javascript", "typescript", "tsx"):
                     syms, refs = _extract_javascript_like(src, rel, lang_key)
+                else:
+                    syms, refs = _extract_generic(src, rel, lang_key)
             except Exception as exc:
                 logger.debug("Parse failed %s: %s", rel, exc)
                 continue
@@ -299,6 +453,14 @@ class CodeIndex:
             for s in idx.symbols:
                 if s.name == name:
                     out.append(s)
+        return out
+
+    def iter_symbols(self) -> list[Symbol]:
+        """Tous les symboles indexés (vues d'ensemble : diagrammes UML, stats)."""
+        self.refresh()
+        out: list[Symbol] = []
+        for idx in self._files.values():
+            out.extend(idx.symbols)
         return out
 
     def find_references(self, name: str, max_results: int = 50) -> list[Reference]:

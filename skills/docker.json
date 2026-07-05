@@ -1,0 +1,23 @@
+[
+  {
+    "id": "docker-multistage-slim",
+    "domain": "docker",
+    "title": "Multi-stage builds et images minimales",
+    "content": "Utiliser un build multi-stage : un stage `builder` (toolchain, compilation, deps de build) puis un stage final qui ne copie que l'artefact runtime. Base minimale : `-slim` ou `distroless`/`alpine` selon le besoin de libc. Ordonner les instructions du moins au plus volatil pour maximiser le cache de couches : copier le manifeste (requirements.txt/package.json) et installer les deps AVANT de copier le code source. Un `.dockerignore` strict (.git, node_modules, venv, tests) réduit le contexte de build. Épingler les versions de base (`python:3.12-slim`, pas `latest`).",
+    "tags": ["multi-stage", "layers", "cache", "image-size"]
+  },
+  {
+    "id": "docker-security",
+    "domain": "docker",
+    "title": "Sécurité des conteneurs",
+    "content": "Ne jamais tourner en root : créer un utilisateur non privilégié (`USER app`). Jamais de secret dans l'image (ni ENV en clair, ni fichier copié) — utiliser les secrets du runtime (Docker secrets, variables injectées, ou `--mount=type=secret` au build). Scanner l'image (trivy, grype) dans la CI. Filesystem en lecture seule (`read_only: true`) + `tmpfs` pour l'éphémère. Limiter capabilities (`cap_drop: ALL`) et ressources (mémoire/CPU). Un processus par conteneur ; laisser l'orchestrateur gérer le cycle de vie.",
+    "tags": ["security", "non-root", "secrets", "scanning"]
+  },
+  {
+    "id": "docker-runtime-healthcheck",
+    "domain": "docker",
+    "title": "Runtime, signaux et healthcheck",
+    "content": "Utiliser la forme exec de CMD/ENTRYPOINT (`[\"python\", \"app.py\"]`) pour que le process reçoive les signaux (PID 1) — la forme shell les avale, cassant l'arrêt gracieux. Gérer SIGTERM pour un shutdown propre. Définir un `HEALTHCHECK` (ou une probe côté orchestrateur) qui teste la vraie disponibilité, pas juste que le port est ouvert. Logger sur stdout/stderr (pas de fichiers). Ne pas embarquer d'init lourd ; `tini` si besoin de reap les zombies.",
+    "tags": ["entrypoint", "signals", "healthcheck", "logging"]
+  }
+]

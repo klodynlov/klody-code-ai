@@ -32,6 +32,28 @@ class TestStrategie:
         s = _decide_strategy("medium", "edit")
         assert s["use_planner"] is False
 
+    # Capacités étendues (Roadmap v2 #10)
+
+    @pytest.mark.parametrize("task_type", ["security", "migrate", "perf", "test_gen"])
+    def test_medium_types_multietapes_activent_planner(self, task_type):
+        s = _decide_strategy("medium", task_type)
+        assert s["use_planner"] is True
+        assert s["use_best_of_n"] is False  # best-of-N réservé à hard / self_dev
+
+    @pytest.mark.parametrize("task_type", ["review", "docs"])
+    def test_medium_types_legers_pas_de_planner(self, task_type):
+        # Revue et doc restent mono-passe sur une tâche medium.
+        s = _decide_strategy("medium", task_type)
+        assert s["use_planner"] is False
+
+    @pytest.mark.parametrize(
+        "task_type", ["review", "test_gen", "security", "docs", "perf", "migrate"]
+    )
+    def test_hard_types_etendus_max_iter(self, task_type):
+        s = _decide_strategy("hard", task_type)
+        assert s["max_iterations"] == 25
+        assert s["use_planner"] is True
+
 
 # ── Parsing de réponse ────────────────────────────────────────────────────────
 

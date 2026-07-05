@@ -40,11 +40,12 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | | |
 |---|---|
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
-| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 6 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
+| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
-| 🧰 **Complet** | 60 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
+| 🧰 **Complet** | 69 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | 🖥️ **Pilote ton environnement** | macOS (AppleScript, Spotlight, Raccourcis→HomeKit/Automator, Finder), maison connectée (MQTT : ESP32, Raspberry Pi), automatisation fichiers (renommage, organisation, sauvegarde, synchro). |
 | 🔨 **Toolsmithing** | Klody ne se contente pas d'utiliser des outils, il les **fabrique** : scripts, CLI, APIs FastAPI, serveurs MCP, workflows, pipelines, plugins Klody, interfaces web — chacun livré avec son test. |
+| ⚙️ **Ops \& génération** | Introspection Docker/Kubernetes/Git (lecture seule, mutations gated), SQL SQLite sandboxé, diagrammes UML, scaffolding d'API REST/GraphQL, SDK et repository NoSQL. |
 | ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
@@ -65,7 +66,7 @@ flowchart TD
     ORCH --> MCPC["🔌 Client MCP"]
     ORCH --> LLM
 
-    subgraph TOOLS["🧰 Outils natifs (60)"]
+    subgraph TOOLS["🧰 Outils natifs (69)"]
         direction LR
         T1["fichiers · sandbox<br/>multi-racines"]
         T2["code-aware<br/>tree-sitter + bge-m3"]
@@ -92,13 +93,13 @@ flowchart TD
 | # | Feature | Détail |
 |---|---|---|
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
-| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 6 task_types → budget d'itérations + planner + Best-of-N (F1≈0,85). |
+| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 12 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
 | 4 | **Sandbox isolé multi-racines** | venv jetable par racine, `ALLOWED_ROOTS`, exec auto après write (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
 | 6 | **Serveurs MCP fournis** | Gmail (IMAP/SMTP) + Web (fetch/search **lecture seule**, anti-SSRF) — branchés par une ligne de `.env`. |
 | 7 | **Serveur MCP Klody** | Klody = plateforme pour d'autres agents (Cline, Zed, Continue.dev). |
-| 8 | **Retrieval code-aware** | tree-sitter (symboles/refs) + embeddings bge-m3 (`find_symbol`, `find_relevant_files`). |
+| 8 | **Retrieval code-aware** | tree-sitter (symboles/refs) + embeddings bge-m3 (`find_symbol`, `find_relevant_files`). Python/JS/TS de base ; Rust/Go/Java/PHP en option (grammaires chargées dynamiquement). |
 | 9 | **Best-of-N + mémoire** | N candidats T variés + action override ; conventions auto-détectées + mémoire d'erreurs. |
 
 ## Stack technique
@@ -175,16 +176,18 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 ./scripts/start-web-mcp.sh   --http    # Web    (:8085) — lecture seule
 ```
 
-## Outils disponibles (60 natifs + connecteurs MCP)
+## Outils disponibles (69 natifs + connecteurs MCP)
 
 | Catégorie | Outils |
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
-| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files` |
-| **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine) |
+| **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies`, `generate_uml` (diagramme de classes Mermaid depuis le code) |
+| **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
+| **Ops / runtime** | `docker_control` (Docker : ps/images/inspect/logs/stats en lecture seule ; `run` ultra-contraint si activé), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…), `git_control` (Git : status, log, diff, show, blame… en lecture seule ; add/commit locaux si `GIT_WRITE_ENABLED`) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
 | **Audio** | `analyze_audio`, `edit_wav`, `mix_stems`, `generate_silence`, `convert_format`, `get_waveform_data` |
+| **Génération** | `generate_uml` (diagramme de classes Mermaid), `scaffold_api` (squelette CRUD : **REST FastAPI** ou **GraphQL Strawberry**), `scaffold_sdk` (client Python typé httpx), `scaffold_nosql` (repository MongoDB pymongo) |
 | **Musique — composition** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `suggerer_tonalites`, `harmoniser`, `suggerer_accords`, `analyser_progression`, `reharmoniser`, `moduler`, `melodie_vers_midi`, `generer_basse`, `harmonies_vocales`, `idees_chanson`, `composer_demo` |
 | **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale`, `recommander_compression`, `recommander_saturation` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
 | **Musique — chant** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `analyser_justesse` (écart en cents vs gamme), `recommander_autotune` (gamme/vitesse/force), `harmonies_vocales` |
@@ -225,6 +228,8 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
 - **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
+- **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
+- **Ops en lecture seule** (`docker_control`, `kubectl_control`, `git_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats… ; k8s : get/describe/logs/top… ; Git : status/log/diff/show/blame…), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, ref, fichier) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`, `--output`…) ; dépôt Git confiné aux racines autorisées ; sortie plafonnée, timeout borné. Les **mutations Git** (`add`/`commit`, **locales** et réversibles) sont **désactivées par défaut** (`GIT_WRITE_ENABLED`) ; `push`/`pull` et les opérations destructives (reset/checkout/clean/rebase) restent hors de l'outil. Le **`docker run`** (mutation) est doublement borné — `DOCKER_WRITE_ENABLED` **et** une **allowlist d'images** non vide — et impose un durcissement figé (**aucun flag utilisateur** : `--network none`, `--cap-drop ALL`, `no-new-privileges`, limites ressources, pas de montage) ; `build`/`exec`/`rm` restent exclus.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
 - **Pilotage macOS** : garde plateforme (hors macOS → message clair, jamais d'exception) ; **blocklist AppleScript** (suppression, vidage corbeille, extinction, `do shell script`, contrôle UI synthétique refusés) ; `reveal_in_finder`/Spotlight confinés aux racines autorisées ; timeouts + sortie plafonnée.
 - **Automatisation & toolsmithing** : opérations de masse en **`dry_run` par défaut** (montrent le plan avant d'agir) ; fichiers sensibles exclus partout ; destinations confinées aux racines autorisées ; refus d'écraser un dossier existant. **MQTT** borné (écoute à timeout dur, payload plafonné, broker local par défaut).
