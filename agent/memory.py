@@ -32,6 +32,10 @@ class ConversationMemory:
         self.messages: list[dict] = []
         self._created_at: str = datetime.now().isoformat()
         self.title: str = ""
+        # Archivée = rangée hors de la liste active mais conservée pour être
+        # rechargée/réutilisée. Sticky : préservée à travers save() pour qu'un
+        # tour de chat sur une session réutilisée ne la désarchive pas en douce.
+        self.archived: bool = False
 
     # ------------------------------------------------------------------ #
     # Ajout de messages                                                    #
@@ -115,6 +119,7 @@ class ConversationMemory:
         data = {
             "session_id": self.session_id,
             "title": self.title,
+            "archived": self.archived,
             "created_at": self._created_at,
             "updated_at": datetime.now().isoformat(),
             # On retire les clés privées éphémères (cache de tokens `_tok*`) : elles
@@ -151,6 +156,7 @@ class ConversationMemory:
         instance.messages = data["messages"]
         instance._created_at = data["created_at"]
         instance.title = data.get("title", "")
+        instance.archived = bool(data.get("archived", False))
         # Assainit les sessions héritées : un tool result orphelin viole
         # l'invariant ET casse l'API OpenAI/Ollama au prochain appel.
         dropped = instance._drop_orphan_tool_results()

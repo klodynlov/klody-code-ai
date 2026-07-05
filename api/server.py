@@ -172,16 +172,35 @@ def _load_project_info() -> dict:
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
-async def list_sessions():
+async def list_sessions(filter: str = "active"):
+    """Liste les sessions, la plus récente d'abord.
+
+    `filter` ∈ {active, archived, all} :
+    - active   : non archivées (défaut, comportement historique) ;
+    - archived : uniquement les sessions rangées (« anciennes » réutilisables) ;
+    - all      : les deux — le client ventile via le champ `archived` sans
+                 second appel.
+
+    Le filtrage précède le plafond (50) : archiver une session ne fait donc pas
+    tomber une active hors de la liste, et les archives anciennes restent
+    joignables même au-delà des 20 dernières sessions actives.
+    """
+    if filter not in ("active", "archived", "all"):
+        filter = "active"
     files = sorted(
         config.MEMORY_DIR.glob("memory_*.json"),
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
     sessions = []
-    for f in files[:20]:
+    for f in files:
         try:
             data = json.loads(f.read_text())
+            archived = bool(data.get("archived", False))
+            if filter == "active" and archived:
+                continue
+            if filter == "archived" and not archived:
+                continue
             msgs = [m for m in data.get("messages", []) if m.get("role") not in ("system", "tool")]
             sessions.append({
                 "id": data.get("session_id", f.stem.replace("memory_", "")),
@@ -189,7 +208,10 @@ async def list_sessions():
                 "messages": len(msgs),
                 "modified": f.stat().st_mtime,
                 "preview": msgs[0]["content"][:60] if msgs else "",
+                "archived": archived,
             })
+            if len(sessions) >= 50:
+                break
         except Exception:
             continue
     return sessions
@@ -408,6 +430,29 @@ async def rename_session(session_id: str, request: Request):
         data["title"] = title
         f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"ok": True, "title": title}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+@app.post("/api/sessions/{session_id}/archive")
+async def archive_session(session_id: str, request: Request):
+    """Archive ou désarchive une session (booléen `archived` dans le JSON).
+
+    Body : {"archived": true|false} (défaut true). Archiver range une ancienne
+    session hors de la liste active sans la détruire : elle reste chargeable
+    (`session_load`) et donc réutilisable à l'identique. Désarchiver la remet
+    dans les actives.
+    """
+    body = await request.json()
+    archived = bool(body.get("archived", True))
+    f = config.MEMORY_DIR / f"memory_{session_id}.json"
+    if not f.exists():
+        return {"ok": False, "message": "Session introuvable"}
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        data["archived"] = archived
+        f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "archived": archived}
     except Exception as e:
         return {"ok": False, "message": str(e)}
 

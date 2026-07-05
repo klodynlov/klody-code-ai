@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -203,6 +204,88 @@ class TestSessionRename:
         assert json.loads(f.read_text())["title"] == "a" * 80
 
 
+class TestSessionArchive:
+    def _make(self, mem_dir, sid, archived=False):
+        f = mem_dir / f"memory_{sid}.json"
+        f.write_text(json.dumps({
+            "session_id": sid,
+            "title": f"Session {sid}",
+            "archived": archived,
+            "created_at": "2026-05-27T20:00:00",
+            "messages": [{"role": "user", "content": f"hello {sid}"}],
+        }, ensure_ascii=False))
+        return f
+
+    def test_archive_sets_flag(self, client):
+        c, mem_dir = client
+        f = self._make(mem_dir, "arch-me")
+        r = c.post("/api/sessions/arch-me/archive", json={"archived": True})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "archived": True}
+        data = json.loads(f.read_text())
+        assert data["archived"] is True
+        # Autres champs préservés
+        assert data["session_id"] == "arch-me"
+        assert data["messages"] == [{"role": "user", "content": "hello arch-me"}]
+
+    def test_archive_defaults_true(self, client):
+        c, mem_dir = client
+        f = self._make(mem_dir, "no-body")
+        r = c.post("/api/sessions/no-body/archive", json={})
+        assert r.json() == {"ok": True, "archived": True}
+        assert json.loads(f.read_text())["archived"] is True
+
+    def test_unarchive(self, client):
+        c, mem_dir = client
+        f = self._make(mem_dir, "bring-back", archived=True)
+        r = c.post("/api/sessions/bring-back/archive", json={"archived": False})
+        assert r.json() == {"ok": True, "archived": False}
+        assert json.loads(f.read_text())["archived"] is False
+
+    def test_archive_missing(self, client):
+        c, _ = client
+        r = c.post("/api/sessions/ghost/archive", json={"archived": True})
+        body = r.json()
+        assert body["ok"] is False
+        assert "introuvable" in body["message"].lower()
+
+    def test_filter_active_excludes_archived(self, client):
+        c, mem_dir = client
+        self._make(mem_dir, "live", archived=False)
+        self._make(mem_dir, "stored", archived=True)
+        # Défaut = active
+        ids = [s["id"] for s in c.get("/api/sessions").json()]
+        assert "live" in ids and "stored" not in ids
+        # Chaque résumé porte le drapeau
+        assert all("archived" in s for s in c.get("/api/sessions").json())
+
+    def test_filter_archived_only(self, client):
+        c, mem_dir = client
+        self._make(mem_dir, "live", archived=False)
+        self._make(mem_dir, "stored", archived=True)
+        ids = [s["id"] for s in c.get("/api/sessions?filter=archived").json()]
+        assert ids == ["stored"]
+
+    def test_filter_all(self, client):
+        c, mem_dir = client
+        self._make(mem_dir, "live", archived=False)
+        self._make(mem_dir, "stored", archived=True)
+        ids = {s["id"] for s in c.get("/api/sessions?filter=all").json()}
+        assert ids == {"live", "stored"}
+
+    def test_archive_survives_reuse_via_ws(self, client):
+        """Réutiliser (charger + chatter) une session archivée ne la
+        désarchive pas : le drapeau est sticky à travers save()."""
+        _c, mem_dir = client
+        from agent.memory import ConversationMemory
+        sid = "sticky"
+        self._make(mem_dir, sid, archived=True)
+        mem = ConversationMemory.load_from_file(mem_dir / f"memory_{sid}.json")
+        assert mem.archived is True
+        mem.add_message("user", "encore une question")  # déclenche save()
+        assert json.loads((mem_dir / f"memory_{sid}.json").read_text())["archived"] is True
+
+
 class TestMemoriesEndpoints:
     def test_list(self, client, monkeypatch):
         c, _ = client
@@ -329,7 +412,7 @@ class TestStopGeneration:
 
 
 class TestConfigEndpoints:
-    EXPECTED_KEYS = {
+    EXPECTED_KEYS: ClassVar[set[str]] = {
         "router_enabled", "best_of_n_enabled", "best_of_n_force",
         "sandbox_auto_exec", "best_of_n_count", "sandbox_timeout", "max_iterations",
     }
