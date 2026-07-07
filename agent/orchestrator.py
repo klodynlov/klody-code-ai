@@ -320,6 +320,35 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
     return bool(has_enumeration and intent_count >= 1)
 
 
+def _is_empty_after_reasoning(
+    content: str | None,
+    has_tool_calls: bool,
+    *,
+    thinking_enabled: bool,
+    use_bon: bool,
+    already_recovered: bool,
+) -> bool:
+    """Vrai si le tour n'a produit NI réponse NI action alors que le CoT était actif.
+
+    Sous-cas DISTINCT de la boucle-verbatim (que `LoopGuard`/`degenerate_cut` coupe
+    déjà dans le stream) : ici le raisonnement a consommé tout le budget de tokens
+    SANS jamais répéter à l'identique (analysis-paralysis — « vérifions X, puis Y,
+    puis Z »), donc `degenerate_cut` ne matche pas, et pourtant `content` ressort
+    VIDE. Sur une tâche `explain`/`chat`, l'anti-stall (qui ne couvre que
+    feature/refactor/self_dev/bug_fix) laisse alors un écran blanc.
+
+    Pur → testable sans LLM. Exclut Best-of-N (candidats vides = filet propre) et se
+    limite à un seul déclenchement par run (`already_recovered`).
+    """
+    return (
+        thinking_enabled
+        and not use_bon
+        and not already_recovered
+        and not has_tool_calls
+        and not (content or "").strip()
+    )
+
+
 # Messages courts qui poursuivent la tâche en cours plutôt que d'en lancer une
 # nouvelle ("ok", "vas-y", "c'est bon ?", "continue"…). Le `.?` tolère les
 # variantes d'apostrophe/accent (c'est / cest / c est).
@@ -2204,15 +2233,61 @@ class Orchestrator:
             if force_action:
                 logger.info("[anti-stall] iter %d : tool_choice=required (escalation)", iteration)
 
+            thinking_enabled = False
             if use_bon:
                 content, tool_calls = self._run_best_of_n(messages)
             else:
                 budget = self._thinking_budget()
+                thinking_enabled = self._should_think()
                 content, tool_calls = self.llm.stream_chat(
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
-                    enable_thinking=self._should_think(),
+                    enable_thinking=thinking_enabled,
                     thinking_budget=budget or None,
                 )
+
+            # Empty-after-reasoning : le CoT a tout consommé sans répondre NI agir
+            # (analysis-paralysis, non-verbatim → invisible au LoopGuard du stream ;
+            # cf. _is_empty_after_reasoning). Sur explain/chat l'anti-stall plus bas
+            # ne couvre pas → écran blanc. On injecte un nudge « agis OU réponds,
+            # vérifie avant d'affirmer » et on relance SANS thinking (le CoT est le
+            # problème). Un seul déclenchement par run (flag), hors Best-of-N.
+            if _is_empty_after_reasoning(
+                content, bool(tool_calls),
+                thinking_enabled=thinking_enabled, use_bon=use_bon,
+                already_recovered=getattr(self, "_empty_reasoning_recovered", False),
+            ):
+                self._empty_reasoning_recovered = True
+                logger.info("[empty-after-reasoning] 0 réponse + 0 tool après CoT "
+                            "→ nudge + relance sans thinking (iter=%d)", iteration)
+                console.print(
+                    "[dim yellow]  ⤵  Raisonnement sans réponse — relance directe "
+                    "(sans thinking).[/dim yellow]"
+                )
+                self.memory.messages.append({
+                    "role": "user",
+                    "content": (
+                        "Ton raisonnement précédent n'a produit AUCUNE réponse ni "
+                        "action. Ne raisonne plus en silence : soit tu appelles "
+                        "MAINTENANT un outil concret pour vérifier (par ex. "
+                        "`library_catalog`, `list_skills`, `search_books`, "
+                        "`find_relevant_files`), soit tu réponds directement à "
+                        "l'utilisateur. VÉRIFIE avant d'affirmer et ne nie pas ce que "
+                        "l'utilisateur dit exister. Réponds maintenant."
+                    ),
+                    "timestamp": None,
+                })
+                content, tool_calls = self.llm.stream_chat(
+                    self.memory.get_messages_for_api(),
+                    tools=self._tools_for_run(), tool_choice="auto",
+                    enable_thinking=False,
+                )
+                # Garantie anti-écran-blanc : si la relance ne produit toujours rien,
+                # on force une synthèse finale plutôt que laisser un tour muet.
+                if not tool_calls and not (content or "").strip():
+                    self._forced_final_synthesis(
+                        reason="Mon raisonnement n'a pas abouti à une réponse ce tour-ci."
+                    )
+                    break
 
             if tool_calls:
                 self.memory.add_tool_call_message([
@@ -2561,6 +2636,7 @@ class Orchestrator:
         self._t2a_fired = False
         self._self_critique_done = False
         self._interactive_skill_active = False
+        self._empty_reasoning_recovered = False
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""

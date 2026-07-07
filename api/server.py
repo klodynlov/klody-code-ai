@@ -902,6 +902,7 @@ def _build_streaming_orchestrator(
         max_tokens: int = 8192,
         enable_thinking: bool = False,
         thinking_budget: int | None = None,
+        _recovering: bool = False,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -949,6 +950,7 @@ def _build_streaming_orchestrator(
             params["tool_choice"] = tool_choice
 
         full_content = ""
+        reasoning_buf = ""  # CoT accumulé — surveillé par reasoning_guard, jamais renvoyé
         raw_tool_calls: dict = {}
         usage = None  # rempli par le chunk final (stream_options.include_usage)
 
@@ -963,6 +965,21 @@ def _build_streaming_orchestrator(
                 window=config.LLM_LOOP_WINDOW,
             )
             if config.LLM_LOOP_GUARD and not silent
+            else None
+        )
+        # Même filet DUR sur le canal RAISONNEMENT (CoT) : le garde content ci-dessus
+        # ne voit jamais `delta.reasoning`, or le modèle peut boucler verbatim dans le
+        # CoT sans jamais émettre de content ni de tool_call (4e variante « Klody
+        # boucle »). Seuil de reps plus élevé — le raisonnement re-dérive des pas
+        # voisins, on n'agit que sur une boucle franche. Inactif hors thinking, en
+        # silencieux, ou pendant une passe de récupération (pas de CoT à surveiller).
+        reasoning_guard = (
+            LoopGuard(
+                reps=config.LLM_REASONING_LOOP_REPS,
+                min_unit=config.LLM_LOOP_MIN_UNIT,
+                window=config.LLM_LOOP_WINDOW,
+            )
+            if config.LLM_LOOP_GUARD and enable_thinking and not silent and not _recovering
             else None
         )
 
@@ -994,6 +1011,31 @@ def _build_streaming_orchestrator(
                     reasoning_delta = orch.llm._delta_reasoning(delta)
                     if reasoning_delta:
                         _put({"type": "reasoning", "content": reasoning_delta})
+                        # Boucle dégénérée DANS le raisonnement → on coupe le stream
+                        # (sinon il crame tout le budget sans jamais produire de
+                        # réponse) et on relance UNE passe SANS thinking : le CoT est
+                        # bloqué, on force une réponse directe avec ce que le modèle a
+                        # déjà. `_recovering` borne la récursion à un seul niveau.
+                        if reasoning_guard is not None:
+                            reasoning_buf += reasoning_delta
+                            if reasoning_guard.cut(reasoning_buf) is not None:
+                                logger.warning(
+                                    "[loop-guard] boucle dégénérée dans le RAISONNEMENT "
+                                    "(CoT) coupée après %d chars → réponse directe sans "
+                                    "thinking", len(reasoning_buf),
+                                )
+                                with contextlib.suppress(Exception):
+                                    stream.close()  # stoppe la génération MLX en amont
+                                _put({"type": "reasoning", "content":
+                                      "\n⚠ boucle de raisonnement coupée — réponse directe."})
+                                return stream_api(
+                                    messages, tools=tools,
+                                    token_callback=token_callback,
+                                    temperature=temperature, silent=silent,
+                                    tool_choice=tool_choice, max_tokens=max_tokens,
+                                    enable_thinking=False, thinking_budget=None,
+                                    _recovering=True,
+                                )
                 if delta.content:
                     full_content += delta.content
                     if not silent:

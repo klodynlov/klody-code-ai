@@ -180,13 +180,15 @@ THINKING_BUDGET_FORWARD: bool = os.getenv(
 
 # Pénalité de répétition transmise au serveur MLX (extra_body, hors spec OpenAI —
 # le gateway :8090 forwarde le body intégral au worker mlx_lm qui la supporte).
-# Filet anti-boucle OPT-IN (défaut 1.0 = désactivé, param non envoyé, comportement
-# historique strictement préservé) : à température basse, une longue liste quasi
+# Filet SOUPLE anti-boucle (sampling). À température basse, une longue liste quasi
 # identique (53 atomes d'une molécule…) fait partir le modèle en répétition
 # dégénérée qui mange tout le budget de tokens sans jamais terminer (vécu 12/06 :
-# « molécule de THC en 3D », 2 requêtes parties en boucle infinie). Valeur
-# recommandée : 1.05 — à peine perceptible sur du code normal, casse les cycles.
-LLM_REPETITION_PENALTY: float = float(os.getenv("LLM_REPETITION_PENALTY", "1.0"))
+# « molécule de THC en 3D », 2 requêtes parties en boucle infinie). Défaut 1.05 —
+# à peine perceptible sur du code normal, casse la plupart des cycles ; envoyé aux
+# deux chemins (CLI stream_chat + WS stream_api). Opt-out strict : 1.0 = param non
+# envoyé, comportement historique. Complété par le filet DUR ci-dessous (qui, lui,
+# coupe franchement un cycle que le sampling laisse passer).
+LLM_REPETITION_PENALTY: float = float(os.getenv("LLM_REPETITION_PENALTY", "1.05"))
 
 # Filet DUR anti-boucle (cf. agent/stream_guard.py) : coupe le STREAM dès que la
 # fin de la réponse est un motif répété >= LLM_LOOP_REPS fois (chaque motif
@@ -198,6 +200,13 @@ LLM_LOOP_GUARD: bool = os.getenv("LLM_LOOP_GUARD", "1") not in ("0", "false", "F
 LLM_LOOP_REPS: int = int(os.getenv("LLM_LOOP_REPS", "4"))
 LLM_LOOP_MIN_UNIT: int = int(os.getenv("LLM_LOOP_MIN_UNIT", "16"))
 LLM_LOOP_WINDOW: int = int(os.getenv("LLM_LOOP_WINDOW", "2000"))
+# Même filet DUR appliqué au canal RAISONNEMENT (CoT `delta.reasoning`), angle mort
+# du garde ci-dessus qui ne scanne que le `content` : le modèle peut boucler
+# verbatim dans le CoT (0 content, 0 tool call) et cramer tout le budget sans
+# jamais répondre (4e variante « Klody boucle »). Seuil plus haut que le content —
+# le raisonnement re-dérive légitimement des pas voisins, donc on exige une boucle
+# plus franche avant de couper. Réutilise MIN_UNIT/WINDOW du filet content.
+LLM_REASONING_LOOP_REPS: int = int(os.getenv("LLM_REASONING_LOOP_REPS", "6"))
 
 # --- Auto-critique (Levier 3) ---
 # Après la réponse finale d'une tâche de raisonnement (explain/hard, sur le brain),
