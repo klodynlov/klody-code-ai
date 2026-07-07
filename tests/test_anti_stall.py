@@ -3,7 +3,10 @@
 L'anti-stall détecte un message qui annonce un plan sans appeler de tool —
 typique de Qwen3-Coder en mode hard/feature avec T basse.
 """
-from agent.orchestrator import _looks_like_unfinished_plan
+from agent.orchestrator import (
+    _is_empty_after_reasoning,
+    _looks_like_unfinished_plan,
+)
 
 
 class TestPlanDetecte:
@@ -80,3 +83,42 @@ class TestPasUnPlan:
         # Finit par ":" mais sans aucun signal de plan → False
         content = "Le projet utilise les technologies suivantes pour la dépendance principale :"
         assert _looks_like_unfinished_plan(content) is False
+
+
+class TestEmptyAfterReasoning:
+    """CoT qui bouffe tout le budget sans répondre NI agir (analysis-paralysis)."""
+
+    def _fires(self, **over):
+        base = dict(
+            content="", has_tool_calls=False,
+            thinking_enabled=True, use_bon=False, already_recovered=False,
+        )
+        base.update(over)
+        content = base.pop("content")
+        has_tool_calls = base.pop("has_tool_calls")
+        return _is_empty_after_reasoning(content, has_tool_calls, **base)
+
+    def test_cas_nominal_declenche(self):
+        # 0 content + 0 tool + thinking actif + hors BoN + jamais récupéré
+        assert self._fires() is True
+
+    def test_content_blanc_traite_comme_vide(self):
+        assert self._fires(content="   \n\t ") is True
+
+    def test_content_non_vide_ne_declenche_pas(self):
+        assert self._fires(content="Voici la réponse.") is False
+
+    def test_tool_call_present_ne_declenche_pas(self):
+        # Le modèle a agi → pas un stall
+        assert self._fires(has_tool_calls=True) is False
+
+    def test_thinking_off_ne_declenche_pas(self):
+        # Sans CoT, ce n'est pas ce sous-cas (l'anti-stall/synthèse gère)
+        assert self._fires(thinking_enabled=False) is False
+
+    def test_best_of_n_exclu(self):
+        assert self._fires(use_bon=True) is False
+
+    def test_une_seule_fois_par_run(self):
+        # Déjà récupéré ce run → ne re-déclenche pas (évite la boucle de relances)
+        assert self._fires(already_recovered=True) is False
