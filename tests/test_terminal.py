@@ -195,3 +195,47 @@ class TestExecuteCommand:
         result = terminal.execute_command("echo a && echo b", "séquence")
         assert "arrière-plan" not in result
         assert "a" in result and "b" in result
+
+
+# ------------------------------------------------------------------ #
+# Indice CWD sur fichier introuvable (gotcha racine sandbox)          #
+# ------------------------------------------------------------------ #
+
+class TestMissingFileHint:
+    """Une commande qui échoue faute de trouver un fichier (typiquement
+    `python main.py` lancé depuis la mauvaise racine) reçoit un indice
+    ACTIONNABLE — le CWD réel + les pistes — pour que le modèle corrige dès le
+    1er échec au lieu de reboucler (cf. anti-boucle cross-run côté orchestrator)."""
+
+    def _autoconfirm(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    def test_indice_ajoute_sur_fichier_introuvable(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        out = terminal.execute_command("cat /nonexistent_klody_xyz_42.txt")
+        assert "[Indice CWD]" in out
+        assert str(terminal.cwd) in out          # cite le CWD réel
+
+    def test_pas_d_indice_si_succes(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        out = terminal.execute_command("echo ok")
+        assert "[Indice CWD]" not in out
+
+    def test_pas_d_indice_si_echec_non_lie_fichier(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        out = terminal.execute_command("false")   # code≠0, aucun fichier manquant
+        assert "[Code de retour: 1]" in out
+        assert "[Indice CWD]" not in out
+
+
+class TestLooksLikeMissingFile:
+    def test_marqueurs_detectes(self):
+        from tools.terminal import _looks_like_missing_file
+        assert _looks_like_missing_file("cat: x: No such file or directory") is True
+        assert _looks_like_missing_file("python: can't open file 'main.py'") is True
+
+    def test_non_marqueurs(self):
+        from tools.terminal import _looks_like_missing_file
+        assert _looks_like_missing_file("") is False
+        assert _looks_like_missing_file("Permission denied") is False

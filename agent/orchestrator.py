@@ -243,6 +243,18 @@ def _infer_action_from_text(content: str, user_input: str) -> dict | None:
     return None
 
 
+def _cmd_result_failed(result: str) -> bool:
+    """Vrai si le résultat d'une commande shell dénote un ÉCHEC.
+
+    `[Code de retour: N]` n'est ajouté par le terminal QUE si returncode≠0 ;
+    `ERREUR…` / `ERREUR SÉCURITÉ…` couvrent exception, timeout et blocage
+    sécurité. Sert à ne compter que les échecs cross-run (une commande qui
+    réussit — ou dont la sortie évolue — ne doit jamais faire monter le compteur).
+    """
+    low = (result or "").lower()
+    return "[code de retour:" in low or low.startswith("erreur")
+
+
 # ── Boucle de feedback preview : erreurs JS runtime → correction ──────────────
 _MAX_PREVIEW_FIX = 2       # passes de correction auto max par requête
 _PREVIEW_POLL_S = 0.2      # granularité du polling du tampon d'erreurs
@@ -413,6 +425,19 @@ _SCAN_REPEAT_BREAK = 14
 # est probablement vide/tronqué) ; au BREAK on coupe et on force la synthèse.
 _ECHO_REPEAT_WARN = 3
 _ECHO_REPEAT_BREAK = 5
+
+# Anti-boucle COMPORTEMENTALE cross-run : une commande shell qui échoue à
+# l'identique d'un run() à l'autre. Angle mort réel (08/07) : `call_repeat_counts`
+# est reset à CHAQUE message (l'orchestrator est reconstruit par message WS) ET le
+# text-to-action fallback exécute SANS l'alimenter → une commande qui rate pareil
+# à chaque tour (ex. `python main.py` lancé depuis la mauvaise racine → « No such
+# file ») passait sous tous les radars et rebouclait sans fin. On porte le
+# compteur sur la MÉMOIRE de session (persistante entre messages) et on coupe dès
+# le 2e échec identique consécutif (+ nudge correctif persistant). Seuil bas : un
+# échec qui se répète à l'identique n'a AUCUNE raison de converger tout seul.
+_CMD_FAIL_STREAK_BREAK = 2
+# Outils dont l'exécution lance une commande shell (les seuls suivis cross-run).
+_CMD_EXEC_TOOLS = frozenset({"execute_command"})
 
 # Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
 # projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
@@ -1067,6 +1092,83 @@ class Orchestrator:
                      if not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))]
             with contextlib.suppress(Exception):
                 self._on_skills_selected(howto)
+
+    # ------------------------------------------------------------------ #
+    # Anti-boucle comportementale cross-run (commande qui rate à l'identique) #
+    # ------------------------------------------------------------------ #
+
+    def _cmd_streak_map(self) -> dict[str, int]:
+        """Compteur d'échecs identiques PERSISTANT entre run().
+
+        Porté par la mémoire de SESSION (persistante entre messages), PAS par
+        l'orchestrator — celui-ci est reconstruit à chaque message WS, donc un
+        état d'instance serait remis à zéro et ne verrait jamais la boucle
+        cross-run. Créé paresseusement → robuste à tous les chemins de
+        construction de ConversationMemory (dont load_from_file).
+        """
+        streak = getattr(self.memory, "cmd_failure_streak", None)
+        if streak is None:
+            streak = {}
+            self.memory.cmd_failure_streak = streak
+        return streak
+
+    def _note_cmd_outcome(self, tool_name: str, tool_args: dict, result: str) -> int:
+        """Met à jour et renvoie le nb d'échecs consécutifs À L'IDENTIQUE d'une
+        commande shell.
+
+        Renvoie 0 si l'outil n'exécute pas de commande. Une commande qui
+        RÉUSSIT rompt toute boucle en cours (reset complet) : on ne compte que
+        des échecs consécutifs non interrompus par un succès. La signature inclut
+        le RÉSULTAT (comme call_repeat_counts) → seul un échec À L'IDENTIQUE
+        (même commande, même args, MÊME sortie) fait monter le compteur ; une
+        erreur qui ÉVOLUE d'un essai à l'autre = progrès, jamais coupée. Alimenté
+        par la branche tool normale ET par le text-to-action fallback → ferme les
+        deux trous (compteur per-run reset + fallback qui le contournait).
+        """
+        if tool_name not in _CMD_EXEC_TOOLS:
+            return 0
+        streak_map = self._cmd_streak_map()
+        if not _cmd_result_failed(result):
+            streak_map.clear()  # succès → la chaîne de boucle est rompue
+            return 0
+        try:
+            args_key = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError):
+            args_key = repr(tool_args)
+        sig = f"{tool_name}|{args_key}|{hash(result)}"
+        n = streak_map.get(sig, 0) + 1
+        streak_map[sig] = n
+        if len(streak_map) > 32:  # borne défensive (échecs tous différents)
+            streak_map.clear()
+            streak_map[sig] = n
+        return n
+
+    def _cmd_loop_nudge(self, tool_args: dict, streak: int) -> None:
+        """Signale la boucle de commande à l'utilisateur et injecte un nudge
+        correctif PERSISTANT (vu au prochain run via la mémoire de session)."""
+        cmd = str(tool_args.get("command", ""))[:200] if isinstance(tool_args, dict) else ""
+        cwd = getattr(self.terminal, "cwd", "?")
+        logger.warning(
+            "[cmd-loop] commande échouée %d× à l'identique (cross-run) → nudge + stop",
+            streak)
+        console.print(
+            f"\n[yellow]  ⚠  Commande en échec répété ({streak}×) — arrêt, "
+            f"correction demandée au modèle.[/yellow]"
+        )
+        self.memory.messages.append({
+            "role": "user",
+            "content": (
+                f"STOP. La commande `{cmd}` a ÉCHOUÉ {streak} fois DE SUITE à "
+                f"l'identique (lancée depuis « {cwd} »). NE la relance PAS telle "
+                "quelle — ce serait une boucle. Diagnostique d'ABORD la cause : le "
+                "fichier/chemin existe-t-il à cet endroit ? une dépendance manque-"
+                "t-elle ? Puis corrige : chemin ABSOLU, `cd <bon_dossier> && …`, ou "
+                "crée le fichier avec write_file avant de l'exécuter. Si tu ne peux "
+                "pas corriger, explique le blocage à l'utilisateur en clair. Rédige "
+                "maintenant ta réponse — n'appelle plus cette commande à l'identique."
+            ),
+            "timestamp": None,
+        })
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #
@@ -2308,6 +2410,8 @@ class Orchestrator:
                 _worst_name_local: str | None = None
                 _scan_n_local = 0
                 _scan_name_local: str | None = None
+                _cmd_streak_worst = 0            # échecs cross-run de commande shell
+                _cmd_streak_args: dict | None = None
                 for tc in tool_calls:
                     tool_name = tc["function"]["name"]
                     tool_id = tc["id"]
@@ -2352,6 +2456,15 @@ class Orchestrator:
                     if call_repeat_counts[_loop_key] > _worst_n_local:
                         _worst_n_local = call_repeat_counts[_loop_key]
                         _worst_name_local = tool_name
+
+                    # Anti-boucle COMPORTEMENTALE cross-run : une commande shell qui
+                    # échoue à l'identique d'un run à l'autre (call_repeat_counts est
+                    # reset par run → invisible ici). Le compteur vit sur la mémoire
+                    # de session ; on garde le pire streak de la passe.
+                    _cmd_streak_now = self._note_cmd_outcome(tool_name, tool_args, result)
+                    if _cmd_streak_now > _cmd_streak_worst:
+                        _cmd_streak_worst = _cmd_streak_now
+                        _cmd_streak_args = tool_args
 
                     # Anti-écho : série consécutive du même appel producteur.
                     # Résultat volontairement ignoré : réémis à l'identique,
@@ -2427,6 +2540,16 @@ class Orchestrator:
                         ),
                         "timestamp": None,
                     })
+
+                # Anti-boucle COMPORTEMENTALE cross-run : une commande shell qui
+                # échoue à l'identique de run en run (le compteur per-run ci-dessous
+                # reste à 1 → ne déclenche jamais). Coupe dès le 2e échec + nudge
+                # correctif persistant (chemin/CWD). Placée AVANT l'anti-boucle
+                # per-run : plus spécifique et plus actionnable pour ce cas.
+                if _cmd_streak_worst >= _CMD_FAIL_STREAK_BREAK:
+                    self._cmd_loop_nudge(_cmd_streak_args or {}, _cmd_streak_worst)
+                    self._forced_final_synthesis()
+                    break
 
                 # Anti-boucle : même appel + même résultat répété en rafale = le LLM
                 # tourne sans avancer (souvent un échec identique). Au seuil WARN on
@@ -2616,6 +2739,17 @@ class Orchestrator:
                                 f"[Système] Tool fallback exécuté : {inferred['name']}\n{_t2a_result[:300]}")
                         except Exception as exc:
                             logger.warning("Text-to-action exec failed: %s", exc)
+                        # Anti-boucle COMPORTEMENTALE cross-run : le fallback exécute
+                        # SANS alimenter call_repeat_counts → une commande extraite qui
+                        # échoue à l'identique de run en run (symptôme réel du 08/07 :
+                        # `python main.py` relancé sans fin) passait sous tous les
+                        # radars. On coupe dès le 2e échec + nudge correctif persistant.
+                        _t2a_streak = self._note_cmd_outcome(
+                            inferred["name"], inferred["args"], _t2a_result)
+                        if _t2a_streak >= _CMD_FAIL_STREAK_BREAK:
+                            self._cmd_loop_nudge(inferred["args"], _t2a_streak)
+                            self._forced_final_synthesis()
+                            break
                         # Boucle de feedback : une preview qui plante au runtime → on
                         # relance une passe de correction au lieu de conclure.
                         if inferred["name"] in ("preview_code", "preview_file"):

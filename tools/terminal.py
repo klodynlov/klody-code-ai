@@ -91,6 +91,22 @@ _BLOCKED_PATTERNS: list[re.Pattern] = [
 # Taille maximale de la sortie d'une commande (caractères)
 MAX_OUTPUT_SIZE = 50_000
 
+# Marqueurs « fichier introuvable » (toutes casses) — cause n°1 du gotcha racine
+# sandbox : une commande lancée depuis PROJECT_ROOT vise un fichier qui est en
+# fait dans un sous-dossier (`python main.py` alors que main.py est ailleurs).
+_MISSING_FILE_MARKERS: tuple[str, ...] = (
+    "no such file or directory",
+    "can't open file",
+    "cannot find the file",
+    "aucun fichier de ce type",
+)
+
+
+def _looks_like_missing_file(text: str) -> bool:
+    """Vrai si la sortie dénote un fichier/chemin introuvable."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _MISSING_FILE_MARKERS)
+
 
 class CommandBlocked(Exception):
     """Commande refusée par la politique de sécurité."""
@@ -201,6 +217,18 @@ class Terminal:
             output = "\n".join(parts).strip() or "(aucune sortie)"
             if len(output) > MAX_OUTPUT_SIZE:
                 output = output[:MAX_OUTPUT_SIZE] + f"\n… [sortie tronquée — {len(output) - MAX_OUTPUT_SIZE} chars supplémentaires]"
+            # Gotcha racine sandbox : `python main.py` lancé depuis PROJECT_ROOT
+            # alors que le fichier est dans un sous-dossier → « No such file ».
+            # On enrichit l'échec d'un indice ACTIONNABLE (CWD réel + pistes) pour
+            # que le modèle corrige DÈS le 1er échec au lieu de reboucler. Détection
+            # sur stderr (non tronqué) → robuste même si stdout est coupé.
+            if result.returncode != 0 and _looks_like_missing_file(result.stderr or output):
+                output += (
+                    f"\n[Indice CWD] Commande exécutée depuis « {self.cwd} ». "
+                    "Le fichier visé n'existe pas ici — il est probablement dans "
+                    "un sous-dossier. Utilise un chemin ABSOLU, `cd <dossier> && …`, "
+                    "ou crée d'abord le fichier avec write_file avant de le lancer."
+                )
             return output
 
         except subprocess.TimeoutExpired:
