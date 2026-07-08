@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import re
@@ -11,8 +12,13 @@ from config import (
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_HTTP_TIMEOUT,
+    LLM_LOOP_GUARD,
+    LLM_LOOP_MIN_UNIT,
+    LLM_LOOP_REPS,
+    LLM_LOOP_WINDOW,
     LLM_MAX_RETRIES,
     LLM_MODEL,
+    LLM_REASONING_LOOP_REPS,
     LLM_REPETITION_PENALTY,
     MODEL_FALLBACK,
     THINKING_BUDGET_FORWARD,
@@ -26,6 +32,7 @@ from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
+from agent.stream_guard import LoopGuard
 from agent.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -232,6 +239,7 @@ class LLMClient:
         max_tokens: int = 8192,
         enable_thinking: bool = False,
         thinking_budget: int | None = None,
+        _recovering: bool = False,
     ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
@@ -298,6 +306,23 @@ class LLMClient:
         raw_tool_calls: dict[int, dict] = {}
         t0 = time.monotonic()
 
+        # Filet DUR anti-boucle (miroir de api/server.py stream_api) : le chemin CLI
+        # était le dernier angle mort — ni le content ni le raisonnement n'y étaient
+        # gardés. Actif seulement en NON-silencieux (les appels BoN/router silencieux
+        # gardent le comportement historique + repetition_penalty).
+        loop_guard = (
+            LoopGuard(reps=LLM_LOOP_REPS, min_unit=LLM_LOOP_MIN_UNIT, window=LLM_LOOP_WINDOW)
+            if LLM_LOOP_GUARD and not silent else None
+        )
+        # Même filet sur le canal RAISONNEMENT (CoT) : une boucle verbatim dans le CoT
+        # (0 content, 0 tool) fige le spinner « Klody réfléchit… » jusqu'à épuiser le
+        # budget. Seuil plus élevé (re-dérivation légitime). Inactif hors thinking ou
+        # pendant une passe de récupération.
+        reasoning_guard = (
+            LoopGuard(reps=LLM_REASONING_LOOP_REPS, min_unit=LLM_LOOP_MIN_UNIT, window=LLM_LOOP_WINDOW)
+            if LLM_LOOP_GUARD and enable_thinking and not silent and not _recovering else None
+        )
+
         try:
             stream = self.client.chat.completions.create(**params)
 
@@ -328,6 +353,27 @@ class LLMClient:
                         # Le CoT (thinking) précède le content : on l'accumule sans
                         # rompre le spinner — la réponse n'a pas encore commencé.
                         reasoning_buf += self._delta_reasoning(delta)
+                        # Boucle dégénérée DANS le CoT (0 content ne viendra jamais) →
+                        # coupe le stream et relance UNE passe sans thinking (récursion
+                        # bornée par _recovering) pour produire une vraie réponse.
+                        if (
+                            reasoning_guard is not None
+                            and reasoning_guard.cut(reasoning_buf) is not None
+                        ):
+                            with contextlib.suppress(Exception):
+                                stream.close()
+                            logger.warning(
+                                "[loop-guard] boucle dégénérée dans le RAISONNEMENT "
+                                "(CLI) coupée après %d chars → réponse directe sans "
+                                "thinking", len(reasoning_buf),
+                            )
+                            return self.stream_chat(
+                                messages, tools=tools, token_callback=token_callback,
+                                temperature=temperature, silent=silent,
+                                tool_choice=tool_choice, max_tokens=max_tokens,
+                                enable_thinking=False, thinking_budget=None,
+                                _recovering=True,
+                            )
 
                         if delta.content:
                             full_content += delta.content
@@ -351,6 +397,18 @@ class LLMClient:
                         full_content += delta.content
                         if token_callback:
                             token_callback(delta.content)
+                        # Boucle dégénérée dans le content → coupe, garde 1 copie.
+                        if loop_guard is not None:
+                            cut = loop_guard.cut(full_content)
+                            if cut is not None and cut < len(full_content):
+                                with contextlib.suppress(Exception):
+                                    stream.close()
+                                full_content = full_content[:cut].rstrip()
+                                logger.warning(
+                                    "[loop-guard] répétition dégénérée (CLI) coupée : "
+                                    "%d chars conservés", len(full_content),
+                                )
+                                break
 
                     if delta.tool_calls:
                         for tc_chunk in delta.tool_calls:
