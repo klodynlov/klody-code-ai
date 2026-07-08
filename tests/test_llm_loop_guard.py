@@ -10,7 +10,6 @@ prouve, sans LLM réel (fake `create`), que :
 """
 from types import SimpleNamespace
 
-import agent.llm as llm_mod
 from agent.llm import LLMClient
 
 
@@ -72,10 +71,10 @@ def _make_client(streams):
 
 
 def _force_guard(monkeypatch):
-    monkeypatch.setattr(llm_mod, "LLM_LOOP_GUARD", True)
-    monkeypatch.setattr(llm_mod, "LLM_LOOP_REPS", 4)
-    monkeypatch.setattr(llm_mod, "LLM_LOOP_MIN_UNIT", 16)
-    monkeypatch.setattr(llm_mod, "LLM_REASONING_LOOP_REPS", 6)
+    monkeypatch.setattr("agent.llm.LLM_LOOP_GUARD", True)
+    monkeypatch.setattr("agent.llm.LLM_LOOP_REPS", 4)
+    monkeypatch.setattr("agent.llm.LLM_LOOP_MIN_UNIT", 16)
+    monkeypatch.setattr("agent.llm.LLM_REASONING_LOOP_REPS", 6)
 
 
 class TestReasoningLoop:
