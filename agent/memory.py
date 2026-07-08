@@ -36,6 +36,11 @@ class ConversationMemory:
         # rechargée/réutilisée. Sticky : préservée à travers save() pour qu'un
         # tour de chat sur une session réutilisée ne la désarchive pas en douce.
         self.archived: bool = False
+        # État runtime (NON sérialisé) : signature de commande shell → nb d'échecs
+        # consécutifs à l'identique. Vit ici — et pas sur l'orchestrator, reconstruit
+        # à chaque message WS — pour survivre entre messages et couper les boucles
+        # de commande cross-run (cf. Orchestrator._note_cmd_outcome).
+        self.cmd_failure_streak: dict[str, int] = {}
 
     # ------------------------------------------------------------------ #
     # Ajout de messages                                                    #
