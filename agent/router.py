@@ -32,6 +32,9 @@ TaskType = Literal[
     "edit", "refactor", "bug_fix", "feature", "explain", "self_dev",
     # Capacités étendues (Roadmap v2 #10) — workflows dédiés, prompts focalisés.
     "review", "test_gen", "security", "docs", "perf", "migrate",
+    # Écriture NON-CODE (paroles, histoire, email, poème…). HORS _CODE_TASK_TYPES
+    # → routée sur le généraliste (brain), jamais le coder (mauvais en créatif FR).
+    "creative",
 ]
 
 # Nb d'essais LLM supplémentaires après l'appel initial sur échec de validation.
@@ -104,10 +107,11 @@ def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:
 # --- Prompts du Router ------------------------------------------------------ #
 
 _ROUTER_SYSTEM = """\
-Tu es un router de tâches. Classifie chaque demande de coding.
+Tu es un router de tâches. Classifie chaque demande : soit du CODE, soit de
+l'ÉCRITURE NON-CODE (créative). La plupart sont du code, mais PAS toutes.
 
 Réponds UNIQUEMENT par un objet JSON valide, sans markdown, sans texte avant ou après :
-{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev|review|test_gen|security|docs|perf|migrate", "reasoning": "phrase courte"}
+{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev|review|test_gen|security|docs|perf|migrate|creative", "reasoning": "phrase courte"}
 
 DIFFICULTY :
 - easy   : 1 fichier, modification localisée (<30s). Rename, fix typo, add import, add docstring, add 1 test simple.
@@ -144,6 +148,13 @@ TASK_TYPE :
 - migrate  : migration de version (langage, framework, lib) ou de dépendances.
              Mots-clés : "migre vers", "mets à jour la version", "passe de X à Y",
              "migration", "upgrade les dépendances".
+- creative : écriture NON-CODE, en langage naturel destiné à un HUMAIN — paroles
+             de chanson, poème, histoire, scénario, email, lettre, texte marketing.
+             Génération OU retouche créative (rendre plus simple, ajouter des rimes
+             ou des métaphores, changer le style, allonger, reformuler). Ce N'EST
+             JAMAIS du code. Mots-clés : "écris une chanson/un texte/un poème/une
+             histoire/des paroles", "style trap/rap/rnb", "des rimes", "reformule",
+             "rends ce texte plus…".
 
 Exemples :
 - "renomme `usr` en `user` dans app.py" → {"difficulty":"easy","task_type":"edit","reasoning":"rename localisé 1 fichier"}
@@ -161,6 +172,9 @@ Exemples :
 - "ajoute des docstrings à ce module" → {"difficulty":"easy","task_type":"docs","reasoning":"documentation localisée"}
 - "cette fonction est trop lente, optimise-la" → {"difficulty":"hard","task_type":"perf","reasoning":"analyse perf + optim"}
 - "migre ce code de Python 3.9 vers 3.12" → {"difficulty":"hard","task_type":"migrate","reasoning":"migration de version"}
+- "écris-moi une chanson d'amour, style trap R&B, langage familier" → {"difficulty":"medium","task_type":"creative","reasoning":"écriture de paroles, non-code"}
+- "rends ce texte plus simple et ajoute des rimes et des métaphores" → {"difficulty":"easy","task_type":"creative","reasoning":"retouche de texte créatif, non-code"}
+- "écris une histoire courte sur un robot qui rêve" → {"difficulty":"medium","task_type":"creative","reasoning":"fiction, non-code"}
 """
 
 # Message de correction réinjecté entre deux essais quand la validation échoue.
@@ -169,7 +183,7 @@ _CORRECTION_PROMPT = (
     "Réponds UNIQUEMENT par cet objet JSON, sans markdown ni texte autour : "
     '{"difficulty":"easy|medium|hard",'
     '"task_type":"edit|refactor|bug_fix|feature|explain|self_dev|'
-    'review|test_gen|security|docs|perf|migrate",'
+    'review|test_gen|security|docs|perf|migrate|creative",'
     '"reasoning":"phrase courte"}'
 )
 

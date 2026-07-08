@@ -55,6 +55,37 @@ class TestStrategie:
         assert s["use_planner"] is True
 
 
+# ── Écriture non-code (creative) → généraliste ───────────────────────────────
+
+
+class TestCreativeRouting:
+    """`creative` = écriture non-code (paroles, histoire, email). Doit router sur
+    le généraliste (brain), JAMAIS le coder — corrige le misroute observé en live
+    (chanson classée `edit`/`feature` → coder, mauvais pour le créatif FR)."""
+
+    def test_creative_hors_code_task_types(self):
+        # Invariant de routage : hors _CODE_TASK_TYPES → _route_model reste sur
+        # le généraliste (cf. orchestrator._route_model).
+        from agent.orchestrator import _CODE_TASK_TYPES
+        assert "creative" not in _CODE_TASK_TYPES
+
+    def test_creative_valide_dans_le_schema(self):
+        from agent.router import _RouterClassification
+        c = _RouterClassification(
+            difficulty="medium", task_type="creative", reasoning="paroles")
+        assert c.task_type == "creative"
+
+    @pytest.mark.parametrize("diff,planner,bon", [
+        ("easy", False, False),
+        ("medium", False, False),   # pas dans _PLANNER_MEDIUM_TYPES
+        ("hard", True, True),
+    ])
+    def test_creative_strategy(self, diff, planner, bon):
+        s = _decide_strategy(diff, "creative")
+        assert s["use_planner"] is planner
+        assert s["use_best_of_n"] is bon
+
+
 # ── Parsing de réponse ────────────────────────────────────────────────────────
 
 
