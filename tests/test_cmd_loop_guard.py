@@ -111,6 +111,20 @@ class TestNoteCmdOutcome:
         assert o._note_cmd_outcome("execute_command", a1, FAIL) == 1
         assert o._note_cmd_outcome("execute_command", a2, FAIL) == 2
 
+    def test_reason_variable_ne_defait_pas_le_garde(self):
+        """RÉGRESSION (trou vu en live 08/07) : le modèle fait varier le champ
+        libre `reason` à chaque relance (« n°1 », « n°2 »…). La signature doit
+        clé sur la COMMANDE seule, sinon chaque appel a une signature neuve et le
+        garde ne coupe jamais (4 `cat` identiques étaient passés)."""
+        o = _orch()
+        cmd = "cat __klody_ghost_42__.txt"
+        a1 = {"command": cmd, "reason": "L'utilisateur demande d'exécuter"}
+        a2 = {"command": cmd, "reason": "Relance identique n°1"}
+        a3 = {"command": cmd, "reason": "Relance identique n°2"}
+        assert o._note_cmd_outcome("execute_command", a1, FAIL) == 1
+        assert o._note_cmd_outcome("execute_command", a2, FAIL) == 2  # reason ≠ mais cmd = → monte
+        assert o._note_cmd_outcome("execute_command", a3, FAIL) == 3
+
     def test_borne_defensive_taille(self):
         o = _orch()
         for i in range(40):   # 40 échecs TOUS différents

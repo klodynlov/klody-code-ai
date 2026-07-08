@@ -1118,12 +1118,16 @@ class Orchestrator:
 
         Renvoie 0 si l'outil n'exécute pas de commande. Une commande qui
         RÉUSSIT rompt toute boucle en cours (reset complet) : on ne compte que
-        des échecs consécutifs non interrompus par un succès. La signature inclut
-        le RÉSULTAT (comme call_repeat_counts) → seul un échec À L'IDENTIQUE
-        (même commande, même args, MÊME sortie) fait monter le compteur ; une
-        erreur qui ÉVOLUE d'un essai à l'autre = progrès, jamais coupée. Alimenté
-        par la branche tool normale ET par le text-to-action fallback → ferme les
-        deux trous (compteur per-run reset + fallback qui le contournait).
+        des échecs consécutifs non interrompus par un succès. La signature =
+        `commande + hash(résultat)` → seul un échec À L'IDENTIQUE (même COMMANDE,
+        MÊME sortie) fait monter le compteur ; une erreur qui ÉVOLUE d'un essai à
+        l'autre = progrès, jamais coupée. On clé sur la COMMANDE SEULE, PAS sur le
+        dict d'args complet : le modèle fait varier le champ libre `reason` à
+        chaque appel (« relance n°1 », « n°2 »…) — une clé sur args complets
+        créerait une signature neuve à chaque tour et DÉFERAIT le garde (constaté
+        en live 08/07 : 4 `cat` identiques passés car 4 `reason` différents).
+        Alimenté par la branche tool normale ET le text-to-action fallback → ferme
+        les deux trous (compteur per-run reset + fallback qui le contournait).
         """
         if tool_name not in _CMD_EXEC_TOOLS:
             return 0
@@ -1131,11 +1135,13 @@ class Orchestrator:
         if not _cmd_result_failed(result):
             streak_map.clear()  # succès → la chaîne de boucle est rompue
             return 0
-        try:
-            args_key = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
-        except (TypeError, ValueError):
-            args_key = repr(tool_args)
-        sig = f"{tool_name}|{args_key}|{hash(result)}"
+        cmd = tool_args.get("command") if isinstance(tool_args, dict) else None
+        if cmd is None:  # outil de commande sans champ `command` : repli prudent
+            try:
+                cmd = json.dumps(tool_args, sort_keys=True, ensure_ascii=False)
+            except (TypeError, ValueError):
+                cmd = repr(tool_args)
+        sig = f"{tool_name}|{cmd}|{hash(result)}"
         n = streak_map.get(sig, 0) + 1
         streak_map[sig] = n
         if len(streak_map) > 32:  # borne défensive (échecs tous différents)
