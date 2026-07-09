@@ -108,6 +108,37 @@ def _looks_like_missing_file(text: str) -> bool:
     return any(marker in low for marker in _MISSING_FILE_MARKERS)
 
 
+# Marqueurs de traceback Python / erreur de script dans une sortie.
+_TRACEBACK_MARKERS: tuple[str, ...] = (
+    "traceback (most recent call last)",
+    "error: python:",  # forme Blender ("Error: Python: Traceback…")
+)
+
+# Hôtes qui EXÉCUTENT un script mais AVALENT le code de sortie : le script lève,
+# l'hôte imprime le traceback… puis quitte avec le code 0. Sans garde, le terminal
+# rapporte « Succès (code 0) », l'orchestrator NE compte pas d'échec (cf.
+# `_cmd_result_failed`) et le modèle reboucle en croyant avoir réussi (constaté en
+# live 09/07 : Blender 5.x, script de visage 3D relancé ~8× sur exit 0 trompeur).
+# Cas prouvé = Blender `--background --python`. Le correctif propre côté commande
+# est `--python-exit-code 1` (le modèle doit l'ajouter ; cf. skill blender_python_bpy).
+_EXITCODE_SWALLOWING_HOSTS: tuple[str, ...] = ("blender",)
+
+
+def _looks_like_script_error(text: str) -> bool:
+    """Vrai si la sortie contient un traceback Python / erreur de script."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _TRACEBACK_MARKERS)
+
+
+def _host_swallows_exit_code(command: str) -> bool:
+    """Vrai si la commande invoque un hôte connu pour rendre exit 0 même quand
+    le script qu'il exécute lève (Blender `--python`/`-P`)."""
+    low = (command or "").lower()
+    if not any(host in low for host in _EXITCODE_SWALLOWING_HOSTS):
+        return False
+    return "--python" in low or " -p " in f" {low} "
+
+
 class CommandBlocked(Exception):
     """Commande refusée par la politique de sécurité."""
 
@@ -228,6 +259,21 @@ class Terminal:
                     "Le fichier visé n'existe pas ici — il est probablement dans "
                     "un sous-dossier. Utilise un chemin ABSOLU, `cd <dossier> && …`, "
                     "ou crée d'abord le fichier avec write_file avant de le lancer."
+                )
+            # Échec AVALÉ : exit 0 mais traceback dans la sortie (Blender & co).
+            # On requalifie en échec — le token « [Code de retour: 1 » réarme
+            # `_cmd_result_failed` (anti-boucle) ET dit clairement au modèle de NE
+            # PAS considérer la commande comme réussie.
+            if result.returncode == 0 and _host_swallows_exit_code(command) \
+                    and _looks_like_script_error(output):
+                logger.warning(
+                    "Échec avalé (exit 0 + traceback) requalifié en échec: %s", command)
+                output += (
+                    "\n[Code de retour: 1 — ÉCHEC détecté] Traceback Python dans la "
+                    "sortie MALGRÉ un code de sortie 0 : l'hôte (Blender) avale "
+                    "l'erreur. NE considère PAS cette commande comme réussie — le "
+                    "script a planté. Corrige la cause ci-dessus, et relance Blender "
+                    "avec `--python-exit-code 1` pour obtenir un vrai code d'échec."
                 )
             return output
 
