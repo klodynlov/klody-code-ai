@@ -173,7 +173,7 @@ requests==2.33.0
 rich==14.3.2
 rich-rst==2.0.1
 rpds-py==0.30.0
-ruff==0.15.15
+ruff==0.15.20
 safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.15.3
