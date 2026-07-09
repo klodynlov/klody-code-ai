@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: bandit
         args: ["-ll", "-q"] # sévérité medium+ : du signal SAST, pas du bruit
-        exclude: ^tests?/
+        exclude: ^(tests?|demos)/ # demos/ = copies illustratives sandbox, hors SAST
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
