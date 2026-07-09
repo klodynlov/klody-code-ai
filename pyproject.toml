@@ -5,6 +5,11 @@
 target-version = "py311"
 line-length = 100
 src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts"]
+# demos/ = copies illustratives de scripts sandbox (pipeline visage 3D) — pas du
+# code de lib maintenu ; hors périmètre lint (mypy les ignore déjà via son allowlist).
+# force-exclude → exclusion respectée même quand pre-commit passe les chemins en args.
+extend-exclude = ["demos"]
+force-exclude = true
 
 [tool.ruff.lint]
 # E/F = pyflakes+pycodestyle, I = isort, UP = pyupgrade, B = bugbear,
