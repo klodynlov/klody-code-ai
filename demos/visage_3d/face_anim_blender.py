@@ -21,8 +21,10 @@ import os
 import bpy
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-data = json.load(open(os.path.join(BASE, "face_animation_data.json")))
-faces = json.load(open(os.path.join(BASE, "face_mesh_faces.json")))["faces"]
+with open(os.path.join(BASE, "face_animation_data.json")) as _f:
+    data = json.load(_f)
+with open(os.path.join(BASE, "face_mesh_faces.json")) as _f:
+    faces = json.load(_f)["faces"]
 
 frames = data["frames"]
 W, _H = data["resolution"]

@@ -53,12 +53,13 @@ def capture(duration, device):
     while time.time() - t0 < 90:
         if os.path.exists(DATA) and os.path.getmtime(DATA) > before:
             try:
-                d = json.load(open(DATA))
+                with open(DATA) as f:
+                    d = json.load(f)
                 if d.get("source") == "webcam" and d.get("frames"):
                     _log(f"capture OK : {len(d['frames'])} frames réelles")
                     return
             except (json.JSONDecodeError, OSError):
-                pass
+                pass  # JSON encore en cours d'écriture par la capture → réessai au tour suivant
         time.sleep(1)
     raise SystemExit(
         "Capture non aboutie. Vérifie : Terminal.app autorisé pour la Caméra "
@@ -71,7 +72,8 @@ def build():
     import numpy as np
     from scipy.spatial import Delaunay
 
-    d = json.load(open(DATA))
+    with open(DATA) as f:
+        d = json.load(f)
     f0 = np.array(d["frames"][0])
     tri = Delaunay(f0[:, :2])
 
@@ -83,8 +85,8 @@ def build():
     thr = np.percentile([e for s in tri.simplices for e in edges(*s)], 95) * 1.8
     faces = [[int(a), int(b), int(c)] for a, b, c in tri.simplices
              if max(a, b, c) < 468 and max(edges(a, b, c)) <= thr]  # <468 = hors iris
-    json.dump({"faces": faces, "n_verts": int(len(f0))},
-              open(os.path.join(BASE, "face_mesh_faces.json"), "w"))
+    with open(os.path.join(BASE, "face_mesh_faces.json"), "w") as f:
+        json.dump({"faces": faces, "n_verts": int(len(f0))}, f)
     _log(f"mesh : {len(f0)} verts, {len(faces)} faces")
 
     subprocess.run([BLENDER, "--background", "--python-exit-code", "1",

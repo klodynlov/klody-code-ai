@@ -26,7 +26,6 @@ import os
 import sys
 import time
 import argparse
-from pathlib import Path
 
 # ============================================================================
 # GARDE-FOU CAPTURE — pas de données factices silencieuses
