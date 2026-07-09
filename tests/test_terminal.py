@@ -239,3 +239,73 @@ class TestLooksLikeMissingFile:
         from tools.terminal import _looks_like_missing_file
         assert _looks_like_missing_file("") is False
         assert _looks_like_missing_file("Permission denied") is False
+
+
+# ------------------------------------------------------------------ #
+# Échec AVALÉ : exit 0 + traceback (Blender & hôtes de script)         #
+# ------------------------------------------------------------------ #
+
+class TestLooksLikeScriptError:
+    def test_traceback_detecte(self):
+        from tools.terminal import _looks_like_script_error
+        assert _looks_like_script_error("Traceback (most recent call last):\n…") is True
+        assert _looks_like_script_error("Error: Python: Traceback…") is True
+
+    def test_sortie_propre(self):
+        from tools.terminal import _looks_like_script_error
+        assert _looks_like_script_error("SAVED face.blend | verts=468") is False
+        assert _looks_like_script_error("") is False
+
+
+class TestHostSwallowsExitCode:
+    def test_blender_python(self):
+        from tools.terminal import _host_swallows_exit_code
+        assert _host_swallows_exit_code(
+            "blender --background --python x.py") is True
+        assert _host_swallows_exit_code(
+            "/opt/homebrew/bin/blender -b -P gen.py") is True
+
+    def test_pas_un_hote_avaleur(self):
+        from tools.terminal import _host_swallows_exit_code
+        # python N'avale PAS (exit 1 sur exception non rattrapée) → hors liste
+        assert _host_swallows_exit_code("python3 gen.py") is False
+        # blender SANS script → pas de risque d'exit-0 trompeur
+        assert _host_swallows_exit_code("blender --version") is False
+
+
+class TestSwallowedErrorRequalified:
+    """Exit 0 + traceback dans une commande Blender/--python → requalifié en échec
+    (le token « [Code de retour: 1 » réarme l'anti-boucle cross-run côté
+    orchestrator, cf. `_cmd_result_failed`). Cf. live 09/07 : script de visage 3D
+    relancé ~8× parce que Blender rendait 0 sur script planté."""
+
+    def _autoconfirm(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    def test_exit0_avec_traceback_blender_requalifie(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        # `:` (no-op) ignore ses args → la chaîne CONTIENT « blender … --python »
+        # (détection sur la commande) sans lancer Blender ; printf simule le
+        # traceback ; exit 0.
+        cmd = ("printf 'Traceback (most recent call last):\\nAttributeError: x\\n'"
+               " ; : blender --python gen.py")
+        out = terminal.execute_command(cmd)
+        assert "[Code de retour: 1" in out
+        assert "ÉCHEC détecté" in out
+        assert "--python-exit-code 1" in out  # indice actionnable
+
+    def test_exit0_traceback_hors_blender_pas_de_faux_positif(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        # Sortie contenant « Traceback » mais commande NON-avaleuse (cat d'un log) :
+        # ne DOIT PAS être requalifiée en échec.
+        cmd = "printf 'Traceback (most recent call last):\\n'"
+        out = terminal.execute_command(cmd)
+        assert "ÉCHEC détecté" not in out
+
+    def test_blender_python_succes_propre_pas_de_marqueur(self, terminal, monkeypatch):
+        self._autoconfirm(monkeypatch)
+        cmd = "printf 'SAVED face.blend\\n' ; : blender --python gen.py"
+        out = terminal.execute_command(cmd)
+        assert "ÉCHEC détecté" not in out
+        assert "SAVED" in out
