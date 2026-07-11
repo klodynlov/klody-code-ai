@@ -1,7 +1,31 @@
 """Fixtures globales de la suite Klody."""
+import logging
+
 import config
 import pytest
 from agent import semantic_memory
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _pas_de_pollution_du_log_prod():
+    """La suite ne DOIT PAS écrire dans le vrai logs/agent.log.
+
+    config.py attache un FileHandler(LOG_FILE) au logger racine dès l'import
+    (basicConfig). Sans ce garde-fou, tout test qui exerce VOLONTAIREMENT un
+    chemin d'erreur — typiquement tools.voice::TestPannes (« vocalbrain rc=1 :
+    Personnage introuvable », « WAV introuvable », « afplay absent ») — écrit des
+    lignes WARNING/ERROR dans le journal de PROD. En relecture, ces lignes de test
+    passent pour de vraies pannes live (fausse alarme vécue 11/07 : le triplet
+    d'erreurs voice était en fait la suite de tests, pas une session réelle).
+    On détache les FileHandler le temps de la session, puis on les remet.
+    """
+    root = logging.getLogger()
+    detached = [h for h in list(root.handlers) if isinstance(h, logging.FileHandler)]
+    for h in detached:
+        root.removeHandler(h)
+    yield
+    for h in detached:
+        root.addHandler(h)
 
 
 @pytest.fixture(autouse=True)

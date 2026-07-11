@@ -12,6 +12,7 @@ local-suno complet, minutes) : ici c'est de la PAROLE courte, quelques secondes.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 import uuid
@@ -25,8 +26,50 @@ logger = logging.getLogger(__name__)
 # Au-delà, la synthèse traîne et le résultat n'est plus une « annonce » :
 # on tronque à la dernière phrase complète plutôt que de refuser.
 _TEXT_CAP = 600
-# Chargement du modèle (~6 s à froid) + synthèse : large marge.
-_SYNTH_TIMEOUT = 180.0
+# Chargement du modèle (~6 s à froid) + synthèse. La synthèse tourne HORS-LIGNE
+# (cf. _synth_env) : aucun fetch réseau ne peut la faire stagner, donc pas besoin
+# des 180 s d'antan — 90 s laissent une marge confortable même sur machine chargée.
+_SYNTH_TIMEOUT = 90.0
+
+# Modèle TTS provisionné À PART (jamais téléchargé en cours de synthèse, cf.
+# _synth_env). Repo du modèle préféré du personnage « Klody » — cité tel quel dans
+# l'indice de remédiation pour que l'échec soit ACTIONNABLE d'un copier-coller.
+_MODEL_REPO = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
+_MODEL_REMEDY = (
+    f"Le modèle TTS est peut-être incomplet/absent. Provisionne-le UNE fois avec : "
+    f"hf download {_MODEL_REPO}"
+)
+
+# Marqueurs d'un échec « modèle introuvable hors-ligne » (huggingface_hub / mlx-lm)
+# → on requalifie l'échec avec l'indice de remédiation plutôt qu'un stderr opaque.
+_MODEL_MISSING_MARKERS: tuple[str, ...] = (
+    "hf_hub_offline", "offline mode", "outgoing traffic has been disabled",
+    "cannot find the requested files", "not found in the local cache",
+    "localentrynotfounderror", "no such file",
+)
+
+
+def _looks_like_model_missing(text: str) -> bool:
+    """Vrai si l'erreur dénote un modèle absent du cache local (mode hors-ligne)."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _MODEL_MISSING_MARKERS)
+
+
+def _synth_env() -> dict[str, str]:
+    """Env de la synthèse : force le mode HORS-LIGNE de HuggingFace.
+
+    speak ne doit JAMAIS télécharger un modèle pendant la synthèse : un fetch HF
+    qui traîne fait stagner l'appel jusqu'au timeout (constaté 11/07 : poids
+    Qwen3-TTS à moitié téléchargés — 2 shards `.incomplete`, 0 `.safetensors` —
+    → chaque speak stallait 180 s → aucun son). Le modèle est provisionné À PART
+    (hf download) ; ici on l'UTILISE seulement. Poids présents → chargement local
+    rapide ; poids absents → échec IMMÉDIAT (au lieu d'un stall réseau), remonté
+    avec un indice actionnable. Même leçon que le gate d'éval nightly (HF_HUB_OFFLINE).
+    """
+    env = dict(os.environ)
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    return env
 
 # Qwen3-TTS attend des noms de langue complets (codec_language_id) — un code
 # inconnu bascule en détection auto, moins fiable pour le français.
@@ -113,6 +156,7 @@ def speak(text: str, language: str = "fr") -> str:
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_SYNTH_TIMEOUT,
+            env=_synth_env(),
         )
     except FileNotFoundError:
         return (
@@ -120,12 +164,16 @@ def speak(text: str, language: str = "fr") -> str:
             "Installe vocalbrain dans le venv local-suno ou ajuste VOICE_CLI."
         )
     except subprocess.TimeoutExpired:
-        return f"speak : synthèse trop longue (> {int(_SYNTH_TIMEOUT)}s) — abandonnée."
+        return (
+            f"speak : synthèse trop longue (> {int(_SYNTH_TIMEOUT)}s) — abandonnée. "
+            f"{_MODEL_REMEDY}"
+        )
 
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-400:]
         logger.warning("speak : vocalbrain generate rc=%s : %s", proc.returncode, tail)
-        return f"speak : échec de la synthèse VocalBrain — {tail or 'erreur inconnue'}"
+        hint = f" {_MODEL_REMEDY}" if _looks_like_model_missing(tail) else ""
+        return f"speak : échec de la synthèse VocalBrain — {tail or 'erreur inconnue'}{hint}"
 
     audio_root = config.VOICE_AUDIO_DIR / config.VOICE_PROJECT_ID
     wavs = sorted(audio_root.glob(f"*/{seg}_take*.wav"))
