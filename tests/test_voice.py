@@ -46,9 +46,11 @@ class _FakeRun:
         self.returncode = returncode
         self.stderr = stderr
         self.last_cmd: list[str] | None = None
+        self.last_env: dict[str, str] | None = None
 
     def __call__(self, cmd, **kwargs):
         self.last_cmd = list(cmd)
+        self.last_env = kwargs.get("env")
         if self.returncode == 0:
             seg = cmd[cmd.index("--segment-id") + 1]
             _write_wav(self.audio_dir / "proj-test" / "char-1" / f"{seg}_take01_abc.wav")
@@ -196,6 +198,84 @@ class TestPannes:
         result = voice.speak("Bonjour")
 
         assert "lecture impossible" in result
+
+
+# --------------------------------------------------------------------------- #
+# Mode HORS-LIGNE — jamais de fetch modèle pendant la synthèse                  #
+# --------------------------------------------------------------------------- #
+
+class TestModeHorsLigne:
+    """La synthèse tourne avec HF_HUB_OFFLINE=1 : le modèle est provisionné à part
+    (hf download), jamais téléchargé en cours de route — un fetch HF qui traîne
+    faisait stagner speak jusqu'au timeout (vécu 11/07 : poids Qwen3-TTS à moitié
+    téléchargés → stall 180 s → aucun son)."""
+
+    def test_subprocess_force_offline(self, monkeypatch, voice_env):
+        fake_run = _FakeRun(voice_env)
+        monkeypatch.setattr(voice.subprocess, "run", fake_run)
+        monkeypatch.setattr(voice.subprocess, "Popen", lambda cmd, **kw: None)
+
+        voice.speak("Bonjour.")
+
+        assert fake_run.last_env is not None
+        assert fake_run.last_env.get("HF_HUB_OFFLINE") == "1"
+        assert fake_run.last_env.get("TRANSFORMERS_OFFLINE") == "1"
+
+    def test_synth_env_herite_de_l_environnement(self, monkeypatch):
+        # L'env de synthèse part de os.environ (PATH & co conservés) + pins offline.
+        monkeypatch.setenv("PATH", "/toto/bin")
+        env = voice._synth_env()
+        assert env["PATH"] == "/toto/bin"
+        assert env["HF_HUB_OFFLINE"] == "1"
+
+
+# --------------------------------------------------------------------------- #
+# Indices actionnables — échec « modèle absent » guide vers le fix              #
+# --------------------------------------------------------------------------- #
+
+class TestIndicesActionnables:
+    def test_timeout_donne_la_commande_de_provisioning(self, monkeypatch, voice_env):
+        def raise_timeout(cmd, **k):
+            raise subprocess.TimeoutExpired(cmd, 90)
+        monkeypatch.setattr(voice.subprocess, "run", raise_timeout)
+
+        result = voice.speak("Bonjour")
+
+        assert "trop longue" in result
+        assert "hf download" in result  # indice actionnable
+
+    def test_echec_modele_absent_ajoute_l_indice(self, monkeypatch, voice_env):
+        # stderr typique du mode hors-ligne quand les poids manquent.
+        stderr = ("LocalEntryNotFoundError: Cannot find the requested files in the "
+                  "disk cache and outgoing traffic has been disabled.")
+        monkeypatch.setattr(
+            voice.subprocess, "run", _FakeRun(voice_env, returncode=1, stderr=stderr),
+        )
+
+        result = voice.speak("Bonjour")
+
+        assert "échec" in result
+        assert "hf download" in result
+
+    def test_echec_non_lie_au_modele_pas_d_indice(self, monkeypatch, voice_env):
+        # Un échec sans rapport (ex. personnage manquant) ne colle PAS l'indice modèle.
+        monkeypatch.setattr(
+            voice.subprocess, "run",
+            _FakeRun(voice_env, returncode=1, stderr="Personnage introuvable : Klody"),
+        )
+
+        result = voice.speak("Bonjour")
+
+        assert "échec" in result
+        assert "hf download" not in result
+
+    def test_looks_like_model_missing(self):
+        assert voice._looks_like_model_missing(
+            "outgoing traffic has been disabled") is True
+        assert voice._looks_like_model_missing(
+            "LocalEntryNotFoundError: ...") is True
+        assert voice._looks_like_model_missing("Personnage introuvable") is False
+        assert voice._looks_like_model_missing("") is False
 
 
 # --------------------------------------------------------------------------- #
