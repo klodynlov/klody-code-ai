@@ -61,7 +61,20 @@ async def lifespan(app: FastAPI):
         await asyncio.get_running_loop().run_in_executor(None, _ensure_server)
     except Exception as exc:  # ne JAMAIS bloquer le boot de l'API pour la preview
         logger.warning("[Preview] pré-démarrage ignoré: %s", exc)
-    ensure_librarybrain(config.LIBRARYBRAIN_DIR, config.LIBRARYBRAIN_URL)
+    # LibraryBrain : sonde :8765, laisse une fenêtre de grâce au propriétaire
+    # externe (LaunchAgent com.librarybrain.server), puis lance le watchdog. Cette
+    # séquence PEUT bloquer plusieurs secondes → on l'exécute HORS de l'event loop
+    # et SANS l'attendre. Sinon le lifespan (donc l'écoute uvicorn sur :8000) est
+    # retardé d'autant au démarrage à froid, et l'UI reste sur « Backend
+    # indisponible » le temps que LibraryBrain se décide. Best-effort : ne doit
+    # jamais tuer le boot de l'API.
+    def _init_librarybrain() -> None:
+        try:
+            ensure_librarybrain(config.LIBRARYBRAIN_DIR, config.LIBRARYBRAIN_URL)
+        except Exception as exc:
+            logger.warning("[LibraryBrain] init ignorée: %s", exc)
+
+    threading.Thread(target=_init_librarybrain, name="lb-init", daemon=True).start()
     yield
     with suppress(Exception):  # arrêt propre (SIGTERM uvicorn ; pas sur kickstart -k)
         from tools.preview import _stop_server

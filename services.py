@@ -189,14 +189,26 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
     _librarybrain_dir = librarybrain_dir
     _librarybrain_base_url = base_url
 
-    # Déjà up : c'est un service externe (launchd) qui le gère. Klody se contente
-    # de surveiller — il ne spawnera jamais de doublon (cf. _externally_managed).
-    if _is_up(base_url):
-        _librarybrain_status["up"] = True
-        _externally_managed = True
-        console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
-        _launch_watchdog()
-        return True
+    # Déjà up (ou en cours de démarrage) : un service externe (launchd) le gère.
+    # Klody se contente de surveiller — il ne spawnera jamais de doublon (cf.
+    # _externally_managed).
+    #
+    # Fenêtre de grâce au boot : le LaunchAgent com.librarybrain.server (RunAtLoad
+    # + KeepAlive) met quelques secondes à binder :8765 (chargement de l'index
+    # FTS5). Sans grâce, on voit le port encore libre → on spawne NOTRE uvicorn →
+    # course → doublon tué aussitôt sur « [Errno 48] address already in use »
+    # (exactement le même TOCTOU que l'API :8000 et le worker MLX :8080). On laisse
+    # donc au propriétaire externe une fenêtre pour se présenter avant de décider
+    # de démarrer nous-mêmes. Cette attente ne bloque pas le boot de l'API : le
+    # lifespan appelle ensure_librarybrain dans un thread détaché (cf. server.py).
+    for _ in range(8):
+        if _is_up(base_url, timeout=1.0):
+            _librarybrain_status["up"] = True
+            _externally_managed = True
+            console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
+            _launch_watchdog()
+            return True
+        time.sleep(1)
 
     if not librarybrain_dir:
         console.print(
