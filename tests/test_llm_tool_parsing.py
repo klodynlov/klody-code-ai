@@ -296,14 +296,19 @@ class TestBackendSwitch:
         assert config.BACKEND == "ollama"
 
     def test_mlx_actif(self, monkeypatch):
-        """BACKEND=mlx → LLM_BASE_URL = MLX_BASE_URL."""
+        """BACKEND=mlx → LLM_BASE_URL = MLX_BASE_URL et LLM_MODEL = MLX_MODEL.
+
+        MLX_MODEL est épinglé explicitement : le .env local peut contenir un
+        alias gateway ("brain", "coder") au lieu d'un id de modèle complet.
+        """
         monkeypatch.setenv("BACKEND", "mlx")
         monkeypatch.setenv("OLLAMA_BASE_URL", "http://test-ollama:11434/v1")
         monkeypatch.setenv("MLX_BASE_URL", "http://test-mlx:8080/v1")
+        monkeypatch.setenv("MLX_MODEL", "mlx-community/Qwen3-Test-4bit")
         import importlib
 
         import config
         importlib.reload(config)
         assert config.LLM_BASE_URL == "http://test-mlx:8080/v1"
         assert config.BACKEND == "mlx"
-        assert "Qwen3" in config.LLM_MODEL or "qwen3" in config.LLM_MODEL.lower()
+        assert config.LLM_MODEL == "mlx-community/Qwen3-Test-4bit"
