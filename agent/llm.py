@@ -217,8 +217,9 @@ class LLMClient:
         # getattr : les tests construisent des LLMClient partiels via __new__
         # (contrat existant, cf. Orchestrator._dispatch) — jamais d'AttributeError.
         headers = {"X-Klody-App": "klody-ai"}
-        if getattr(self, "session_id", None):
-            headers["X-Klody-Session"] = self.session_id
+        sid: str | None = getattr(self, "session_id", None)
+        if sid:
+            headers["X-Klody-Session"] = sid
         return OpenAI(
             base_url=self._base_url,
             api_key=self._api_key,
