@@ -81,8 +81,9 @@ MAX_MESSAGES: int = int(os.getenv("MAX_MESSAGES", 50))
 # fenêtre glissante des messages (cf. agent/memory._message_budget). 32k était un
 # plafond ARTIFICIEL hérité d'Ollama : les modèles MLX servis ici (Qwen3.x-A3B)
 # gèrent 256K natif, et une machine 64–128 Go a la RAM pour un large KV cache.
-# 64k double le contexte utile sans prefill démesuré ; pousser à 131072 (128k) si
-# la latence du 1er token reste acceptable. À régler aussi dans .env (runtime).
+# 64k double le contexte utile sans prefill démesuré ; 131072 (128k) VALIDÉ le
+# 2026-07-14 sur M5 Max 128 Go (jauge poussée à 128k sans OOM/watchdog). Défaut
+# gardé à 64k (générique-sûr) ; passer à 128k via .env sur machine ≥128 Go.
 CONTEXT_WINDOW: int = int(os.getenv("CONTEXT_WINDOW", 65536))
 # Réserves soustraites de CONTEXT_WINDOW pour borner la fenêtre glissante des
 # messages. Le prompt RÉEL envoyé au modèle = system + messages + SCHÉMAS D'OUTILS
