@@ -118,6 +118,7 @@ def analyser_image(image_path: str, question: str = _DEFAULT_QUESTION) -> str:
         api_key=config.VL_API_KEY,
         timeout=config.LLM_HTTP_TIMEOUT,
         max_retries=0,
+        default_headers={"X-Klody-App": "klody-ai"},  # journal d'usage gateway
     )
     messages = [
         {
