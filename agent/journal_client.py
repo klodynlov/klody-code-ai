@@ -66,7 +66,9 @@ def emit(*, kind: str, name: str | None = None, status: str = "ok",
     except queue.Full:
         pass                             # journal saturé : on jette, jamais d'attente
     except Exception:
-        pass
+        # Défense absolue : l'observabilité ne fait JAMAIS échouer l'appelant
+        # (l'agent est en plein tour). Erreur inattendue tracée en debug only.
+        logger.debug("émission journal impossible", exc_info=True)
 
 
 def _ensure_worker() -> queue.Queue:
