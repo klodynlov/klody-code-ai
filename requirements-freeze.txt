@@ -262,7 +262,7 @@ uuid_utils==0.16.2
 uvicorn==0.47.0
 uvloop==0.22.1
 watchfiles==1.1.1
-wcwidth==0.6.0
+wcwidth==0.8.2
 webcolors==25.10.0
 websocket-client==1.9.0
 websockets==15.0.1
