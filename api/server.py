@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
-from agent import preview_errors
+from agent import journal_client, preview_errors
 from agent.approval import requires_approval
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -595,6 +595,7 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:  # pragma: no cover - chemin d'erreur réseau
         _metrics.ws_active.dec()
         return
+    journal_client.emit(kind="session", name="start", session_id=memory.session_id)
 
     # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
     try:
@@ -820,7 +821,9 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "model_changed", "model": pinned_model or "auto"})
 
             elif msg["type"] == "session_new":
+                journal_client.emit(kind="session", name="end", session_id=memory.session_id)
                 memory = ConversationMemory()
+                journal_client.emit(kind="session", name="start", session_id=memory.session_id)
                 await ws.send_json({
                     "type": "session_init",
                     "session_id": memory.session_id,
@@ -831,7 +834,10 @@ async def websocket_endpoint(ws: WebSocket):
                 sid = msg.get("session_id", "")
                 f = _session_file(sid)
                 if f and f.exists():
+                    journal_client.emit(kind="session", name="end", session_id=memory.session_id)
                     memory = ConversationMemory.load_from_file(f)
+                    journal_client.emit(kind="session", name="start",
+                                        session_id=memory.session_id, meta={"resumed": True})
                     await ws.send_json({
                         "type": "session_loaded",
                         "session_id": memory.session_id,
@@ -852,6 +858,7 @@ async def websocket_endpoint(ws: WebSocket):
         _stop_flag[0] = True
     finally:
         _metrics.ws_active.dec()
+        journal_client.emit(kind="session", name="end", session_id=memory.session_id)
 
 
 def _extract_memory_bg(messages: list[dict], lt_memory) -> None:

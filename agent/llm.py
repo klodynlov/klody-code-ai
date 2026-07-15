@@ -200,15 +200,43 @@ def _build_xml_tool_call(
 class LLMClient:
     def __init__(self, model: str = LLM_MODEL):
         self.model = model
-        self.client = OpenAI(
-            base_url=LLM_BASE_URL,
-            api_key=LLM_API_KEY,
-            timeout=LLM_HTTP_TIMEOUT,
-            max_retries=LLM_MAX_RETRIES,
-        )
+        # Identité vue par le journal d'usage du gateway (klody-core brique 1) :
+        # X-Klody-App statique + X-Klody-Session posés en default_headers du client
+        # → couvrent TOUS les appels (stream_chat, mais aussi les usages directs de
+        # `llm.client` dans api/server.py). Session inconnue à la construction ;
+        # set_session() reconstruit le client quand l'orchestrateur la connaît.
+        self.session_id: str | None = None
+        self._base_url = LLM_BASE_URL
+        self._api_key = LLM_API_KEY
+        self.client = self._make_client()
         self._backend = BACKEND
         # Compteur de tokens approximatif (session courante)
         self.total_tokens: int = 0
+
+    def _make_client(self) -> OpenAI:
+        # getattr : les tests construisent des LLMClient partiels via __new__
+        # (contrat existant, cf. Orchestrator._dispatch) — jamais d'AttributeError.
+        headers = {"X-Klody-App": "klody-ai"}
+        sid: str | None = getattr(self, "session_id", None)
+        if sid:
+            headers["X-Klody-Session"] = sid
+        return OpenAI(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            timeout=LLM_HTTP_TIMEOUT,
+            max_retries=LLM_MAX_RETRIES,
+            default_headers=headers,
+        )
+
+    def set_session(self, session_id: str | None) -> None:
+        """Attache l'id de session aux en-têtes du client (journal d'usage).
+
+        Mutation EN PLACE comme switch_to. No-op si l'id est déjà celui posé.
+        """
+        if session_id == self.session_id:
+            return
+        self.session_id = session_id
+        self.client = self._make_client()
 
     def switch_to(self, model: str, base_url: str, api_key: str) -> None:
         """Bascule le client sur un autre modèle/endpoint (ex: modèle code dédié).
@@ -220,12 +248,9 @@ class LLMClient:
         if model == self.model:
             return
         self.model = model
-        self.client = OpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=LLM_HTTP_TIMEOUT,
-            max_retries=LLM_MAX_RETRIES,
-        )
+        self._base_url = base_url
+        self._api_key = api_key
+        self.client = self._make_client()
         logger.info("LLM basculé sur le modèle '%s' (%s)", model, base_url)
 
     def stream_chat(

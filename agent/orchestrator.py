@@ -108,7 +108,7 @@ from tools.toolsmith import list_kinds as ts_list_kinds, scaffold_tool as ts_sca
 from tools.vision import analyser_image as vn_analyser_image
 from tools.voice import speak as vc_speak
 
-from agent import preview_errors, semantic_memory
+from agent import journal_client, preview_errors, semantic_memory
 from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -609,6 +609,9 @@ class Orchestrator:
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
         self.llm = LLMClient()
+        # Journal d'usage gateway : les requêtes LLM de CETTE session deviennent
+        # corrélables aux appels d'outils (X-Klody-Session, cf. agent/llm.py).
+        self.llm.set_session(memory.session_id)
         self.file_manager = FileManager()
         self.terminal = Terminal()
         self.search = Search()
@@ -1876,6 +1879,25 @@ class Orchestrator:
         return self.tools
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
+        """Exécute l'outil et journalise l'appel (gateway /journal/event).
+
+        Le statut est dérivé de la convention de sortie existante : tout résultat
+        `ERREUR…` (sécurité, outil inconnu, exception) = error. Fire-and-forget :
+        journal_client n'échoue et ne bloque jamais.
+        """
+        t0 = time.monotonic()
+        result = self._dispatch_tool(tool_name, tool_args)
+        journal_client.emit(
+            kind="tool", name=tool_name,
+            status="error" if result.startswith("ERREUR") else "ok",
+            # getattr : instance partiellement initialisée possible (contrat _dispatch)
+            session_id=getattr(getattr(self, "memory", None), "session_id", None),
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            meta={"mcp": tool_name.startswith("mcp__")} if tool_name.startswith("mcp__") else None,
+        )
+        return result
+
+    def _dispatch_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
         handler = self._dispatch.get(tool_name)
         try:

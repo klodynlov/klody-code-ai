@@ -29,8 +29,13 @@ class FakeLLMClient:
         self.responses: list[dict] = list(fixture.get("llm_responses", []))
         self._cursor = 0
         self.total_tokens = 0
+        self.session_id: str | None = None
         # Historique d'appels reçus (pour assertions de test)
         self.call_log: list[dict] = []
+
+    def set_session(self, session_id: str | None) -> None:
+        """Miroir de LLMClient.set_session (en-têtes journal d'usage) — no-op réseau."""
+        self.session_id = session_id
 
     def stream_chat(
         self,
