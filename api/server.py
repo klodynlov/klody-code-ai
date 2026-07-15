@@ -1477,6 +1477,10 @@ async def proposals_set_status(pid: int, request: Request):
     """Cycle de vie d'une carte (shown/accepted/rejected). Relaye la réponse ET le
     code du gateway (400/404/409 conservés) ; gateway injoignable → 502 franc,
     l'UI peut réessayer — contrairement au GET, une décision perdue se voit."""
+    # FastAPI a déjà converti pid (path param typé int) ; le re-cast explicite
+    # borne l'interpolation d'URL à un entier pur — coupe le taint « partial
+    # SSRF » de CodeQL : aucune chaîne client ne peut atteindre l'URL gateway.
+    pid = int(pid)
     try:
         body = await request.json()
     except Exception:
