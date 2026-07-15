@@ -202,9 +202,11 @@ jobs:
       - name: Re-compile lockfile and diff
         run: |
           cp requirements.lock requirements.lock.bak
-          pip-compile requirements.txt --output-file requirements.lock --strip-extras --quiet
+          # --allow-unsafe : émet pip/setuptools dans le lock (plancher sécurité
+          # setuptools>=83.0.0, PYSEC-2026-3447 — cf. requirements.txt)
+          pip-compile requirements.txt --output-file requirements.lock --strip-extras --allow-unsafe --quiet
           if ! diff -q requirements.lock.bak requirements.lock > /dev/null; then
-            echo "::error::requirements.lock est obsolète. Lance: pip-compile requirements.txt --output-file requirements.lock --strip-extras"
+            echo "::error::requirements.lock est obsolète. Lance: pip-compile requirements.txt --output-file requirements.lock --strip-extras --allow-unsafe"
             diff requirements.lock.bak requirements.lock | head -50
             exit 1
           fi
