@@ -18,7 +18,7 @@ tree-sitter-typescript>=0.23.2
 # Langages étendus (Roadmap v2 #10) — OPTIONNELS et chargés dynamiquement :
 # décommenter pour activer le retrieval code-aware (find_symbol/find_references)
 # sur ces langages, puis relancer :
-#   pip-compile requirements.txt --output-file requirements.lock --strip-extras
+#   pip-compile requirements.txt --output-file requirements.lock --strip-extras --allow-unsafe
 # tree-sitter-rust>=0.24.0
 # tree-sitter-go>=0.25.0
 # tree-sitter-java>=0.23.5
@@ -62,9 +62,15 @@ ollama>=0.4.0
 #   cryptography     GHSA-537c-gmf6-5ccf        -> 48.0.1
 #   python-multipart CVE-2026-53538/53539/53540 -> 0.0.31
 #   starlette        CVE-2026-54282/54283       -> 1.3.1
+#   setuptools       PYSEC-2026-3447            -> 83.0.0
+# setuptools est « unsafe » pour pip-tools : il n'apparaît dans le lock qu'avec
+# --allow-unsafe (sinon pip-audit audite le setuptools seedé du venv éphémère).
+# ⚠️ setuptools>=83 exige torch>=2.13 : torch 2.12.x déclare setuptools<82
+# (résolution impossible si torch est re-pinné en 2.12 — bumper torch d'abord).
 cryptography>=49.0.0
 python-multipart>=0.0.32
 starlette>=1.3.1
+setuptools>=83.0.0
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
 # paho-mqtt est LAZY + OPTIONNEL : absent, les outils MQTT renvoient un message
