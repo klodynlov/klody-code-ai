@@ -1449,6 +1449,56 @@ async def siri_get(q: str = ""):
     return {"response": response, "session_id": _SIRI_SESSION_ID}
 
 
+# ── Propositions de l'assistant proactif (brique 3 — cartes klody-ui) ────────────
+# Relais fin vers le gateway Klody Core, qui possède state/assistant.db (remplie
+# chaque nuit par le habit miner). Le front ne parle JAMAIS au :8090 directement :
+# même origine que le reste (/api/*), et l'en-tête X-Klody-App reste posé ici.
+
+def _gateway_root() -> str:
+    return config.MLX_BASE_URL.replace("/v1", "")
+
+
+@app.get("/api/proposals")
+async def proposals_list(status: str = "new", limit: int = 3):
+    """File de propositions. Best-effort : gateway down → file vide, jamais un 500
+    (les cartes sont un bonus de démarrage, pas une dépendance de l'UI)."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{_gateway_root()}/proposals",
+                                 params={"status": status, "limit": limit})
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        return {"proposals": [], "note": "gateway indisponible"}
+
+
+@app.post("/api/proposals/{pid}/status")
+async def proposals_set_status(pid: int, request: Request):
+    """Cycle de vie d'une carte (shown/accepted/rejected). Relaye la réponse ET le
+    code du gateway (400/404/409 conservés) ; gateway injoignable → 502 franc,
+    l'UI peut réessayer — contrairement au GET, une décision perdue se voit."""
+    # FastAPI a déjà converti pid (path param typé int) ; le re-cast explicite
+    # borne l'interpolation d'URL à un entier pur — coupe le taint « partial
+    # SSRF » de CodeQL : aucune chaîne client ne peut atteindre l'URL gateway.
+    pid = int(pid)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="corps JSON invalide") from None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(f"{_gateway_root()}/proposals/{pid}/status",
+                                  json=body, headers={"X-Klody-App": "klody-ui"})
+    except Exception:
+        raise HTTPException(status_code=502, detail="gateway indisponible") from None
+    if r.status_code >= 400:
+        detail = "échec gateway"
+        with contextlib.suppress(Exception):
+            detail = r.json().get("error", detail)
+        raise HTTPException(status_code=r.status_code, detail=detail)
+    return r.json()
+
+
 # ── Boucle feedback preview (erreurs JS runtime du code généré) ─────────────────
 
 @app.post("/api/preview_error")

@@ -137,6 +137,25 @@
       "body_required": false
     }
   },
+  "/api/proposals": {
+    "GET": {
+      "params": [
+        "limit",
+        "status"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/proposals/{pid}/status": {
+    "POST": {
+      "params": [
+        "pid"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/api/preview_error": {
     "POST": {
       "params": [],
