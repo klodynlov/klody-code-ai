@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 
 import httpx
-from config import GITHUB_TOKEN, LIBRARYBRAIN_URL
+from config import GITHUB_TOKEN, LIBRARYBRAIN_URL, librarybrain_headers
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def list_indexed_repos() -> str:
     if not _LB_BASE:
         return "LibraryBrain non configuré."
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=10.0, headers=librarybrain_headers()) as client:
             resp = client.get(f"{_LB_BASE}/api/books", params={"category": "GitHub", "limit": 100})
             resp.raise_for_status()
             data = resp.json()
@@ -161,7 +161,9 @@ def index_github_repo(repo_ref: str) -> str:
     if not _LB_BASE:
         return "LibraryBrain non configuré."
     try:
-        with httpx.Client(timeout=60.0) as client:
+        # Écriture dans LibraryBrain : sous api_token, c'est justement le genre
+        # d'appel que l'auth est censée protéger — il doit porter le token.
+        with httpx.Client(timeout=60.0, headers=librarybrain_headers()) as client:
             resp = client.post(
                 f"{_LB_BASE}/api/github/index",
                 json={"repo": f"{owner}/{repo}"},

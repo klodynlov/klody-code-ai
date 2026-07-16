@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import httpx
+from config import librarybrain_auth_hint, librarybrain_headers
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
@@ -16,21 +17,19 @@ console = Console()
 
 # États de la sonde. « Joignable » et « exploitable » sont deux choses distinctes :
 # quand `api_token` est défini dans le config.yaml de LibraryBrain, son middleware
-# (api/auth.py) répond 401 sur tout /api/ — le service tourne, mais AUCUN appel de
-# Klody n'aboutit (Klody n'envoie aucun X-API-Token). L'ancienne sonde booléenne
+# (api/auth.py) répond 401 sur tout /api/ — le service tourne, mais aucun appel de
+# Klody n'aboutit si le token ne suit pas. L'ancienne sonde booléenne
 # (`status_code < 500`) écrasait cette nuance et publiait un point vert menteur :
 # /status CONFIRMAIT la panne au lieu de la lever.
 PROBE_UP = "up"                      # 200 : joignable ET autorisé
 PROBE_UNAUTHORIZED = "unauthorized"  # 401/403 : joignable, mais Klody est refusé
 PROBE_DOWN = "down"                  # injoignable, ou réponse inexploitable
 
-# Nommer `api_token` : une panne d'auth doit se lire comme une panne d'auth.
-_UNAUTHORIZED_DETAIL = (
-    "401 sur /api/ — `api_token` est défini dans le config.yaml de LibraryBrain "
-    "et Klody n'envoie aucun token. Vider `api_token` (usage local), ou câbler "
-    "l'en-tête X-API-Token côté Klody."
-)
-_STATE_DETAIL = {PROBE_UNAUTHORIZED: _UNAUTHORIZED_DETAIL}
+
+def _unauthorized_detail() -> str:
+    """Message actionnable pour un 401 — le diagnostic vient de config (source
+    unique, partagée avec l'outil search_books)."""
+    return f"401 sur /api/ — {librarybrain_auth_hint()}"
 
 _librarybrain_proc: subprocess.Popen | None = None
 _librarybrain_dir: str = ""
@@ -62,9 +61,14 @@ def _probe(base_url: str, timeout: float = 2.0) -> str:
     `/health` à la place ne réparerait rien : il est exempté d'auth
     (_EXEMPT_PREFIXES dans api/auth.py) et répondrait 200 alors que tout /api/
     est fermé — le verdict resterait aussi faux, juste par un autre chemin.
+
+    Envoie `X-API-Token` si LIBRARYBRAIN_TOKEN est renseigné : sans lui, la sonde
+    verrait un 401 alors que les vrais appels passent (faux négatif symétrique).
     """
     try:
-        r = httpx.get(f"{base_url}/api/stats", timeout=timeout)
+        r = httpx.get(
+            f"{base_url}/api/stats", timeout=timeout, headers=librarybrain_headers()
+        )
     except Exception:
         return PROBE_DOWN
     if r.status_code == 200:
@@ -88,7 +92,7 @@ def get_librarybrain_status() -> dict:
     return {
         "up": state == PROBE_UP,
         "state": state,
-        "detail": _STATE_DETAIL.get(state, ""),
+        "detail": _unauthorized_detail() if state == PROBE_UNAUTHORIZED else "",
         "pid": pid if alive else None,
         "restarts": _librarybrain_status["restarts"],
     }
@@ -176,7 +180,7 @@ def _watchdog() -> None:
             # une fois, on surveille — le budget de redémarrages n'est pas touché.
             if not auth_warned:
                 auth_warned = True
-                logger.error("[LibraryBrain] %s", _UNAUTHORIZED_DETAIL)
+                logger.error("[LibraryBrain] %s", _unauthorized_detail())
             continue
 
         # Injoignable, et géré par un service externe (launchd) : surtout NE PAS
@@ -277,7 +281,7 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
                 console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
                 return True
             console.print("  [yellow]⚠[/yellow]  LibraryBrain actif mais [bold]refuse Klody[/bold] (401)")
-            console.print(f"     [dim]{_UNAUTHORIZED_DETAIL}[/dim]")
+            console.print(f"     [dim]{_unauthorized_detail()}[/dim]")
             return False
         time.sleep(1)
 
@@ -320,7 +324,7 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
             # Démarré par nous, mais son config.yaml porte un api_token : le
             # process est sain, la liaison ne l'est pas. Ne pas annoncer « ✓ ».
             console.print(" [yellow]⚠ démarré mais refuse Klody (401)[/yellow]")
-            console.print(f"     [dim]{_UNAUTHORIZED_DETAIL}[/dim]")
+            console.print(f"     [dim]{_unauthorized_detail()}[/dim]")
             return False
 
     console.print(" [yellow]timeout[/yellow]")

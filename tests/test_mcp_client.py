@@ -242,20 +242,40 @@ class TestSearchBooks:
         assert "timeout" in result.lower()
 
     def test_401_nomme_la_cause_auth(self):
-        """Un 401 doit désigner api_token, pas se lire comme une panne réseau."""
+        """Un 401 doit désigner la cause d'AUTH, pas se lire comme une panne
+        réseau — et distinguer « token absent » de « token refusé ».
+
+        L'assertion d'origine (`"api_token" in result or "X-API-Token" in result`)
+        était trop lâche pour voir son propre message devenir faux : elle est
+        restée verte quand Klody s'est mis à ENVOYER le token, alors que le
+        message affirmait toujours « Klody n'envoie pas d'en-tête X-API-Token ».
+        On épingle donc les deux branches, et on PIN le token (sinon un .env de
+        dev choisirait la branche à notre place).
+        """
+        import config
         import httpx
         from tools.mcp_client import search_books
+
         mock_resp = MagicMock()
         mock_resp.status_code = 401
 
-        with patch("tools.mcp_client.httpx.Client") as mock_client:
-            mock_client.return_value.__enter__.return_value.post.side_effect = (
-                httpx.HTTPStatusError("err", request=MagicMock(), response=mock_resp)
-            )
-            result = search_books("query")
+        def _call_401() -> str:
+            with patch("tools.mcp_client.httpx.Client") as mock_client:
+                mock_client.return_value.__enter__.return_value.post.side_effect = (
+                    httpx.HTTPStatusError("err", request=MagicMock(), response=mock_resp)
+                )
+                return search_books("query")
 
-        assert "401" in result
-        assert "api_token" in result or "X-API-Token" in result
+        with patch.object(config, "LIBRARYBRAIN_TOKEN", ""):
+            absent = _call_401()
+        with patch.object(config, "LIBRARYBRAIN_TOKEN", "un-token-qui-ne-passe-pas"):
+            refuse = _call_401()
+
+        assert "401" in absent and "401" in refuse
+        assert "api_token" in absent, "doit nommer la clé serveur à renseigner"
+        assert "LIBRARYBRAIN_TOKEN est vide" in absent
+        assert "ne correspond pas" in refuse
+        assert absent != refuse, "un token refusé ne se soigne pas comme un token absent"
 
 
 # ── catalog_lookup ───────────────────────────────────────────────────────────

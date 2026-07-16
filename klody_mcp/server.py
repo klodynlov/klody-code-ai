@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import httpx
-from config import LIBRARYBRAIN_URL, SKILLS_DIR
+from config import LIBRARYBRAIN_URL, SKILLS_DIR, librarybrain_headers
 from fastmcp import FastMCP
 from loguru import logger
 
@@ -45,7 +45,7 @@ async def search_books(query: str, limit: int = 3) -> list[dict]:
     Retourne une liste vide si LibraryBrain est inaccessible.
     """
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=librarybrain_headers()) as client:
             resp = await client.post(
                 LIBRARYBRAIN_URL,
                 json={"query": query, "limit": limit},

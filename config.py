@@ -266,6 +266,63 @@ SKILLS_ON_CODER_MAX_CHARS: int = int(os.getenv("SKILLS_ON_CODER_MAX_CHARS", 800)
 # --- LibraryBrain / MCP ---
 LIBRARYBRAIN_URL: str = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
 LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dépôt library-brain
+# Token partagé de LibraryBrain = la valeur d'`api_token` dans SON config.yaml.
+# Vide (défaut) = auth désactivée côté serveur → aucun en-tête envoyé, comportement
+# local inchangé. Dès qu'`api_token` est posé là-bas (p.ex. avant une exposition
+# Tailscale), il DOIT être recopié ici, sinon tout /api/ répond 401.
+# JAMAIS dans l'URL (cf. tools/project_creator.py qui glisse GITHUB_TOKEN dans une
+# URL git) : /health échoie les URLs des serveurs → un token en URL fuiterait.
+LIBRARYBRAIN_TOKEN: str = os.getenv("LIBRARYBRAIN_TOKEN", "")
+
+
+def librarybrain_headers() -> dict[str, str]:
+    """En-têtes d'auth pour LibraryBrain (`X-API-Token`) — vides si aucun token.
+
+    Lit LIBRARYBRAIN_TOKEN à l'APPEL, pas à l'import : les modules qui font
+    `from config import librarybrain_headers` restent donc sensibles à un
+    monkeypatch de `config.LIBRARYBRAIN_TOKEN`, là où le motif habituel du repo
+    (`from config import X` puis `_Y = X` au niveau module, cf. mcp_client.py:16
+    ou github_reader.py:16) fige la valeur à l'import et rend les tests menteurs.
+
+    .strip() ici plutôt qu'à l'import : le serveur compare avec
+    `secrets.compare_digest` (exact, aucune tolérance), donc un espace ou un \\n
+    traîné depuis .env casserait la comparaison — et une valeur d'en-tête
+    contenant \\n ferait lever httpx. Nettoyer au point d'usage couvre toutes les
+    provenances (env, .env, monkeypatch) et reste testable sans reload(config).
+
+    Renvoyer `{}` plutôt qu'un en-tête vide est délibéré : `X-API-Token: ""`
+    compterait comme une tentative RATÉE au lieu d'une absence de token — or les
+    deux pannes ont des remèdes opposés (cf. services._unauthorized_detail).
+    """
+    token = LIBRARYBRAIN_TOKEN.strip()
+    return {"X-API-Token": token} if token else {}
+
+
+def librarybrain_auth_hint() -> str:
+    """Cause + remède d'un 401 LibraryBrain — « aucun token » vs « mauvais token ».
+
+    LibraryBrain renvoie le MÊME `401 {"error": "Non autorisé"}` dans les deux cas
+    (api/auth.py) : le serveur ne nous départage pas. Klody, lui, sait ce qu'il a
+    envoyé — c'est la seule information qui sépare deux pannes aux remèdes
+    opposés (renseigner le token vs corriger sa valeur).
+
+    Vit ici, et pas chez l'appelant, parce que DEUX surfaces la rendent (la sonde
+    de services.py et l'outil search_books) : dupliquer ce diagnostic, c'est
+    garantir qu'une des deux copies mentira après la prochaine évolution — c'est
+    exactement comme ça que le message « Klody n'envoie pas d'en-tête X-API-Token »
+    est devenu faux le jour où on a câblé l'en-tête.
+    """
+    if librarybrain_headers():
+        return (
+            "LIBRARYBRAIN_TOKEN est renseigné mais le token envoyé ne correspond "
+            "pas à `api_token` du config.yaml de LibraryBrain (comparaison "
+            "exacte). Vérifier que les deux valeurs sont identiques."
+        )
+    return (
+        "`api_token` est défini dans le config.yaml de LibraryBrain mais "
+        "LIBRARYBRAIN_TOKEN est vide côté Klody. Recopier la même valeur dans le "
+        ".env de Klody, ou vider `api_token` pour un usage 100 % local."
+    )
 # DB SQLite de Library Brain (index FTS5 des livres) — lue DIRECTEMENT (lecture
 # seule) par tools/library_distiller.py, sans passer par le serveur :8765.
 LIBRARY_DB_PATH: Path = Path(os.getenv("LIBRARY_DB_PATH", str(Path.home() / "library_brain.db")))
