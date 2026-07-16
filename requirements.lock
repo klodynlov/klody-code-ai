@@ -188,8 +188,10 @@ markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.3
     # via jinja2
-mcp==1.27.1
-    # via fastmcp-slim
+mcp==1.28.1
+    # via
+    #   -r requirements.txt
+    #   fastmcp-slim
 mdurl==0.1.2
     # via markdown-it-py
 more-itertools==11.1.0
