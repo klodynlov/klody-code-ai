@@ -24,14 +24,13 @@ venv/
 coverage.xml
 htmlcov/
 
-# Logs et mémoire de session (garder le dossier)
+# Logs (garder le dossier). L'état persistant — sessions, long_term.json,
+# semantic_memory.db — vit désormais hors du repo, dans MEMORY_DIR (~/.klody/data
+# par défaut) : git ne le voit plus, rien à ignorer ici.
 logs/*.log
-logs/memory_*.json
-logs/long_term.json
 logs/user_profile.json
 logs/distill_book_last_invalid.json
 logs/distill/
-logs/semantic_memory.db*
 !logs/.gitkeep
 
 # macOS

@@ -373,7 +373,12 @@ PREVIEW_FEEDBACK_TIMEOUT_S: float = float(os.getenv("PREVIEW_FEEDBACK_TIMEOUT_S"
 _ROOT: Path = Path(__file__).parent
 LOG_DIR: Path = _ROOT / "logs"
 LOG_FILE: Path = LOG_DIR / "agent.log"
-MEMORY_DIR: Path = LOG_DIR
+# État persistant (sessions, long_term.json, semantic_memory.db) — hors de logs/
+# et hors du repo. logs/ est purgeable par nature : un nettoyage de logs ou un
+# `git clean -xfd` (tout y est gitignoré) emporterait des données irremplaçables.
+# ~/.klody/data survit au reclone, au déplacement du repo et à la purge.
+# Surchargeable via KLODY_DATA_DIR (tests, second profil).
+MEMORY_DIR: Path = Path(os.getenv("KLODY_DATA_DIR", str(Path.home() / ".klody" / "data")))
 SKILLS_DIR: Path = _ROOT / "skills"
 # Artefacts générés téléchargeables (Excel, etc.), servis par l'API sur
 # /api/files/<nom>. Dossier dédié et gitignoré : on n'y sert QUE des fichiers
@@ -413,6 +418,9 @@ VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vo
 VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
 
 LOG_DIR.mkdir(exist_ok=True)
+# MEMORY_DIR n'est plus un alias de LOG_DIR : il ne profite plus du mkdir ci-dessus.
+# parents=True car ~/.klody peut ne pas exister encore.
+MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR.mkdir(exist_ok=True)
 
