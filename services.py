@@ -14,10 +14,31 @@ from rich.console import Console
 logger = logging.getLogger(__name__)
 console = Console()
 
+# États de la sonde. « Joignable » et « exploitable » sont deux choses distinctes :
+# quand `api_token` est défini dans le config.yaml de LibraryBrain, son middleware
+# (api/auth.py) répond 401 sur tout /api/ — le service tourne, mais AUCUN appel de
+# Klody n'aboutit (Klody n'envoie aucun X-API-Token). L'ancienne sonde booléenne
+# (`status_code < 500`) écrasait cette nuance et publiait un point vert menteur :
+# /status CONFIRMAIT la panne au lieu de la lever.
+PROBE_UP = "up"                      # 200 : joignable ET autorisé
+PROBE_UNAUTHORIZED = "unauthorized"  # 401/403 : joignable, mais Klody est refusé
+PROBE_DOWN = "down"                  # injoignable, ou réponse inexploitable
+
+# Nommer `api_token` : une panne d'auth doit se lire comme une panne d'auth.
+_UNAUTHORIZED_DETAIL = (
+    "401 sur /api/ — `api_token` est défini dans le config.yaml de LibraryBrain "
+    "et Klody n'envoie aucun token. Vider `api_token` (usage local), ou câbler "
+    "l'en-tête X-API-Token côté Klody."
+)
+_STATE_DETAIL = {PROBE_UNAUTHORIZED: _UNAUTHORIZED_DETAIL}
+
 _librarybrain_proc: subprocess.Popen | None = None
 _librarybrain_dir: str = ""
 _librarybrain_base_url: str = ""
-_librarybrain_status: dict = {"up": False, "pid": None, "restarts": 0}
+# `up` n'est PAS stocké ici : il est dérivé de `state` dans
+# get_librarybrain_status(). Un seul état publiable ⇒ aucun chemin de code ne peut
+# republier « up=True » sur un service qui refuse Klody.
+_librarybrain_status: dict = {"state": PROBE_DOWN, "pid": None, "restarts": 0}
 _watchdog_thread: threading.Thread | None = None
 _watchdog_stop = threading.Event()
 # True si LibraryBrain tournait DÉJÀ au démarrage (géré par un service externe,
@@ -33,21 +54,41 @@ _MAX_RESTARTS = 3
 _LB_LOG = Path(__file__).resolve().parent / "logs" / "librarybrain.log"
 
 
-def _is_up(base_url: str, timeout: float = 2.0) -> bool:
+def _probe(base_url: str, timeout: float = 2.0) -> str:
+    """Sonde LibraryBrain → PROBE_UP / PROBE_UNAUTHORIZED / PROBE_DOWN.
+
+    Le 200 est STRICT. `/api/stats` est une route authentifiée : un 401/403 dit
+    « le port répond mais Klody est refusé » — ni vivant, ni mort. Sonder
+    `/health` à la place ne réparerait rien : il est exempté d'auth
+    (_EXEMPT_PREFIXES dans api/auth.py) et répondrait 200 alors que tout /api/
+    est fermé — le verdict resterait aussi faux, juste par un autre chemin.
+    """
     try:
         r = httpx.get(f"{base_url}/api/stats", timeout=timeout)
-        return r.status_code < 500
     except Exception:
-        return False
+        return PROBE_DOWN
+    if r.status_code == 200:
+        return PROBE_UP
+    if r.status_code in (401, 403):
+        return PROBE_UNAUTHORIZED
+    return PROBE_DOWN
 
 
 def get_librarybrain_status() -> dict:
-    """Retourne l'état courant de LibraryBrain (thread-safe)."""
+    """Retourne l'état courant de LibraryBrain (thread-safe).
+
+    `up` est DÉRIVÉ de `state`, jamais stocké : c'est ce qui garantit
+    structurellement qu'un 401 ne puisse plus ressortir en « up ». `detail`
+    porte le message actionnable pour l'UI et /status.
+    """
     global _librarybrain_proc
     pid = _librarybrain_proc.pid if _librarybrain_proc else None
     alive = _librarybrain_proc.poll() is None if _librarybrain_proc else False
+    state = _librarybrain_status["state"]
     return {
-        "up": _librarybrain_status["up"],
+        "up": state == PROBE_UP,
+        "state": state,
+        "detail": _STATE_DETAIL.get(state, ""),
         "pid": pid if alive else None,
         "restarts": _librarybrain_status["restarts"],
     }
@@ -96,11 +137,15 @@ def _watchdog() -> None:
     branche « abandon » se ré-exécutait toutes les 15s et noyait agent.log —
     ~300 lignes par session morte). Le budget se réarme automatiquement si le
     service redevient joignable (reprise manuelle), pour ne pas rester aveugle.
+
+    Un service qui refuse Klody (401) n'est PAS un service mort : il est signalé
+    une fois puis surveillé passivement, jamais redémarré.
     """
     global _librarybrain_proc
 
     lb_path = Path(_librarybrain_dir)
     abandoned = False  # budget épuisé ET abandon déjà signalé
+    auth_warned = False  # refus d'auth déjà signalé (log unique, comme abandoned)
 
     while not _watchdog_stop.is_set():
         _watchdog_stop.wait(15)
@@ -108,16 +153,30 @@ def _watchdog() -> None:
             break
 
         alive = _librarybrain_proc and _librarybrain_proc.poll() is None
-        reachable = _is_up(_librarybrain_base_url)
-        _librarybrain_status["up"] = reachable
+        state = _probe(_librarybrain_base_url)
+        _librarybrain_status["state"] = state
 
-        if reachable:
+        if state == PROBE_UP:
             # Service sain : réarme le budget (les échecs comptés doivent être
             # CONSÉCUTIFS) et lève l'abandon si on l'avait déclaré.
-            if _librarybrain_status["restarts"] or abandoned:
-                logger.info("[LibraryBrain] De nouveau joignable — surveillance réarmée.")
+            if _librarybrain_status["restarts"] or abandoned or auth_warned:
+                logger.info(
+                    "[LibraryBrain] De nouveau %s — surveillance réarmée.",
+                    "autorisé" if auth_warned else "joignable",
+                )
                 _librarybrain_status["restarts"] = 0
                 abandoned = False
+                auth_warned = False
+            continue
+
+        if state == PROBE_UNAUTHORIZED:
+            # Le process TOURNE et tient :8765. Le redémarrer ne réparerait rien
+            # (panne de config, pas de process), et spawner un doublon sur un port
+            # déjà pris rejouerait les 84 fausses morts `[Errno 48]`. On signale
+            # une fois, on surveille — le budget de redémarrages n'est pas touché.
+            if not auth_warned:
+                auth_warned = True
+                logger.error("[LibraryBrain] %s", _UNAUTHORIZED_DETAIL)
             continue
 
         # Injoignable, et géré par un service externe (launchd) : surtout NE PAS
@@ -147,11 +206,16 @@ def _watchdog() -> None:
                 # Attendre jusqu'à 15s que le service réponde
                 for _ in range(15):
                     time.sleep(1)
-                    if _is_up(_librarybrain_base_url):
-                        _librarybrain_status["up"] = True
+                    state = _probe(_librarybrain_base_url)
+                    if state == PROBE_DOWN:
+                        continue
+                    # Reparti. S'il refuse Klody, le cycle suivant le signalera :
+                    # ne pas crier « réussi » sur un service qui n'accepte rien.
+                    _librarybrain_status["state"] = state
+                    if state == PROBE_UP:
                         logger.info("[LibraryBrain] Redémarrage réussi (tentative %d)",
                                     _librarybrain_status["restarts"])
-                        break
+                    break
         elif not abandoned:
             # Budget épuisé : on signale l'abandon UNE fois puis on reste en
             # surveillance passive (ni redémarrage, ni spam).
@@ -174,7 +238,7 @@ def _stop_librarybrain() -> None:
         except subprocess.TimeoutExpired:
             _librarybrain_proc.kill()
     _librarybrain_proc = None
-    _librarybrain_status["up"] = False
+    _librarybrain_status["state"] = PROBE_DOWN
 
 
 def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
@@ -202,12 +266,19 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
     # de démarrer nous-mêmes. Cette attente ne bloque pas le boot de l'API : le
     # lifespan appelle ensure_librarybrain dans un thread détaché (cf. server.py).
     for _ in range(8):
-        if _is_up(base_url, timeout=1.0):
-            _librarybrain_status["up"] = True
+        state = _probe(base_url, timeout=1.0)
+        if state != PROBE_DOWN:
+            # Le port :8765 a un propriétaire externe — que Klody soit autorisé ou
+            # non. Dans les DEUX cas il ne faut jamais spawner de doublon.
             _externally_managed = True
-            console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
+            _librarybrain_status["state"] = state
             _launch_watchdog()
-            return True
+            if state == PROBE_UP:
+                console.print("  [dim green]✓[/dim green]  [dim]LibraryBrain déjà actif (géré en externe)[/dim]")
+                return True
+            console.print("  [yellow]⚠[/yellow]  LibraryBrain actif mais [bold]refuse Klody[/bold] (401)")
+            console.print(f"     [dim]{_UNAUTHORIZED_DETAIL}[/dim]")
+            return False
         time.sleep(1)
 
     if not librarybrain_dir:
@@ -239,11 +310,18 @@ def ensure_librarybrain(librarybrain_dir: str, librarybrain_url: str) -> bool:
         if _librarybrain_proc.poll() is not None:
             console.print(" [red]processus terminé prématurément[/red]")
             return False
-        if _is_up(base_url):
-            _librarybrain_status["up"] = True
-            console.print(" [green]✓[/green]")
+        state = _probe(base_url)
+        if state != PROBE_DOWN:
+            _librarybrain_status["state"] = state
             _launch_watchdog()
-            return True
+            if state == PROBE_UP:
+                console.print(" [green]✓[/green]")
+                return True
+            # Démarré par nous, mais son config.yaml porte un api_token : le
+            # process est sain, la liaison ne l'est pas. Ne pas annoncer « ✓ ».
+            console.print(" [yellow]⚠ démarré mais refuse Klody (401)[/yellow]")
+            console.print(f"     [dim]{_UNAUTHORIZED_DETAIL}[/dim]")
+            return False
 
     console.print(" [yellow]timeout[/yellow]")
     logger.warning("[LibraryBrain] N'a pas répondu dans les 20s")

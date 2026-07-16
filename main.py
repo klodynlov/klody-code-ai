@@ -31,7 +31,7 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
-from services import ensure_librarybrain, get_librarybrain_status
+from services import PROBE_UNAUTHORIZED, ensure_librarybrain, get_librarybrain_status
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -425,6 +425,10 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         lb = get_librarybrain_status()
         if lb["up"]:
             tbl.add_row("LibraryBrain", "[green]✓ en ligne[/green]", f"PID {lb.get('pid', '?')}")
+        elif lb.get("state") == PROBE_UNAUTHORIZED:
+            # Le service tourne mais rejette Klody : ni « en ligne » (aucun appel
+            # n'aboutit), ni « hors ligne » (le redémarrer ne réparerait rien).
+            tbl.add_row("LibraryBrain", "[yellow]⚠ non autorisé[/yellow]", lb.get("detail", ""))
         else:
             tbl.add_row("LibraryBrain", "[yellow]✗ hors ligne[/yellow]", f"{lb.get('restarts', 0)} redémarrage(s)")
 

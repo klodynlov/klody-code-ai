@@ -19,13 +19,23 @@ SNAPSHOT = Path(__file__).parent / "snapshots" / "openapi_routes.json"
 
 def _build_current_snapshot() -> dict:
     """Extrait la signature des routes depuis l'OpenAPI FastAPI."""
-    # Évite spawn LibraryBrain à l'import
+    # Évite spawn LibraryBrain à l'import. Le stub est RESTAURÉ en sortie : cette
+    # assignation était permanente et `services` est un module singleton, donc
+    # elle fuitait dans tout le reste de la session pytest — n'importe quel test
+    # ultérieur appelant le vrai ensure_librarybrain recevait « True » sans le
+    # savoir (le stub n'est pas restaurable par monkeypatch : regenerate_openapi
+    # _snapshot.py appelle cette fonction hors pytest, sans fixture).
     import services as _svc
+
+    _real_ensure = _svc.ensure_librarybrain
     _svc.ensure_librarybrain = lambda *_a, **_kw: True
+    try:
+        from api.server import app
 
-    from api.server import app
+        schema = app.openapi()
+    finally:
+        _svc.ensure_librarybrain = _real_ensure
 
-    schema = app.openapi()
     routes: dict = {}
     for path, methods in schema.get("paths", {}).items():
         routes[path] = {}
