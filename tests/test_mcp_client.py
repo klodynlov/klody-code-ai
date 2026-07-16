@@ -179,71 +179,83 @@ class TestSearchBooks:
             result = search_books("design patterns")
         assert "503" in result or "erreur" in result.lower()
 
-    def test_job_done_avec_found_true(self):
-        from tools.mcp_client import search_books
-        # Mock : soumission job + poll retourne done immédiatement
-        submit_resp = MagicMock()
-        submit_resp.json.return_value = {"job_id": "abc123"}
-        submit_resp.raise_for_status = MagicMock()
+    def test_tape_bien_la_route_api_ask(self):
+        """Épingle l'URL appelée.
 
-        poll_resp = MagicMock()
-        poll_resp.raise_for_status = MagicMock()
-        poll_resp.json.return_value = {
-            "status": "done",
-            "result": {
-                "found": True,
-                "answer": "Les patterns sont...",
-                "sources": [{"title": "Book", "author": "Auth", "page": 1}],
-            }
+        Régression du 16/07 : le client soumettait un job sur POST /api/ask/job,
+        route supprimée côté LibraryBrain → 404 en prod. Les tests restaient verts
+        car ils mockaient la route morte. On asserte donc l'URL, pas juste le parsing.
+        """
+        from tools.mcp_client import LIBRARYBRAIN_URL, search_books
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"found": False}
+
+        with patch("tools.mcp_client.httpx.Client") as mock_client:
+            inst = mock_client.return_value.__enter__.return_value
+            inst.post.return_value = resp
+            search_books("query")
+
+        assert inst.post.call_args.args[0] == LIBRARYBRAIN_URL
+        assert inst.post.call_args.args[0].endswith("/api/ask")
+        # L'archi job/polling est morte : aucun GET de sonde ne doit subsister.
+        inst.get.assert_not_called()
+
+    def test_reponse_found_true_formatee(self):
+        from tools.mcp_client import search_books
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {
+            "found": True,
+            "answer": "Les patterns sont...",
+            "sources": [{"title": "Book", "author": "Auth", "page": 1}],
         }
 
         with patch("tools.mcp_client.httpx.Client") as mock_client:
-            inst = mock_client.return_value.__enter__.return_value
-            inst.post.return_value = submit_resp
-            inst.get.return_value = poll_resp
-            with patch("tools.mcp_client.time.sleep"):
-                result = search_books("design patterns", limit=3)
+            mock_client.return_value.__enter__.return_value.post.return_value = resp
+            result = search_books("design patterns", limit=3)
 
-        assert "patterns" in result.lower() or "Book" in result
+        assert "patterns" in result.lower()
+        assert "Book" in result
 
-    def test_job_error_retourne_message(self):
+    def test_found_false_retourne_aucun_resultat(self):
         from tools.mcp_client import search_books
-        submit_resp = MagicMock()
-        submit_resp.json.return_value = {"job_id": "xyz"}
-        submit_resp.raise_for_status = MagicMock()
-
-        poll_resp = MagicMock()
-        poll_resp.raise_for_status = MagicMock()
-        poll_resp.json.return_value = {"status": "error", "error": "LLM crash"}
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"found": False, "answer": None, "sources": []}
 
         with patch("tools.mcp_client.httpx.Client") as mock_client:
-            inst = mock_client.return_value.__enter__.return_value
-            inst.post.return_value = submit_resp
-            inst.get.return_value = poll_resp
-            with patch("tools.mcp_client.time.sleep"):
-                result = search_books("query")
+            mock_client.return_value.__enter__.return_value.post.return_value = resp
+            result = search_books("query")
 
-        assert "erreur" in result.lower() or "LLM crash" in result
+        assert "aucun résultat" in result.lower()
 
     def test_timeout_retourne_message(self):
+        import httpx
         from tools.mcp_client import search_books
-        submit_resp = MagicMock()
-        submit_resp.json.return_value = {"job_id": "xyz"}
-        submit_resp.raise_for_status = MagicMock()
-
-        poll_resp = MagicMock()
-        poll_resp.raise_for_status = MagicMock()
-        poll_resp.json.return_value = {"status": "pending"}
-
         with patch("tools.mcp_client.httpx.Client") as mock_client:
-            inst = mock_client.return_value.__enter__.return_value
-            inst.post.return_value = submit_resp
-            inst.get.return_value = poll_resp
-            with patch("tools.mcp_client.time.sleep"):
-                with patch("tools.mcp_client._POLL_MAX", 2):
-                    result = search_books("query")
+            mock_client.return_value.__enter__.return_value.post.side_effect = (
+                httpx.ReadTimeout("trop lent")
+            )
+            result = search_books("query")
 
         assert "timeout" in result.lower()
+
+    def test_401_nomme_la_cause_auth(self):
+        """Un 401 doit désigner api_token, pas se lire comme une panne réseau."""
+        import httpx
+        from tools.mcp_client import search_books
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+
+        with patch("tools.mcp_client.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.post.side_effect = (
+                httpx.HTTPStatusError("err", request=MagicMock(), response=mock_resp)
+            )
+            result = search_books("query")
+
+        assert "401" in result
+        assert "api_token" in result or "X-API-Token" in result
 
 
 # ── catalog_lookup ───────────────────────────────────────────────────────────

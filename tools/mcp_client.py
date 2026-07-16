@@ -14,12 +14,13 @@ from config import LIBRARY_DB_PATH, LIBRARYBRAIN_URL, SKILLS_DIR
 logger = logging.getLogger(__name__)
 
 _BASE_URL = LIBRARYBRAIN_URL
-# Base sans le path (pour construire /api/ask/job)
+# Base sans le path (conservée pour les autres routes éventuelles)
 _SERVER_BASE = _BASE_URL.rsplit("/api/", 1)[0]
 
-# Polling : 2s entre chaque sonde, max 90 tentatives = 3 min
-_POLL_INTERVAL = 2.0
-_POLL_MAX = 90
+# /api/ask est SYNCHRONE et lent (RAG mesuré à 37-42s le 16/07). L'ancienne archi
+# job+polling tapait POST /api/ask/job, route supprimée côté LibraryBrain (f606a1a) :
+# elle renvoyait 404. Le timeout doit couvrir la génération complète, pas un ACK.
+_ASK_TIMEOUT = 120.0
 
 
 def _parse_result(data: dict, limit: int) -> str:
@@ -44,48 +45,38 @@ def _parse_result(data: dict, limit: int) -> str:
 
 
 def search_books(query: str, limit: int = 3) -> str:
-    """Recherche sémantique dans LibraryBrain via l'API job asynchrone.
+    """Recherche sémantique dans LibraryBrain via POST /api/ask (synchrone).
 
-    Soumet un job RAG puis sonde toutes les 2s jusqu'à réponse (max 3 min).
     Retourne un message d'erreur lisible si LibraryBrain est hors-ligne ou trop lent.
     """
-    job_url = f"{_SERVER_BASE}/api/ask/job"
+    ask_url = _BASE_URL
     payload = {"query": query, "response_format": "explication"}
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            # 1. Soumettre le job
-            resp = client.post(job_url, json=payload)
+        with httpx.Client(timeout=_ASK_TIMEOUT) as client:
+            started = time.monotonic()
+            resp = client.post(ask_url, json=payload)
             resp.raise_for_status()
-            job_id: str = resp.json()["job_id"]
-            logger.info("search_books job soumis: %s", job_id)
-
-            # 2. Polling jusqu'à completion (même client réutilisé)
-            status_url = f"{_SERVER_BASE}/api/ask/job/{job_id}"
-            for attempt in range(_POLL_MAX):
-                time.sleep(_POLL_INTERVAL)
-                status_resp = client.get(status_url)
-                status_resp.raise_for_status()
-                status_data = status_resp.json()
-
-                status = status_data.get("status", "")
-                if status == "done":
-                    result = status_data.get("result", {})
-                    logger.info("search_books done après %ds", int((attempt + 1) * _POLL_INTERVAL))
-                    return _parse_result(result, limit)
-                if status == "error":
-                    err = status_data.get("error", "erreur inconnue")
-                    logger.error("search_books job error: %s", err)
-                    return f"LibraryBrain erreur RAG : {err}"
-
-        return f"LibraryBrain timeout après {int(_POLL_MAX * _POLL_INTERVAL)}s — réessaie plus tard."
+            logger.info("search_books done après %.1fs", time.monotonic() - started)
+            return _parse_result(resp.json(), limit)
 
     except httpx.ConnectError:
-        logger.warning("LibraryBrain inaccessible à %s", job_url)
+        logger.warning("LibraryBrain inaccessible à %s", ask_url)
         return "LibraryBrain inaccessible — serveur non démarré ou URL incorrecte."
+    except httpx.TimeoutException:
+        logger.warning("LibraryBrain timeout après %ss", _ASK_TIMEOUT)
+        return f"LibraryBrain timeout après {int(_ASK_TIMEOUT)}s — réessaie plus tard."
     except httpx.HTTPStatusError as exc:
-        logger.warning("LibraryBrain HTTP %s", exc.response.status_code)
-        return f"LibraryBrain a retourné une erreur {exc.response.status_code}."
+        code = exc.response.status_code
+        logger.warning("LibraryBrain HTTP %s sur %s", code, ask_url)
+        if code == 401:
+            return (
+                "LibraryBrain a refusé l'accès (401) : `api_token` est défini dans son "
+                "config.yaml mais Klody n'envoie pas d'en-tête X-API-Token."
+            )
+        if code == 404:
+            return f"LibraryBrain : route {ask_url} introuvable (404) — l'API a bougé."
+        return f"LibraryBrain a retourné une erreur {code}."
     except Exception as exc:
         logger.error("search_books erreur inattendue: %s", exc, exc_info=True)
         return f"Erreur lors de la recherche: {exc}"
@@ -136,6 +127,8 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
     if not terms:
         return "Requête vide — précise un titre ou un auteur."
 
+    # Littéral figé : la seule valeur interpolée dans le SQL ci-dessous. Toute donnée
+    # issue de la requête utilisateur passe par un placeholder `?` (d'où les nosec B608).
     cols = "b.id, b.title, b.author, b.year, b.page_count, b.format, b.indexed_at"
     try:
         con = _catalog_connect()
@@ -155,7 +148,7 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
                     FROM books_fts f JOIN books b ON b.id = f.rowid
                     WHERE books_fts MATCH ?
                     ORDER BY rank LIMIT ?
-                    """,
+                    """,  # nosec B608 — {cols} est un littéral ; le MATCH est paramétré
                     (joiner.join(quoted), limit),
                 ).fetchall()
                 if rows:
@@ -166,7 +159,8 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
             where = " OR ".join(["b.title LIKE ?", "b.author LIKE ?"])
             like = f"%{' '.join(terms)}%"
             rows = con.execute(
-                f"SELECT {cols} FROM books b WHERE {where} LIMIT ?",
+                # {cols} et {where} sont des littéraux ; les LIKE sont paramétrés
+                f"SELECT {cols} FROM books b WHERE {where} LIMIT ?",  # nosec B608
                 (like, like, limit),
             ).fetchall()
         total = con.execute("SELECT COUNT(*) FROM books").fetchone()[0]
