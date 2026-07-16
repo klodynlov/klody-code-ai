@@ -9,7 +9,13 @@ import time
 from pathlib import Path
 
 import httpx
-from config import LIBRARY_DB_PATH, LIBRARYBRAIN_URL, SKILLS_DIR
+from config import (
+    LIBRARY_DB_PATH,
+    LIBRARYBRAIN_URL,
+    SKILLS_DIR,
+    librarybrain_auth_hint,
+    librarybrain_headers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +59,7 @@ def search_books(query: str, limit: int = 3) -> str:
     payload = {"query": query, "response_format": "explication"}
 
     try:
-        with httpx.Client(timeout=_ASK_TIMEOUT) as client:
+        with httpx.Client(timeout=_ASK_TIMEOUT, headers=librarybrain_headers()) as client:
             started = time.monotonic()
             resp = client.post(ask_url, json=payload)
             resp.raise_for_status()
@@ -70,10 +76,7 @@ def search_books(query: str, limit: int = 3) -> str:
         code = exc.response.status_code
         logger.warning("LibraryBrain HTTP %s sur %s", code, ask_url)
         if code == 401:
-            return (
-                "LibraryBrain a refusé l'accès (401) : `api_token` est défini dans son "
-                "config.yaml mais Klody n'envoie pas d'en-tête X-API-Token."
-            )
+            return f"LibraryBrain a refusé l'accès (401) : {librarybrain_auth_hint()}"
         if code == 404:
             return f"LibraryBrain : route {ask_url} introuvable (404) — l'API a bougé."
         return f"LibraryBrain a retourné une erreur {code}."

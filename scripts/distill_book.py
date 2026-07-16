@@ -48,6 +48,15 @@ PROXY_URL = os.getenv(
 )
 # LibraryBrain (métadonnées livres) — même variable/défaut que config.LIBRARYBRAIN_URL.
 LIBRARYBRAIN_URL = os.getenv("LIBRARYBRAIN_URL", "http://127.0.0.1:8765/api/ask")
+# Idem pour le token : ce script est volontairement AUTONOME (il n'importe pas
+# config.py, qui ferait tourner load_dotenv + logging.basicConfig à l'import et
+# marcherait sur loguru). Il relit donc la MÊME variable d'env que
+# config.LIBRARYBRAIN_TOKEN — même valeur, pas de dérive possible.
+# Ne pas retirer : sans ce site, un api_token posé ferait échouer l'ancrage
+# auteur en 401, que `except Exception` (l.273) avale en « valeur du modèle
+# conservée » — l'anti-hallucination se désactiverait à 100 % EN SILENCE.
+LIBRARYBRAIN_TOKEN = os.getenv("LIBRARYBRAIN_TOKEN", "").strip()  # cf. config.librarybrain_headers
+LIBRARYBRAIN_HEADERS = {"X-API-Token": LIBRARYBRAIN_TOKEN} if LIBRARYBRAIN_TOKEN else {}
 DEFAULT_TIMEOUT = 600.0   # le thinking + RAG + génération peuvent prendre du temps
 DEFAULT_MAX_TOKENS = 8192
 # Modèle MLX par défaut (cerveau). Override possible via --model si besoin.
@@ -266,7 +275,7 @@ def _resolve_source(title: str, *, timeout: float = 8.0) -> dict | None:
     injoignable, ne trouve rien, ou ne matche pas franchement le titre.
     """
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, headers=LIBRARYBRAIN_HEADERS) as client:
             resp = client.post(LIBRARYBRAIN_URL, json={"query": title, "limit": 5})
             resp.raise_for_status()
             data = resp.json()
