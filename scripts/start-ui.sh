@@ -5,7 +5,23 @@
 # et d'ouvrir le .app.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
 APP_PATH="$HOME/Projets/klody-ui/src-tauri/target/release/bundle/macos/klody-ui.app"
+
+# LIBRARYBRAIN_URL / LIBRARYBRAIN_TOKEN viennent du .env, comme côté Python : la
+# sonde d'ici codait l'URL en dur et ignorait .env, donc elle interrogeait :8765
+# même quand Klody, lui, parlait à un autre hôte — un vert sur un service que
+# Klody n'utilise pas.
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+# shellcheck source=lib/librarybrain-probe.sh
+source "$SCRIPT_DIR/lib/librarybrain-probe.sh"
 
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║         KlodyAI v2  ·  Dashboard                         ║"
@@ -20,13 +36,26 @@ else
   echo "  ⚠  Ollama inactif. Démarrer : ollama serve"
 fi
 
-# LibraryBrain RAG (port 8765) — utilisé pour search_books
-if curl -sf http://127.0.0.1:8765/api/ask -o /dev/null 2>/dev/null \
-   || lsof -i :8765 &>/dev/null; then
-  echo "  ✓  LibraryBrain actif (:8765)"
-else
-  echo "  ⚠  LibraryBrain inactif (search_books indisponible)"
-fi
+# LibraryBrain RAG (port 8765) — utilisé pour search_books.
+# Sonde /api/stats en 200 strict (cf. scripts/lib/librarybrain-probe.sh) : la
+# version précédente ne pouvait STRUCTURELLEMENT pas rapporter de panne. Elle
+# faisait un GET sur /api/ask, qui est POST-only : le 405 faisait sortir
+# `curl -sf` en 22 à TOUS les coups, donc elle repliait toujours sur
+# `lsof -i :8765`, qui ne prouve que le port lié. Un 401, un 404, n'importe quelle
+# panne derrière un port ouvert s'affichait « ✓ LibraryBrain actif ».
+LB_BASE="$(lb_base_url)"
+case "$(lb_probe "$LB_BASE")" in
+  "$LB_PROBE_UP")
+    echo "  ✓  LibraryBrain actif ($LB_BASE)"
+    ;;
+  "$LB_PROBE_UNAUTHORIZED")
+    echo "  ⚠  LibraryBrain refuse Klody — 401 sur /api/ (search_books indisponible)"
+    echo "     $(lb_unauthorized_detail)"
+    ;;
+  *)
+    echo "  ⚠  LibraryBrain injoignable sur $LB_BASE (search_books indisponible)"
+    ;;
+esac
 
 # MLX (port 8080) — auto-spawné par Tauri si absent, sinon LaunchAgent
 if lsof -i :8080 &>/dev/null; then
