@@ -38,7 +38,11 @@ CODE_PORT="${MLX_CODE_PORT:-8081}"
 # ni arrêtés ici) : Ollama (fallback LLM + embeddings bge-m3) et LibraryBrain
 # (RAG). On dérive l'hôte:port depuis .env en retirant le suffixe de chemin.
 OLLAMA_ROOT="${OLLAMA_BASE_URL:-http://localhost:11434/v1}"; OLLAMA_ROOT="${OLLAMA_ROOT%/v1}"
-LB_ROOT="${LIBRARYBRAIN_URL:-http://127.0.0.1:8765/api/ask}"; LB_ROOT="${LB_ROOT%/api/ask}"
+# LibraryBrain : sonde et dérivation d'URL partagées avec scripts/start-ui.sh —
+# les deux copies précédentes avaient dérivé, chacune vers son propre faux vert.
+# shellcheck source=scripts/lib/librarybrain-probe.sh
+source "$ROOT/scripts/lib/librarybrain-probe.sh"
+LB_ROOT="$(lb_base_url)"
 
 LOGDIR="$ROOT/logs"; mkdir -p "$LOGDIR"
 RUNDIR="$ROOT/.run"; mkdir -p "$RUNDIR"
@@ -66,7 +70,10 @@ ollama_embed_model() {
   curl -sf "$OLLAMA_ROOT/api/tags" 2>/dev/null \
     | grep -o '"name":"[^"]*"' | sed 's/"name":"//; s/"$//' | grep -i bge | head -1
 }
-lb_alive() { curl -sf "$LB_ROOT/" -o /dev/null 2>/dev/null; }
+# LibraryBrain : voir lb_probe dans scripts/lib/librarybrain-probe.sh. L'ancienne
+# `lb_alive` sondait GET / — la page HTML, exemptée du middleware d'auth — et
+# restait donc VERTE pendant que tout /api/ répondait 401, c'est-à-dire pendant
+# que la bibliothèque était inutilisable pour Klody.
 
 start_one() {
   local name="$1" model="$2" port="$3"
@@ -140,11 +147,20 @@ cmd_status() {
   else
     printf "    %-12s :%s  ${c_dim}down${c_reset}\n" "ollama" "$op"
   fi
-  if lb_alive; then
-    printf "    %-12s :%s  ${c_grn}UP${c_reset}\n" "librarybrain" "$lp"
-  else
-    printf "    %-12s :%s  ${c_dim}down${c_reset}\n" "librarybrain" "$lp"
-  fi
+  case "$(lb_probe "$LB_ROOT")" in
+    "$LB_PROBE_UP")
+      printf "    %-12s :%s  ${c_grn}UP${c_reset}\n" "librarybrain" "$lp"
+      ;;
+    "$LB_PROBE_UNAUTHORIZED")
+      # Joignable, mais refusé : ni UP, ni down. Le distinguer est tout l'intérêt
+      # — un redémarrage ne répare pas une panne de config.
+      printf "    %-12s :%s  ${c_ylw}401 non autorisé${c_reset}\n" "librarybrain" "$lp"
+      printf "      ${c_dim}%s${c_reset}\n" "$(lb_unauthorized_detail)"
+      ;;
+    *)
+      printf "    %-12s :%s  ${c_dim}down${c_reset}\n" "librarybrain" "$lp"
+      ;;
+  esac
 }
 
 ACTION="${1:-status}"
