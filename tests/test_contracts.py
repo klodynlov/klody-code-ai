@@ -6,7 +6,6 @@ préconditions/postconditions/invariants posés dans le cœur.
 """
 
 import pytest
-
 from agent.dbc import ContractViolation, ensure, invariant, require
 
 
@@ -70,6 +69,17 @@ class TestFileManagerPostcondition:
 
 
 class TestMemoryInvariant:
+    # ConversationMemory.__init__ résout memory_file sur config.MEMORY_DIR, et la
+    # fenêtre glissante sauvegarde à chaque ajout : sans isolation, ces tests
+    # persistent memory_contract-test.json dans le dossier de données RÉEL, où il
+    # apparaît comme une vraie session (50 messages « contenu 35 », titre vide)
+    # dans la liste de l'UI.
+    @pytest.fixture(autouse=True)
+    def _isole_memory_dir(self, tmp_path, monkeypatch):
+        import config
+
+        monkeypatch.setattr(config, "MEMORY_DIR", tmp_path)
+
     def _mem(self):
         from agent.memory import ConversationMemory
 
