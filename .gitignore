@@ -25,10 +25,9 @@ coverage.xml
 htmlcov/
 
 # Logs (garder le dossier). L'état persistant — sessions, long_term.json,
-# semantic_memory.db — vit désormais hors du repo, dans MEMORY_DIR (~/.klody/data
-# par défaut) : git ne le voit plus, rien à ignorer ici.
+# semantic_memory.db, user_profile.json — vit désormais hors du repo, dans
+# MEMORY_DIR (~/.klody/data par défaut) : git ne le voit plus, rien à ignorer ici.
 logs/*.log
-logs/user_profile.json
 logs/distill_book_last_invalid.json
 logs/distill/
 !logs/.gitkeep

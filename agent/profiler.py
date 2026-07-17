@@ -7,7 +7,7 @@ Analyse chaque requête pour construire un profil cumulatif :
 - Patterns récurrents (séquences de catégories fréquentes)
 - Suggestions proactives basées sur le profil + skills + mémoire
 
-Persisté dans LOG_DIR/user_profile.json entre les sessions.
+Persisté dans MEMORY_DIR/user_profile.json entre les sessions.
 """
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ import logging
 import re
 from datetime import datetime
 
-from config import LOG_DIR
+from config import MEMORY_DIR
 
 logger = logging.getLogger(__name__)
 
-_PROFILE_FILE = LOG_DIR / "user_profile.json"
+_PROFILE_FILE = MEMORY_DIR / "user_profile.json"
 
 # ── Détection de technologies ────────────────────────────────────────────────
 
