@@ -7,6 +7,8 @@
 
 ## Le problème
 
+> « On adorerait utiliser l'IA. Mais nos données ne peuvent pas quitter la maison. »
+
 L'IA générative est partout, mais la plupart des outils **envoient votre code et vos données
 chez un fournisseur cloud**. Pour beaucoup d'organisations, c'est rédhibitoire :
 
@@ -44,12 +46,15 @@ Compétences démontrées : Python/FastAPI · intégration LLM locale (MLX/Ollam
 d'agents (ReAct, routage, retrieval) · **MCP** (client & serveur) · sécurité applicative ·
 Rust/Tauri + React · tests & CI.
 
-## Formes d'intervention
+## Comment on travaille ensemble
 
-- **Audit / cadrage** — « peut-on faire *cet* usage en local et en sécurité ? » → faisabilité, archi, risques.
-- **POC** — un agent privé sur votre cas réel, en quelques semaines.
-- **Build & déploiement** — agent sur-mesure, intégré à vos outils internes (MCP), durci et testé.
-- **Transfert** — documentation et montée en compétence de votre équipe.
+1. **Appel de cadrage** (gratuit) — votre contrainte, votre cas d'usage, une première idée
+   de faisabilité.
+2. **Audit / faisabilité** — « peut-on faire *cet* usage en local et en sécurité ? » →
+   périmètre chiffré, archi, risques, critères de réussite, sur votre matériel cible.
+3. **POC** — un agent privé sur votre cas réel, en quelques semaines, mesuré.
+4. **Build, durcissement & transfert** — agent sur-mesure intégré à vos outils internes (MCP),
+   sécurisé, testé, documenté — et vos équipes autonomes pour la suite.
 
 ## Parlons-en
 
@@ -57,6 +62,8 @@ Vous avez un cas d'usage IA mais vos données ne peuvent pas partir dans le clou
 **C'est exactement mon terrain.**
 
 📧 **volnyclaude@protonmail.com** · 💼 [LinkedIn](https://www.linkedin.com/in/claude-volny-94129894/)
+
+> *L'IA sans le cloud. La confidentialité par défaut, pas en option.*
 
 <!-- À COMPLÉTER quand dispo : 🌐 site/portfolio.
      Adapter le secteur cible si tu vises un vertical précis (ex. juridique, vu ton contexte). -->
