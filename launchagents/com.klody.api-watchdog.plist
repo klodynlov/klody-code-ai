@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klody.api-watchdog</string>
+
+    <!-- Surveille /health de com.klody.api et le relance via `launchctl kickstart`
+         quand il est hung (socket :8000 bindée mais plus aucune réponse HTTP) —
+         cas que le KeepAlive de com.klody.api ne peut pas couvrir, puisqu'un
+         process hung ne crashe pas et ne sort pas. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/api-watchdog.sh</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-api-watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-api-watchdog.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>
