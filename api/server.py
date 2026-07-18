@@ -5,10 +5,12 @@ Bridge entre l'agent Python et le dashboard Tauri.
 
 import asyncio
 import contextlib
+import faulthandler
 import json
 import logging
 import os
 import re
+import signal
 import sys
 import threading
 import uuid
@@ -48,6 +50,43 @@ from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_i
 from api import metrics as _metrics
 
 logger = logging.getLogger(__name__)
+
+
+# --- Diagnostic de figeage ---------------------------------------------------
+# L'API a un mode de panne « hung, pas down » : le process reste vivant, garde
+# :8000 en LISTEN, mais n'accepte plus. Observé le 2026-07-19 (figée 3 h 30).
+# `sample` ne montre que la pile native — « bloqué dans kevent » ne dit pas QUEL
+# coroutine ou quel thread retient le serveur, et py-spy exige root sur macOS,
+# donc reste hors de portée d'un LaunchAgent utilisateur.
+#
+# faulthandler est stdlib, ne demande aucun privilège et est sûr depuis un
+# handler de signal. Le watchdog (scripts/api-watchdog.sh) envoie SIGUSR1 avant
+# de tuer le process : la prochaine occurrence laisse donc les piles Python de
+# TOUS les threads, au lieu de disparaître avec le process.
+#
+# SIGUSR1 est inutilisé par ailleurs et ne perturbe pas un serveur sain — le
+# dump est purement observationnel : il n'interrompt ni ne modifie rien.
+_HANG_DUMP_PATH = Path.home() / "Library" / "Logs" / "klody-api-hang.log"
+
+
+def _install_hang_dumper() -> None:
+    """Branche SIGUSR1 sur un dump des piles Python de tous les threads.
+
+    Best-effort : un échec ici ne doit jamais empêcher l'API de démarrer — le
+    diagnostic est un confort, servir les requêtes est la mission.
+    """
+    try:
+        _HANG_DUMP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Gardé ouvert pour toute la vie du process : faulthandler écrit depuis
+        # un handler de signal et ne peut pas ouvrir de fichier à ce moment-là.
+        fh = _HANG_DUMP_PATH.open("a", buffering=1)
+        fh.write(f"\n=== dumper armé, pid {os.getpid()} ===\n")
+        faulthandler.register(signal.SIGUSR1, file=fh, all_threads=True, chain=False)
+    except Exception as exc:  # pragma: no cover - dépend de l'environnement
+        logger.warning("[Diag] dumper de figeage non armé: %s", exc)
+
+
+_install_hang_dumper()
 
 
 @asynccontextmanager
