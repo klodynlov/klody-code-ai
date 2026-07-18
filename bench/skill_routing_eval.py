@@ -5,7 +5,9 @@ But : décider OBJECTIVEMENT s'il vaut la peine d'activer le routeur sémantique
   - hit@1 / hit@3 : le skill attendu est-il en tête / dans le top-k ?
   - accord IDF↔sémantique : routent-ils pareil en rang 1 ?
 
-Le routeur sémantique a besoin d'Ollama (`/api/embed`, bge-m3) + du LLM (:8080).
+Le routeur sémantique a besoin des embeddings in-process (memory bus, bge-m3 —
+cf. tools/embeddings.py) + du LLM (:8080). Depuis le 2026-07-18 il n'y a plus de
+daemon Ollama dans la boucle.
 S'ils sont indisponibles, `SkillRouter.select()` dégrade vers `select_skills` :
 l'éval sémantique devient alors identique à l'IDF — c'est signalé en tête.
 

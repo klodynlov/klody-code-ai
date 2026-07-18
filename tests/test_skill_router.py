@@ -107,14 +107,18 @@ class TestSelectDegradation:
         expected = select_skills(list(SKILLS), q, k=5)
         assert _slugs(got) == _slugs(expected)
 
-    def test_endpoint_qui_leve_est_capte_et_degrade(self, patched_skills, monkeypatch):
-        # httpx.post lève (réseau coupé) : on exerce le VRAI chemin _embed_one →
+    def test_embeddings_qui_levent_sont_captes_et_degradent(
+        self, patched_skills, monkeypatch
+    ):
+        # Le moteur d'embeddings lève : on exerce le VRAI chemin _embed_one →
         # _rank_by_embedding → fallback, sans bypass. select() ne doit pas propager.
-        import httpx
+        # (Depuis 2026-07-18 les embeddings sont in-process : plus de panne réseau,
+        # mais une exception du moteur doit rester tout aussi inoffensive.)
+        from tools import embeddings
 
         def boom(*args, **kwargs):
-            raise httpx.ConnectError("réseau coupé")
-        monkeypatch.setattr(httpx, "post", boom)
+            raise RuntimeError("moteur d'embeddings en vrac")
+        monkeypatch.setattr(embeddings, "embed_one", boom)
         router = SkillRouter(use_llm_judge=True)
         q = "développement next.js et react"
         got = router.select(q, k=5)
