@@ -28,11 +28,15 @@ _SERVER_BASE = _BASE_URL.rsplit("/api/", 1)[0]
 # elle renvoyait 404. Le timeout doit couvrir la génération complète, pas un ACK.
 _ASK_TIMEOUT = 120.0
 
+# Sentinelle « 0 hit RAG » : search_books la compare telle quelle pour déclencher
+# la sonde catalogue (réflexe anti « le livre n'existe pas », cf. _augment_no_hit).
+_NO_RAG_HIT = "Aucun résultat trouvé dans la bibliothèque pour cette requête."
+
 
 def _parse_result(data: dict, limit: int) -> str:
     """Formate la réponse LibraryBrain {answer, sources, found} en texte LLM."""
     if not data.get("found", False):
-        return "Aucun résultat trouvé dans la bibliothèque pour cette requête."
+        return _NO_RAG_HIT
 
     answer = data.get("answer", "")
     sources = data.get("sources", [])
@@ -64,7 +68,13 @@ def search_books(query: str, limit: int = 3) -> str:
             resp = client.post(ask_url, json=payload)
             resp.raise_for_status()
             logger.info("search_books done après %.1fs", time.monotonic() - started)
-            return _parse_result(resp.json(), limit)
+            result = _parse_result(resp.json(), limit)
+            # Réflexe : 0 hit RAG ≠ « livre absent ». Si le livre est AU CATALOGUE,
+            # le contenu existe mais le gate a refusé la formulation → le signaler
+            # à l'agent au lieu de le laisser conclure à l'absence / basculer web.
+            if result == _NO_RAG_HIT:
+                return _augment_no_hit(query)
+            return result
 
     except httpx.ConnectError:
         logger.warning("LibraryBrain inaccessible à %s", ask_url)
@@ -202,6 +212,49 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
             f"{f' · indexé le {date}' if date else ''}"
         )
     return "\n".join(lines)
+
+
+def _catalogued_exact(query: str) -> str | None:
+    """Bloc catalogue formaté SI la requête matche EXACTEMENT ≥1 livre au catalogue.
+
+    Best-effort, réutilise catalog_lookup (lecture ro, non gatée). Ne garde que le
+    cas « correspondance exacte » (tous les termes du titre réunis) : un match
+    approché (repli OR) ou une absence → None, pour éviter d'affirmer « indexé » sur
+    une question de fond générique. Toute erreur → None : la sonde ne doit JAMAIS
+    faire échouer search_books.
+    """
+    try:
+        block = catalog_lookup(query, limit=3)
+    except Exception:  # pragma: no cover - sonde best-effort, jamais bloquante
+        logger.debug("sonde catalogue KO pour %r", query, exc_info=True)
+        return None
+    # catalog_lookup : hit exact → « N livre(s) au catalogue pour … » ; hit approché
+    # → « Aucune correspondance exacte … » ; absence/erreur → autre préfixe.
+    return block if re.match(r"\d+ livre\(s\) au catalogue pour ", block) else None
+
+
+def _augment_no_hit(query: str) -> str:
+    """Réflexe anti-hallucination inverse : 0 hit RAG mais livre AU CATALOGUE.
+
+    Le gate RAG refuse souvent une requête-titre alors que le contenu EST indexé.
+    Sans ce réflexe, l'agent lit « aucun résultat » comme « livre absent », affirme
+    faux et bascule sur le web. On lui rend le fait catalogue + la bonne lecture.
+    """
+    cat = _catalogued_exact(query)
+    if cat is None:
+        return _NO_RAG_HIT  # vraie absence : ni contenu RAG, ni livre au catalogue
+    return (
+        "Aucun passage n'a matché la recherche de CONTENU (search_books / RAG gaté) "
+        "pour cette requête.\n\n"
+        "⚠️ MAIS ce livre EST au catalogue (donc bien indexé) :\n"
+        f"{cat}\n\n"
+        "Le contenu existe — le gate RAG a seulement refusé CETTE formulation "
+        "(typiquement : la requête est un titre, pas une question de fond). "
+        "NE conclus PAS que le livre est absent de la bibliothèque, et ne bascule pas "
+        "sur le web comme s'il manquait. Reformule en question de FOND "
+        "(« que dit-il sur … ? », « quelle méthode/résultat pour … ? ») puis relance "
+        "search_books."
+    )
 
 
 def _is_domain_file(path: Path) -> bool:

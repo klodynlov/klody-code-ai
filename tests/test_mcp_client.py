@@ -1,4 +1,5 @@
-"""Tests pour tools/mcp_client.py — _is_domain_file, get_skills, _parse_result, search_books."""
+"""Tests pour tools/mcp_client.py — _is_domain_file, get_skills, _parse_result,
+search_books, catalog_lookup, réflexe catalogue-sur-refus-gate (_augment_no_hit)."""
 
 import json
 from pathlib import Path
@@ -191,7 +192,8 @@ class TestSearchBooks:
         resp.raise_for_status = MagicMock()
         resp.json.return_value = {"found": False}
 
-        with patch("tools.mcp_client.httpx.Client") as mock_client:
+        with patch("tools.mcp_client.httpx.Client") as mock_client, \
+                patch("tools.mcp_client._catalogued_exact", return_value=None):
             inst = mock_client.return_value.__enter__.return_value
             inst.post.return_value = resp
             search_books("query")
@@ -224,7 +226,9 @@ class TestSearchBooks:
         resp.raise_for_status = MagicMock()
         resp.json.return_value = {"found": False, "answer": None, "sources": []}
 
-        with patch("tools.mcp_client.httpx.Client") as mock_client:
+        # Livre vraiment absent (pas au catalogue) → message d'absence conservé.
+        with patch("tools.mcp_client.httpx.Client") as mock_client, \
+                patch("tools.mcp_client._catalogued_exact", return_value=None):
             mock_client.return_value.__enter__.return_value.post.return_value = resp
             result = search_books("query")
 
@@ -354,3 +358,80 @@ class TestCatalogLookup:
         from tools.mcp_client import catalog_lookup
         result = catalog_lookup("as-tu le livre")
         assert "vide" in result.lower()
+
+
+# ── Réflexe : 0 hit RAG mais livre AU CATALOGUE (_augment_no_hit) ────────────────
+# Régression de la session KlodyAI 7f8900ed (18/07) : « Error Analyses of
+# Auto-Regressive Video Diffusion Models » était pleinement indexé (104 chunks),
+# mais le gate RAG refusait la requête-titre → search_books « aucun résultat » →
+# l'agent a conclu à tort « pas dans LibraryBrain, trop récent » et a basculé web.
+
+_HIT_EXACT = (
+    "1 livre(s) au catalogue pour « Error Analyses » :\n"
+    "• Error Analyses of Auto-Regressive Video Diffusion Models — auteur inconnu "
+    "(2026, 51 p., PDF) · indexé le 2026-07-17"
+)
+_HIT_APPROX = (
+    "Aucune correspondance exacte pour « x ». Livres approchants "
+    "(ne contiennent pas tous les mots) :\n• Autre livre — A"
+)
+_MISS = "Aucun livre au catalogue pour « x » (catalogue = 5 livres). Le livre n'est pas indexé."
+
+
+class TestCatalogueExact:
+    def test_hit_exact_retourne_le_bloc(self):
+        from tools.mcp_client import _catalogued_exact
+        with patch("tools.mcp_client.catalog_lookup", return_value=_HIT_EXACT):
+            assert _catalogued_exact("Error Analyses") == _HIT_EXACT
+
+    def test_match_approche_ignore(self):
+        from tools.mcp_client import _catalogued_exact
+        with patch("tools.mcp_client.catalog_lookup", return_value=_HIT_APPROX):
+            assert _catalogued_exact("x") is None
+
+    def test_absence_retourne_none(self):
+        from tools.mcp_client import _catalogued_exact
+        with patch("tools.mcp_client.catalog_lookup", return_value=_MISS):
+            assert _catalogued_exact("x") is None
+
+    def test_erreur_catalogue_ne_leve_pas(self):
+        from tools.mcp_client import _catalogued_exact
+        with patch("tools.mcp_client.catalog_lookup", side_effect=RuntimeError("boom")):
+            assert _catalogued_exact("x") is None
+
+
+class TestReflexeSearchBooksCatalogue:
+    def _resp_found_false(self):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"found": False, "answer": None, "sources": []}
+        return resp
+
+    def test_no_hit_mais_indexe_contredit_absence(self):
+        from tools.mcp_client import search_books
+        resp = self._resp_found_false()
+        with patch("tools.mcp_client.httpx.Client") as mock_client, \
+                patch("tools.mcp_client._catalogued_exact", return_value=_HIT_EXACT):
+            mock_client.return_value.__enter__.return_value.post.return_value = resp
+            result = search_books("Error Analyses of Auto-Regressive Video Diffusion Models")
+        # Le fait catalogue est rendu, et la mauvaise lecture est explicitement bloquée.
+        assert "au catalogue" in result
+        assert "indexé le 2026-07-17" in result
+        assert "NE conclus PAS" in result
+        assert "aucun résultat trouvé" not in result.lower()
+
+    def test_no_hit_et_absent_garde_le_message_absence(self):
+        from tools.mcp_client import search_books
+        resp = self._resp_found_false()
+        with patch("tools.mcp_client.httpx.Client") as mock_client, \
+                patch("tools.mcp_client._catalogued_exact", return_value=None):
+            mock_client.return_value.__enter__.return_value.post.return_value = resp
+            result = search_books("sujet vraiment absent")
+        assert "aucun résultat" in result.lower()
+
+    def test_message_augmente_commence_par_Aucun(self):
+        # Contrat learn_from_books : startswith(("Aucun", ...)) = échec → ne pas
+        # apprendre depuis un no-hit, même augmenté du fait catalogue.
+        from tools.mcp_client import _augment_no_hit
+        with patch("tools.mcp_client._catalogued_exact", return_value=_HIT_EXACT):
+            assert _augment_no_hit("x").startswith("Aucun")
