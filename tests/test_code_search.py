@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import httpx
 import pytest
 from tools.code_search import (
     EmbeddingIndex,
@@ -57,15 +56,16 @@ class TestFormatHits:
         assert "b/c.py" in s
 
 
-# ── EmbeddingIndex avec mock Ollama ────────────────────────────────────────────
+# ── EmbeddingIndex avec embeddings simulés ────────────────────────────────────
 
 
 class TestEmbeddingIndexMocked:
-    def test_unavailable_si_ollama_down(self, tmp_path, monkeypatch):
-        # Force is_available à False via une exception HTTP
-        def raise_(*a, **k):
-            raise httpx.ConnectError("connection refused")
-        monkeypatch.setattr(httpx, "get", raise_)
+    def test_unavailable_si_moteur_embeddings_absent(self, tmp_path, monkeypatch):
+        # Depuis la migration vers le memory bus (2026-07-18), l'indisponibilité
+        # n'est plus un échec réseau mais une dépendance manquante.
+        from tools import embeddings
+
+        monkeypatch.setattr(embeddings, "is_available", lambda: False)
         idx = EmbeddingIndex(tmp_path)
         assert idx.is_available() is False
         # refresh ne doit rien faire si indispo
@@ -89,32 +89,23 @@ class TestEmbeddingIndexMocked:
         assert "index.js" not in names
 
     def test_search_via_mock(self, tmp_path, monkeypatch):
-        """Mock /api/tags + /api/embed pour tester le flow end-to-end."""
+        """Flow end-to-end avec un moteur d'embeddings simulé.
+
+        Le mock porte sur `tools.embeddings` (la couture depuis 2026-07-18). Sans
+        lui le test calculerait de VRAIS vecteurs bge-m3 : lent, et il ne testerait
+        plus le flow mais le modèle.
+        """
         (tmp_path / "a.py").write_text("def foo(): pass\n", encoding="utf-8")
         (tmp_path / "b.py").write_text("def bar(): pass\n", encoding="utf-8")
 
-        def fake_get(url, **kw):
-            req = httpx.Request("GET", url)
-            return httpx.Response(200, json={"models": [{"name": "bge-m3"}]}, request=req)
+        from tools import embeddings
 
-        # Counter pour donner des embeddings différents par appel
-        call = {"n": 0}
+        def fake_batch(texts):
+            # Vecteur déterministe dépendant du contenu.
+            return [[(len(t) % 7) / 10.0, 1.0 - (len(t) % 7) / 10.0, 0.5] for t in texts]
 
-        def fake_post(url, json=None, **kw):
-            call["n"] += 1
-            # 1er + 2e appel : batch d'index (2 fichiers)
-            # 3e appel : query
-            inputs = (json or {}).get("input", [])
-            # Vecteur dépendant du contenu : longueur + 1er char
-            vecs = []
-            for txt in inputs:
-                seed = (len(txt) % 7) / 10.0
-                vecs.append([seed, 1.0 - seed, 0.5])
-            req = httpx.Request("POST", url)
-            return httpx.Response(200, json={"embeddings": vecs}, request=req)
-
-        monkeypatch.setattr(httpx, "get", fake_get)
-        monkeypatch.setattr(httpx, "post", fake_post)
+        monkeypatch.setattr(embeddings, "is_available", lambda: True)
+        monkeypatch.setattr(embeddings, "embed_batch", fake_batch)
 
         idx = EmbeddingIndex(tmp_path)
         n = idx.refresh()

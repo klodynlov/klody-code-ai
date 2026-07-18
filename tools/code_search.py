@@ -14,14 +14,13 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
-# Endpoint Ollama embeddings (toujours sur le port Ollama, même si BACKEND=mlx
-# pour le LLM principal — Ollama reste utilisé pour l'embedder léger).
-_OLLAMA_EMBED_URL = "http://localhost:11434/api/embed"
-_EMBED_MODEL = "bge-m3"
+# Embeddings : in-process via le memory bus (cf. tools/embeddings.py). Avant le
+# 2026-07-18 c'était un POST vers Ollama /api/embed ; même modèle bge-m3, mais
+# plus de daemon à faire tourner. L'index est en mémoire (jamais persisté), donc
+# la bascule de provider n'a demandé aucun re-embed. Le modèle vient désormais
+# des settings du memory bus, ce n'est plus une constante d'ici.
 
 # Extensions à indexer
 _INDEXABLE_EXT = frozenset({
@@ -61,24 +60,16 @@ class SearchHit:
 
 
 # ---------------------------------------------------------------------------- #
-# Client Ollama embeddings                                                     #
+# Embeddings (in-process, memory bus)                                          #
 # ---------------------------------------------------------------------------- #
 
 
 def _embed_batch(texts: list[str], timeout: float = 60.0) -> list[list[float]]:
-    """Appelle Ollama /api/embed pour un batch de textes."""
-    try:
-        resp = httpx.post(
-            _OLLAMA_EMBED_URL,
-            json={"model": _EMBED_MODEL, "input": texts},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("embeddings", [])
-    except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Embedding call failed: %s", exc)
-        return [[] for _ in texts]
+    """Embedde un batch de textes. `timeout` conservé pour compat d'appel (le
+    calcul est désormais local : plus rien à attendre sur le réseau)."""
+    from tools import embeddings
+
+    return embeddings.embed_batch(texts)
 
 
 # ---------------------------------------------------------------------------- #
@@ -111,16 +102,16 @@ class EmbeddingIndex:
         self._available: bool | None = None  # None = pas encore testé
 
     def is_available(self) -> bool:
-        """Vérifie qu'Ollama répond et que bge-m3 est dispo (lazy, cache)."""
+        """Le moteur d'embeddings est-il utilisable ? (lazy, cache).
+
+        Plus aucun ping réseau : on interroge le memory bus in-process, qui est
+        disponible dès que `klody_memory` + sentence-transformers sont installés.
+        """
         if self._available is not None:
             return self._available
-        try:
-            r = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
-            r.raise_for_status()
-            models = [m.get("name", "") for m in r.json().get("models", [])]
-            self._available = any(_EMBED_MODEL in m for m in models)
-        except (httpx.HTTPError, ValueError):
-            self._available = False
+        from tools import embeddings
+
+        self._available = embeddings.is_available()
         return self._available
 
     def _iter_source_files(self):

@@ -5,8 +5,8 @@ hors-ligne) qui reste le défaut. Ce module n'est PAS câblé par défaut : il f
 l'activer explicitement (cf. agent/orchestrator.py, flag SKILLS_ROUTER_ENABLED).
 
 Dégradation gracieuse, jamais bloquante :
-  1. EMBEDDINGS (Ollama natif /api/embed, modèle bge-m3 déjà présent localement
-     — cf. tools/code_search.py) → pré-filtre des skills couche A par cosinus.
+  1. EMBEDDINGS (in-process via le memory bus, bge-m3 — cf. tools/embeddings.py)
+     → pré-filtre des skills couche A par cosinus.
   2. JUGE LLM (endpoint principal, config.LLM_BASE_URL/LLM_MODEL) → tranche parmi
      les candidats pré-filtrés. Désactivable (use_llm_judge=False).
   3. FALLBACK = on RÉUTILISE tools.skills.select_skills (l'IDF maison), JAMAIS un
@@ -44,11 +44,10 @@ from tools.skills import (
 
 logger = logging.getLogger(__name__)
 
-# Embeddings : Ollama en NATIF (cf. tools/code_search.py:22-23), pas /v1/embeddings.
-# bge-m3 est le modèle réellement disponible localement ; nomic-embed-text n'est
-# PAS garanti pullé. Surchargeable à l'instanciation.
-_DEFAULT_EMBED_URL = "http://localhost:11434/api/embed"
-_DEFAULT_EMBED_MODEL = "bge-m3"
+# Embeddings : in-process via le memory bus (cf. tools/embeddings.py). Avant le
+# 2026-07-18, POST vers Ollama /api/embed en natif. Même modèle bge-m3, plus de
+# daemon. Le cache `_desc_vecs` est en mémoire d'instance → rien à re-embedder.
+# Le modèle n'est plus un réglage d'ici : il vient des settings du memory bus.
 
 # Termes qui « autorisent » un skill de distillation (anti-collision routeur).
 _DISTILL_GATE = ("livre", "livres", "auteur", "ouvrage", "ouvrages", "distill", "fusionn")
@@ -94,15 +93,11 @@ class SkillRouter:
         self,
         *,
         use_llm_judge: bool = True,
-        embed_url: str = _DEFAULT_EMBED_URL,
-        embed_model: str = _DEFAULT_EMBED_MODEL,
         prefilter_top_k: int = 6,
         prefilter_threshold: float = 0.35,
         timeout: float = 20.0,
     ) -> None:
         self.use_llm_judge = use_llm_judge
-        self.embed_url = embed_url
-        self.embed_model = embed_model
         self.prefilter_top_k = prefilter_top_k
         self.prefilter_threshold = prefilter_threshold
         self.timeout = timeout
@@ -116,7 +111,8 @@ class SkillRouter:
 
         Garantit en tête les skills permanents (utilisateur_/conventions_).
         Dégrade : embeddings → juge LLM → select_skills (IDF). Les échecs réseau
-        (httpx) sont captés en interne et convertis en repli sur select_skills ;
+        (embeddings indisponibles, juge LLM injoignable) sont captés en interne
+        et convertis en repli sur select_skills ;
         l'appelant (orchestrator) garde en plus un try/except de sûreté.
         """
         skills = load_skills()
@@ -199,19 +195,12 @@ class SkillRouter:
         return vec
 
     def _embed_one(self, text: str) -> list[float]:
-        """Appelle Ollama /api/embed (natif). [] si échec (jamais d'exception)."""
-        if not (text or "").strip():
-            return []
+        """Embedde un texte via le memory bus. [] si échec (jamais d'exception)."""
+        from tools import embeddings
+
         try:
-            resp = httpx.post(
-                self.embed_url,
-                json={"model": self.embed_model, "input": [text]},
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            vecs = resp.json().get("embeddings", [])
-            return [float(x) for x in vecs[0]] if vecs and vecs[0] else []
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+            return embeddings.embed_one(text)
+        except Exception as exc:
             logger.debug("skill_router embed KO: %s", exc)
             return []
 
