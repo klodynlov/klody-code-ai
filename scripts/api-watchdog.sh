@@ -119,14 +119,48 @@ capture_diagnostic() {
         log "échec de sample sur $pid"
     fi
 
+    # Test DÉCISIF sur la cause du figeage, mis en évidence plutôt que noyé.
+    #
+    # Le seul mécanisme reproduit sur cette machine qui produise l'état observé
+    # (socket LISTEN, handshakes complétés, zéro octet, boucle uvloop endormie,
+    # ~0 % CPU) : une exception dans `protocol_factory` pendant `_on_listen`
+    # (uvloop/handles/streamserver.pyx:69 puis 147-151). uv_accept n'est alors
+    # jamais appelé, libuv désarme le watcher POLLIN et ne le ré-arme plus — mais
+    # le fd déjà accepté reste sur le process, orphelin, et part en CLOSE_WAIT.
+    #
+    # La signature est l'ÉTAT de la socket, pas sa présence : une API saine a
+    # normalement des `:8000->…` en ESTABLISHED (websocket de l'UI, requêtes en
+    # cours) — mesuré, 2 sur une instance saine. Compter tout `:8000->` donnerait
+    # donc un faux positif systématique. Le fd accepté puis jamais lu, lui, part
+    # en CLOSE_WAIT dès que le client abandonne : c'est LUI le marqueur, et une
+    # instance saine en a zéro.
+    #
+    # Le compteur d'exceptions asyncio départage les deux variantes : ce chemin
+    # est normalement BRUYANT (« Unhandled exception in event loop »), or les logs
+    # de l'incident du 2026-07-19 n'en contiennent aucune — contradiction encore
+    # ouverte. ≥1 = variante applicative ; 0 = variante silencieuse, à élucider.
+    orphelins=$(lsof -nP -a -p "$pid" -i 2>/dev/null | grep ':8000->' | grep -c 'CLOSE_WAIT')
+    etablies=$(lsof -nP -a -p "$pid" -i 2>/dev/null | grep ':8000->' | grep -c 'ESTABLISHED')
+    exc_agent=$(grep -c 'Unhandled exception in event loop' \
+        "$(dirname "$0")/../logs/agent.log" 2>/dev/null || echo 0)
+
     {
         echo "=== état $stamp (pid $pid) ==="
+        echo "VERDICT fd accepté orphelin (:8000-> CLOSE_WAIT) : $orphelins"
+        echo "   >0 => mécanisme accepted_fd/uv__io_stop CONFIRMÉ"
+        echo "   =0 => mécanisme RÉFUTÉ, chercher ailleurs"
+        echo "   (contexte : $etablies en ESTABLISHED — une API saine en a 1-2,"
+        echo "    ce n'est PAS un signe de panne)"
+        echo "exceptions asyncio dans agent.log : $exc_agent"
+        echo "   >0 => variante applicative ; =0 => variante silencieuse"
         ps -o pid,ppid,stat,etime,%cpu,rss,command -p "$pid" 2>/dev/null
         echo "--- sockets ---"
         lsof -nP -a -p "$pid" -i 2>/dev/null
         echo "--- descripteurs ---"
         lsof -p "$pid" 2>/dev/null | wc -l
     } >> "$HOME/Library/Logs/klody-api-hang.log" 2>&1
+
+    log "capture : $orphelins orphelin(s) CLOSE_WAIT, $etablies ESTABLISHED, $exc_agent exception(s) asyncio"
 
     # Bornage : on garde les 5 dernières piles natives, pas plus (elles pèsent).
     ls -1t "$HOME/Library/Logs/"klody-api-hang-*.sample.txt 2>/dev/null \
