@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -29,13 +30,23 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Dossiers à skipper
+# Dossiers à skipper. `target` (sortie de build Rust/Cargo) manquait, et coûtait
+# très cher : src-tauri/target contenait 10 847 fichiers dont des .a/.rlib de
+# 262 Mo, lus en entier par read_text() puis passés aux regex.
 _SKIP_DIRS = frozenset({
     ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".git",
     "node_modules", "dist", "build", ".next", ".nuxt", ".cache",
     "htmlcov", ".mypy_cache", ".tox", "_preview", "preview", ".claude",
-    ".klody", "imports", "logs",
+    ".klody", "imports", "logs", "target", ".gradle", ".idea", "vendor",
+    "site-packages", ".ruff_cache", "coverage", ".terraform",
 })
+
+# Taille max d'un fichier analysé. Aucun fichier SOURCE ne dépasse ça ; au-delà
+# c'est un artefact (binaire, dump, jeu de données) dont la lecture intégrale ne
+# rapporte aucune convention et coûte de la RAM. Sans ce garde-fou, 91 fichiers
+# de plus de 5 Mo — 1,77 Go au total — étaient chargés en mémoire à chaque scan,
+# ce qui explique les ~3 Go de RSS observés sur l'API figée.
+_MAX_FILE_BYTES = 2 * 1024 * 1024
 
 # Cache TTL : 24h (suffisant — les conventions changent rarement)
 _CACHE_TTL_S = 24 * 3600
@@ -97,16 +108,29 @@ class ConventionReport:
 
 
 def _iter_source_files(root: Path):
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            parts = path.relative_to(root).parts
-        except ValueError:
-            continue
-        if any(p in _SKIP_DIRS for p in parts[:-1]):
-            continue
-        yield path
+    """Parcourt les fichiers source sous `root`, en ÉLAGUANT à la descente.
+
+    `rglob("*")` énumérait tout l'arbre puis jetait les chemins indésirables —
+    donc il visitait quand même l'intégralité de .venv, __pycache__, target… Sur
+    un PROJECT_ROOT réel (8,3 Go, 101 020 fichiers), c'est l'essentiel du coût,
+    payé avant même la première lecture. `os.walk` permet d'élaguer `dirnames`
+    en place : les sous-arbres exclus ne sont jamais descendus.
+
+    Les fichiers trop gros sont écartés ici plutôt que dans l'appelant, pour que
+    tout consommateur en bénéficie.
+    """
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Élagage EN PLACE : os.walk ne descendra pas dans ce qu'on retire.
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        base = Path(dirpath)
+        for name in filenames:
+            path = base / name
+            try:
+                if path.stat().st_size > _MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            yield path
 
 
 def _collect_stats(root: Path) -> dict:

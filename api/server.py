@@ -183,8 +183,15 @@ async def get_status():
     # qui faisait répondre 400. GET nu : un serveur MCP up renvoie 406, un 404 = absent.
     mcp_active = await _probe_url(config.KLODY_MCP_URL, accept_status=(200, 405, 406))
 
-    # Conventions et erreurs récurrentes (Roadmap v2 #8)
-    project_info = _load_project_info()
+    # Conventions et erreurs récurrentes (Roadmap v2 #8).
+    # HORS event loop : _load_project_info parcourt tout PROJECT_ROOT quand le
+    # cache est froid. Exécuté directement ici, il bloquait la boucle — donc
+    # l'API entière — pour toute la durée du scan, et /api/status est sondé
+    # toutes les 15 s par l'UI. C'est la cause du figeage « socket LISTEN mais
+    # aucune réponse » : le serveur n'était pas mort, il était monopolisé.
+    project_info = await asyncio.get_running_loop().run_in_executor(
+        None, _load_project_info
+    )
 
     return {
         "ollama": ollama_ok,
@@ -638,7 +645,12 @@ async def websocket_endpoint(ws: WebSocket):
 
     # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
     try:
-        info = _load_project_info()
+        # HORS event loop, même raison qu'au /api/status : ce scan bloquait la
+        # boucle à CHAQUE ouverture de session. L'UI se reconnectait, relançait
+        # le scan, re-figeait l'API — un cycle qui s'auto-entretenait.
+        info = await asyncio.get_running_loop().run_in_executor(
+            None, _load_project_info
+        )
         if info["conventions"]:
             await ws.send_json({
                 "type": "conventions_loaded",
