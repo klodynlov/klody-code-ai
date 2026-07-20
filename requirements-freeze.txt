@@ -60,7 +60,7 @@ flake8==7.3.0
 flatbuffers==25.12.19
 fonttools==4.63.0
 frozenlist==1.8.0
-fsspec==2026.2.0
+fsspec==2026.6.0
 git-filter-repo==2.47.0
 gitdb==4.0.12
 GitPython==3.1.50
