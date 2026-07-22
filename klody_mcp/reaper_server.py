@@ -738,6 +738,38 @@ async def workflow_prepare_vocal_recording(
 
 
 @mcp.tool()
+async def workflow_create_instrument_track(
+    name: str, gadget: str, index: int = -1,
+) -> dict:
+    """Workflow : crée (ou retrouve) une piste `name` et y charge l'instrument KORG
+    `gadget` en UN appel idempotent — enchaîne add_track + add_fx (slot instrument).
+
+    Corrige le rendu MUET : une piste MIDI sans VSTi ne sonne pas. À enchaîner AVANT
+    de poser des notes (insert_midi_notes) pour qu'elles PRODUISENT du son.
+
+    Idempotent : rejouer ne crée pas de doublon (piste retrouvée par nom, instrument
+    dédupé par le pont). Ne suppose pas le gadget installé : si REAPER ne résout pas
+    le VST « <gadget> (KORG) », renvoie fx_loaded=False + status="missing" — la piste
+    est quand même créée.
+
+    Args:
+        name: nom de la piste (clé d'idempotence), ex. « Basse », « Mélodie ».
+        gadget: instrument KORG Gadget (voir l'outil gadget list_gadgets), ex.
+            « Marseille » (Keys), « Madrid » (Bass), « Chicago ». « (KORG) » ajouté au besoin.
+        index: position d'insertion 0-based à la création (-1 = fin ; ignoré si la
+            piste existe déjà).
+
+    Returns:
+        {"track_index","guid","fx_loaded","gadget_resolved","created","status","undo_steps"}
+        ou {"error"}.
+    """
+    from klody_mcp import reaper_workflows
+    return await reaper_workflows.create_instrument_track(
+        _bridge_call, name=name, gadget=gadget, index=index,
+    )
+
+
+@mcp.tool()
 async def workflow_build_vocal_chain(
     index: int = -1, guid: str = "", gate: bool = False,
     reverb_send: bool = True, reverb_bus: str = "Reverb", reverb_db: float = -12.0,
