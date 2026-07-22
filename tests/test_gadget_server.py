@@ -90,12 +90,13 @@ def project_dir(tmp_path: Path, monkeypatch) -> Path:
 # --------------------------------------------------------------------------- #
 
 
-async def test_serveur_expose_les_6_outils():
+async def test_serveur_expose_les_8_outils():
     tools = await gs.mcp._list_tools()
     names = {t.name for t in tools}
     expected = {
         "list_gadgets", "list_gadget_projects", "read_gadget_project",
         "create_gadget_track", "import_gadget_project_to_reaper", "gadget_status",
+        "analyze_midi_structure", "forge_song_with_gadgets",
     }
     assert expected == names, f"écart : {expected ^ names}"
 
