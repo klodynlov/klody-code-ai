@@ -68,17 +68,23 @@ _NO_REPLY = (
 # ---------------------------------------------------------------------------- #
 
 
-def _bridge_call_sync(cmd: str, args: dict | None = None) -> dict:
+def _bridge_call_sync(cmd: str, args: dict | None = None,
+                      timeout: float | None = None) -> dict:
     """Envoie une commande au pont REAPER et renvoie son `result`.
 
     Renvoie toujours un dict : le résultat en cas de succès, sinon
     {"error": "..."} — jamais d'exception qui remonte au LLM.
+
+    `timeout` (secondes) surcharge BRIDGE_TIMEOUT pour CET appel : un render
+    ou un gros lot de notes dépasse les 5 s par défaut, et le client lâcherait
+    une opération que REAPER, lui, termine (faux « pas de réponse »).
     """
+    limit = BRIDGE_TIMEOUT if timeout is None else float(timeout)
     payload = (json.dumps({"cmd": cmd, "args": args or {}}) + "\n").encode("utf-8")
     buf = bytearray()
     try:
-        with socket.create_connection((BRIDGE_HOST, BRIDGE_PORT), timeout=BRIDGE_TIMEOUT) as sock:
-            sock.settimeout(BRIDGE_TIMEOUT)
+        with socket.create_connection((BRIDGE_HOST, BRIDGE_PORT), timeout=limit) as sock:
+            sock.settimeout(limit)
             sock.sendall(payload)
             while b"\n" not in buf:
                 chunk = sock.recv(4096)
@@ -106,9 +112,10 @@ def _bridge_call_sync(cmd: str, args: dict | None = None) -> dict:
     return result if isinstance(result, dict) else {"result": result}
 
 
-async def _bridge_call(cmd: str, args: dict | None = None) -> dict:
+async def _bridge_call(cmd: str, args: dict | None = None,
+                       timeout: float | None = None) -> dict:
     """Variante non bloquante : le socket part dans un thread."""
-    return await asyncio.to_thread(_bridge_call_sync, cmd, args)
+    return await asyncio.to_thread(_bridge_call_sync, cmd, args, timeout)
 
 
 # ---------------------------------------------------------------------------- #
