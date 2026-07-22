@@ -22,6 +22,11 @@ Deux mécanismes d'accès, chacun choisi pour ce qu'il est :
   outils Gadget continuent de tourner, seul l'outil concerné renvoie une
   erreur exploitable.
 
+La demande peut être COMMANDÉE plutôt que subie : `build_constraints` traduit
+« 16 mesures en fa mineur, style R&B » en contraintes dures que Forge impose
+au générateur (cf. `STYLE_PRESETS`). Sans elles, tout est tiré au sort et la
+graine est la seule poignée — elle ne dit rien de ce qui sortira.
+
 Racine : `LIBRETTO_ROOT` (env) sinon `~/Projets/Libretto`.
 """
 from __future__ import annotations
@@ -92,17 +97,112 @@ def status() -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Contraintes — traduire une demande humaine en commande pour le générateur   #
+# --------------------------------------------------------------------------- #
+
+# Champs que Forge sait imposer. La liste sert de garde : un LLM invente vite
+# une clé (« genre », « ambiance ») qui serait silencieusement ignorée.
+CONSTRAINT_FIELDS = ("tonic", "mode", "bpm", "meter", "bars", "swing",
+                     "syncopation", "drums")
+_BOOL_CONSTRAINTS = ("swing", "drums")
+
+# Ce que ces presets règlent : la CARRURE (tempo, métrique, swing, syncope,
+# mode). Pas la couleur harmonique — le générateur de Forge ne construit que
+# des TRIADES, sans septièmes ni neuvièmes. « rnb » produit donc un mineur
+# lent, swingué et syncopé : la charpente du genre, pas son harmonie. Le dire
+# ici plutôt que laisser croire à une imitation.
+STYLE_PRESETS: dict[str, dict] = {
+    "rnb":     {"mode": "min", "bpm": 72, "meter": "4/4", "swing": True,
+                "syncopation": 0.45, "drums": True},
+    "lofi":    {"mode": "min", "bpm": 78, "meter": "4/4", "swing": True,
+                "syncopation": 0.45, "drums": True},
+    "house":   {"mode": "min", "bpm": 124, "meter": "4/4", "swing": False,
+                "syncopation": 0.25, "drums": True},
+    "ballade": {"mode": "min", "bpm": 64, "meter": "4/4", "swing": False,
+                "syncopation": 0.0, "drums": False},
+    "valse":   {"mode": "maj", "bpm": 96, "meter": "3/4", "swing": False,
+                "syncopation": 0.0, "drums": False},
+}
+
+_STYLE_ALIASES = {
+    "rb": "rnb", "rnb": "rnb", "rhythmandblues": "rnb", "soul": "rnb",
+    "lofi": "lofi", "lowfi": "lofi", "chill": "lofi", "hiphop": "lofi",
+    "house": "house", "dance": "house", "techno": "house", "edm": "house",
+    "ballade": "ballade", "ballad": "ballade", "slow": "ballade",
+    "valse": "valse", "waltz": "valse",
+}
+
+
+def resolve_style(style: str) -> dict:
+    """Preset de carrure depuis « R&B », « rnb », « lo-fi »… Lève ValueError."""
+    key = "".join(ch for ch in str(style).lower() if ch.isalnum())
+    name = _STYLE_ALIASES.get(key)
+    if name is None:
+        raise ValueError(
+            f"style inconnu : {style!r} — connus : {', '.join(sorted(STYLE_PRESETS))}")
+    return dict(STYLE_PRESETS[name])
+
+
+def build_constraints(key: str | None = None, mode: str | None = None,
+                      bars: int | None = None, bpm: float | None = None,
+                      meter: str | None = None,
+                      style: str | None = None) -> dict:
+    """Assemble les contraintes Forge. Preset d'abord, explicite ensuite.
+
+    L'ordre compte : un `style` pose une carrure par défaut, chaque valeur
+    donnée nommément l'écrase. « R&B en fa mineur à 90 bpm » doit sortir à 90,
+    pas au tempo du preset.
+
+    Les noms de notes et de modes ne sont PAS interprétés ici : Forge a déjà
+    ses parseurs (`parse_tonic`/`parse_mode`), qui restent la seule autorité.
+    Un second vocabulaire divergerait tôt ou tard.
+    """
+    cons: dict = {}
+    if style is not None:
+        cons.update(resolve_style(style))
+    for name, value in (("tonic", key), ("mode", mode), ("bars", bars),
+                        ("bpm", bpm), ("meter", meter)):
+        if value is not None:
+            cons[name] = value
+    return cons
+
+
+def _constraint_argv(cons: dict) -> list[str]:
+    """Contraintes → options de ligne de commande, dans un ordre stable."""
+    unknown = sorted(set(cons) - set(CONSTRAINT_FIELDS))
+    if unknown:
+        raise ValueError(
+            f"contrainte(s) inconnue(s) : {', '.join(unknown)} — "
+            f"attendu parmi {', '.join(CONSTRAINT_FIELDS)}")
+    argv: list[str] = []
+    for name in CONSTRAINT_FIELDS:
+        value = cons.get(name)
+        if value is None:
+            continue
+        if name in _BOOL_CONSTRAINTS:
+            argv.append(f"--{name}" if value else f"--no-{name}")
+        else:
+            argv += [f"--{name}", str(value)]
+    return argv
+
+
+# --------------------------------------------------------------------------- #
 # Forge — génération + sélection (sous-processus)                             #
 # --------------------------------------------------------------------------- #
 
 
 def run_forge(out_dir: Path, n: int = 12, seed: int = 1,
               min_confidence: float = 0.55, min_score: float = 0.0,
-              timeout: float = 600.0) -> dict:
+              timeout: float = 600.0, constraints: dict | None = None) -> dict:
     """Lance Forge : n ébauches notées, la meilleure gagne.
 
-    Renvoie le rapport JSON de Forge enrichi de `winner_path`. Lève
-    LibrettoUnavailable si le dépôt manque, RuntimeError si Forge échoue.
+    `constraints` impose tonalité, mode, tempo, métrique ou longueur (voir
+    `build_constraints`). Sans elles, Forge tire tout au sort et la graine est
+    la seule poignée.
+
+    Renvoie le rapport JSON de Forge enrichi de `winner_path` — qui vaut None
+    quand le gate n'a laissé passer personne. Lève LibrettoUnavailable si le
+    dépôt manque, RuntimeError si Forge échoue vraiment.
     `sys.executable` (et pas « python3 ») : Libretto est stdlib pur, donc
     l'interpréteur du venv convient et est garanti présent.
     """
@@ -112,11 +212,17 @@ def run_forge(out_dir: Path, n: int = 12, seed: int = 1,
         raise LibrettoUnavailable(f"forge.py absent de {root / 'examples'}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    report_path = out_dir / "forge_report.json"
+    # Un rapport laissé par un appel précédent se lirait comme le résultat de
+    # celui-ci : la présence du fichier sert à distinguer gate et échec.
+    report_path.unlink(missing_ok=True)
+
     argv = [
         sys.executable, str(forge), str(out_dir), str(int(n)), str(int(seed)),
         "--min-confidence", str(float(min_confidence)),
         "--min-score", str(float(min_score)),
     ]
+    argv += _constraint_argv(constraints or {})
     try:
         proc = subprocess.run(  # nosec B603 — argv liste, shell=False, chemins validés
             argv, cwd=str(root), capture_output=True, text=True,
@@ -124,15 +230,22 @@ def run_forge(out_dir: Path, n: int = 12, seed: int = 1,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"Forge n'a pas fini en {timeout}s (n={n}) — baisser n.") from exc
-    if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-5:]
-        raise RuntimeError(f"Forge a échoué (code {proc.returncode}) : {' / '.join(tail)}")
 
-    report_path = out_dir / "forge_report.json"
+    # Forge sort en 2 quand AUCUN candidat ne passe le gate — c'est un
+    # résultat, pas une panne. Ce qui départage : le rapport a été écrit.
+    # Rien d'écrit = échec réel (contrainte refusée, dépôt cassé, crash).
     if not report_path.is_file():
-        raise RuntimeError(f"Forge n'a pas écrit {report_path.name}")
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+        err = (proc.stderr or proc.stdout or "").strip()
+        tail = " / ".join(err.splitlines()[-5:])
+        if constraints and "unrecognized arguments" in err:
+            raise RuntimeError(
+                f"cette version de Libretto ne connaît pas les contraintes "
+                f"({tail}) — mettre à jour {root}.")
+        raise RuntimeError(
+            f"Forge a échoué (code {proc.returncode}) sans écrire "
+            f"{report_path.name} : {tail}")
 
+    report = json.loads(report_path.read_text(encoding="utf-8"))
     winner_file = report.get("winner_file")
     report["winner_path"] = str(out_dir / winner_file) if winner_file else None
     return report

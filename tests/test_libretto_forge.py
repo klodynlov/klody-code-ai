@@ -60,7 +60,8 @@ def _fake_report(out_dir: Path, winner: bool = True) -> dict:
     report = {
         "n_requested": 4, "n_generated": 4, "n_rejected_confidence": 0,
         "n_rejected_score": 0, "gates": {"min_confidence": 0.55, "min_score": 0.0},
-        "winner": {"form": "aaba", "mode": "maj", "meter": "4/4", "bpm": 112,
+        "winner": {"form": "aaba", "tonic": 0, "key": "C maj", "mode": "maj",
+                   "meter": "4/4", "bpm": 112, "bars": 16,
                    "score": 0.83, "confidence": 1.0, "level": "élevée"},
         "winner_file": "forge_winner.mid" if winner else None,
     }
@@ -106,8 +107,105 @@ def test_run_forge_timeout(fake_libretto: Path, tmp_path: Path, monkeypatch):
 
 def test_run_forge_sans_rapport(fake_libretto: Path, tmp_path: Path, monkeypatch):
     monkeypatch.setattr(lf.subprocess, "run", lambda *a, **k: _Proc())
-    with pytest.raises(RuntimeError, match="n'a pas écrit"):
+    with pytest.raises(RuntimeError, match="sans écrire"):
         lf.run_forge(tmp_path / "out")
+
+
+def test_run_forge_gate_n_est_pas_un_echec(fake_libretto: Path, tmp_path: Path,
+                                           monkeypatch):
+    """Forge sort en 2 quand personne ne passe le gate — c'est un RÉSULTAT.
+
+    Le rapport écrit départage : sans lui, code 2 = vrai échec (contrainte
+    refusée, dépôt cassé). Confondre les deux faisait remonter « Forge
+    indisponible » là où l'outil devait dire « rien n'a passé le gate ».
+    """
+    out = tmp_path / "out"
+
+    def fake_run(argv, **kwargs):
+        _fake_report(Path(argv[2]), winner=False)
+        return _Proc(returncode=2)
+
+    monkeypatch.setattr(lf.subprocess, "run", fake_run)
+    report = lf.run_forge(out, n=4)
+    assert report["winner_path"] is None
+    assert report["n_rejected_confidence"] == 4
+
+
+def test_run_forge_ignore_un_rapport_perime(fake_libretto: Path, tmp_path: Path,
+                                            monkeypatch):
+    """Un rapport laissé par un appel précédent se lirait comme le résultat
+    de celui-ci — le pire des faux positifs : un gagnant qui n'existe plus."""
+    out = tmp_path / "out"
+    out.mkdir()
+    _fake_report(out)
+    monkeypatch.setattr(lf.subprocess, "run", lambda *a, **k: _Proc(stderr="boom"))
+    with pytest.raises(RuntimeError, match="sans écrire"):
+        lf.run_forge(out)
+
+
+# --------------------------------------------------------------------------- #
+# Contraintes — commander au lieu de tirer au sort                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_style_pose_une_carrure():
+    cons = lf.build_constraints(style="R&B")
+    assert cons["mode"] == "min" and cons["bpm"] == 72 and cons["swing"] is True
+
+
+def test_style_alias_normalises():
+    for alias in ("rnb", "R&B", "r'n'b", "Soul"):
+        assert lf.resolve_style(alias)["bpm"] == 72
+    assert lf.resolve_style("waltz")["meter"] == "3/4"
+
+
+def test_style_inconnu_liste_les_connus():
+    with pytest.raises(ValueError, match="rnb"):
+        lf.resolve_style("bebop")
+
+
+def test_explicite_gagne_sur_le_preset():
+    """« R&B en fa mineur à 90 bpm » doit sortir à 90, pas au tempo du preset."""
+    cons = lf.build_constraints(style="rnb", key="F", bpm=90, bars=16)
+    assert cons["bpm"] == 90 and cons["tonic"] == "F" and cons["bars"] == 16
+    assert cons["swing"] is True          # le reste du preset survit
+
+
+def test_contraintes_en_options_de_ligne_de_commande():
+    argv = lf._constraint_argv({"tonic": "F", "mode": "min", "bars": 16,
+                                "swing": True, "drums": False})
+    assert argv == ["--tonic", "F", "--mode", "min", "--bars", "16",
+                    "--swing", "--no-drums"]
+
+
+def test_contrainte_inconnue_refusee():
+    """Un LLM invente vite une clé qui serait sinon ignorée en silence."""
+    with pytest.raises(ValueError, match="genre"):
+        lf._constraint_argv({"genre": "rnb"})
+
+
+def test_run_forge_passe_les_contraintes(fake_libretto: Path, tmp_path: Path,
+                                         monkeypatch):
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        _fake_report(Path(argv[2]))
+        return _Proc()
+
+    monkeypatch.setattr(lf.subprocess, "run", fake_run)
+    lf.run_forge(tmp_path / "out", n=4,
+                 constraints={"tonic": "F", "mode": "min", "bars": 16})
+    assert captured["argv"][-6:] == ["--tonic", "F", "--mode", "min", "--bars", "16"]
+
+
+def test_vieux_libretto_message_actionnable(fake_libretto: Path, tmp_path: Path,
+                                            monkeypatch):
+    """Libretto est un dépôt voisin : il peut être en retard sur Klody."""
+    monkeypatch.setattr(lf.subprocess, "run", lambda *a, **k: _Proc(
+        returncode=2, stderr="forge: error: unrecognized arguments: --tonic F"))
+    with pytest.raises(RuntimeError, match="mettre à jour"):
+        lf.run_forge(tmp_path / "out", constraints={"tonic": "F"})
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +384,40 @@ async def test_notes_envoyees_par_lots(chaine, monkeypatch):
     assert len(inserts) == 3  # 120 + 120 + 10
     assert [len(a["notes"]) for a in inserts] == [120, 120, 10]
     assert r["tracks"][0]["notes"] == 250
+
+
+async def test_contraintes_transmises_a_forge(chaine, monkeypatch):
+    """« 16 mesures en fa mineur, style R&B » → contraintes dures, pas une graine."""
+    captured = {}
+
+    def forge_capture(out_dir, *a, **k):
+        captured.update(k)
+        return _forge_ok(out_dir)
+
+    monkeypatch.setattr(lf, "run_forge", forge_capture)
+    await gs.forge_song_with_gadgets(key="Fa", mode="mineur", bars=16, style="rnb")
+    cons = captured["constraints"]
+    assert cons["tonic"] == "Fa" and cons["mode"] == "mineur" and cons["bars"] == 16
+    assert cons["bpm"] == 72 and cons["swing"] is True   # carrure du preset
+
+
+async def test_structure_rapporte_tonalite_et_longueur(chaine, monkeypatch):
+    """Vérifier la commande, pas seulement constater un résultat."""
+    monkeypatch.setattr(lf, "run_forge", _forge_ok)
+    r = await gs.forge_song_with_gadgets(n=4)
+    assert r["structure"]["key"] == "C maj" and r["structure"]["bars"] == 16
+    assert "C maj" in r["summary"] and "16 mes." in r["summary"]
+
+
+async def test_style_inconnu_refuse_avant_toute_generation(chaine, monkeypatch):
+    """Une demande illisible ne doit coûter ni sous-processus ni piste REAPER."""
+    def jamais(*a, **k):
+        raise AssertionError("Forge ne doit pas être lancé")
+
+    monkeypatch.setattr(lf, "run_forge", jamais)
+    r = await gs.forge_song_with_gadgets(style="bebop")
+    assert "style inconnu" in r["error"]
+    assert chaine.calls == []
 
 
 async def test_forge_indisponible_message_actionnable(monkeypatch):

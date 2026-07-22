@@ -603,6 +603,12 @@ async def analyze_midi_structure(midi_path: str) -> dict:
 
 @mcp.tool()
 async def forge_song_with_gadgets(
+    key: str | None = None,
+    mode: str | None = None,
+    bars: int | None = None,
+    bpm: float | None = None,
+    meter: str | None = None,
+    style: str | None = None,
     n: int = 12,
     seed: int = 1,
     min_confidence: float = 0.55,
@@ -612,20 +618,39 @@ async def forge_song_with_gadgets(
 ) -> dict:
     """Compose avec Forge, fait juger par Libretto, monte le gagnant sur des gadgets KORG.
 
-    Chaîne complète : Forge génère `n` ébauches → Libretto les note (SMS) et
-    ne laisse passer que celle qui franchit le gate → chaque piste reçoit un
-    instrument KORG Gadget selon son rôle (percussions au canal 10, puis basse
-    = plus grave, lead = plus aiguë, reste = accords) → REAPER reçoit tempo,
-    notes et marqueurs de section.
+    Chaîne complète : Forge génère `n` ébauches (contraintes comprises) →
+    Libretto les note (SMS) et ne laisse passer que celle qui franchit le gate
+    → chaque piste reçoit un instrument KORG Gadget selon son rôle
+    (percussions au canal 10, puis basse = plus grave, lead = plus aiguë,
+    reste = accords) → REAPER reçoit tempo, notes et marqueurs de section.
 
     **Le gate est le point de tout l'outil** : si aucun candidat n'atteint
     `min_confidence`/`min_score`, RIEN n'est envoyé à REAPER et le rapport dit
-    pourquoi. On ne monte pas une structure qu'on ne sait pas juger.
+    pourquoi. On ne monte pas une structure qu'on ne sait pas juger. Une
+    demande très contrainte peut donc ne rien produire — c'est un résultat,
+    pas une panne à contourner en baissant le seuil.
+
+    « 16 mesures en fa mineur, style R&B » → `key="F", mode="minor", bars=16,
+    style="rnb"`. Sans contrainte, tout est tiré au sort.
 
     Args:
+        key: tonique imposée — « F », « Fa », « Fa# », « Sib », ou 0-11.
+        mode: « minor »/« mineur », « major »/« majeur », « dorien »,
+            « mixolydien ».
+        bars: longueur TOTALE exacte en mesures. Toutes les valeurs ne sont
+            pas atteignables (la forme doit tomber juste) : 16, 20, 24, 32 le
+            sont ; 17 ne l'est pas et l'erreur donne les voisines.
+        bpm: tempo imposé (désactive la dérive de tempo).
+        meter: métrique, ex. « 4/4 », « 3/4 », « 6/8 ».
+        style: carrure prête à l'emploi — rnb, lofi, house, ballade, valse.
+            Règle mode/tempo/métrique/swing/syncope ; toute valeur donnée
+            nommément par ailleurs l'emporte sur le preset. **Ne règle pas la
+            couleur harmonique** : le générateur ne construit que des triades,
+            donc « rnb » = mineur lent swingué syncopé, pas des accords de
+            septième.
         n: nombre d'ébauches générées (12 par défaut ; plus = meilleur gagnant,
             plus lent).
-        seed: graine — même graine + même n = même résultat (reproductible).
+        seed: graine — même graine + même n + mêmes contraintes = même résultat.
         min_confidence: fiabilité minimale du score pour concourir (0.55).
         min_score: score SMS minimal (0.0 = pas de plancher).
         instruments: forçage {role: gadget}, ex. {"bass": "Chicago"}. Rôles :
@@ -637,10 +662,17 @@ async def forge_song_with_gadgets(
         {"winner", "structure", "tracks", "markers", "tempo", "rendered", "summary"}
         ou {"error", "report"} si le gate rejette tout / Libretto est absent.
     """
+    try:
+        constraints = libretto_forge.build_constraints(
+            key=key, mode=mode, bars=bars, bpm=bpm, meter=meter, style=style)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
     scratch = Path(tempfile.mkdtemp(prefix="klody_forge_"))
     try:
         report = await asyncio.to_thread(
-            libretto_forge.run_forge, scratch, n, seed, min_confidence, min_score
+            libretto_forge.run_forge, scratch, n, seed, min_confidence, min_score,
+            constraints=constraints,
         )
     except (libretto_forge.LibrettoUnavailable, RuntimeError, OSError, ValueError) as exc:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -651,10 +683,12 @@ async def forge_song_with_gadgets(
         shutil.rmtree(scratch, ignore_errors=True)
         return {
             "error": "aucun candidat n'a passé le gate — rien envoyé à REAPER",
+            "constraints": report.get("constraints"),
             "gates": report.get("gates"),
             "rejected_low_confidence": report.get("n_rejected_confidence"),
             "rejected_low_score": report.get("n_rejected_score"),
-            "hint": "baisser min_confidence/min_score, ou augmenter n",
+            "hint": "augmenter n, relâcher les contraintes, ou baisser "
+                    "min_confidence/min_score en sachant ce que ça coûte",
         }
 
     try:
@@ -718,8 +752,12 @@ async def _push_to_reaper(midi: dict, report: dict, instruments: dict[str, str] 
 
     result = {
         "winner": report.get("winner"),
-        "structure": {k: report["winner"].get(k) for k in ("form", "mode", "meter", "bpm")}
+        # `key` et `bars` permettent de VÉRIFIER la commande, pas seulement de
+        # constater le résultat (absents des Libretto d'avant les contraintes).
+        "structure": {k: report["winner"].get(k)
+                      for k in ("form", "key", "mode", "meter", "bpm", "bars")}
         if report.get("winner") else None,
+        "constraints": report.get("constraints"),
         "tempo": midi["tempo"],
         "tracks": pushed,
         "markers": len(midi["markers"]),
@@ -736,7 +774,8 @@ async def _push_to_reaper(midi: dict, report: dict, instruments: dict[str, str] 
     result["summary"] = (
         f"gagnant sur {report.get('n_generated')} ébauches : score SMS {win.get('score')} "
         f"(fiabilité {win.get('confidence')}, {win.get('level')}) — {win.get('form')} "
-        f"{win.get('mode')} {win.get('meter')} à {win.get('bpm')} bpm ; "
+        f"{win.get('key') or win.get('mode')} {win.get('meter')} à {win.get('bpm')} bpm"
+        f"{', ' + str(win['bars']) + ' mes.' if win.get('bars') else ''} ; "
         f"{ok}/{len(pushed)} piste(s) montée(s) sur gadgets, "
         f"{sum(t.get('notes', 0) for t in pushed)} notes"
     )
