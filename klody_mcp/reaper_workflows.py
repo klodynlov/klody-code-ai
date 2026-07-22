@@ -121,6 +121,94 @@ async def prepare_vocal_recording(
     }
 
 
+# Suffixe VST des instruments KORG Gadget. REAPER résout add_fx par sous-chaîne ;
+# « (KORG) » désambiguïse un nom de ville qui matcherait un autre plugin
+# (« Berlin »…). Catalogue = gadget_server._installed_gadgets (on ne le lit PAS ici :
+# rester pur/injecté → un gadget non résolu ressort en `missing`, jamais supposé).
+_KORG_SUFFIX = " (KORG)"
+
+
+def _korg_fx_name(gadget: str) -> str:
+    """Nom d'instrument sûr pour add_fx : ajoute « (KORG) » sauf s'il y est déjà."""
+    g = (gadget or "").strip()
+    return g if g.lower().endswith("(korg)") else f"{g}{_KORG_SUFFIX}"
+
+
+async def create_instrument_track(
+    call: Call, name: str, gadget: str, index: int = -1,
+) -> dict:
+    """Crée (ou retrouve) une piste `name` et y charge l'instrument KORG `gadget`,
+    en UN SEUL appel idempotent. Corrige le rendu MUET : une piste MIDI sans VSTi ne
+    produit aucun son — ce verbe garantit l'instrument (enchaîne add_track + add_fx).
+
+    IDEMPOTENT : si une piste porte déjà `name`, elle est réutilisée (jamais de
+    doublon) et l'instrument n'est pas re-chargé s'il est déjà là (le pont dédup
+    add_fx par sous-chaîne). Rejouer le workflow ne duplique donc rien.
+
+    Ne SUPPOSE jamais le gadget installé (spec 7.6) : si REAPER ne résout pas le VST
+    « <gadget> (KORG) », renvoie fx_loaded=False + status="missing" — la PISTE est
+    quand même créée (l'agent peut y charger un instrument ensuite). Même dégradation
+    propre que build_vocal_chain (on collecte le manque au lieu de tout planter).
+
+    Args:
+        call: pont REAPER injecté (orchestration pure, testable hors REAPER).
+        name: nom de la piste — sert aussi de clé d'idempotence.
+        gadget: instrument KORG Gadget, ex. « Marseille », « Madrid », « Chicago »
+            (voir l'outil gadget list_gadgets). Le suffixe « (KORG) » est ajouté au besoin.
+        index: position d'insertion 0-based à la CRÉATION (-1 = à la fin) ; ignoré si
+            la piste existe déjà.
+
+    Returns:
+        {"track_index","guid","fx_loaded","gadget_resolved","created","status",
+         "undo_steps"} (+ "fx_index" si chargé, "gadget_requested"/"error_fx" si
+        missing). status ∈ {"ok","missing"} ; gadget_resolved = nom du VSTi réellement
+        chargé (None si missing). {"error": ...} sur argument invalide ou échec de
+        création de piste.
+    """
+    if not (name or "").strip():
+        return {"error": "name requis (nom de la piste instrument)"}
+    if not (gadget or "").strip():
+        return {"error": "gadget requis (instrument KORG, voir list_gadgets)"}
+
+    undo_steps = 0
+    existing = await _find_track_by_name(call, name)
+    if existing is not None:
+        guid = existing.get("guid", "")
+        track_index = existing.get("index")
+        created = False
+    else:
+        add = await call("add_track", {"name": name, "index": index})
+        if _is_err(add):
+            return {"error": f"création piste instrument échouée: {add.get('error')}"}
+        guid = add.get("guid", "")
+        track_index = add.get("inserted_index")  # le pont renvoie inserted_index, pas index
+        created = True
+        undo_steps += 1
+
+    fx_name = _korg_fx_name(gadget)
+    fx = await call("add_fx", {"guid": guid, "name": fx_name})
+    if _is_err(fx):
+        # VST KORG non résolu par REAPER : on ne suppose rien. Piste GARDÉE, manque signalé.
+        return {
+            "track_index": track_index, "guid": guid, "created": created,
+            "fx_loaded": False, "gadget_resolved": None, "status": "missing",
+            "gadget_requested": fx_name, "error_fx": fx.get("error"),
+            "undo_steps": undo_steps,
+        }
+    if fx.get("created"):
+        undo_steps += 1
+    return {
+        "track_index": fx.get("track_index", track_index),
+        "guid": fx.get("guid") or guid,
+        "created": created,
+        "fx_loaded": True,
+        "gadget_resolved": fx.get("fx_name"),
+        "fx_index": fx.get("fx_index"),
+        "status": "ok",
+        "undo_steps": undo_steps,
+    }
+
+
 async def build_vocal_chain(
     call: Call, index: int = -1, guid: str = "", gate: bool = False,
     reverb_send: bool = True, reverb_bus: str = "Reverb", reverb_db: float = -12.0,

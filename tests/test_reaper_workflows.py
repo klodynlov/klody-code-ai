@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from klody_mcp import reaper_workflows as wf
 
 
@@ -44,7 +43,7 @@ class FakeBridge:
     # -- utilitaires ---------------------------------------------------------
     def _new_guid(self) -> str:
         self._guid += 1
-        return "{GUID-%04d}" % self._guid
+        return f"{{GUID-{self._guid:04d}}}"
 
     def add_existing_track(self, name: str, item_count: int = 0) -> dict:
         tr = {"index": len(self.tracks), "guid": self._new_guid(), "name": name,
@@ -276,7 +275,7 @@ def test_create_zouk_arrangement_default():
     assert r["seconds_per_bar"] == 2.0  # 60/120 * 4
     assert len(r["regions"]) == 8
     # régions contiguës : la fin de l'une = le début de la suivante
-    for a, b in zip(r["regions"], r["regions"][1:]):
+    for a, b in zip(r["regions"], r["regions"][1:], strict=False):
         assert a["end"] == b["start"]
     total_bars = sum(bars for _n, bars in wf._DEFAULT_ZOUK)
     assert r["total_seconds"] == pytest.approx(total_bars * 2.0)
@@ -457,3 +456,77 @@ def test_place_sample_validation():
     fb = FakeBridge()
     assert "error" in run(wf.place_sample(fb, query="", guid="x"))  # query vide
     assert "error" in run(wf.place_sample(fb, query="kick"))  # ni guid ni index
+
+
+# -- create_instrument_track (piste AVEC instrument KORG, corrige le rendu muet) ----
+
+
+def test_create_instrument_track_creates_and_loads():
+    fb = FakeBridge()
+    r = run(wf.create_instrument_track(fb, name="Basse", gadget="Madrid"))
+    assert r["created"] is True
+    assert r["status"] == "ok"
+    assert r["fx_loaded"] is True
+    # gadget_resolved = nom du VSTi réellement chargé (suffixe « (KORG) » ajouté)
+    assert r["gadget_resolved"] == "Madrid (KORG)"
+    assert r["guid"].startswith("{GUID")
+    # création piste (1) + chargement instrument (1)
+    assert r["undo_steps"] == 2
+    assert len(fb.tracks) == 1
+    assert fb.tracks[0]["name"] == "Basse"
+    assert fb.tracks[0]["fx"] == ["Madrid (KORG)"]  # instrument bien posé
+
+
+def test_create_instrument_track_suffix_not_doubled():
+    # gadget déjà suffixé « (KORG) » -> on n'ajoute pas un 2e suffixe.
+    fb = FakeBridge()
+    r = run(wf.create_instrument_track(fb, name="Keys", gadget="Chicago (KORG)"))
+    assert r["gadget_resolved"] == "Chicago (KORG)"
+    assert fb.tracks[0]["fx"] == ["Chicago (KORG)"]
+
+
+def test_create_instrument_track_missing_gadget():
+    # Le VST KORG n'est pas résolu par REAPER (absent du set installé) : la piste est
+    # quand même créée, le manque est signalé (jamais de supposition, cf. spec 7.6).
+    fb = FakeBridge(installed_fx={"ReaEQ"})  # « Marseille (KORG) » non installé
+    r = run(wf.create_instrument_track(fb, name="Lead", gadget="Marseille"))
+    assert r["status"] == "missing"
+    assert r["fx_loaded"] is False
+    assert r["gadget_resolved"] is None
+    assert r["gadget_requested"] == "Marseille (KORG)"
+    assert r["error_fx"]  # message d'erreur du pont conservé
+    assert r["created"] is True  # PISTE créée malgré tout
+    assert len(fb.tracks) == 1 and fb.tracks[0]["fx"] == []
+    assert r["undo_steps"] == 1  # juste la piste (pas d'instrument)
+
+
+def test_create_instrument_track_idempotent_replay():
+    # Rejouer le MÊME appel ne duplique ni la piste ni l'instrument.
+    fb = FakeBridge()
+    run(wf.create_instrument_track(fb, name="Basse", gadget="Madrid"))
+    r2 = run(wf.create_instrument_track(fb, name="Basse", gadget="Madrid"))
+    assert r2["created"] is False  # piste retrouvée par nom
+    assert r2["fx_loaded"] is True
+    assert r2["undo_steps"] == 0  # rien de neuf -> aucun undo
+    assert len(fb.tracks) == 1  # pas de doublon de piste
+    assert fb.tracks[0]["fx"] == ["Madrid (KORG)"]  # pas de doublon d'instrument
+
+
+def test_create_instrument_track_loads_on_existing_track():
+    # Piste préexistante SANS instrument (cas du bug in-vivo : Mélodie/Basse/Accords
+    # créées mais muettes) -> on ne recrée pas la piste, on charge juste l'instrument.
+    fb = FakeBridge()
+    fb.add_existing_track("Mélodie")
+    r = run(wf.create_instrument_track(fb, name="Mélodie", gadget="Marseille"))
+    assert r["created"] is False  # piste réutilisée
+    assert r["fx_loaded"] is True
+    assert r["undo_steps"] == 1  # seulement l'instrument
+    assert len(fb.tracks) == 1
+    assert fb.tracks[0]["fx"] == ["Marseille (KORG)"]
+
+
+def test_create_instrument_track_validation():
+    fb = FakeBridge()
+    assert "error" in run(wf.create_instrument_track(fb, name="", gadget="Madrid"))
+    assert "error" in run(wf.create_instrument_track(fb, name="Basse", gadget=""))
+    assert fb.tracks == []  # aucun effet de bord sur argument invalide
