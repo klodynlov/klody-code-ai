@@ -35,13 +35,16 @@ import json
 import logging
 import os
 import plistlib
+import shutil
 import struct
+import tempfile
 import zipfile
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp import libretto_forge
 from klody_mcp._pathguard import PathGuardViolation, safe_path
 from klody_mcp.reaper_server import _bridge_call
 
@@ -50,6 +53,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("Gadget")
+
+# Le pont REAPER par défaut lâche à 5 s : trop court pour un lot de notes ou un
+# render, que REAPER termine pourtant (faux « pas de réponse »). Cf. reaper_server.
+_INSERT_TIMEOUT = float(os.getenv("GADGET_INSERT_TIMEOUT", "30"))
+_RENDER_TIMEOUT = float(os.getenv("GADGET_RENDER_TIMEOUT", "300"))
 
 # --------------------------------------------------------------------------- #
 # Catalogue des instruments (scan disque, jamais de liste codée en dur)       #
@@ -72,6 +80,48 @@ def _installed_gadgets() -> list[str]:
     if not _VST_KORG_DIR.is_dir():
         return []
     return sorted(p.stem for p in _VST_KORG_DIR.iterdir() if p.suffix == ".vst")
+
+
+def _gadget_categories() -> dict[str, str]:
+    """{gadget: catégorie} lue dans le `CFBundleName` de chaque VST.
+
+    KORG y écrit le caractère de l'instrument : « London (Drum) »,
+    « Madrid (Bass) », « Marseille (Keys) »… C'est la seule source factuelle
+    du timbre : on ne devine JAMAIS quel gadget joue quel rôle.
+    """
+    cats: dict[str, str] = {}
+    if not _VST_KORG_DIR.is_dir():
+        return cats
+    for vst in sorted(_VST_KORG_DIR.iterdir()):
+        if vst.suffix != ".vst":
+            continue
+        try:
+            info = plistlib.loads((vst / "Contents" / "Info.plist").read_bytes())
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+        name = str(info.get("CFBundleName", ""))
+        cats[vst.stem] = name.split("(", 1)[1].rstrip(")").strip() if "(" in name else ""
+    return cats
+
+
+# Préférences de catégorie par rôle musical, du plus typé au plus passe-partout.
+# Le résolveur prend la première catégorie effectivement installée : rien n'est
+# codé en dur sur un gadget précis (l'utilisateur peut n'avoir qu'un sous-ensemble).
+_ROLE_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "drums": ("Drum", "E.Perc", "Dr. Octorex", "Slicer"),
+    "bass": ("Bass", "Acid", "Wobble", "MS-20", "Mono/Poly"),
+    "lead": ("Lead", "Analog", "Odyssey", "MS-20", "FM", "Digital"),
+    "chords": ("Keys", "E.Piano", "Piano", "Organ", "Polysix", "Clav", "Pad"),
+}
+
+
+def _gadget_for_role(role: str, categories: dict[str, str]) -> str | None:
+    """Gadget installé le plus typé pour un rôle, sinon n'importe lequel."""
+    for wanted in _ROLE_CATEGORIES.get(role, ()):
+        for gadget, cat in categories.items():
+            if cat == wanted:
+                return gadget
+    return next(iter(categories), None)  # dernier recours : un instrument, au moins
 
 
 def _project_roots() -> list[Path]:
@@ -296,16 +346,21 @@ async def list_gadgets() -> dict:
     """Liste les instruments KORG Gadget installés sur ce Mac (utilisables dans REAPER).
 
     Scanne /Library/Audio/Plug-Ins/VST/KORG (source de vérité : ce que REAPER
-    peut charger). Lecture pure, aucun argument.
+    peut charger) et lit la catégorie déclarée par chaque plugin (Drum, Bass,
+    Lead, Keys…). Lecture pure, aucun argument.
 
     Returns:
-        {"gadgets": ["Chicago", "London", ...], "count": N,
+        {"gadgets": [{"name": "London", "category": "Drum"}, ...], "count": N,
+         "by_role": {"drums": "London", "bass": "Madrid", ...},
          "gadget_app_installed": bool}
+        — `by_role` = ce que choisirait `forge_song_with_gadgets` par défaut.
     """
-    gadgets = _installed_gadgets()
+    categories = _gadget_categories()
     return {
-        "gadgets": gadgets,
-        "count": len(gadgets),
+        "gadgets": [{"name": g, "category": categories.get(g, "")}
+                    for g in _installed_gadgets()],
+        "count": len(categories),
+        "by_role": {role: _gadget_for_role(role, categories) for role in _ROLE_CATEGORIES},
         "gadget_app_installed": _GADGET_APP.is_dir(),
     }
 
@@ -498,20 +553,194 @@ async def import_gadget_project_to_reaper(path: str, max_tracks: int = 16) -> di
 
 @mcp.tool()
 async def gadget_status() -> dict:
-    """État du pont Gadget : app, instruments VST, pont REAPER, racines projets.
+    """État du pont Gadget : app, instruments VST, pont REAPER, Libretto, racines.
 
     Lecture pure. Diagnostic rapide avant un import ou une création de piste.
 
     Returns:
-        {"gadget_app", "vst_count", "reaper_bridge", "project_roots"}
+        {"gadget_app", "vst_count", "reaper_bridge", "libretto", "project_roots"}
     """
     ping = await _bridge_call("ping")
     return {
         "gadget_app": _GADGET_APP.is_dir(),
         "vst_count": len(_installed_gadgets()),
         "reaper_bridge": ping.get("error", "ok"),
+        "libretto": libretto_forge.status(),
         "project_roots": [str(r) for r in _project_roots()],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Outils MCP — chaîne Forge → Libretto (gate) → Gadget → REAPER               #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def analyze_midi_structure(midi_path: str) -> dict:
+    """Note la STRUCTURE d'un fichier MIDI avec Libretto (score SMS, 29 axes).
+
+    Juge la construction — forme, harmonie, mélodie, rythme, texture, cohérence
+    — pas le timbre. Utile pour trancher entre deux versions ou vérifier ce
+    qu'on s'apprête à envoyer dans le DAW. Lecture pure.
+
+    Args:
+        midi_path: chemin d'un .mid/.midi.
+
+    Returns:
+        {"score", "confidence", "level", "interpretable", "groups", "sections"}
+        — `interpretable` False = le score n'est pas lisible, ne pas s'en servir
+        pour décider. Ou {"error": "..."} si Libretto est absent/le MIDI vide.
+    """
+    try:
+        p = safe_path(midi_path)
+        if p.suffix.lower() not in (".mid", ".midi"):
+            raise PathGuardViolation(f"pas un fichier MIDI : {midi_path}")
+        return await asyncio.to_thread(libretto_forge.analyze_midi, p)
+    except (libretto_forge.LibrettoUnavailable, PathGuardViolation, FileNotFoundError,
+            ValueError, OSError) as exc:
+        return {"error": f"analyse Libretto impossible : {exc}"}
+
+
+@mcp.tool()
+async def forge_song_with_gadgets(
+    n: int = 12,
+    seed: int = 1,
+    min_confidence: float = 0.55,
+    min_score: float = 0.0,
+    instruments: dict[str, str] | None = None,
+    render_to: str | None = None,
+) -> dict:
+    """Compose avec Forge, fait juger par Libretto, monte le gagnant sur des gadgets KORG.
+
+    Chaîne complète : Forge génère `n` ébauches → Libretto les note (SMS) et
+    ne laisse passer que celle qui franchit le gate → chaque piste reçoit un
+    instrument KORG Gadget selon son rôle (percussions au canal 10, puis basse
+    = plus grave, lead = plus aiguë, reste = accords) → REAPER reçoit tempo,
+    notes et marqueurs de section.
+
+    **Le gate est le point de tout l'outil** : si aucun candidat n'atteint
+    `min_confidence`/`min_score`, RIEN n'est envoyé à REAPER et le rapport dit
+    pourquoi. On ne monte pas une structure qu'on ne sait pas juger.
+
+    Args:
+        n: nombre d'ébauches générées (12 par défaut ; plus = meilleur gagnant,
+            plus lent).
+        seed: graine — même graine + même n = même résultat (reproductible).
+        min_confidence: fiabilité minimale du score pour concourir (0.55).
+        min_score: score SMS minimal (0.0 = pas de plancher).
+        instruments: forçage {role: gadget}, ex. {"bass": "Chicago"}. Rôles :
+            drums, bass, lead, chords. Non fourni = choix par catégorie déclarée
+            par les plugins (voir `list_gadgets.by_role`).
+        render_to: chemin .wav — rend le résultat audio après montage (long).
+
+    Returns:
+        {"winner", "structure", "tracks", "markers", "tempo", "rendered", "summary"}
+        ou {"error", "report"} si le gate rejette tout / Libretto est absent.
+    """
+    scratch = Path(tempfile.mkdtemp(prefix="klody_forge_"))
+    try:
+        report = await asyncio.to_thread(
+            libretto_forge.run_forge, scratch, n, seed, min_confidence, min_score
+        )
+    except (libretto_forge.LibrettoUnavailable, RuntimeError, OSError, ValueError) as exc:
+        shutil.rmtree(scratch, ignore_errors=True)
+        return {"error": f"Forge indisponible : {exc}"}
+
+    winner_path = report.get("winner_path")
+    if not winner_path:
+        shutil.rmtree(scratch, ignore_errors=True)
+        return {
+            "error": "aucun candidat n'a passé le gate — rien envoyé à REAPER",
+            "gates": report.get("gates"),
+            "rejected_low_confidence": report.get("n_rejected_confidence"),
+            "rejected_low_score": report.get("n_rejected_score"),
+            "hint": "baisser min_confidence/min_score, ou augmenter n",
+        }
+
+    try:
+        midi = await asyncio.to_thread(libretto_forge.midi_to_tracks, Path(winner_path))
+        if "error" in midi:
+            return {"error": midi["error"]}
+        return await _push_to_reaper(midi, report, instruments, render_to)
+    except (libretto_forge.LibrettoUnavailable, OSError, ValueError) as exc:
+        return {"error": f"lecture du gagnant impossible : {exc}"}
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+async def _push_to_reaper(midi: dict, report: dict, instruments: dict[str, str] | None,
+                          render_to: str | None) -> dict:
+    """Monte le MIDI jugé dans REAPER : gadget par rôle, notes, marqueurs."""
+    categories = _gadget_categories()
+    forced = {k.lower(): v for k, v in (instruments or {}).items()}
+    installed_lower = {g.lower(): g for g in categories}
+
+    await _bridge_call("set_tempo", {"bpm": midi["tempo"]})
+
+    pushed: list[dict] = []
+    for track in midi["tracks"]:
+        role = track["role"]
+        choice = forced.get(role)
+        gadget = installed_lower.get(choice.lower()) if choice else _gadget_for_role(role, categories)
+        if choice and gadget is None:
+            pushed.append({"role": role, "status": "missing", "error": f"gadget inconnu : {choice!r}"})
+            continue
+        if gadget is None:
+            pushed.append({"role": role, "status": "missing", "error": "aucun instrument KORG installé"})
+            continue
+
+        created = await _add_gadget_track(gadget, f"{role} · {gadget}")
+        if "error" in created:  # pont down → inutile d'insister
+            pushed.append({"role": role, **created})
+            break
+        # Le pont garde chaque ligne JSON sous 64 KiB → notes par lots.
+        notes = track["notes"]
+        inserted = 0
+        for i in range(0, len(notes), libretto_forge.NOTE_CHUNK):
+            chunk = notes[i:i + libretto_forge.NOTE_CHUNK]
+            res = await _bridge_call(
+                "insert_midi_notes",
+                {"guid": created.get("guid"), "notes": chunk},
+                timeout=_INSERT_TIMEOUT,
+            )
+            if "error" in res:
+                created["error_notes"] = res["error"]
+                break
+            inserted += len(chunk)
+        pushed.append({
+            "role": role, "gadget": gadget, "category": categories.get(gadget, ""),
+            "notes": inserted, "mean_pitch": track["mean_pitch"],
+            "status": created.get("status", "ok"),
+        })
+
+    for marker in midi["markers"]:
+        await _bridge_call("add_marker", marker)
+
+    result = {
+        "winner": report.get("winner"),
+        "structure": {k: report["winner"].get(k) for k in ("form", "mode", "meter", "bpm")}
+        if report.get("winner") else None,
+        "tempo": midi["tempo"],
+        "tracks": pushed,
+        "markers": len(midi["markers"]),
+        "candidates_scored": report.get("n_generated"),
+    }
+    if render_to:
+        rendered = await _bridge_call(
+            "render_project", {"out_path": render_to}, timeout=_RENDER_TIMEOUT
+        )
+        result["rendered"] = rendered.get("output_files", rendered)
+
+    win = report.get("winner") or {}
+    ok = sum(1 for t in pushed if t.get("status") == "ok")
+    result["summary"] = (
+        f"gagnant sur {report.get('n_generated')} ébauches : score SMS {win.get('score')} "
+        f"(fiabilité {win.get('confidence')}, {win.get('level')}) — {win.get('form')} "
+        f"{win.get('mode')} {win.get('meter')} à {win.get('bpm')} bpm ; "
+        f"{ok}/{len(pushed)} piste(s) montée(s) sur gadgets, "
+        f"{sum(t.get('notes', 0) for t in pushed)} notes"
+    )
+    return result
 
 
 # --------------------------------------------------------------------------- #
