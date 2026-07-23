@@ -86,6 +86,64 @@ class TestCreativeRouting:
         assert s["use_best_of_n"] is bon
 
 
+class TestMusicRouting:
+    """`music` = produire du SON (MIDI/DAW), distinct de `creative` (des mots).
+
+    Corrige le misroute observé en vivo (session 4034ccc7, 22/07) : faute de type
+    dédié, « génère-moi une progression IV-I-V » tombait en `explain` + `easy` →
+    prompt « analyse de code, ne modifie rien » et 6 itérations → la mélodie n'a
+    jamais été posée.
+    """
+
+    def test_music_hors_code_task_types(self):
+        # Produire de la musique n'est pas coder → généraliste, pas le coder slim
+        # (qui n'injecte aucun skill).
+        from agent.orchestrator import _CODE_TASK_TYPES
+        assert "music" not in _CODE_TASK_TYPES
+
+    def test_music_valide_dans_le_schema(self):
+        from agent.router import _RouterClassification
+        c = _RouterClassification(
+            difficulty="easy", task_type="music", reasoning="progression d'accords")
+        assert c.task_type == "music"
+
+    def test_easy_est_remonte_a_medium(self):
+        """Le cœur du fix : une demande musicale ne peut pas valoir 6 itérations."""
+        s = _decide_strategy("easy", "music")
+        assert s["max_iterations"] == 14, "plancher `medium` non appliqué"
+        assert s["use_planner"] is True, "une production musicale se décompose"
+
+    def test_medium_active_le_planner(self):
+        s = _decide_strategy("medium", "music")
+        assert s["max_iterations"] == 14
+        assert s["use_planner"] is True
+        assert s["use_best_of_n"] is False  # best-of-N reste hard / self_dev
+
+    def test_hard_reste_hard(self):
+        s = _decide_strategy("hard", "music")
+        assert s["max_iterations"] == 25
+        assert s["use_planner"] is True
+        assert s["use_best_of_n"] is True
+
+    def test_le_plancher_ne_deborde_pas_sur_les_autres_types(self):
+        # Régression : le plancher est ciblé, il ne relève PAS tout le monde.
+        assert _decide_strategy("easy", "edit")["max_iterations"] == 6
+        assert _decide_strategy("easy", "explain")["max_iterations"] == 6
+        assert _decide_strategy("easy", "creative")["max_iterations"] == 6
+
+    def test_music_a_un_prompt_dedie(self):
+        from agent.prompts import _TASK_PROMPT_FILES
+        assert _TASK_PROMPT_FILES["music"] == "music.md"
+
+    def test_le_prompt_du_router_enseigne_music(self):
+        """Sans mention dans _ROUTER_SYSTEM, le LLM n'émettra jamais ce type."""
+        from agent.router import _ROUTER_SYSTEM
+        assert "|music" in _ROUTER_SYSTEM, "absent de l'enum JSON"
+        assert "- music" in _ROUTER_SYSTEM, "pas de description du type"
+        # La confusion à éviter : paroles (creative) vs son (music).
+        assert "creative vs music" in _ROUTER_SYSTEM
+
+
 # ── Parsing de réponse ────────────────────────────────────────────────────────
 
 
