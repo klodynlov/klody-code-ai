@@ -35,6 +35,12 @@ TaskType = Literal[
     # Écriture NON-CODE (paroles, histoire, email, poème…). HORS _CODE_TASK_TYPES
     # → routée sur le généraliste (brain), jamais le coder (mauvais en créatif FR).
     "creative",
+    # Production MUSICALE : l'artefact est du SON (MIDI, pistes, rendu audio), pas
+    # du texte ni du code. Distinct de `creative`, qui écrit des PAROLES. Avant, la
+    # demande tombait faute de mieux dans `explain` → prompt « analyse de code, ne
+    # modifie rien » + 6 itérations (vécu session 4034ccc7). HORS _CODE_TASK_TYPES
+    # → généraliste + prompts/music.md.
+    "music",
 ]
 
 # Nb d'essais LLM supplémentaires après l'appel initial sur échec de validation.
@@ -82,17 +88,32 @@ _MAX_ITER = {"easy": 6, "medium": 14, "hard": 25}
 _PLANNER_MEDIUM_TYPES = (
     "feature", "refactor", "self_dev",
     "security", "migrate", "perf", "test_gen",
+    # Un morceau se décompose toujours (générer → juger → instrumenter → poser
+    # les notes → rendre) : le planner y gagne autant que sur une feature.
+    "music",
 )
+
+# Plancher de difficulté par task_type : certains travaux ne PEUVENT pas être
+# « easy » quel que soit l'énoncé. Une demande musicale tient en une phrase
+# (« une progression IV-I-V ») et se fait classer easy → 6 itérations, alors
+# qu'elle demande N appels d'outils (piste, instrument, notes, rendu). Vécu
+# 22/07 : mort sur « Limite d'itérations: 6 », mélodie jamais posée.
+_MIN_DIFFICULTY = {"music": "medium"}
+_DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
 
 
 def _decide_strategy(difficulty: Difficulty, task_type: TaskType) -> dict:
     """Dérive use_planner / use_best_of_n / max_iter depuis la classif.
 
     Règles :
+    - Plancher de difficulté par type (cf. _MIN_DIFFICULTY) appliqué EN PREMIER
     - Planner si hard, ou (medium + type multi-étapes) → cf. _PLANNER_MEDIUM_TYPES
     - Best-of-N si hard OU self_dev (changements de code critique)
-    - max_iter dérivé de la difficulty
+    - max_iter dérivé de la difficulty (après plancher)
     """
+    floor = _MIN_DIFFICULTY.get(task_type)
+    if floor and _DIFFICULTY_ORDER[difficulty] < _DIFFICULTY_ORDER[floor]:
+        difficulty = floor  # type: ignore[assignment]
     use_planner = (difficulty == "hard") or (
         difficulty == "medium" and task_type in _PLANNER_MEDIUM_TYPES
     )
@@ -111,7 +132,7 @@ Tu es un router de tâches. Classifie chaque demande : soit du CODE, soit de
 l'ÉCRITURE NON-CODE (créative). La plupart sont du code, mais PAS toutes.
 
 Réponds UNIQUEMENT par un objet JSON valide, sans markdown, sans texte avant ou après :
-{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev|review|test_gen|security|docs|perf|migrate|creative", "reasoning": "phrase courte"}
+{"difficulty": "easy|medium|hard", "task_type": "edit|refactor|bug_fix|feature|explain|self_dev|review|test_gen|security|docs|perf|migrate|creative|music", "reasoning": "phrase courte"}
 
 DIFFICULTY :
 - easy   : 1 fichier, modification localisée (<30s). Rename, fix typo, add import, add docstring, add 1 test simple.
@@ -155,6 +176,19 @@ TASK_TYPE :
              JAMAIS du code. Mots-clés : "écris une chanson/un texte/un poème/une
              histoire/des paroles", "style trap/rap/rnb", "des rimes", "reformule",
              "rends ce texte plus…".
+- music    : produire de la MUSIQUE — l'artefact attendu est SONORE (notes MIDI,
+             pistes, instruments, rendu audio), pas du texte. Composer une mélodie,
+             une progression d'accords, une ligne de basse, une grille ; monter un
+             morceau ; piloter le DAW. Mots-clés : "génère une mélodie/progression/
+             suite d'accords/ligne de basse", "compose", "fais-moi un morceau/un
+             beat", "en fa mineur", "IV-I-V", "120 bpm", "16 mesures", "dans REAPER",
+             "sur une piste", "avec tel instrument", "rends/exporte le morceau".
+
+⚠ creative vs music — c'est la NATURE DU LIVRABLE qui tranche, pas le mot
+  "chanson" :
+  - des MOTS à lire (paroles, refrain, texte) → creative
+  - du SON à écouter (notes, accords, pistes, audio) → music
+  - les deux demandés ensemble → music (le texte sera écrit en cours de route)
 
 Exemples :
 - "renomme `usr` en `user` dans app.py" → {"difficulty":"easy","task_type":"edit","reasoning":"rename localisé 1 fichier"}
@@ -175,6 +209,11 @@ Exemples :
 - "écris-moi une chanson d'amour, style trap R&B, langage familier" → {"difficulty":"medium","task_type":"creative","reasoning":"écriture de paroles, non-code"}
 - "rends ce texte plus simple et ajoute des rimes et des métaphores" → {"difficulty":"easy","task_type":"creative","reasoning":"retouche de texte créatif, non-code"}
 - "écris une histoire courte sur un robot qui rêve" → {"difficulty":"medium","task_type":"creative","reasoning":"fiction, non-code"}
+- "génère-moi une progression IV-I-V (Fa, Do, Sol)" → {"difficulty":"medium","task_type":"music","reasoning":"accords à produire, livrable sonore"}
+- "compose une mélodie en fa mineur sur 16 mesures" → {"difficulty":"medium","task_type":"music","reasoning":"composition MIDI"}
+- "fais-moi un morceau zouk complet et rends-le en wav" → {"difficulty":"hard","task_type":"music","reasoning":"morceau entier + rendu audio"}
+- "ajoute une ligne de basse sur la piste Basse dans REAPER" → {"difficulty":"medium","task_type":"music","reasoning":"écriture MIDI dans le DAW"}
+- "écris les paroles d'une chanson d'amour en zouk" → {"difficulty":"medium","task_type":"creative","reasoning":"des mots à lire, pas du son"}
 """
 
 # Message de correction réinjecté entre deux essais quand la validation échoue.

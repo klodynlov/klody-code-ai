@@ -48,6 +48,28 @@ class TestComposition:
         assert "test" in s.lower()
         assert "sandbox" in s.lower()
 
+    def test_music_impose_l_ordre_des_outils(self):
+        """Le prompt musique doit imposer le GATE avant le DAW, et le batch de notes.
+
+        Les 3 fautes vues en vivo (session 4034ccc7) qu'il doit prévenir :
+        chaîne Forge/Libretto court-circuitée, `insert_midi_note` appelé en boucle,
+        pistes livrées sans instrument (donc muettes).
+        """
+        s = compose_system_prompt("music")
+        assert "forge_song_with_gadgets" in s
+        assert "insert_midi_notes" in s          # le batch...
+        assert "en boucle" in s                  # ...et l'interdiction du singulier
+        assert "MUETTE" in s                     # piste sans instrument
+        assert "launch_reaper" in s              # ne pas demander à l'utilisateur
+
+    def test_music_declare_dans_le_base(self):
+        """base.md est la CARTE des capacités : sans mention, le modèle ignore
+        qu'il sait faire de la musique (c'était le cas — dream-x-world y était,
+        pas les 87 outils musicaux)."""
+        base = load_prompt_file("base.md")
+        assert "forge_song_with_gadgets" in base
+        assert "mcp__reaper__" in base
+
     def test_explain_interdit_write(self):
         s = compose_system_prompt("explain")
         assert "write_file" in s  # mentionné explicitement comme interdit
@@ -62,7 +84,12 @@ class TestComposition:
         # routage dream-x-world (#82, dédupliqué). Composé ≈ 2280 aujourd'hui.
         # Si ce seuil casse : chercher d'abord de la redondance dans base.md
         # (partagé par tous les task_types) avant de le relever.
-        assert len(s) < 2600
+        # Recalibré 2026-07-23 (2600 → 2800) : base.md déclare la capacité
+        # MUSIQUE + sa règle de routage — même nature d'ajout que dream-x-world.
+        # Compression faite AVANT de relever (1re rédaction ≈ 1000 chars → 210 :
+        # le détail du workflow vit dans prompts/music.md, chargé seulement sur
+        # une tâche musicale, pas dans le tronc commun payé à chaque requête).
+        assert len(s) < 2800
         # L'intention « court » = focalisation : toujours < prompt default
         assert len(s) < len(compose_system_prompt(None))
         # Et mentionner les outils d'action
@@ -102,6 +129,7 @@ class TestAvailableTypes:
         assert set(types) == {
             "edit", "refactor", "bug_fix", "feature", "explain", "self_dev",
             "review", "test_gen", "security", "docs", "perf", "migrate",
+            "music",
         }
 
 

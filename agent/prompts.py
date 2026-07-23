@@ -34,6 +34,10 @@ _TASK_PROMPT_FILES: dict[str, str] = {
     "docs": "docs.md",
     "perf": "perf.md",
     "migrate": "migrate.md",
+    # Production musicale : workflow DAW dédié (gate structurel avant le DAW).
+    # `creative` n'a volontairement PAS de fichier (default.md suffit pour du
+    # texte) ; la musique, elle, a un ORDRE d'outils à respecter.
+    "music": "music.md",
 }
 
 _BASE_FILE = "base.md"
