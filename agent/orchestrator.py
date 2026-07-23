@@ -410,6 +410,14 @@ _LOOP_REPEAT_BREAK = 4
 # légitimement peut demander plusieurs lectures.
 _SCAN_REPEAT_WARN = 8
 _SCAN_REPEAT_BREAK = 14
+# Outils d'exploration de FICHIERS : quand l'anti-scan se déclenche sur l'un d'eux,
+# la remédiation « cadre le dossier avec list_files / localise par contenu » a un
+# sens. Pour tout AUTRE outil pris en rafale (ex. un outil MCP), ce message oriente
+# à tort vers la lecture de fichiers — on bascule alors sur une consigne générique.
+_FILE_SCAN_TOOLS = frozenset({
+    "read_file", "search_in_files", "find_relevant_files", "find_references",
+    "find_symbol", "list_files", "preview_file",
+})
 
 # Anti-écho : un outil PRODUCTEUR réémis avec EXACTEMENT les mêmes arguments
 # refabrique le même artefact — jamais un progrès — mais son résultat peut
@@ -455,6 +463,13 @@ _PRODUCING_TOOLS = frozenset({
     # disque (même piège anti-boucle que write_file — ne pas dead-locker après).
     "scaffold_tool", "backup_directory", "batch_rename", "organize_directory",
     "sync_directories",
+    # Écriture MIDI (REAPER) : poser une note EST du travail réel. Poser une
+    # mélodie de N notes = N appels `insert_midi_note` aux args tous DIFFÉRENTS —
+    # l'anti-scan (clé sur le nom seul) les prenait pour un balayage errant et
+    # coupait la mélodie à mi-course (session 4034ccc7, 32 notes coupées à 14).
+    # Un vrai blocage (même note réémise) reste attrapé par l'anti-écho (args
+    # identiques consécutifs). Noms MCP complets (préfixe serveur).
+    "mcp__reaper__insert_midi_note", "mcp__reaper__insert_midi_notes",
 })
 
 # Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
@@ -2534,16 +2549,28 @@ class Orchestrator:
                         f"\n[yellow]  ⚠  Balayage détecté — `{_scan_name_local}` appelé "
                         f"{_scan_n_local}× sur des cibles variées. Arrêt et synthèse.[/yellow]"
                     )
-                    self.memory.messages.append({
-                        "role": "user",
-                        "content": (
+                    if _scan_name_local in _FILE_SCAN_TOOLS:
+                        _scan_break_msg = (
                             f"STOP. Tu as appelé `{_scan_name_local}` {_scan_n_local} fois "
                             "sur des cibles différentes sans converger : tu balaies au lieu "
                             "de cibler. N'appelle plus AUCUN outil. Explique à l'utilisateur "
                             "ce que tu cherchais, ce que tu as trouvé jusqu'ici, et demande "
                             "le chemin précis (fichier/dossier) si l'info manque. Rédige "
                             "maintenant ta réponse finale."
-                        ),
+                        )
+                    else:
+                        _scan_break_msg = (
+                            f"STOP. Tu as appelé `{_scan_name_local}` {_scan_n_local} fois "
+                            "de suite sans converger. N'appelle plus AUCUN outil. Si cet "
+                            "outil a une variante par LOT (p. ex. `insert_midi_notes` qui "
+                            "pose toutes les notes en un seul appel, au lieu de "
+                            "`insert_midi_note` répété), elle aurait fait le travail d'un "
+                            "coup. Rédige maintenant ta réponse finale à l'utilisateur avec "
+                            "ce que tu as déjà obtenu."
+                        )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": _scan_break_msg,
                         "timestamp": None,
                     })
                     self._forced_final_synthesis()
@@ -2556,16 +2583,27 @@ class Orchestrator:
                     scan_warned.add(_scan_name_local)
                     logger.info("[anti-scan] %s appelé %d× → nudge ciblage injecté",
                                 _scan_name_local, _scan_n_local)
-                    self.memory.messages.append({
-                        "role": "user",
-                        "content": (
+                    if _scan_name_local in _FILE_SCAN_TOOLS:
+                        _scan_warn_msg = (
                             f"⚠ Tu as appelé `{_scan_name_local}` {_scan_n_local} fois sur "
                             "des cibles différentes : tu balaies des fichiers au hasard. "
                             "Arrête de lire à l'aveugle. Utilise `list_files` pour cadrer le "
                             "dossier, `find_relevant_files`/`search_in_files` pour localiser "
                             "par contenu, puis ne lis QUE les fichiers pertinents. Si tu ne "
                             "trouves pas, demande le chemin à l'utilisateur."
-                        ),
+                        )
+                    else:
+                        _scan_warn_msg = (
+                            f"⚠ Tu as appelé `{_scan_name_local}` {_scan_n_local} fois de "
+                            "suite. Si cet outil a une variante par LOT (p. ex. "
+                            "`insert_midi_notes` qui pose toutes les notes en un appel, au "
+                            "lieu de `insert_midi_note` répété note à note), utilise-la. "
+                            "Sinon change d'approche, ou arrête-toi et réponds à "
+                            "l'utilisateur avec ce que tu as déjà obtenu."
+                        )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": _scan_warn_msg,
                         "timestamp": None,
                     })
 

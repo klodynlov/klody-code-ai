@@ -32,17 +32,52 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import tempfile
 import uuid
+from typing import Annotated
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from pydantic import BeforeValidator
 
 from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Coercion tolérante des paramètres list-of-dict                              #
+# --------------------------------------------------------------------------- #
+# Les modèles locaux (4B/8B) sérialisent parfois un paramètre `list[dict]` en
+# CHAÎNE JSON ('[{"pitch": 60, ...}]') au lieu d'un vrai tableau. FastMCP/Pydantic
+# rejette alors avec `list_type` (input_type=str) AVANT même d'entrer dans l'outil ;
+# l'agent lit « erreur de parsing JSON », croit le serveur REAPER cassé, bascule en
+# fallback note-à-note (`insert_midi_note` en rafale) et déclenche l'anti-scan →
+# boucle jusqu'au timeout. Vécu en vivo session 4034ccc7 (22/07/26 : progression
+# IV-I-V, `insert_midi_notes` rejeté 3× d'affilée, mélodie jamais posée).
+# BeforeValidator ré-hydrate la chaîne EN AMONT de la validation de type : un vrai
+# tableau passe inchangé, une chaîne JSON valide est parsée, un objet unique est
+# enveloppé, et une chaîne illisible retombe sur l'erreur `list_type` standard de
+# Pydantic (aucun masquage d'erreur).
+def _coerce_json_list(v: object) -> object:
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return v
+        try:
+            v = json.loads(s)
+        except (ValueError, TypeError):
+            return v  # laisse Pydantic lever l'erreur `list_type` habituelle
+    if isinstance(v, dict):  # objet unique non enveloppé → liste à 1 élément
+        return [v]
+    return v
+
+
+# Alias réutilisable pour tout paramètre d'outil « liste d'objets » exposé au LLM.
+JsonListOfDict = Annotated[list[dict] | None, BeforeValidator(_coerce_json_list)]
 
 BRIDGE_HOST = os.getenv("REAPER_BRIDGE_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.getenv("REAPER_BRIDGE_PORT", "9000"))
@@ -134,6 +169,50 @@ async def get_track_count() -> dict:
         {"error": "<message exploitable>"} si REAPER/le pont est indisponible.
     """
     return await _bridge_call("get_track_count")
+
+
+@mcp.tool()
+async def launch_reaper(wait: float = 25.0) -> dict:
+    """Ouvre l'application REAPER si besoin, puis attend que le pont ReaScript réponde.
+
+    À appeler quand un autre outil REAPER renvoie « pont injoignable », ou au tout
+    début d'une tâche musicale : l'agent DÉMARRE REAPER lui-même au lieu de demander
+    à l'utilisateur de le faire à la main. Le pont se recharge tout seul au démarrage
+    (__startup.lua) ; on sonde `ping` jusqu'à `wait` secondes. Idempotent : si REAPER
+    répond déjà, ne relance rien.
+
+    Args:
+        wait: délai max d'attente du pont après lancement (secondes, défaut 25).
+
+    Returns:
+        {"already_running", "launched", "bridge_ready"} (bools) en cas de succès,
+        {"error": "<message>"} si REAPER n'est pas installé ou refuse de démarrer.
+    """
+    if "error" not in await _bridge_call("ping"):
+        return {"already_running": True, "launched": False, "bridge_ready": True}
+
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run, ["open", "-a", "REAPER"],
+            capture_output=True, timeout=15,
+        )
+    except FileNotFoundError:
+        return {"error": "commande `open` indisponible (lancement automatique réservé à macOS)"}
+    except subprocess.TimeoutExpired:
+        return {"error": "`open -a REAPER` n'a pas rendu la main en 15 s"}
+    if proc.returncode != 0:
+        detail = (proc.stderr or b"").decode("utf-8", "replace").strip()[:200]
+        return {"error": f"REAPER introuvable ou lancement refusé : {detail or 'code ' + str(proc.returncode)}"}
+
+    # Le pont se charge au démarrage ; on le sonde 1×/s jusqu'à `wait` secondes.
+    for _ in range(max(1, int(float(wait)))):
+        await asyncio.sleep(1.0)
+        if "error" not in await _bridge_call("ping"):
+            return {"already_running": False, "launched": True, "bridge_ready": True}
+    return {
+        "already_running": False, "launched": True, "bridge_ready": False,
+        "hint": "REAPER lancé mais le pont ne répond pas encore ; réessaie l'outil dans quelques secondes.",
+    }
 
 
 # ---------------------------------------------------------------------------- #
@@ -304,7 +383,7 @@ async def insert_midi_note(
 
 @mcp.tool()
 async def insert_midi_notes(
-    track_index: int = -1, notes: list[dict] | None = None, guid: str = "",
+    track_index: int = -1, notes: JsonListOfDict = None, guid: str = "",
 ) -> dict:
     """Insère une mélodie entière (plusieurs notes) dans UN SEUL item MIDI sur la piste.
 
@@ -796,7 +875,7 @@ async def workflow_build_vocal_chain(
 
 @mcp.tool()
 async def workflow_create_zouk_arrangement(
-    bpm: float | None = None, sections: list[dict] | None = None,
+    bpm: float | None = None, sections: JsonListOfDict = None,
     beats_per_bar: int = 4, start: float = 0.0,
 ) -> dict:
     """Workflow : pose une structure de morceau en RÉGIONS (intro/couplet/refrain/pont/
