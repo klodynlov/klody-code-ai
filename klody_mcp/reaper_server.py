@@ -171,6 +171,24 @@ async def get_track_count() -> dict:
     return await _bridge_call("get_track_count")
 
 
+def _reaper_process_running() -> bool:
+    """L'app REAPER tourne-t-elle ? Signal INDÉPENDANT du pont.
+
+    Un `ping` muet ne prouve PAS que REAPER est éteint : en arrière-plan macOS
+    throttle les timers de l'app, la boucle defer du pont ralentit et le ping
+    peut timeouter alors que REAPER tourne (observé en vivo 23/07). On sépare
+    donc « le process existe » (pgrep) de « le pont répond » (ping).
+    """
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-f", "REAPER.app/Contents/MacOS/REAPER"],
+            capture_output=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False  # pas de pgrep → on ne sait pas ; `open -a` tranchera
+    return proc.returncode == 0
+
+
 @mcp.tool()
 async def launch_reaper(wait: float = 25.0) -> dict:
     """Ouvre l'application REAPER si besoin, puis attend que le pont ReaScript réponde.
@@ -178,8 +196,12 @@ async def launch_reaper(wait: float = 25.0) -> dict:
     À appeler quand un autre outil REAPER renvoie « pont injoignable », ou au tout
     début d'une tâche musicale : l'agent DÉMARRE REAPER lui-même au lieu de demander
     à l'utilisateur de le faire à la main. Le pont se recharge tout seul au démarrage
-    (__startup.lua) ; on sonde `ping` jusqu'à `wait` secondes. Idempotent : si REAPER
+    (__startup.lua) ; on sonde `ping` jusqu'à `wait` secondes. Idempotent : si le pont
     répond déjà, ne relance rien.
+
+    Cas couvert en plus : REAPER TOURNE mais en arrière-plan (boucle defer throttlée
+    → ping muet). `open -a` le ramène au premier plan, ce qui réveille le pont ;
+    `already_running` reste alors `true` (on n'a rien démarré, juste réveillé).
 
     Args:
         wait: délai max d'attente du pont après lancement (secondes, défaut 25).
@@ -190,6 +212,10 @@ async def launch_reaper(wait: float = 25.0) -> dict:
     """
     if "error" not in await _bridge_call("ping"):
         return {"already_running": True, "launched": False, "bridge_ready": True}
+
+    # Pont muet : distinguer « éteint » de « vivant mais endormi » AVANT d'agir,
+    # sinon on rapporte un démarrage qui n'a pas eu lieu.
+    was_running = await asyncio.to_thread(_reaper_process_running)
 
     try:
         proc = await asyncio.to_thread(
@@ -205,13 +231,18 @@ async def launch_reaper(wait: float = 25.0) -> dict:
         return {"error": f"REAPER introuvable ou lancement refusé : {detail or 'code ' + str(proc.returncode)}"}
 
     # Le pont se charge au démarrage ; on le sonde 1×/s jusqu'à `wait` secondes.
+    # `launched` = on a VRAIMENT démarré l'app ; si elle tournait déjà, `open -a`
+    # n'a fait que la réveiller (already_running reste vrai).
     for _ in range(max(1, int(float(wait)))):
         await asyncio.sleep(1.0)
         if "error" not in await _bridge_call("ping"):
-            return {"already_running": False, "launched": True, "bridge_ready": True}
+            return {"already_running": was_running, "launched": not was_running,
+                    "bridge_ready": True}
     return {
-        "already_running": False, "launched": True, "bridge_ready": False,
-        "hint": "REAPER lancé mais le pont ne répond pas encore ; réessaie l'outil dans quelques secondes.",
+        "already_running": was_running, "launched": not was_running, "bridge_ready": False,
+        "hint": ("REAPER tournait déjà mais son pont reste muet : relance l'action du pont "
+                 "(Actions > klody_reaper_bridge)." if was_running else
+                 "REAPER lancé mais le pont ne répond pas encore ; réessaie dans quelques secondes."),
     }
 
 
