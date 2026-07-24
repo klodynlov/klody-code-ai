@@ -31,6 +31,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 # Chemin vers la racine du projet pour les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -183,8 +184,11 @@ async def get_status():
     # qui faisait répondre 400. GET nu : un serveur MCP up renvoie 406, un 404 = absent.
     mcp_active = await _probe_url(config.KLODY_MCP_URL, accept_status=(200, 405, 406))
 
-    # Conventions et erreurs récurrentes (Roadmap v2 #8)
-    project_info = _load_project_info()
+    # Conventions et erreurs récurrentes (Roadmap v2 #8). _load_project_info scanne
+    # le workdir (I/O + regex, potentiellement lourd) : OBLIGATOIREMENT hors de
+    # l'event loop, sinon un scan lent fige :8000 pour toutes les connexions
+    # (health, WS) → le watchdog conclut "hung" et SIGKILL → crash-loop.
+    project_info = await run_in_threadpool(_load_project_info)
 
     return {
         "ollama": ollama_ok,

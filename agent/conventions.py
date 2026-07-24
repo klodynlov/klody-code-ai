@@ -96,15 +96,36 @@ class ConventionReport:
 # ---------------------------------------------------------------------------- #
 
 
+# Extensions réellement porteuses de signal de convention (code). Tout le reste
+# — données, corpus, dumps, binaires lus en errors="replace" — n'apporte rien à
+# la détection et peut être énorme.
+_SOURCE_SUFFIXES = frozenset({
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue",
+})
+# Plafond de taille par fichier. Au-delà, un "source" est en pratique généré /
+# minifié / données. Sans ce garde, read_text + les 11 regex framework sur un
+# fichier de plusieurs Mo pegent un cœur DANS l'event loop → figeage complet de
+# :8000 → SIGKILL par le watchdog avant fin du scan → cache jamais écrit → la
+# détection re-scanne à chaque redémarrage → crash-loop (incident 2026-07-24).
+_MAX_FILE_BYTES = 1_000_000  # 1 Mo
+
+
 def _iter_source_files(root: Path):
     for path in root.rglob("*"):
         if not path.is_file():
+            continue
+        if path.suffix not in _SOURCE_SUFFIXES:
             continue
         try:
             parts = path.relative_to(root).parts
         except ValueError:
             continue
         if any(p in _SKIP_DIRS for p in parts[:-1]):
+            continue
+        try:
+            if path.stat().st_size > _MAX_FILE_BYTES:
+                continue
+        except OSError:
             continue
         yield path
 
