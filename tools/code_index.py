@@ -16,6 +16,7 @@ rebuild, < 1s pour un repo de quelques centaines de fichiers).
 """
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from collections.abc import Iterator
@@ -371,15 +372,62 @@ def _extract_generic(src: bytes, rel_path: str, lang_key: str) -> tuple[list[Sym
 # ---------------------------------------------------------------------------- #
 
 
+# Causes d'un résultat vide. `find_symbol`/`find_references` ne peuvent rendre
+# qu'une liste : sans ce témoin, l'appelant ne distingue pas « tree-sitter
+# absent » (indexation TOTALEMENT inactive) de « symbole réellement introuvable »
+# — et l'agent lit « Aucun symbole trouvé » comme « ce symbole n'existe pas »,
+# juste avant de refactorer ou d'auditer un flux de données. `None` = vraie
+# absence, index sain : c'est le seul cas où l'on a le droit de conclure, et
+# encore, dans les limites de ce qui est indexé (cf. format_miss).
+MISS_ENGINE = (
+    "tree-sitter n'est pas installé — l'indexation des symboles est "
+    "TOTALEMENT inactive"
+)
+MISS_EMPTY_INDEX = "aucun fichier source indexable sous la racine"
+
+@functools.cache
+def _warn_unavailable_once() -> None:
+    """Signale UNE fois que l'indexation est morte.
+
+    L'ancien `if not _AVAILABLE: return 0` était parfaitement muet : rien dans
+    les logs ne distinguait « projet sans symbole » de « moteur absent ».
+
+    `functools.cache` porte le « une seule fois » : sans argument, le corps ne
+    s'exécute qu'au premier appel. Remplace un drapeau global (que CodeQL
+    signalait, à raison : un état modifiable de module pour un compteur à un
+    coup). Les tests remettent à zéro avec `_warn_unavailable_once.cache_clear()`.
+    """
+    logger.warning(
+        "[CodeIndex] tree-sitter indisponible — find_symbol/find_references ne "
+        "rendront JAMAIS de résultat. Installe tree-sitter + les grammaires "
+        "(cf. requirements.txt) ou utilise search_in_files."
+    )
+
+
 class CodeIndex:
     """Index incrémental des symboles + références d'un projet."""
 
     def __init__(self, project_root: Path):
         self.root: Path = Path(project_root).resolve()
         self._files: dict[str, FileIndex] = {}  # rel_path → FileIndex
+        # Cause du dernier résultat vide ; None = vraie absence (index sain).
+        self.last_miss: str | None = None
 
     def is_available(self) -> bool:
         return _AVAILABLE
+
+    def indexed_count(self) -> int:
+        """Nombre de fichiers actuellement indexés (portée d'une absence)."""
+        return len(self._files)
+
+    def _note_miss(self) -> None:
+        """Qualifie un résultat vide : panne d'indexation ou vraie absence."""
+        if not _AVAILABLE:
+            self.last_miss = MISS_ENGINE
+        elif not self._files:
+            self.last_miss = MISS_EMPTY_INDEX
+        else:
+            self.last_miss = None  # index sain → l'absence est réelle
 
     # -- Indexation -------------------------------------------------------- #
 
@@ -398,6 +446,7 @@ class CodeIndex:
     def refresh(self) -> int:
         """Re-indexe les fichiers ajoutés/modifiés. Retourne le nb d'updates."""
         if not _AVAILABLE:
+            _warn_unavailable_once()
             return 0
         _init_languages()
 
@@ -446,13 +495,21 @@ class CodeIndex:
     # -- API publique ------------------------------------------------------ #
 
     def find_symbol(self, name: str) -> list[Symbol]:
-        """Cherche par nom exact (case-sensitive)."""
+        """Cherche par nom exact (case-sensitive).
+
+        Une liste vide n'est pas forcément une absence : `self.last_miss` dit si
+        l'indexation était en panne (cf. MISS_*) ou si l'index était sain.
+        """
         self.refresh()
         out: list[Symbol] = []
         for idx in self._files.values():
             for s in idx.symbols:
                 if s.name == name:
                     out.append(s)
+        if not out:
+            self._note_miss()
+        else:
+            self.last_miss = None
         return out
 
     def iter_symbols(self) -> list[Symbol]:
@@ -464,7 +521,10 @@ class CodeIndex:
         return out
 
     def find_references(self, name: str, max_results: int = 50) -> list[Reference]:
-        """Liste les références à un nom dans tout le projet."""
+        """Liste les références à un nom dans tout le projet.
+
+        Comme `find_symbol` : une liste vide est qualifiée par `self.last_miss`.
+        """
         self.refresh()
         out: list[Reference] = []
         for idx in self._files.values():
@@ -472,7 +532,12 @@ class CodeIndex:
                 if r.name == name:
                     out.append(r)
                     if len(out) >= max_results:
+                        self.last_miss = None
                         return out
+        if not out:
+            self._note_miss()
+        else:
+            self.last_miss = None
         return out
 
     def stats(self) -> dict:
@@ -490,9 +555,44 @@ class CodeIndex:
 # ---------------------------------------------------------------------------- #
 
 
+def format_miss(reason: str | None, *, name: str, indexed: int, kind: str) -> str:
+    """Message de résultat vide : panne nommée, ou absence CADRÉE par sa portée.
+
+    L'ancien « Aucun symbole trouvé. » ne disait ni sur quoi il avait cherché, ni
+    si le moteur tournait. `prompts/refactor.md` envoie l'agent sur
+    `find_references` en lui disant « sinon tu vas casser quelque chose », et
+    `security.md` pour suivre une donnée non fiable jusqu'à son puits : un faux
+    « aucune référence » y coûte cher. Même famille que le « pas de sources dans
+    LibraryBrain » de #158.
+
+    `kind` = "symbole" ou "référence" (accord du message).
+    """
+    if reason is not None:
+        return (
+            f"Recherche de {kind}s IMPOSSIBLE — {reason}.\n"
+            f"⚠️ Ce n'est PAS un verdict sur `{name}` : rien n'a été cherché. Ne "
+            "conclus donc pas que ce symbole n'existe pas, et ne refactore rien "
+            "sur cette base.\n"
+            "Reprends avec `search_in_files` (grep, indépendant de tree-sitter)."
+        )
+    exts = ", ".join(sorted(_EXT_TO_LANG))
+    return (
+        f"Aucune {kind} de `{name}` parmi les {indexed} fichier(s) indexés.\n"
+        f"Portée de cette recherche : extensions {exts} uniquement, et les "
+        "dossiers du type .venv / node_modules / dist ne sont jamais parcourus. "
+        "Un symbole défini ailleurs, dans un langage non couvert ou construit "
+        "dynamiquement reste invisible ici — confirme avec `search_in_files` "
+        "avant d'affirmer qu'il n'existe pas."
+    )
+
+
 def format_symbols(syms: list[Symbol]) -> str:
     if not syms:
-        return "Aucun symbole trouvé."
+        # Appelant sans contexte : on ne rend AUCUN verdict (cf. format_miss).
+        return (
+            "Aucun symbole rendu — portée et état de l'index inconnus ici. "
+            "Ne conclus pas à l'absence ; vérifie avec `search_in_files`."
+        )
     lines = [f"{len(syms)} définition(s) trouvée(s) :"]
     for s in syms[:20]:
         suffix = f" (dans classe {s.parent})" if s.parent else ""
@@ -504,7 +604,11 @@ def format_symbols(syms: list[Symbol]) -> str:
 
 def format_references(refs: list[Reference]) -> str:
     if not refs:
-        return "Aucune référence trouvée."
+        # Idem format_symbols : sans contexte, aucun verdict (cf. format_miss).
+        return (
+            "Aucune référence rendue — portée et état de l'index inconnus ici. "
+            "Ne conclus pas à l'absence ; vérifie avec `search_in_files`."
+        )
     lines = [f"{len(refs)} référence(s) :"]
     for r in refs[:25]:
         lines.append(f"  • {r.file}:{r.line}  {r.context}")

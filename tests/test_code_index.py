@@ -5,9 +5,13 @@ from pathlib import Path
 
 import pytest
 from tools.code_index import (
+    MISS_EMPTY_INDEX,
+    MISS_ENGINE,
     CodeIndex,
     Reference,
     Symbol,
+    _warn_unavailable_once,
+    format_miss,
     format_references,
     format_symbols,
 )
@@ -128,9 +132,81 @@ class TestFindReferences:
         assert len(refs) == 10
 
 
+class TestQualificationDesVides:
+    """Audit 27/07 : un résultat vide ne doit jamais valoir verdict tant que
+    l'état de l'index est inconnu. tree-sitter absent → tout est vide, ce qui
+    était indiscernable de « ce symbole n'existe pas »."""
+
+    def test_moteur_absent_pose_la_cause(self, python_repo, monkeypatch):
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
+        idx = CodeIndex(python_repo)
+        assert idx.find_symbol("greet") == []
+        assert idx.last_miss == MISS_ENGINE
+
+    def test_index_vide_pose_la_cause(self, tmp_path):
+        # Racine sans aucun fichier d'une extension couverte.
+        (tmp_path / "notes.txt").write_text("rien à indexer", encoding="utf-8")
+        idx = CodeIndex(tmp_path)
+        assert idx.find_symbol("greet") == []
+        assert idx.last_miss == MISS_EMPTY_INDEX
+
+    def test_index_sain_vraie_absence(self, python_repo):
+        idx = CodeIndex(python_repo)
+        assert idx.find_symbol("symbole_qui_nexiste_pas") == []
+        assert idx.last_miss is None  # index sain → on a le droit de conclure
+
+    def test_trouvaille_remet_le_temoin_a_zero(self, python_repo):
+        idx = CodeIndex(python_repo)
+        idx.last_miss = MISS_ENGINE  # résidu d'une recherche précédente
+        assert idx.find_symbol("greet")
+        assert idx.last_miss is None
+
+    def test_references_qualifient_aussi(self, python_repo, monkeypatch):
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
+        idx = CodeIndex(python_repo)
+        assert idx.find_references("greet") == []
+        assert idx.last_miss == MISS_ENGINE
+
+    def test_references_index_sain_vraie_absence(self, python_repo):
+        idx = CodeIndex(python_repo)
+        assert idx.find_references("jamais_appele_nulle_part") == []
+        assert idx.last_miss is None
+
+    def test_warn_une_seule_fois_quand_moteur_absent(self, python_repo, monkeypatch, caplog):
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
+        _warn_unavailable_once.cache_clear()
+        idx = CodeIndex(python_repo)
+        with caplog.at_level("WARNING", logger="tools.code_index"):
+            idx.refresh()
+            idx.refresh()
+        # L'ancien code était MUET : rien ne distinguait panne et projet vide.
+        assert sum("tree-sitter indisponible" in r.message for r in caplog.records) == 1
+
+
+class TestFormatMiss:
+    def test_panne_ne_rend_aucun_verdict(self):
+        msg = format_miss(MISS_ENGINE, name="greet", indexed=0, kind="symbole")
+        assert MISS_ENGINE in msg
+        assert "IMPOSSIBLE" in msg
+        assert "Ne conclus donc pas" in msg
+        assert "search_in_files" in msg
+
+    def test_absence_reelle_est_cadree_par_sa_portee(self):
+        msg = format_miss(None, name="greet", indexed=42, kind="symbole")
+        assert "42 fichier(s) indexés" in msg
+        assert "Portée de cette recherche" in msg
+        assert ".py" in msg          # extensions couvertes annoncées
+        assert "search_in_files" in msg
+
+    def test_accord_du_type_recherche(self):
+        assert "référence" in format_miss(None, name="x", indexed=1, kind="référence")
+
+
 class TestFormatters:
-    def test_format_symbols_vide(self):
-        assert format_symbols([]) == "Aucun symbole trouvé."
+    def test_format_symbols_vide_ne_conclut_pas(self):
+        s = format_symbols([])
+        assert "Ne conclus pas à l'absence" in s
+        assert s != "Aucun symbole trouvé."
 
     def test_format_symbols_lisible(self):
         syms = [
@@ -143,8 +219,10 @@ class TestFormatters:
         assert "Cls" in s
         assert "a.py:1" in s
 
-    def test_format_references_vide(self):
-        assert format_references([]) == "Aucune référence trouvée."
+    def test_format_references_vide_ne_conclut_pas(self):
+        s = format_references([])
+        assert "Ne conclus pas à l'absence" in s
+        assert s != "Aucune référence trouvée."
 
     def test_format_references_tronquage(self):
         refs = [Reference(name="x", file=f"f{i}.py", line=1, context="x()") for i in range(50)]

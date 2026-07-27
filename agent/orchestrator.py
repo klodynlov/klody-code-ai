@@ -1692,13 +1692,33 @@ class Orchestrator:
         res = sandbox.run(a["command"], timeout=int(a.get("timeout", 30)))
         return res.format_for_llm()
 
+    # Un résultat vide de l'index de code n'est PAS un verdict tant qu'on ne sait
+    # pas si l'indexation tournait : tree-sitter absent → `refresh()` rend 0 et
+    # tout est vide, indiscernable de « ce symbole n'existe pas ». On qualifie via
+    # `last_miss` et on cadre l'absence par la portée réellement indexée.
     def _tool_find_symbol(self, a: dict) -> str:
-        from tools.code_index import format_symbols
-        return format_symbols(self.code_index.find_symbol(a["name"]))
+        from tools.code_index import format_miss, format_symbols
+        syms = self.code_index.find_symbol(a["name"])
+        if not syms:
+            return format_miss(
+                self.code_index.last_miss,
+                name=a["name"],
+                indexed=self.code_index.indexed_count(),
+                kind="symbole",
+            )
+        return format_symbols(syms)
 
     def _tool_find_references(self, a: dict) -> str:
-        from tools.code_index import format_references
-        return format_references(self.code_index.find_references(a["name"]))
+        from tools.code_index import format_miss, format_references
+        refs = self.code_index.find_references(a["name"])
+        if not refs:
+            return format_miss(
+                self.code_index.last_miss,
+                name=a["name"],
+                indexed=self.code_index.indexed_count(),
+                kind="référence",
+            )
+        return format_references(refs)
 
     def _tool_find_relevant_files(self, a: dict) -> str:
         # Zéro hit = TOUJOURS une panne (search() n'a pas de seuil de pertinence) :
