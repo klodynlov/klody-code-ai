@@ -93,6 +93,18 @@ def _cosine(a: list[float], b: list[float]) -> float:
 # ---------------------------------------------------------------------------- #
 
 
+# Causes d'une recherche à vide. `search()` ne peut rendre qu'une liste : sans
+# ce témoin, l'appelant ne distingue pas « moteur mort » de « index vide » de
+# « rien trouvé » — et rend un verdict SÉMANTIQUE pour une panne d'INFRA.
+# Rappel décisif : search() n'applique AUCUN seuil de pertinence (`scored[:k]`),
+# donc un moteur sain rend TOUJOURS k fichiers, même sur une requête absurde
+# (vérifié : « zzzz quantum banana teapot » → 3 hits à 0.45). Une liste vide est
+# donc TOUJOURS une panne, JAMAIS une absence de code pertinent.
+MISS_ENGINE = "le moteur d'embeddings est indisponible"
+MISS_EMPTY_INDEX = "l'index est vide (aucun fichier source indexable sous la racine)"
+MISS_QUERY_EMBED = "l'embedding de la requête a échoué"
+
+
 class EmbeddingIndex:
     """Index par embedding des fichiers du projet."""
 
@@ -100,6 +112,9 @@ class EmbeddingIndex:
         self.root: Path = Path(project_root).resolve()
         self._index: dict[str, FileEmbedding] = {}
         self._available: bool | None = None  # None = pas encore testé
+        # Cause de la DERNIÈRE recherche à vide (None si la dernière a rendu des
+        # hits). Lu par l'appelant pour nommer la panne au lieu de conclure.
+        self.last_miss: str | None = None
 
     def is_available(self) -> bool:
         """Le moteur d'embeddings est-il utilisable ? (lazy, cache).
@@ -188,15 +203,23 @@ class EmbeddingIndex:
         return updated
 
     def search(self, query: str, k: int = 5) -> list[SearchHit]:
-        """Top-k fichiers les plus pertinents pour la requête."""
+        """Top-k fichiers les plus pertinents pour la requête.
+
+        Une liste vide signale TOUJOURS une panne, jamais « rien de pertinent » :
+        `self.last_miss` en porte la cause (cf. MISS_*). Voir `format_miss()`.
+        """
+        self.last_miss = None
         if not self.is_available():
+            self.last_miss = MISS_ENGINE
             return []
         self.refresh()
         if not self._index:
+            self.last_miss = MISS_EMPTY_INDEX
             return []
         # Embed la query
         q_vecs = _embed_batch([query])
         if not q_vecs or not q_vecs[0]:
+            self.last_miss = MISS_QUERY_EMBED
             return []
         q = q_vecs[0]
         # Cosine vs tous les fichiers
@@ -218,9 +241,29 @@ class EmbeddingIndex:
         }
 
 
+def format_miss(reason: str | None) -> str:
+    """Message d'échec qui nomme la PANNE au lieu de rendre un verdict.
+
+    L'ancien « Aucun fichier pertinent trouvé. » se lisait comme « ce code
+    n'existe pas » et poussait l'agent à conclure à l'absence — alors que
+    `search()` ne filtre pas par pertinence : zéro hit = moteur ou index en
+    panne, jamais un jugement sur le code (cf. MISS_*). Même famille que le
+    « pas de sources dans LibraryBrain » de #158.
+    """
+    cause = reason or "cause inconnue (moteur ou index d'embeddings)"
+    return (
+        f"Recherche sémantique EN PANNE — {cause}.\n"
+        "⚠️ Ce n'est PAS un verdict sur le code : `find_relevant_files` ne filtre "
+        "pas par pertinence, un moteur sain rend toujours des fichiers. Ne conclus "
+        "donc PAS que le code cherché n'existe pas.\n"
+        "Reprends avec `search_in_files` (grep, indépendant du moteur) ou "
+        "`find_symbol` pour localiser une définition."
+    )
+
+
 def format_hits(hits: list[SearchHit]) -> str:
     if not hits:
-        return "Aucun fichier pertinent trouvé."
+        return format_miss(None)
     lines = [f"{len(hits)} fichier(s) pertinents :"]
     for h in hits:
         lines.append(f"  • [{h.score:.3f}] {h.rel_path}")
