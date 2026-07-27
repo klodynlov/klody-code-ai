@@ -104,8 +104,9 @@ def find_symbol(name: str) -> dict:
     Returns:
         {"matches": [{"name", "kind", "file", "line", "parent"}, ...], "count": int}
     """
-    syms = _get_code_index().find_symbol(name)
-    return {
+    idx = _get_code_index()
+    syms = idx.find_symbol(name)
+    out: dict = {
         "count": len(syms),
         "matches": [
             {"name": s.name, "kind": s.kind, "file": s.file, "line": s.line,
@@ -113,6 +114,14 @@ def find_symbol(name: str) -> dict:
             for s in syms
         ],
     }
+    # `count: 0` seul se lit comme « ce symbole n'existe pas ». On dit toujours
+    # sur quoi la recherche a porté, et si l'indexation était en panne.
+    if not syms:
+        from tools.code_index import format_miss
+        out["note"] = format_miss(
+            idx.last_miss, name=name, indexed=idx.indexed_count(), kind="symbole"
+        )
+    return out
 
 
 @mcp.tool()
@@ -126,14 +135,23 @@ def find_references(name: str, max_results: int = 50) -> dict:
     Returns:
         {"references": [{"name", "file", "line", "context"}, ...], "count": int}
     """
-    refs = _get_code_index().find_references(name, max_results=max_results)
-    return {
+    idx = _get_code_index()
+    refs = idx.find_references(name, max_results=max_results)
+    out: dict = {
         "count": len(refs),
         "references": [
             {"name": r.name, "file": r.file, "line": r.line, "context": r.context}
             for r in refs
         ],
     }
+    # Idem find_symbol : « 0 référence » sans portée ni état d'index est un
+    # verdict que l'index n'a pas les moyens de rendre.
+    if not refs:
+        from tools.code_index import format_miss
+        out["note"] = format_miss(
+            idx.last_miss, name=name, indexed=idx.indexed_count(), kind="référence"
+        )
+    return out
 
 
 @mcp.tool()
