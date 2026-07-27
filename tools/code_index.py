@@ -16,6 +16,7 @@ rebuild, < 1s pour un repo de quelques centaines de fichiers).
 """
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from collections.abc import Iterator
@@ -384,19 +385,18 @@ MISS_ENGINE = (
 )
 MISS_EMPTY_INDEX = "aucun fichier source indexable sous la racine"
 
-_warned_unavailable = False
-
-
+@functools.cache
 def _warn_unavailable_once() -> None:
     """Signale UNE fois que l'indexation est morte.
 
     L'ancien `if not _AVAILABLE: return 0` était parfaitement muet : rien dans
     les logs ne distinguait « projet sans symbole » de « moteur absent ».
+
+    `functools.cache` porte le « une seule fois » : sans argument, le corps ne
+    s'exécute qu'au premier appel. Remplace un drapeau global (que CodeQL
+    signalait, à raison : un état modifiable de module pour un compteur à un
+    coup). Les tests remettent à zéro avec `_warn_unavailable_once.cache_clear()`.
     """
-    global _warned_unavailable
-    if _warned_unavailable:
-        return
-    _warned_unavailable = True
     logger.warning(
         "[CodeIndex] tree-sitter indisponible — find_symbol/find_references ne "
         "rendront JAMAIS de résultat. Installe tree-sitter + les grammaires "

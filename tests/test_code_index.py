@@ -10,6 +10,7 @@ from tools.code_index import (
     CodeIndex,
     Reference,
     Symbol,
+    _warn_unavailable_once,
     format_miss,
     format_references,
     format_symbols,
@@ -137,9 +138,7 @@ class TestQualificationDesVides:
     était indiscernable de « ce symbole n'existe pas »."""
 
     def test_moteur_absent_pose_la_cause(self, python_repo, monkeypatch):
-        import tools.code_index as ci
-
-        monkeypatch.setattr(ci, "_AVAILABLE", False)
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
         idx = CodeIndex(python_repo)
         assert idx.find_symbol("greet") == []
         assert idx.last_miss == MISS_ENGINE
@@ -163,9 +162,7 @@ class TestQualificationDesVides:
         assert idx.last_miss is None
 
     def test_references_qualifient_aussi(self, python_repo, monkeypatch):
-        import tools.code_index as ci
-
-        monkeypatch.setattr(ci, "_AVAILABLE", False)
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
         idx = CodeIndex(python_repo)
         assert idx.find_references("greet") == []
         assert idx.last_miss == MISS_ENGINE
@@ -176,10 +173,8 @@ class TestQualificationDesVides:
         assert idx.last_miss is None
 
     def test_warn_une_seule_fois_quand_moteur_absent(self, python_repo, monkeypatch, caplog):
-        import tools.code_index as ci
-
-        monkeypatch.setattr(ci, "_AVAILABLE", False)
-        monkeypatch.setattr(ci, "_warned_unavailable", False)
+        monkeypatch.setattr("tools.code_index._AVAILABLE", False)
+        _warn_unavailable_once.cache_clear()
         idx = CodeIndex(python_repo)
         with caplog.at_level("WARNING", logger="tools.code_index"):
             idx.refresh()
