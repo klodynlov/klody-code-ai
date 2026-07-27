@@ -1701,11 +1701,15 @@ class Orchestrator:
         return format_references(self.code_index.find_references(a["name"]))
 
     def _tool_find_relevant_files(self, a: dict) -> str:
-        from tools.code_search import format_hits
+        # Zéro hit = TOUJOURS une panne (search() n'a pas de seuil de pertinence) :
+        # on nomme la cause portée par `last_miss` au lieu de laisser le modèle
+        # lire « aucun fichier pertinent » comme « ce code n'existe pas ».
+        # L'ancien garde ne couvrait que le moteur mort ; l'index vide et l'échec
+        # d'embedding de la requête tombaient dans le message trompeur.
+        from tools.code_search import format_hits, format_miss
         hits = self.embed_index.search(a["query"], k=int(a.get("k", 5)))
-        if not hits and not self.embed_index.is_available():
-            return ("Recherche sémantique indisponible : Ollama ou "
-                    "bge-m3 introuvable. Utilise find_symbol ou search_in_files.")
+        if not hits:
+            return format_miss(self.embed_index.last_miss)
         return format_hits(hits)
 
     def _tool_code_graph(self, a: dict) -> str:
