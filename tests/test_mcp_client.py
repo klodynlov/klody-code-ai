@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tools.mcp_client import _catalog_miss
 
 # ── _is_domain_file ────────────────────────────────────────────────────────────
 
@@ -330,11 +331,23 @@ class TestCatalogLookup:
         result = catalog_lookup("Robert Martin")
         assert "Clean Code" in result
 
-    def test_livre_absent_dit_pas_indexe(self, db):
+    def test_livre_absent_ne_conclut_pas_a_l_absence(self, db):
+        # Régression 27/07 : le miss disait « Le livre n'est pas indexé », le
+        # modèle le recopiait en « pas de sources dans LibraryBrain ». Le
+        # catalogue ne voit que titre+auteur → il ne peut RIEN conclure du sujet.
         from tools.mcp_client import catalog_lookup
         result = catalog_lookup("Seigneur des Anneaux Tolkien")
-        assert "pas indexé" in result
-        assert "2 livres" in result  # total du catalogue
+        assert "2 livres" in result           # total du catalogue
+        assert "pas indexé" not in result     # plus aucune affirmation d'absence
+        assert "TITRE" in result and "AUTEUR" in result
+        assert "search_books" in result       # escalade explicite vers le contenu
+
+    def test_miss_thematique_renvoie_vers_search_books(self, db):
+        # Cas réel de l'incident : requête THÉMATIQUE, aucun titre ne matche.
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("bébé nouveau-né puériculture")
+        assert "ne prouve PAS" in result
+        assert "search_books" in result
 
     def test_db_absente_message_lisible(self, tmp_path, monkeypatch):
         from tools.mcp_client import catalog_lookup
@@ -348,6 +361,23 @@ class TestCatalogLookup:
         result = catalog_lookup("clean tolkien")
         assert "approchant" in result.lower()
         assert "Clean Code" in result
+
+    def test_match_partiel_ne_commence_pas_par_une_negation(self, db):
+        # Régression 27/07 : l'en-tête « Aucune correspondance exacte… » se lisait
+        # en diagonale comme zéro résultat — le modèle a conclu « pas de sources »
+        # alors que des livres pertinents étaient listés juste dessous.
+        from tools.mcp_client import catalog_lookup
+        result = catalog_lookup("clean tolkien")
+        assert not result.lstrip().lower().startswith("aucun")
+        assert "PARTIELLE" in result
+
+    def test_resultat_rappelle_que_le_contenu_n_est_pas_couvert(self, db):
+        from tools.mcp_client import catalog_lookup
+        exact = catalog_lookup("clean code")
+        approx = catalog_lookup("clean tolkien")
+        for result in (exact, approx):
+            assert "search_books" in result
+            assert "ne voit pas le contenu" in result
 
     def test_requete_vide(self, db):
         from tools.mcp_client import catalog_lookup
@@ -372,10 +402,11 @@ _HIT_EXACT = (
     "(2026, 51 p., PDF) · indexé le 2026-07-17"
 )
 _HIT_APPROX = (
-    "Aucune correspondance exacte pour « x ». Livres approchants "
-    "(ne contiennent pas tous les mots) :\n• Autre livre — A"
+    "Correspondance PARTIELLE pour « x » — 1 livre(s) approchant(s) (aucun ne "
+    "réunit tous les mots ; ne conclus pas qu'ils traitent du sujet) :\n"
+    "• Autre livre — A"
 )
-_MISS = "Aucun livre au catalogue pour « x » (catalogue = 5 livres). Le livre n'est pas indexé."
+_MISS = _catalog_miss("x", 5)  # texte réel du miss (jamais un hit exact)
 
 
 class TestCatalogueExact:

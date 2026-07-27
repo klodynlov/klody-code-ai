@@ -332,6 +332,39 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
     return bool(has_enumeration and intent_count >= 1)
 
 
+# Garde-fou « absence de source affirmée sans avoir cherché le CONTENU ».
+# `library_catalog` n'indexe que titre+auteur : un miss sur une requête THÉMATIQUE
+# (« bébé », « puériculture ») ne prouve rien sur ce que contiennent les livres.
+# Incident 27/07 : 5 `library_catalog` à vide, ZÉRO `search_books`, puis « il n'y a
+# pas de sources dans LibraryBrain » — faux. `prompts/explain.md` l'interdit déjà,
+# mais une consigne de prompt perd contre une sortie d'outil concrète : d'où ce
+# filet en dur. Miroir côté agent de `_augment_no_hit`/`_catalog_miss` (tools).
+_NO_SOURCE_CLAIM_RE = re.compile(
+    r"aucun\w*\s+(?:\w+\s+){0,2}?(?:source|livre|ouvrage|r[ée]sultat|info\w*|"
+    r"document|r[ée]f[ée]rence)"
+    r"|(?:pas|plus)\s+(?:de\s+|d')(?:source|livre|ouvrage|info\w*|r[ée]f[ée]rence|"
+    r"document|trace)"
+    r"|(?:rien|pas)\s+(?:de\s+(?:pertinent|dispo\w*)\s+)?(?:dans|sur|parmi)\s+"
+    r"(?:la|ta|ma|votre|notre|les|tes|mes)?\s*(?:biblioth[eè]que|livres|"
+    r"librarybrain|catalogue|base)"
+    r"|(?:biblioth[eè]que|librarybrain|catalogue)\s+(?:\w+\s+){0,2}?"
+    r"(?:est\s+vide|ne\s+(?:contient|comporte|couvre)|n'a\s+rien)"
+    r"|(?:pas|non)\s+index[ée]"
+    r"|n'ai\s+(?:rien|pas)\s+trouv[ée]"
+)
+
+
+def _claims_no_library_source(content: str | None) -> bool:
+    """Vrai si la réponse affirme qu'il n'y a ni source ni livre sur le sujet.
+
+    Pur → testable sans LLM. Normalise l'apostrophe typographique (le modèle
+    alterne « n'ai » et « n’ai ») avant de matcher `_NO_SOURCE_CLAIM_RE`.
+    """
+    if not content:
+        return False
+    return bool(_NO_SOURCE_CLAIM_RE.search(content.lower().replace("’", "'")))
+
+
 def _is_empty_after_reasoning(
     content: str | None,
     has_tool_calls: bool,
@@ -1166,6 +1199,44 @@ class Orchestrator:
             streak_map.clear()
             streak_map[sig] = n
         return n
+
+    def _note_library_probe(self, tool_name: str, result: str) -> None:
+        """Suit l'usage des deux ponts LibraryBrain sur le run courant.
+
+        Seul un hit EXACT (« N livre(s) au catalogue pour … ») compte comme une
+        trouvaille catalogue. Un miss ET une correspondance PARTIELLE laissent la
+        question du CONTENU entière → ils arment le garde-fou. `search_books`
+        compte dès qu'il est APPELÉ, même en erreur : le garde vise « jamais
+        essayé », pas « essayé sans succès » (sinon il relancerait sans fin sur un
+        LibraryBrain hors-ligne).
+        """
+        if tool_name == "library_catalog":
+            if not re.match(r"\d+ livre\(s\) au catalogue pour ", result):
+                self._catalog_missed = True
+        elif tool_name == "search_books":
+            self._content_searched = True
+
+    def _should_force_content_search(
+        self, content: str | None, iteration: int, max_iter: int
+    ) -> bool:
+        """Vrai si la réponse conclut à l'absence sans avoir interrogé le CONTENU.
+
+        Incident 27/07 : 5 `library_catalog` sur « bébé / puériculture / parenting »,
+        ZÉRO `search_books`, puis « il n'y a pas de sources dans LibraryBrain » —
+        faux, la bibliothèque avait la matière. Le catalogue n'indexe que
+        titre+auteur : il ne peut RIEN conclure sur le contenu.
+
+        Une seule relance par run (`_library_guard_fired`) : si `search_books` ne
+        rend rien non plus, la 2e conclusion d'absence passe. Il faut aussi une
+        itération de marge, sinon la relance meurt sur le cap sans réponse.
+        """
+        return (
+            self._catalog_missed
+            and not self._content_searched
+            and not self._library_guard_fired
+            and iteration < max_iter - 1
+            and _claims_no_library_source(content)
+        )
 
     def _cmd_loop_nudge(self, tool_args: dict, streak: int) -> None:
         """Signale la boucle de commande à l'utilisateur et injecte un nudge
@@ -2220,6 +2291,10 @@ class Orchestrator:
         self._preview_fix_attempts = 0  # boucle de feedback preview (reset/requête)
         # Défaut : pas de skill interactif (réévalué dans le bloc routeur).
         self._interactive_skill_active = False
+        # Garde-fou LibraryBrain (cf. _NO_SOURCE_CLAIM_RE) — état par requête.
+        self._catalog_missed = False       # ≥1 `library_catalog` sans hit exact
+        self._content_searched = False     # ≥1 `search_books` lancé
+        self._library_guard_fired = False  # 1 relance max par run()
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2484,6 +2559,10 @@ class Orchestrator:
                     self.profiler.track_tool_usage(tool_name)
                     if tool_name in ("preview_code", "preview_file"):
                         _preview_url = _extract_preview_url(result)
+
+                    # Garde-fou LibraryBrain : suit « catalogue sans hit exact » et
+                    # « contenu jamais cherché » (cf. _should_force_content_search).
+                    self._note_library_probe(tool_name, result)
 
                     # Anti-boucle : on compte les appels (nom+args) qui rendent le
                     # MÊME résultat. Un sondage (statut_generation) voit son résultat
@@ -2774,6 +2853,39 @@ class Orchestrator:
                     console.print("[dim yellow]  ⤵  anti-stall : nudge → exécute maintenant[/dim yellow]")
                     continue
 
+                # Garde-fou LibraryBrain : le modèle conclut « pas de sources »
+                # alors qu'il n'a interrogé QUE le catalogue (titre+auteur), qui ne
+                # dit rien du CONTENU des livres → on refuse la conclusion et on
+                # force un `search_books` avant de laisser passer la réponse.
+                if self._should_force_content_search(content, iteration, max_iter):
+                    self._library_guard_fired = True
+                    logger.info(
+                        "[library-guard] absence affirmée après un miss catalogue "
+                        "sans search_books → relance forcée (iter=%d)", iteration)
+                    console.print(
+                        "[dim yellow]  ⤵  LibraryBrain : le catalogue ne couvre que "
+                        "titre+auteur — je fouille le contenu avant de conclure[/dim yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": (
+                            "STOP — ne conclus pas à l'absence. Tu viens d'affirmer "
+                            "qu'il n'y a pas de source / pas d'info, mais tu n'as "
+                            "appelé que `library_catalog`, qui n'indexe QUE les titres "
+                            "et les auteurs. Un livre qui traite du sujet sans le mot "
+                            "dans son titre y est INVISIBLE : ton constat ne prouve "
+                            "rien sur le contenu de la bibliothèque.\n"
+                            "Appelle MAINTENANT `search_books` — l'outil qui fouille le "
+                            "CONTENU des livres — avec une question de FOND, pas des "
+                            "mots-clés : « que disent les livres sur … ? ». Ne réponds "
+                            "à l'utilisateur qu'APRÈS ce résultat, et cite les sources "
+                            "trouvées. Si search_books ne rend rien non plus, dis "
+                            "précisément ce que tu as cherché et où."
+                        ),
+                        "timestamp": None,
+                    })
+                    continue
+
                 # Text-to-action fallback : le LLM n'a pas appelé de tool mais a
                 # peut-être écrit du code dans des blocs markdown. On extrait et
                 # on appelle le tool nous-mêmes. C'est notre filet ultime pour
@@ -2837,6 +2949,9 @@ class Orchestrator:
         self._self_critique_done = False
         self._interactive_skill_active = False
         self._empty_reasoning_recovered = False
+        self._catalog_missed = False
+        self._content_searched = False
+        self._library_guard_fired = False
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
