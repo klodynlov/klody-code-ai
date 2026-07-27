@@ -403,9 +403,12 @@ MCP_TOOLS = [
             "description": (
                 "Interroge la bibliothèque locale LibraryBrain (RAG génératif multi-livres) : "
                 "compose une RÉPONSE COMPLÈTE et sourcée (citations livre + page) à partir "
-                "des livres indexés. Utilise cet outil quand la question porte sur un sujet "
-                "où un livre de référence peut aider : architecture, patterns, algorithmes, "
-                "frameworks, sciences. Peut prendre 1 à 3 minutes (génération locale)."
+                "du CONTENU des livres indexés. SEUL outil qui voit l'intérieur des livres. "
+                "Utilise-le dès que la question porte sur un SUJET où un livre peut aider "
+                "(architecture, patterns, algorithmes, sciences, santé, droit, parentalité…) "
+                "et TOUJOURS avant d'affirmer que la bibliothèque n'a pas de source : un "
+                "`library_catalog` à vide ne cherche que les titres, pas le contenu. "
+                "Peut prendre 1 à 3 minutes (génération locale) — c'est normal, attends."
             ),
             "parameters": {
                 "type": "object",
@@ -437,7 +440,12 @@ MCP_TOOLS = [
                 "NE PASSE PAS par le RAG gaté — à l'inverse de search_books qui "
                 "interroge le CONTENU et peut répondre « aucun résultat » pour une "
                 "question par titre alors que le livre est bien au catalogue. "
-                "Pour interroger le CONTENU d'un livre, utilise search_books."
+                "N'UTILISE PAS cet outil pour un THÈME (« livres sur le bébé », "
+                "« sur la fiscalité ») : l'index ne couvre que titre+auteur, il rate "
+                "tout livre qui traite du sujet sans le mot dans son titre — un "
+                "résultat vide ne prouve donc RIEN sur ce que contient la "
+                "bibliothèque. Pour un sujet, et avant toute conclusion d'absence, "
+                "utilise search_books."
             ),
             "parameters": {
                 "type": "object",

@@ -126,6 +126,32 @@ def _catalog_terms(query: str) -> list[str]:
     ][:6]
 
 
+def _catalog_miss(query: str, total: int) -> str:
+    """Message de MISS catalogue — n'affirme JAMAIS l'absence du sujet.
+
+    Le catalogue n'indexe que `title` + `author`. Une requête THÉMATIQUE
+    (« bébé », « puériculture », « parenting ») rate par construction tout livre
+    qui traite du sujet sans le mot dans son titre : le miss ne dit rien du
+    CONTENU. L'ancien texte concluait « Le livre n'est pas indexé » et le modèle
+    le recopiait tel quel (incident 27/07 : 5 `library_catalog` à vide, ZÉRO
+    `search_books`, puis « il n'y a pas de sources dans LibraryBrain » — faux,
+    la bibliothèque avait la matière). Miroir de `_augment_no_hit`, qui couvre
+    déjà le sens inverse (0 hit RAG ≠ livre absent).
+    """
+    return (
+        f"Aucun livre dont le TITRE ou l'AUTEUR matche « {query} » "
+        f"(catalogue = {total} livres).\n\n"
+        "⚠️ Ce résultat ne prouve PAS que la bibliothèque n'a rien sur ce sujet : "
+        "le catalogue n'indexe QUE les titres et les auteurs, pas le contenu des "
+        "pages. Un livre qui traite du sujet sans le mot dans son titre est "
+        "invisible ici.\n"
+        "N'affirme donc PAS « rien dans la bibliothèque » / « pas de sources » sur "
+        "cette seule base, et ne bascule pas sur le web. Lance `search_books` avec "
+        "une question de FOND (« que disent les livres sur … ? ») — c'est l'outil "
+        "qui fouille le CONTENU — puis conclus."
+    )
+
+
 def catalog_lookup(query: str, limit: int = 5) -> str:
     """Cherche un livre AU CATALOGUE par titre/auteur (métadonnée, instantané).
 
@@ -184,14 +210,22 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
         con.close()
 
     if not rows:
-        return (
-            f"Aucun livre au catalogue pour « {query} » "
-            f"(catalogue = {total} livres). Le livre n'est pas indexé."
-        )
+        return _catalog_miss(query, total)
 
+    # ATTENTION à l'en-tête « approchant » : il DOIT garder sa mise en garde (ne
+    # jamais affirmer « indexé » sur un repli OR, cf. _CATALOG_STOPWORDS) mais ne
+    # doit PAS commencer par une négation. L'ancienne formule « Aucune
+    # correspondance exacte… » se lisait en diagonale comme un ZÉRO RÉSULTAT :
+    # incident 27/07, 3 des 5 appels renvoyaient des livres pertinents sous ce
+    # titre (Sudden Infant Death Syndrome, Child Development…) et le modèle a
+    # quand même conclu « pas de sources dans LibraryBrain ». On annonce donc
+    # d'abord ce qui est TROUVÉ, la réserve ensuite. Le préfixe reste distinct du
+    # hit exact : `_catalogued_exact` et le suivi orchestrator matchent
+    # `^\d+ livre\(s\) au catalogue pour ` pour ne compter QUE l'exact.
     header = (
-        f"Aucune correspondance exacte pour « {query} ». "
-        f"Livres approchants (ne contiennent pas tous les mots) :"
+        f"Correspondance PARTIELLE pour « {query} » — {len(rows)} livre(s) "
+        f"approchant(s) (aucun ne réunit tous les mots ; ne conclus pas qu'ils "
+        f"traitent du sujet) :"
         if approx else
         f"{len(rows)} livre(s) au catalogue pour « {query} » :"
     )
@@ -211,6 +245,14 @@ def catalog_lookup(query: str, limit: int = 5) -> str:
             f"{f' ({meta})' if meta else ''}"
             f"{f' · indexé le {date}' if date else ''}"
         )
+    # Rappel systématique (hit exact comme approchant) : cette liste ne dit RIEN
+    # du contenu. Le modèle jugeait la bibliothèque sur des titres maigres et
+    # concluait « rien d'utile » sans jamais ouvrir les livres.
+    lines.append(
+        "\n(Titres et auteurs UNIQUEMENT — le catalogue ne voit pas le contenu "
+        "des pages. Pour ce que disent ces livres, ou pour tout sujet de fond, "
+        "lance `search_books`.)"
+    )
     return "\n".join(lines)
 
 
