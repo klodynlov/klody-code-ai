@@ -1228,8 +1228,21 @@ def _as_list(v) -> list:
     return [str(x) for x in v] if isinstance(v, list) else [str(v)]
 
 
-def _idee_to_body(idee: dict, duree_sec: int, modele_voix: str, transpose: int, bpm) -> dict:
-    """Mappe une idée de chanson -> corps /generate du daemon local-suno."""
+def _idee_to_body(
+    idee: dict,
+    duree_sec: int,
+    modele_voix: str,
+    transpose: int,
+    bpm,
+    instrumental: bool = False,
+) -> dict:
+    """Mappe une idée de chanson -> corps /generate du daemon local-suno.
+
+    ``instrumental`` rend le morceau SANS voix : l'amorce de paroles n'est pas
+    transmise (le moteur reçoit le marqueur ``[Instrumental]``, convention des
+    données d'entraînement ACE-Step), et le daemon saute démux + RVC + contrôle
+    qualité paroles. La tonalité et le bpm de l'idée valent toujours.
+    """
     # Tolère qu'on passe la sortie complète d'idees_chanson : prend la 1ʳᵉ idée.
     if isinstance(idee.get("idees"), list) and idee["idees"]:
         idee = idee["idees"][0]
@@ -1246,7 +1259,12 @@ def _idee_to_body(idee: dict, duree_sec: int, modele_voix: str, transpose: int, 
         "rvc_model": modele_voix or "klody",
         "style_prompt": style,
     }
-    if paroles:
+    if instrumental:
+        # Marqueur d'arrangement sans chant. En `custom_lyrics`, il court-circuite
+        # aussi le LLM de paroles du daemon : rien à écrire pour un instrumental.
+        body["custom_lyrics"] = "[Instrumental]"
+        body["instrumental"] = True
+    elif paroles:
         body["custom_lyrics"] = paroles
     if bpm:
         body["bpm"] = max(60, min(int(bpm), 180))  # bornes daemon (ge=60 le=180)
@@ -1260,8 +1278,9 @@ async def composer_demo(
     modele_voix: str = "klody",
     transpose: int = 0,
     bpm: int | None = None,
+    instrumental: bool = False,
 ) -> dict:
-    """Génère une démo audio chantée à partir d'une idée de chanson — NON bloquant.
+    """Génère une démo audio à partir d'une idée de chanson — NON bloquant.
 
     Prend une idée (objet renvoyé par idees_chanson : genre, ambiance, tonalité,
     instrumentation, amorce de paroles), la mappe en requête de génération et lance
@@ -1275,13 +1294,16 @@ async def composer_demo(
         modele_voix: Voix clonée RVC (voir l'arm vocalbrain : lister_voix).
         transpose: Transposition en demi-tons (cale la démo sur ta tessiture).
         bpm: BPM cible (optionnel).
+        instrumental: True = démo SANS voix (l'amorce de paroles est ignorée,
+            RVC et modele_voix/transpose ne servent pas). Pour une instru seule.
 
     Returns:
-        {"session_id", "status", "demo": {style, paroles}, "note"} ou {"error": "..."}.
+        {"session_id", "status", "demo": {style, paroles, instrumental}, "note"}
+        ou {"error": "..."}.
     """
     if not isinstance(idee, dict) or not idee:
         return {"error": "idee requise (un objet renvoyé par idees_chanson)."}
-    body = _idee_to_body(idee, duree_sec, modele_voix, transpose, bpm)
+    body = _idee_to_body(idee, duree_sec, modele_voix, transpose, bpm, instrumental)
     try:
         resp = await _ls_post("/generate", body)
         if resp.status_code == 429:
@@ -1293,9 +1315,14 @@ async def composer_demo(
             "status": d.get("status", "queued"),
             "demo": {
                 "style": body["prompt"],
-                "paroles": body.get("custom_lyrics", "(instrumental)"),
+                # Sans chant, `custom_lyrics` ne porte que le marqueur d'arrangement :
+                # le rendre comme des « paroles » ferait croire à une démo chantée.
+                "paroles": None if instrumental else body.get("custom_lyrics"),
+                "instrumental": instrumental,
             },
-            "note": "Démo en génération. Suis avec statut_demo(session_id), "
+            "note": ("Démo instrumentale (aucune voix) en génération. "
+                     if instrumental else "Démo en génération. ")
+            + "Suis avec statut_demo(session_id), "
             "puis resultat_demo(session_id) quand status=done.",
         }
     except httpx.ConnectError:
