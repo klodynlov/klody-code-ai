@@ -19,6 +19,7 @@ Outils exposés :
 - etat_systeme()                       — daemon up ? modèles chargés ? MPS ?
 - lister_voix()                        — modèles RVC entraînés disponibles
 - generer_chanson(paroles, style, …)   — lance une génération (non bloquant)
+- generer_instrumental(style, …)       — morceau SANS voix (non bloquant)
 - statut_generation(session_id)        — progression d'une génération
 - resultat_generation(session_id)      — mix final + stems (URLs + chemins locaux)
 - lister_sessions(limit)               — générations récentes
@@ -90,6 +91,21 @@ async def _post(path: str, json_body: dict) -> httpx.Response:
 
 
 _UNREACHABLE = f"daemon local-suno injoignable ({LOCALSUNO_URL}) — démarre-le : `localsuno serve`"
+
+# Bornes du contrat /generate (storage.models.GenerationRequest côté local-suno).
+# Hors bornes, le daemon répond 422 avec une erreur pydantic illisible pour le
+# modèle : on borne ici et on DIT ce qui a été borné plutôt que de laisser passer.
+_DUREE_MIN, _DUREE_MAX = 10, 600
+_BPM_MIN, _BPM_MAX = 60, 180
+
+# Arrangement d'un morceau sans chant. Double rôle :
+#   1. c'est la convention des données d'entraînement ACE-Step — le daemon écrit
+#      exactement ce marqueur quand instrumental=True ;
+#   2. le passer en `custom_lyrics` court-circuite le LLM de paroles du daemon
+#      (gateway :8090). Pour un instrumental il n'écrirait que du texte que le
+#      moteur jette ensuite — un aller-retour réseau et une panne possible en
+#      moins, sur un morceau qui n'a aucune parole à écrire.
+_MARQUEUR_INSTRUMENTAL = "[Instrumental]"
 
 
 # ---------------------------------------------------------------------------- #
@@ -201,6 +217,93 @@ async def generer_chanson(
         return {"error": _UNREACHABLE}
     except Exception as exc:
         logger.error("generer_chanson: %s", exc, exc_info=True)
+        return {"error": str(exc)}
+
+
+@mcp.tool()
+async def generer_instrumental(
+    style: str,
+    duree_sec: int = 60,
+    bpm: int | None = None,
+    tonalite: str | None = None,
+    lora_style: str | None = None,
+) -> dict:
+    """Lance la génération d'un morceau INSTRUMENTAL (aucune voix) — NON bloquant.
+
+    À utiliser quand l'utilisateur veut une instru, un beat, une prod, une musique
+    de fond : rien n'est chanté, la voix clonée n'entre pas en jeu. Le moteur
+    (ACE-Step) rend directement l'instrumental — pas de démux, pas de RVC, pas de
+    contrôle qualité des paroles. Pour un morceau CHANTÉ, utilise generer_chanson.
+
+    Récupère ensuite l'avancement avec statut_generation(session_id), puis le mix
+    et les stems avec resultat_generation(session_id) une fois le statut "done".
+
+    Args:
+        style: Tags de style en anglais (genre, instruments, ambiance) — c'est le
+            SEUL conditionnement du moteur ici, donc sois précis :
+            "boom bap hip hop, dusty rhodes, upright bass, brushed drums".
+        duree_sec: Durée cible en secondes (10-600 ; au-delà du plafond de segment
+            le daemon recolle des segments chevauchants).
+        bpm: BPM cible (60-180). Non fourni : le daemon retient 90.
+        tonalite: Tonalité, format anglais ("F minor", "C# major"). Non fournie :
+            le daemon retient Am.
+        lora_style: Nom d'un adaptateur de style LoRA du daemon (optionnel).
+            "none" = modèle nu ; nom inconnu = retour au défaut de la config.
+
+    Returns:
+        {"session_id", "status", "parametres", "note"} ou {"error": "..."}.
+    """
+    if not style or not style.strip():
+        return {"error": "style requis (tags en anglais : genre, instruments, ambiance)"}
+
+    duree = max(_DUREE_MIN, min(int(duree_sec), _DUREE_MAX))
+    body: dict = {
+        "prompt": style.strip(),
+        "duration_sec": duree,
+        "style_prompt": style.strip(),
+        "custom_lyrics": _MARQUEUR_INSTRUMENTAL,
+        "instrumental": True,
+    }
+    bornes: list[str] = []
+    if duree != int(duree_sec):
+        bornes.append(f"durée ramenée à {duree}s (bornes {_DUREE_MIN}-{_DUREE_MAX})")
+    if bpm:
+        borne_bpm = max(_BPM_MIN, min(int(bpm), _BPM_MAX))
+        body["bpm"] = borne_bpm
+        if borne_bpm != int(bpm):
+            bornes.append(f"bpm ramené à {borne_bpm} (bornes {_BPM_MIN}-{_BPM_MAX})")
+    if tonalite and tonalite.strip():
+        body["key"] = tonalite.strip()
+    if lora_style and lora_style.strip():
+        body["lora_style"] = lora_style.strip()[:64]
+
+    try:
+        resp = await _post("/generate", body)
+        if resp.status_code == 429:
+            return {"error": "file d'attente pleine — réessaie dans un moment."}
+        if resp.status_code == 422:
+            return {"error": f"paramètres refusés par le daemon : {resp.text[:300]}"}
+        resp.raise_for_status()
+        d = resp.json()
+        return {
+            "session_id": d.get("session_id"),
+            "status": d.get("status", "queued"),
+            "parametres": {
+                "style": body["style_prompt"],
+                "duree_sec": duree,
+                "bpm": body.get("bpm", "défaut daemon (90)"),
+                "tonalite": body.get("key", "défaut daemon (Am)"),
+                "voix": None,
+            },
+            "note": ("Instrumental en génération (aucune voix). Suis l'avancement "
+                     "avec statut_generation(session_id), puis "
+                     "resultat_generation(session_id) quand status=done."
+                     + (" ⚠ " + " ; ".join(bornes) if bornes else "")),
+        }
+    except httpx.ConnectError:
+        return {"error": _UNREACHABLE}
+    except Exception as exc:
+        logger.error("generer_instrumental: %s", exc, exc_info=True)
         return {"error": str(exc)}
 
 

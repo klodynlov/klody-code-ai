@@ -1234,7 +1234,8 @@ VOICE_TOOLS: list[dict] = [
                 "outil quand l'utilisateur demande de parler, dire, lire ou annoncer "
                 "quelque chose à voix haute, ou pour signaler oralement la fin d'une "
                 "longue tâche. Texte court (≤ 600 caractères). Ce n'est PAS pour "
-                "générer des chansons (→ mcp__vocalbrain__generer_chanson)."
+                "générer des chansons (→ mcp__vocalbrain__generer_chanson) ni des "
+                "instrumentales (→ mcp__vocalbrain__generer_instrumental)."
             ),
             "parameters": {
                 "type": "object",

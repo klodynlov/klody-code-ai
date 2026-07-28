@@ -116,7 +116,10 @@ recherche sémantique dans TOUTE la mémoire archivée (faits anciens + sessions
 au-delà des faits récents affichés ci-dessus.
 - Si l'utilisateur demande de dire, lire ou annoncer quelque chose à voix haute, \
 utilise speak (parole courte, haut-parleurs). Pour CHANTER ou créer une chanson, \
-utilise mcp__vocalbrain__generer_chanson puis suis avec statut_generation.
+utilise mcp__vocalbrain__generer_chanson ; pour une INSTRUMENTALE / instru / beat / \
+prod / musique de fond (sans voix), utilise mcp__vocalbrain__generer_instrumental \
+— ne réponds JAMAIS que tu ne sais faire que du chanté. Dans les deux cas, suis \
+ensuite avec statut_generation.
 
 Ne modifie jamais un fichier sans l'avoir lu. \
 Avant toute commande bash, explique pourquoi.\

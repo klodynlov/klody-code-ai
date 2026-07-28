@@ -192,7 +192,7 @@ python api/server.py                   # 4. (option) API WebSocket pour l'UI Tau
 | **Musique — mixage** (`mcp__klodymusic__*`) | `recommander_eq`, `detecter_masquage`, `analyser_balance_tonale`, `recommander_compression`, `recommander_saturation` (dérivés des mesures objectives d'`audio_analysis` : LUFS, spectre, largeur stéréo, crest) |
 | **Musique — chant** (`mcp__klodymusic__*`) | `evaluer_tessiture`, `analyser_justesse` (écart en cents vs gamme), `recommander_autotune` (gamme/vitesse/force), `harmonies_vocales` |
 | **Musique — sound design** (`mcp__klodymusic__*`) | `generer_preset_synth` (patch synthé agnostique par rôle/caractère), `organiser_banque` (rangement de samples par catégorie) |
-| **Musique — DAW / voix** | `mcp__reaper__*` (pistes, FX, bus/sends, MIDI, régions, rendu stems, chaîne vocale, arrangement), `mcp__vocalbrain__*` (génération/entraînement de chant) |
+| **Musique — DAW / voix** | `mcp__reaper__*` (pistes, FX, bus/sends, MIDI, régions, rendu stems, chaîne vocale, arrangement), `mcp__vocalbrain__*` (`generer_chanson` chant voix clonée, `generer_instrumental` morceau sans voix, entraînement de voix) |
 | **🖥️ macOS** (Apple Silicon) | `run_applescript`, `spotlight_search`, `run_shortcut` (HomeKit/Automator), `list_shortcuts`, `reveal_in_finder` |
 | **🏠 Maison / IoT** | `mqtt_publish`, `mqtt_subscribe` (ESP32, Raspberry Pi, Home Assistant, pont HomeKit) |
 | **🧹 Automatisation** | `batch_rename`, `organize_directory`, `backup_directory`, `sync_directories` (sandboxés, `dry_run` par défaut) |
