@@ -90,6 +90,17 @@ def configure(*, settings=None, connection=None) -> None:
     _connection_provider = connection
 
 
+def get_settings():
+    """Les réglages reçus au dernier `configure()`.
+
+    Le vrai moteur les consomme en interne ; ici c'est le seul moyen de vérifier
+    que `configure_memory` construit bien ses `MemorySettings` depuis la config
+    Klody — notamment `SEMANTIC_MEMORY_PROVIDER`, dont une mauvaise propagation
+    enverrait silencieusement les embeddings sur le mauvais backend.
+    """
+    return _settings
+
+
 # ── klody_memory.embedder ─────────────────────────────────────────────────────
 
 _VEC_TABLE_CREATED = False
@@ -225,6 +236,7 @@ def install() -> dict[str, object]:
     root = types.ModuleType("klody_memory")
     root.ensure_memory_schema = ensure_memory_schema
     root.configure = configure
+    root.get_settings = get_settings
 
     embedder = types.ModuleType("klody_memory.embedder")
     embedder._VEC_TABLE_CREATED = _VEC_TABLE_CREATED

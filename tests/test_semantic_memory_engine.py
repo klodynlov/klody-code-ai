@@ -71,6 +71,20 @@ def test_configure_cree_le_schema_et_le_parent(sm, tmp_path):
     assert {"books", "chunks", "book_embed_info"} <= tables
 
 
+@pytest.mark.parametrize(
+    "brut,attendu",
+    [("ollama", "ollama"), ("  ST  ", "st"), ("", "st")],
+)
+def test_configure_propage_le_provider_d_embeddings(sm, tmp_path, monkeypatch, brut, attendu):
+    """`SEMANTIC_MEMORY_PROVIDER` doit atteindre le moteur, normalisé. Une mauvaise
+    propagation enverrait silencieusement les embeddings sur le mauvais backend —
+    panne invisible : la base se remplit, mais avec des vecteurs d'un autre modèle."""
+    monkeypatch.setattr(config, "SEMANTIC_MEMORY_PROVIDER", brut)
+    sm.configure_memory(db_path=tmp_path / f"p_{attendu}.db")
+
+    assert fake_klody_memory.get_settings().embed_provider == attendu
+
+
 def test_is_ready_suit_la_configuration(sm, tmp_path):
     assert sm.is_ready() is True
     sm.reset_memory(tmp_path / "semantic.db")
