@@ -72,8 +72,9 @@ Coût marginal nul (même contexte conservé), qualité ++.
 | ✅ 10 | **Pilotage de l'environnement + Toolsmithing** | done | macOS (AppleScript/Spotlight/Raccourcis/Finder), maison (MQTT), automatisation fichiers, et **toolsmithing** (Klody fabrique scripts/CLI/API/serveurs MCP/workflows/pipelines/plugins/interfaces). Chaque artefact généré livré avec son test. |
 | ✅ 11 | **Expansion des capacités** (task_types + langages + Ops + génération) | done | +6 task_types focalisés ; retrieval Rust/Go/Java/PHP ; outils `analyze_dependencies`, `run_sql` (SQLite sandboxé), introspection Docker/Kubernetes/Git + mutations gated, `generate_uml`, `scaffold_api` (REST/GraphQL) / `scaffold_sdk` / `scaffold_nosql` ; 7 skills de domaine. **69 outils au total.** |
 | ✅ 12 | **Outillage de mesure** (gate réparé, A/B, répétitions, provenance) | done | gate de non-régression opérationnel (il ne pouvait structurellement pas échouer) ; `bench.compare` écrit ; `--repeat N` + provenance du modèle ; sentinelle runner. **58 tests sur `bench/`.** |
+| ✅ 13 | **Couverture réelle** (gate 80 %, dépendances doublées) | done | gate 75→80 % ; semantic_memory 28→98 %, embeddings 18→100 %, audio 25→96 % ; **83,8 % au total**, 2126 tests. Un `fade_out` cassé depuis toujours mis au jour. |
 
-**Total : 12/12 étapes livrées.**
+**Total : 13/13 étapes livrées.**
 
 Klody est passé d'un ReAct mono-modèle Ollama qwen2.5-coder:32b à un système
 agentique adaptatif MLX multi-modèles avec routing, hot-swap prompts, sandbox
@@ -82,7 +83,49 @@ mémoire d'erreurs récurrentes, et exposé comme serveur MCP pour d'autres agen
 
 Le banc de mesure qui a piloté ce parcours est lui-même redevenu opérationnel à
 l'étape 12 : non-régression qui peut réellement échouer, comparaison A/B de deux
-configurations, répétitions, et traçabilité du modèle mesuré.
+configurations, répétitions, et traçabilité du modèle mesuré. L'étape 13 a
+appliqué la même exigence à la suite de tests — un garde-fou ne vaut que s'il
+peut rougir.
+
+### Étape 13 — Couverture réelle (les dépendances absentes, pas le code)
+
+Suite directe de l'étape 12, même principe : un garde-fou qui ne peut pas échouer
+ne protège de rien. La gate de couverture était à 75 % pour un réel à 80,4 % —
+cinq points de mou, donc aveugle à toute régression.
+
+**Relèvement à 80 %, puis constat.** Le seuil relevé ne laissait que ~36
+statements de jeu. Trois modules pesaient l'essentiel du manque :
+`agent/semantic_memory.py` (28 %), `tools/audio.py` (25 %),
+`tools/embeddings.py` (18 %). Ils étaient documentés comme « structurellement peu
+testables ». **C'était faux pour les trois.**
+
+**La vraie cause, commune.** Chacun dépend d'un paquet absent en CI —
+`klody_memory` vit hors du dépôt, `librosa`/`soundfile` sont optionnels par
+conception. Chacun sort donc sur sa dégradation douce *avant d'exécuter quoi que
+ce soit*. La couverture ne mesurait pas une négligence : elle mesurait une
+dépendance manquante, et masquait tout ce qu'il y avait derrière.
+
+**La recette.** Doubler UNIQUEMENT le paquet manquant, en gardant réel tout ce
+qui peut l'être — SQLite, numpy, les fichiers WAV (`tests/fake_klody_memory.py`,
+`tests/fake_audio_libs.py`). Ainsi c'est bien le code du dépôt qui est jugé, pas
+le double. Les assertions portent sur les artefacts produits (un WAV relu, une
+base interrogée), jamais sur le dict de retour.
+
+**Ce que ça a trouvé.** `tools/audio.py` écrivait `y[-fade_samples]` au lieu de
+`y[-fade_samples:]` : sans les deux-points, un scalaire au lieu d'une tranche,
+`len()` qui lève, et le `except` large qui transforme le `TypeError` en dict
+d'erreur. **`fade_out` n'avait jamais fonctionné** — silencieusement, parce que
+personne ne pouvait l'exécuter.
+
+Résultat : 80,5 % → **83,8 %**, 2030 → 2126 tests, et ~313 statements de marge au
+lieu de 36. Deux pièges de montage valent d'être connus pour la prochaine fois :
+un `importlib.reload` recrée les classes du module et casse tout
+`pytest.raises` qui les a importées par leur nom ; et un `import numpy` placé
+dans le même `try` qu'une dépendance optionnelle ne survit pas à son absence.
+
+Leçon, dans le prolongement de l'étape 12 : **un chiffre de couverture bas décrit
+d'abord l'environnement de test, pas la qualité du code.** Avant de conclure
+qu'un module est peu testable, vérifier ce qui manque à la CI pour l'exécuter.
 
 ### Étape 12 — Outillage de mesure (le principe n°2 rendu applicable)
 
