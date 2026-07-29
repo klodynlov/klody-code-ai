@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from bench.compare import aggregate, build_report, load_side, main
+from bench.compare import aggregate, build_report, load_side, main, short_label
 
 
 def _result(task_id: str, success: bool, category: str = "easy", **over) -> dict:
@@ -161,6 +161,111 @@ def test_report_ventile_par_categorie(tmp_path):
     assert "hard (1)" in report
 
 
+# --- répétitions & provenance ----------------------------------------------
+
+
+def test_repeats_compte_les_passes_pas_les_fichiers(tmp_path):
+    """`bench.run --repeat 3` écrit UN fichier de 3 passes : compter les fichiers
+    ferait passer un run répété pour un one-shot."""
+    p = tmp_path / "trois_passes.json"
+    _write(p, [_result("easy/x", True) for _ in range(3)])
+    side = load_side("a", [p])
+
+    assert side.repeats == 3
+    assert side.stats["easy/x"].runs == 3
+
+
+def test_repeats_prend_le_minimum_observe(tmp_path):
+    p = tmp_path / "inegal.json"
+    _write(p, [_result("easy/x", True), _result("easy/x", True), _result("easy/y", True)])
+
+    assert load_side("a", [p]).repeats == 1
+
+
+def test_pas_d_avertissement_avec_un_fichier_repete(tmp_path):
+    """Le corollaire : un seul fichier `--repeat 3` par côté suffit à conclure."""
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    _write(a, [_result("easy/x", True) for _ in range(3)])
+    _write(b, [_result("easy/x", True) for _ in range(3)])
+
+    assert "distinguables du bruit" not in build_report(load_side("a", [a]), load_side("b", [b]))
+
+
+def test_label_par_defaut_vient_du_modele_servi(tmp_path):
+    p = tmp_path / "run.json"
+    p.write_text(
+        json.dumps(
+            {
+                "meta": {"model_configured": "brain", "model_served": "Qwen3.6-35B"},
+                "results": [_result("easy/x", True)],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_side(None, [p]).label == "Qwen3.6-35B"
+
+
+def test_label_auto_raccourci_pour_rester_lisible(tmp_path):
+    """Un id HF complet sert d'en-tête à quatre colonnes : il doit être compact."""
+    p = tmp_path / "run.json"
+    p.write_text(
+        json.dumps(
+            {
+                "meta": {"model_served": "unsloth/Qwen3.6-35B-A3B-MLX-8bit"},
+                "results": [_result("easy/x", True)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    label = load_side(None, [p]).label
+
+    assert "unsloth/" not in label
+    assert len(label) <= 20
+    # L'id intégral reste lisible dans la ligne de provenance.
+    assert "unsloth/Qwen3.6-35B-A3B-MLX-8bit" in build_report(
+        load_side(None, [p]), load_side("b", [p])
+    )
+
+
+def test_label_retombe_sur_le_nom_de_fichier_sans_metadonnees(tmp_path):
+    p = tmp_path / "vieux_run.json"
+    _write(p, [_result("easy/x", True)])
+
+    assert load_side(None, [p]).label == "vieux_run"
+
+
+def test_label_explicite_prime_sur_les_metadonnees(tmp_path):
+    p = tmp_path / "run.json"
+    p.write_text(
+        json.dumps({"meta": {"model_served": "auto"}, "results": [_result("easy/x", True)]}),
+        encoding="utf-8",
+    )
+
+    assert load_side("choisi", [p]).label == "choisi"
+
+
+def test_rapport_affiche_la_provenance(tmp_path):
+    """Sans provenance, deux colonnes de chiffres ne disent pas quoi a été comparé."""
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(
+        json.dumps(
+            {
+                "meta": {"model_configured": "brain", "model_served": "qwen", "backend": "mlx"},
+                "results": [_result("easy/x", True)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write(b, [_result("easy/x", True)])
+
+    report = build_report(load_side(None, [a]), load_side("b", [b]))
+
+    assert "brain → qwen · backend=mlx" in report
+    assert "configuration inconnue" in report  # côté B, run sans métadonnées
+
+
 # --- CLI -------------------------------------------------------------------
 
 
@@ -193,9 +298,25 @@ def test_main_echoue_si_un_fichier_manque(tmp_path):
     assert main([str(a), str(tmp_path / "absent.json")]) == 1
 
 
+def test_main_rend_une_erreur_d_usage_sans_lever(tmp_path, capsys):
+    """Le code de retour, pas un SystemExit : testable, et pas de variable non liée."""
+    a = tmp_path / "a.json"
+    _write(a, [_result("easy/x", True)])
+
+    assert main([str(a)]) == 2
+    assert "Usage" in capsys.readouterr().err
+
+
 def test_main_echoue_sur_format_invalide(tmp_path):
     a, b = tmp_path / "a.json", tmp_path / "b.json"
     _write(a, {"counts_by_category": {"easy": 1}})  # l'ancien format fantôme
     _write(b, [_result("easy/x", True)])
 
     assert main([str(a), str(b)]) == 1
+
+
+def test_short_label_tombe_l_organisation_et_tronque():
+    assert short_label("unsloth/Qwen3.6-35B") == "Qwen3.6-35B"
+    assert short_label("court") == "court"
+    assert short_label("a" * 30).endswith("…")
+    assert len(short_label("a" * 30)) == 20

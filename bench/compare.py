@@ -4,22 +4,23 @@ Complète `bench.gate`, qui ne sait comparer qu'un run à la baseline versionné
 un verdict binaire pour la CI. Ici l'usage est l'**A/B** : mettre deux configurations
 face à face — typiquement deux cerveaux — et lire où l'écart se situe réellement.
 
-Le parsing des fichiers est délégué à `bench.gate.load_results` : un seul endroit
-connaît le format écrit par `bench.run`, ce qui évite la dérive qui avait rendu le
-gate inopérant.
+Le parsing des fichiers est délégué à `bench.gate.load_run` : un seul endroit connaît
+le format écrit par `bench.run`, ce qui évite la dérive qui avait rendu le gate
+inopérant.
 
 **Répétitions.** Un agent LLM est non-déterministe : une paire de runs ne sépare pas
-un vrai écart d'un coup de dé. Chaque côté accepte donc plusieurs fichiers, agrégés
-par `task_id`. En attendant un `bench.run --repeat`, lancer le bench N fois et passer
-les N fichiers fait le travail :
-
-    for i in 1 2 3; do python -m bench.run --label qwen_$i; done
+un vrai écart d'un coup de dé. Deux façons d'y remédier, cumulables — `bench.run
+--repeat N` (N passes dans un seul fichier), ou plusieurs fichiers par côté. Les deux
+sont agrégés par `task_id` de la même manière.
 
 Usage:
     python -m bench.compare results/a.json results/b.json
     python -m bench.compare -a a1.json a2.json -b b1.json b2.json \\
         --label-a qwen3.6 --label-b gpt-oss-120b
     python -m bench.compare a.json b.json --format md > compare.md
+
+Sans `--label-*`, chaque côté est nommé d'après le modèle qui l'a produit, lu dans les
+métadonnées du run.
 """
 from __future__ import annotations
 
@@ -29,7 +30,8 @@ import statistics
 import sys
 from pathlib import Path
 
-from bench.gate import load_results
+from bench import provenance
+from bench.gate import load_run
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
@@ -54,15 +56,23 @@ class TaskStats:
 
 @dataclasses.dataclass
 class Side:
-    """Un côté de l'A/B : un label, N fichiers, les stats par tâche."""
+    """Un côté de l'A/B : un label, N fichiers, la provenance, les stats par tâche."""
 
     label: str
     paths: list[Path]
     stats: dict[str, TaskStats]
+    meta: dict = dataclasses.field(default_factory=dict)
 
     @property
     def repeats(self) -> int:
-        return len(self.paths)
+        """Répétitions EFFECTIVES, pas le nombre de fichiers.
+
+        `bench.run --repeat 3` produit un seul fichier contenant 3 passes : compter
+        les fichiers ferait passer un run répété pour un one-shot et déclencherait à
+        tort l'avertissement sur le bruit. On prend le minimum observé — une tâche
+        moins répétée que les autres borne ce qu'on peut affirmer.
+        """
+        return min((s.runs for s in self.stats.values()), default=0)
 
 
 def _mean(values: list[float]) -> float:
@@ -91,8 +101,32 @@ def aggregate(runs: list[list[dict]]) -> dict[str, TaskStats]:
     return stats
 
 
-def load_side(label: str, paths: list[Path]) -> Side:
-    return Side(label=label, paths=paths, stats=aggregate([load_results(p) for p in paths]))
+def short_label(name: str, width: int = 20) -> str:
+    """Nom de colonne compact à partir d'un id de modèle.
+
+    Un id HF complet (`unsloth/Qwen3.6-35B-A3B-MLX-8bit`) sert d'en-tête à quatre
+    colonnes et rend les tables illisibles. On tombe l'organisation et on tronque —
+    la provenance intégrale reste affichée en tête de rapport.
+    """
+    trimmed = name.rsplit("/", 1)[-1]
+    return trimmed if len(trimmed) <= width else trimmed[: width - 1] + "…"
+
+
+def load_side(label: str | None, paths: list[Path]) -> Side:
+    """Charge un côté. `label=None` → nommé d'après le modèle servi, à défaut le fichier."""
+    loaded = [load_run(p) for p in paths]
+    metas = [meta for meta, _ in loaded if meta]
+    meta = metas[0] if metas else {}
+
+    if label is None:
+        served = meta.get("model_served") or meta.get("model_configured")
+        label = (
+            short_label(served)
+            if served
+            else (paths[0].stem if len(paths) == 1 else f"{len(paths)} runs")
+        )
+
+    return Side(label=label, paths=paths, stats=aggregate([res for _, res in loaded]), meta=meta)
 
 
 def _pct(value: float) -> str:
@@ -162,14 +196,24 @@ def build_report(a: Side, b: Side, fmt: str = "text") -> str:
     if only_b:
         lines.append(f"Ignorées (absentes de {a.label}) : {', '.join(only_b)}")
 
+    # La provenance est le point du rapport : sans elle, deux colonnes de chiffres
+    # ne disent pas QUOI a été comparé.
+    lines += [
+        "",
+        f"{a.label} : {provenance.describe_short(a.meta)}",
+        f"{b.label} : {provenance.describe_short(b.meta)}",
+    ]
+
     # Un seul run par côté ne permet aucune conclusion : la variance d'un agent
     # LLM sur une tâche dépasse couramment les écarts qu'on cherche à mesurer.
     if min(a.repeats, b.repeats) < 2:
-        lines += [
-            "",
+        # Parenthèses explicites : une concaténation implicite dans un littéral de
+        # liste se lit comme une virgule oubliée (relevé par CodeQL).
+        warning = (
             "⚠️  Un seul run d'un côté au moins : les écarts ci-dessous ne sont pas "
-            "distinguables du bruit. Relancer le bench ≥3 fois par côté pour conclure.",
-        ]
+            "distinguables du bruit. Relancer le bench ≥3 fois par côté pour conclure."
+        )
+        lines += ["", warning]
 
     agg_a, agg_b = _aggregate_of(a, common), _aggregate_of(b, common)
     lines += ["", "## Agrégats" if fmt == "md" else "Agrégats", ""]
@@ -291,29 +335,34 @@ def main(argv: list[str] | None = None) -> int:
                    help="fichier(s) du côté A (répétitions agrégées)")
     p.add_argument("-b", nargs="+", type=Path, default=None, metavar="JSON",
                    help="fichier(s) du côté B")
-    p.add_argument("--label-a", default=None, help="nom du côté A (défaut : nom de fichier)")
+    p.add_argument("--label-a", default=None,
+                   help="nom du côté A (défaut : modèle servi, à défaut nom de fichier)")
     p.add_argument("--label-b", default=None, help="nom du côté B")
     p.add_argument("--format", choices=["text", "md"], default="text")
     args = p.parse_args(argv)
 
+    # On rend l'erreur d'usage nous-mêmes plutôt que via p.error() : celui-ci lève
+    # SystemExit (pénible à tester) et son NoReturn n'est pas visible des analyseurs,
+    # qui voyaient donc paths_a/paths_b potentiellement non initialisés.
     if args.a and args.b:
         paths_a, paths_b = args.a, args.b
     elif len(args.runs) == 2:
         paths_a, paths_b = [args.runs[0]], [args.runs[1]]
     else:
-        p.error("fournir soit deux fichiers positionnels, soit -a … -b …")
+        print(
+            "Usage : deux fichiers positionnels, ou -a <json…> -b <json…>",
+            file=sys.stderr,
+        )
+        return 2
 
     missing = [p_ for p_ in (*paths_a, *paths_b) if not p_.exists()]
     if missing:
         print(f"Fichier(s) introuvable(s) : {', '.join(str(m) for m in missing)}", file=sys.stderr)
         return 1
 
-    label_a = args.label_a or (paths_a[0].stem if len(paths_a) == 1 else f"A ({len(paths_a)} runs)")
-    label_b = args.label_b or (paths_b[0].stem if len(paths_b) == 1 else f"B ({len(paths_b)} runs)")
-
     try:
-        side_a = load_side(label_a, paths_a)
-        side_b = load_side(label_b, paths_b)
+        side_a = load_side(args.label_a, paths_a)
+        side_b = load_side(args.label_b, paths_b)
     except ValueError as exc:
         print(f"Lecture impossible — {exc}", file=sys.stderr)
         return 1

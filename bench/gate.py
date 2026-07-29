@@ -30,16 +30,20 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DEFAULT_MAX_DROP = 0.10
 
 
-def load_results(path: Path) -> list[dict]:
-    """Charge un fichier de run et retourne la liste plate de résultats.
+def load_run(path: Path) -> tuple[dict, list[dict]]:
+    """Charge un fichier de run et retourne (métadonnées, résultats).
 
-    Accepte le format produit par `bench.run` (liste de `Result`) et, par
-    tolérance, un objet enveloppant sous la clé `results`.
+    Deux formats sont acceptés, et le resteront :
+    - l'enveloppe courante `{"meta": {...}, "results": [...]}` ;
+    - la liste plate historique, écrite avant que la provenance soit enregistrée.
+      Les baselines déjà promues sont dans ce format — les casser rendrait le gate
+      à nouveau inopérant, ce qu'on vient précisément de réparer.
     """
     raw = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(raw, list):
-        results = raw
+        meta, results = {}, raw
     elif isinstance(raw, dict) and isinstance(raw.get("results"), list):
+        meta = raw.get("meta") or {}
         results = raw["results"]
     else:
         raise ValueError(
@@ -50,7 +54,12 @@ def load_results(path: Path) -> list[dict]:
     for item in results:
         if not isinstance(item, dict) or "task_id" not in item:
             raise ValueError(f"{path}: entrée sans task_id — {item!r}")
-    return results
+    return meta, results
+
+
+def load_results(path: Path) -> list[dict]:
+    """Résultats seuls — le gate n'a que faire de la provenance."""
+    return load_run(path)[1]
 
 
 def success_rate(results: list[dict]) -> float:

@@ -23,6 +23,9 @@ python -m bench.run --category medium
 
 # Une seule tâche pour debug
 python -m bench.run --task easy/rename_var
+
+# N passes complètes (indispensable pour comparer deux configs — voir plus bas)
+python -m bench.run --repeat 3 --label qwen
 ```
 
 ## Comparer deux configurations (A/B)
@@ -49,20 +52,40 @@ perdre sur `hard` —, les **bascules** tâche par tâche (ce qui passe au vert,
 passe au rouge), puis le détail complet.
 
 > ⚠️ **Un run par côté ne conclut rien.** Un agent LLM est non-déterministe : sa
-> variance sur une tâche dépasse couramment l'écart qu'on cherche à mesurer. Chaque
-> côté accepte donc N fichiers, agrégés par `task_id` (succès comptés sur N, métriques
-> moyennées). Viser ≥3 runs par côté ; en dessous, le rapport le signale lui-même.
->
-> ```bash
-> for i in 1 2 3; do python -m bench.run --label qwen_$i; done
-> ```
->
-> Un `bench.run --repeat N` reste à faire, tout comme l'enregistrement de la config
-> modèle dans le JSON — aujourd'hui c'est `--label` qui porte cette information, à la
-> main.
+> variance sur une tâche dépasse couramment l'écart qu'on cherche à mesurer. Viser
+> **≥3 passes par côté** ; en dessous, le rapport le signale lui-même.
+
+Deux façons d'obtenir ces répétitions, cumulables et agrégées de la même manière
+(succès comptés sur N, métriques moyennées) :
+
+```bash
+python -m bench.run --repeat 3 --label qwen        # 3 passes dans UN fichier
+for i in 1 2 3; do python -m bench.run --label qwen_$i; done   # 3 fichiers
+```
+
+`--repeat` exécute **N passes complètes** sur la sélection, pas N exécutions
+consécutives par tâche : répéter une tâche dos à dos la sert depuis un cache de prompt
+chaud, ce qui fabriquerait une latence artificiellement basse sur les répétitions.
 
 La comparaison se fait sur l'**intersection des `task_id`** : les tâches absentes d'un
 côté sont listées puis écartées des agrégats, jamais comptées comme des échecs.
+
+### Provenance : quel modèle a produit ces chiffres
+
+Chaque run enregistre sa configuration dans `meta` — backend, base URL, modèle
+configuré, **modèle réellement servi**, fenêtre de contexte, nombre de passes. Sans
+`--label-a/-b`, `bench.compare` nomme donc chaque côté d'après le modèle qui l'a
+produit, et affiche la provenance intégrale en tête de rapport.
+
+Le modèle servi est résolu par une complétion d'un token : en mode gateway, `.env` ne
+contient qu'un alias (`brain`), et le `/v1/models` de `mlx_lm.server` liste tout le
+cache HF plutôt que le modèle chargé — la réponse OpenAI est la seule lecture fiable.
+La sonde est best-effort : gateway injoignable, le run tourne quand même et
+`model_served` reste `null`.
+
+Les fichiers passent donc d'une liste plate à une enveloppe `{"meta": …,
+"results": […]}`. Les deux formats restent lus, y compris par le gate : les baselines
+déjà promues ne sont pas invalidées.
 
 ## Gate de non-régression
 
@@ -101,7 +124,8 @@ Chaque run produit :
 
 ## Ajouter une tâche
 
-Créer `bench/tasks/<category>/<task_id>.py` avec :
+Ajouter la classe dans `bench/tasks/<category>.py` (`easy.py`, `medium.py` ou
+`hard.py`) :
 
 ```python
 from bench.framework import Task, register
