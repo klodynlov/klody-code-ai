@@ -201,6 +201,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--task", default=None, help="ID exact, ex: easy/rename_var")
     p.add_argument("--dry-run", action="store_true", help="liste sans exécuter")
     p.add_argument("--label", default=None, help="label du run pour les fichiers de sortie")
+    p.add_argument(
+        "--promote-baseline",
+        action="store_true",
+        help="écrit aussi results/baseline.json (référence du gate de non-régression)",
+    )
     args = p.parse_args(argv)
 
     all_tasks = discover_tasks()
@@ -240,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
     (RESULTS_DIR / "latest.json").write_text(
         json_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    if args.promote_baseline:
+        baseline_path = RESULTS_DIR / "baseline.json"
+        baseline_path.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"📌  baseline → {baseline_path} (à committer)")
 
     print(f"\n📊  JSON → {json_path}")
     print(f"📊  MD   → {md_path}")

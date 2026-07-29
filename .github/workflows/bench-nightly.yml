@@ -1,15 +1,19 @@
 name: Bench nightly (MLX)
 
 # Nightly bench non-régression. Tourne UNIQUEMENT sur runner self-hosted
-# macOS avec MLX dispo (Apple Silicon). Un job sentinelle 'verify-runner'
-# évite que le workflow soit attendu indéfiniment si aucun runner n'est
-# enregistré — il skip proprement.
+# macOS avec la pile d'inférence locale joignable (Apple Silicon).
+#
+# ⚠️ Il n'existe PAS de job sentinelle : sans runner portant les labels ci-dessous,
+# chaque run planifié reste en file puis est annulé au timeout. C'est ce qui s'est
+# produit sur l'intégralité des runs jusqu'au 2026-07-29 (aucune exécution réelle).
+# Vérifier `Settings → Actions → Runners` avant de conclure quoi que ce soit d'un
+# historique vert-vide.
 #
 # Setup requis (une fois) :
 #   1. Settings → Actions → Runners → New self-hosted runner (macOS)
 #   2. Labels : self-hosted, macOS, klody
-#   3. Sur le Mac : MLX, Ollama et bge-m3 doivent tourner avant le scheduled run
-#      (ou démarrer via `scripts/start-mlx.sh` et `ollama serve` en LaunchAgents)
+#   3. Sur le Mac : le gateway Klody Core (:8090), Ollama et bge-m3 doivent tourner
+#      avant le run planifié (LaunchAgents — cf. docs/OPS.md et README-local-ai.md)
 
 on:
   schedule:
@@ -32,6 +36,15 @@ jobs:
     runs-on: [self-hosted, macOS, klody]
     timeout-minutes: 60
 
+    # Mode gateway (cf. README-local-ai.md) : un checkout frais n'a pas de .env, et
+    # les défauts de config.py sont des ids HF bruts — que le resolver du gateway
+    # rejette en 404. On fixe donc explicitement la base ET les ALIAS ici.
+    env:
+      BACKEND: mlx
+      MLX_BASE_URL: http://127.0.0.1:8090/v1
+      MLX_MODEL: brain
+      MLX_CODE_MODEL: coder
+
     steps:
       - uses: actions/checkout@v7
         env:
@@ -39,11 +52,25 @@ jobs:
 
       - name: Vérifier services locaux
         run: |
-          # MLX server (port 8080) doit déjà tourner
-          if ! curl -sf http://127.0.0.1:8080/v1/models > /dev/null; then
-            echo "::error::MLX server (port 8080) injoignable. Lance scripts/start-mlx.sh d'abord."
+          # Le gateway Klody Core doit répondre sur MLX_BASE_URL.
+          if ! curl -sf "$MLX_BASE_URL/models" > /dev/null; then
+            echo "::error::Gateway Klody Core injoignable sur $MLX_BASE_URL. Le démarrer avant le run (cf. README-local-ai.md)."
             exit 1
           fi
+          # Le port qui répond ne suffit pas : c'est la RÉSOLUTION D'ALIAS qui casse
+          # en pratique (incident 2026-07-03 — un id périmé renvoie 404 « modèle
+          # inconnu » et le bench part en échec sur les 20 tâches). On valide donc
+          # chaque alias par une complétion d'un token avant de lancer quoi que ce soit.
+          for alias in "$MLX_MODEL" "$MLX_CODE_MODEL"; do
+            [ -z "$alias" ] && continue
+            if ! curl -sf "$MLX_BASE_URL/chat/completions" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"model\":\"$alias\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" \
+                 > /dev/null; then
+              echo "::error::L'alias '$alias' ne résout pas sur $MLX_BASE_URL. Vérifier le resolver du gateway."
+              exit 1
+            fi
+          done
           # Ollama (pour bge-m3)
           if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
             echo "::warning::Ollama (port 11434) injoignable — embeddings dégradés."
@@ -59,7 +86,6 @@ jobs:
 
       - name: Run bench
         env:
-          BACKEND: mlx
           PROJECT_ROOT: ${{ runner.temp }}/klody-bench
         run: |
           source .venv/bin/activate
@@ -73,40 +99,12 @@ jobs:
       - name: Vérifier non-régression vs baseline
         run: |
           source .venv/bin/activate
-          # Le script compare bench/results/latest.json à bench/results/baseline.json
-          # et exit !=0 si régression de F1 router > 5pts ou taux de succès > 10pts.
-          python - <<'PY'
-          import json, sys
-          from pathlib import Path
-
-          baseline_p = Path("bench/results/baseline.json")
-          latest_p = Path("bench/results/latest.json")
-
-          if not baseline_p.exists():
-              print("⚠️  Pas de baseline (bench/results/baseline.json) — on accepte ce run.")
-              sys.exit(0)
-          if not latest_p.exists():
-              print("::error::bench/results/latest.json absent — bench n'a pas écrit ses résultats")
-              sys.exit(1)
-
-          base = json.loads(baseline_p.read_text())
-          latest = json.loads(latest_p.read_text())
-
-          def success_rate(d):
-              total = sum(d.get("counts_by_category", {}).values()) or 1
-              ok = sum(d.get("success_by_category", {}).values())
-              return ok / total
-
-          base_rate = success_rate(base)
-          new_rate = success_rate(latest)
-          delta = new_rate - base_rate
-          print(f"Succès baseline={base_rate:.1%}  current={new_rate:.1%}  Δ={delta:+.1%}")
-
-          if delta < -0.10:
-              print(f"::error::Régression: taux de succès chute de {delta:+.1%}")
-              sys.exit(1)
-          print("✓ Pas de régression significative.")
-          PY
+          # Logique dans bench/gate.py (lintée par ruff, couverte par
+          # tests/test_bench_gate.py) plutôt qu'en heredoc ici : la version inline
+          # lisait un format que bench.run n'a jamais produit, et rien ne pouvait
+          # l'attraper. Compare latest.json à la baseline versionnée, sur
+          # l'intersection des task_id ; exit 1 si le taux de succès chute de >10 pts.
+          python -m bench.gate
 
       - name: Upload résultats
         if: always()

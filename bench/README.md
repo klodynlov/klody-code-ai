@@ -23,10 +23,39 @@ python -m bench.run --category medium
 
 # Une seule tâche pour debug
 python -m bench.run --task easy/rename_var
-
-# Compare deux runs
-python -m bench.compare results/2026-05-26_baseline.json results/2026-05-27_mlx.json
 ```
+
+> ⚠️ `python -m bench.compare` (comparaison libre de deux runs) est **encore à
+> écrire** — le module n'existe pas. Pour l'instant, seule la comparaison
+> baseline ↔ dernier run est outillée, via `bench.gate` ci-dessous.
+
+## Gate de non-régression
+
+`bench/gate.py` compare `results/latest.json` à `results/baseline.json` et sort en
+erreur si le taux de succès chute de plus de 10 points. C'est ce que lance le
+workflow `bench-nightly`.
+
+```bash
+python -m bench.gate                    # baseline ↔ latest, seuil par défaut
+python -m bench.gate --max-drop 0.05    # seuil plus strict
+```
+
+La comparaison se fait sur l'**intersection des `task_id`** : un run filtré
+(`--category easy`) reste jugeable face à une baseline complète sans que la
+différence de périmètre soit lue comme une régression.
+
+**La baseline est versionnée** (exception explicite dans `.gitignore`). Sans elle,
+le gate se neutralise avec un `::warning::` — il ne peut donc jamais échouer, ce qui
+a été le cas tant que le fichier restait ignoré. Pour en promouvoir une :
+
+```bash
+python -m bench.run --promote-baseline   # écrit results/baseline.json
+git add bench/results/baseline.json && git commit   # pas de -f : le fichier est dé-ignoré
+```
+
+À refaire délibérément après tout changement qui déplace légitimement le niveau de
+référence (bascule de modèle, refonte du routeur) — jamais pour faire taire un run
+rouge.
 
 ## Sortie
 
