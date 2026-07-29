@@ -54,6 +54,52 @@ def _lire_json_final(sortie: str) -> dict:
     return json.loads(sortie.strip().splitlines()[-1])
 
 
+def _sonde_invariants(module: str, classe: str, ref_copie: str, ref_cle: str) -> str:
+    """Sonde PARTAGÉE par `hidden_invariant` et son témoin `first_write_method`.
+
+    Les deux tâches forment une expérience contrôlée : seule la présence d'un
+    modèle local à imiter les distingue. Deux copies de cette sonde finiraient
+    par diverger d'un détail, et la comparaison ne voudrait plus rien dire —
+    on croirait mesurer le contexte alors qu'on mesurerait l'écart des sondes.
+    Un test verrouille le fait que les deux passent bien par ici.
+
+    ⚠️ La valeur de contrôle est imbriquée sur DEUX niveaux (`{'liste': [7]}`).
+    Avec une seule liste d'entiers, `copy.copy` suffisait et passait la mesure :
+    la décision écrite parle d'« une liste imbriquée DANS la valeur », seule
+    forme où superficiel et profond diffèrent. Constaté en écrivant les tests —
+    la sonde validait `copy.copy`.
+    """
+    return (
+        "import json\n"
+        f"from {module} import {classe}\n"
+        "manques = []\n"
+        f"c = {classe}()\n"
+        "source = {'a': 1, 'b': [1, 2], 'c': {'liste': [7]}}\n"
+        "c.set_many(source)\n"
+        "if c.get('a') != 1 or c.get('b') != [1, 2] or c.get('c') != {'liste': [7]}:\n"
+        "    manques.append('set_many ne range pas les valeurs')\n"
+        "source['a'] = 999\n"
+        "if c.get('a') != 1:\n"
+        f"    manques.append('le dict de l_appelant est conservé ({ref_copie})')\n"
+        "source['b'].append(3)\n"
+        "if c.get('b') != [1, 2]:\n"
+        f"    manques.append('valeur non copiée : la liste est partagée ({ref_copie})')\n"
+        "source['c']['liste'].append(9)\n"
+        "if c.get('c') != {'liste': [7]}:\n"
+        "    manques.append('copie superficielle : la liste imbriquée est partagée')\n"
+        "try:\n"
+        f"    {classe}().set_many({{7: 'x'}})\n"
+        "except TypeError:\n"
+        "    pass\n"
+        "except Exception as exc:\n"
+        "    manques.append('clé non str : %s levée, TypeError attendue'"
+        " % type(exc).__name__)\n"
+        "else:\n"
+        f"    manques.append('clé non str acceptée ({ref_cle})')\n"
+        "print(json.dumps(manques))\n"
+    )
+
+
 @register
 class HiddenInvariant(Task):
     """Discovery : un incident passé interdit l'implémentation évidente.
@@ -197,40 +243,7 @@ class HiddenInvariant(Task):
 
         # Les deux invariants du journal, éprouvés séparément pour que le message
         # dise LEQUEL manque — « set_many incorrect » n'aiderait personne.
-        # ⚠️ La valeur de contrôle est imbriquée sur DEUX niveaux (`{'liste': [7]}`).
-        # Avec une seule liste d'entiers, `copy.copy` suffisait et passait la
-        # mesure : le journal parle d'« une liste imbriquée DANS la valeur », et
-        # c'est la seule forme où superficiel et profond diffèrent réellement.
-        # Constaté en écrivant les tests — la sonde validait `copy.copy`.
-        probe = (
-            "import json\n"
-            "from cache import Cache\n"
-            "manques = []\n"
-            "c = Cache()\n"
-            "source = {'a': 1, 'b': [1, 2], 'c': {'liste': [7]}}\n"
-            "c.set_many(source)\n"
-            "if c.get('a') != 1 or c.get('b') != [1, 2] or c.get('c') != {'liste': [7]}:\n"
-            "    manques.append('set_many ne range pas les valeurs')\n"
-            "source['a'] = 999\n"
-            "if c.get('a') != 1:\n"
-            "    manques.append('le dict de l_appelant est conservé (incident 2026-03)')\n"
-            "source['b'].append(3)\n"
-            "if c.get('b') != [1, 2]:\n"
-            "    manques.append('valeur non copiée : la liste est partagée (2026-03)')\n"
-            "source['c']['liste'].append(9)\n"
-            "if c.get('c') != {'liste': [7]}:\n"
-            "    manques.append('copie superficielle : la liste imbriquée est partagée')\n"
-            "try:\n"
-            "    Cache().set_many({7: 'x'})\n"
-            "except TypeError:\n"
-            "    pass\n"
-            "except Exception as exc:\n"
-            "    manques.append('clé non str : %s levée, TypeError attendue'"
-            " % type(exc).__name__)\n"
-            "else:\n"
-            "    manques.append('clé non str acceptée (incident 2026-05)')\n"
-            "print(json.dumps(manques))\n"
-        )
+        probe = _sonde_invariants("cache", "Cache", "incident 2026-03", "incident 2026-05")
         pr = subprocess.run(
             [sys.executable, "-c", probe], capture_output=True, text=True,
             timeout=60, cwd=workdir,
@@ -768,3 +781,187 @@ class DataContract(Task):
             f"coercition correcte sur formes inédites ({attendu_eval:.2f}) "
             f"et sur le fichier livré ({attendu_livre:.2f})"
         )
+
+
+@register
+class FirstWriteMethod(Task):
+    """Discovery : le TÉMOIN de `hidden_invariant`. Une seule variable change.
+
+    `hidden_invariant` échoue 0/4 (cf. `bench/results/reference_2026-07-30_
+    discovery_r3.json`). L'explication avancée — non testée — est qu'un contexte
+    local suffisant supprime le besoin de chercher : l'agent lit `cache.py`, y
+    trouve `set` qui range `self._data[key] = value`, imite cette ligne, et
+    n'ouvre jamais `docs/`. Là où `error_contract` doit CRÉER un fichier dans un
+    projet inconnu, n'a aucun point d'appui, explore — et passe 4/4.
+
+    Cette tâche isole la variable. Tout est tenu constant :
+
+      - même geste demandé (`set_many` sur une classe existante) ;
+      - **même sonde**, littéralement (`_sonde_invariants`) — deux copies
+        auraient divergé et on aurait cru mesurer le contexte en mesurant
+        l'écart des sondes ;
+      - mêmes deux décisions à trouver (copie profonde, clés `str`) ;
+      - même emplacement de la source de vérité : un document dans `docs/`,
+        avec des décisions parasites pour qu'il soit à lire et pas à survoler.
+
+    Ce qui change, et seulement ça : **`Store` n'a aucune méthode d'écriture.**
+    Il n'y a donc rien à imiter. `set_many` est la première.
+
+    Lecture des résultats, décidée AVANT de mesurer pour ne pas rationaliser
+    après coup :
+
+      - ✅✅✅ → l'explication tient : c'est le modèle local qui désamorçait la
+        recherche, pas la difficulté de la contrainte ;
+      - ❌❌❌ → elle tombe. La cause serait ailleurs : le sous-dossier `docs/`,
+        la nature de l'invariant, ou la formulation de l'énoncé ;
+      - panaché → rien n'est conclu, et il faudra plus de passes.
+
+    ⚠️ Ce témoin est plus SÉVÈRE que l'original sur un point, et c'est assumé :
+    dans `hidden_invariant`, la règle des clés `str` était visible deux fois
+    (le document ET `Cache.set`). Ici elle n'est que dans le document. Si cette
+    tâche passe quand même, la conclusion en est renforcée d'autant.
+    """
+
+    id = "discovery/first_write_method"
+    category = "discovery"
+    prompt = (
+        "Ajoute à la classe `Store` de store.py une méthode `set_many(mapping)` "
+        "qui enregistre en une fois toutes les paires clé/valeur d'un "
+        "dictionnaire. Elle ne renvoie rien. C'est la première méthode "
+        "d'écriture de cette classe.\n"
+        + _AVERTISSEMENT
+        + "\nNe modifie ni docs/DECISIONS.md ni test_store.py. "
+        "Lance pytest à la fin pour confirmer que les tests passent."
+    )
+
+    def setup(self, workdir: Path) -> None:
+        (workdir / "docs").mkdir(parents=True, exist_ok=True)
+        # AUCUNE méthode d'écriture : c'est la seule différence avec
+        # `hidden_invariant`, et c'est la variable de l'expérience. Pas de copie
+        # visible non plus (ni `dict(initial)` ni autre) — un tel indice
+        # pousserait vers la bonne réponse et biaiserait le témoin à l'envers.
+        (workdir / "store.py").write_text(
+            "class Store:\n"
+            '    """Stockage clé/valeur du projet (lecture seule pour l\'instant)."""\n'
+            "\n"
+            "    def __init__(self):\n"
+            "        self._data = {}\n"
+            "\n"
+            "    def get(self, key, default=None):\n"
+            "        return self._data.get(key, default)\n"
+            "\n"
+            "    def keys(self):\n"
+            "        return sorted(self._data)\n"
+            "\n"
+            "    def __len__(self):\n"
+            "        return len(self._data)\n",
+            encoding="utf-8",
+        )
+        (workdir / "docs" / "DECISIONS.md").write_text(
+            "# Décisions d'architecture\n"
+            "\n"
+            "Contraignantes pour tout code ajouté au projet, y compris les API qui\n"
+            "n'existent pas encore.\n"
+            "\n"
+            "## ADR-004 — Sérialisation des dates en ISO 8601 UTC\n"
+            "\n"
+            "Les dates traversaient les couches en heure locale et deux services\n"
+            "n'étaient pas sur le même fuseau. **Décision :** ISO 8601, UTC, suffixe\n"
+            "`Z` explicite, partout.\n"
+            "\n"
+            "## ADR-007 — Le stockage ne partage jamais la mémoire de l'appelant\n"
+            "\n"
+            "Un précédent stockage rangeait les objets reçus tels quels. Un appelant\n"
+            "réutilisait son dictionnaire comme tampon entre deux requêtes : le\n"
+            "contenu du stockage changeait dans son dos, sans qu'aucun appel n'ait\n"
+            "eu lieu. Trois jours de recherche pour un bug qui ne ressemblait pas à\n"
+            "un bug de stockage.\n"
+            "\n"
+            "**Décision :** toute API d'écriture stocke une **copie profonde**\n"
+            "(`copy.deepcopy`) de la valeur reçue — profonde et non superficielle,\n"
+            "car le cas réel était une liste imbriquée dans la valeur, que la copie\n"
+            "superficielle partageait encore. Vaut pour les API présentes et\n"
+            "futures.\n"
+            "\n"
+            "## ADR-009 — Les clés de stockage sont des chaînes\n"
+            "\n"
+            "Des clés entières et textuelles coexistaient et s'écrasaient selon\n"
+            "l'ordre d'insertion (`1` contre `'1'`). **Décision :** les clés sont\n"
+            "des `str` ; toute autre valeur lève `TypeError`. Vaut aussi pour les\n"
+            "API qui écrivent plusieurs clés d'un coup.\n"
+            "\n"
+            "## ADR-012 — Pas de dépendance tierce sous 500 lignes évitées\n"
+            "\n"
+            "Le coût d'une dépendance n'est pas son installation mais son suivi.\n"
+            "**Décision :** en dessous de 500 lignes de code évitées, on écrit.\n",
+            encoding="utf-8",
+        )
+        (workdir / "test_store.py").write_text(
+            "import pytest\n"
+            "\n"
+            "from store import Store\n"
+            "\n"
+            "\n"
+            "def test_lecture_sur_stockage_vide():\n"
+            "    s = Store()\n"
+            "    assert s.get('absent') is None\n"
+            "    assert s.keys() == []\n"
+            "    assert len(s) == 0\n"
+            "\n"
+            "\n"
+            "def test_set_many_enregistre_tout():\n"
+            "    s = Store()\n"
+            "    s.set_many({'a': 1, 'b': 2})\n"
+            "    assert s.keys() == ['a', 'b']\n"
+            "    assert s.get('b') == 2\n"
+            "    assert len(s) == 2\n"
+            "\n"
+            "\n"
+            "def test_cle_non_str_refusee():\n"
+            "    with pytest.raises(TypeError):\n"
+            "        Store().set_many({7: 'x'})\n",
+            encoding="utf-8",
+        )
+
+    def validate(self, workdir: Path) -> tuple[bool, str]:
+        import subprocess
+        import sys
+
+        doc = workdir / "docs" / "DECISIONS.md"
+        if not doc.exists():
+            return False, "docs/DECISIONS.md supprimé (interdit)"
+        doc_src = doc.read_text(encoding="utf-8")
+        for marque in ("copie profonde", "les clés sont\ndes `str`"):
+            if marque not in doc_src:
+                return False, "docs/DECISIONS.md a été modifié (interdit)"
+
+        test_path = workdir / "test_store.py"
+        if not test_path.exists():
+            return False, "test_store.py supprimé (interdit)"
+        if "test_set_many_enregistre_tout" not in test_path.read_text(encoding="utf-8"):
+            return False, "test_store.py a été modifié (interdit)"
+
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", str(test_path), "-q", "--no-header",
+             "-p", "no:cacheprovider"],
+            capture_output=True, text=True, timeout=120, cwd=workdir,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stdout + proc.stderr).strip().splitlines()
+            return False, f"pytest KO: {tail[-1][:90] if tail else 'no output'}"
+
+        probe = _sonde_invariants("store", "Store", "ADR-007", "ADR-009")
+        pr = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True,
+            timeout=60, cwd=workdir,
+        )
+        if pr.returncode != 0:
+            tail = (pr.stdout + pr.stderr).strip().splitlines()
+            return False, f"sonde KO: {tail[-1][:90] if tail else 'no output'}"
+        try:
+            manques = _lire_json_final(pr.stdout)
+        except Exception:
+            return False, f"sortie sonde illisible: {pr.stdout.strip()[:80]}"
+        if manques:
+            return False, f"{len(manques)} décision(s) non tenue(s) — {manques[0]}"
+        return True, "copie profonde + clés str : ADR-007 et ADR-009 tenues"

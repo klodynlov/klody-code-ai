@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "backend": "mlx",
+    "base_url": "http://localhost:8090/v1",
+    "model_configured": "brain",
+    "model_served": "unsloth/Qwen3.6-35B-A3B-MLX-8bit",
+    "code_model_configured": "coder",
+    "code_model_served": null,
+    "context_window": 131072,
+    "label": "temoin_r3",
+    "started_at": "2026-07-30T00:26:46",
+    "repeat": 3,
+    "category": null,
+    "task": "discovery/first_write_method",
+    "tasks_selected": 1
+  },
+  "results": [
+    {
+      "task_id": "discovery/first_write_method",
+      "category": "discovery",
+      "success": true,
+      "detail": "copie profonde + clés str : ADR-007 et ADR-009 tenues",
+      "latency_s": 81.98,
+      "tokens_generated": 141,
+      "tokens_per_sec": 1.7,
+      "tool_calls_total": 6,
+      "tool_calls_broken": 0,
+      "iterations": 5,
+      "error": null
+    },
+    {
+      "task_id": "discovery/first_write_method",
+      "category": "discovery",
+      "success": true,
+      "detail": "copie profonde + clés str : ADR-007 et ADR-009 tenues",
+      "latency_s": 69.52,
+      "tokens_generated": 128,
+      "tokens_per_sec": 1.8,
+      "tool_calls_total": 6,
+      "tool_calls_broken": 0,
+      "iterations": 5,
+      "error": null
+    },
+    {
+      "task_id": "discovery/first_write_method",
+      "category": "discovery",
+      "success": true,
+      "detail": "copie profonde + clés str : ADR-007 et ADR-009 tenues",
+      "latency_s": 71.78,
+      "tokens_generated": 206,
+      "tokens_per_sec": 2.9,
+      "tool_calls_total": 5,
+      "tool_calls_broken": 0,
+      "iterations": 4,
+      "error": null
+    }
+  ]
+}
