@@ -117,6 +117,15 @@ def _load_vec(conn: sqlite3.Connection) -> None:
     )
 
 
+def get_embeddings_batch(texts, *_a, **_kw):
+    """Consommée par `tools/embeddings.py` (et non par semantic_memory).
+
+    Rend `None` pour un texte vide — c'est le contrat du vrai moteur, et ce que
+    `embed_batch` doit traduire en `[]` pour garder sa sortie alignée sur l'entrée.
+    """
+    return [_fake_vec(t) if (t or "").strip() else None for t in texts]
+
+
 def embed_book(book_id: int) -> None:
     """Embedde les chunks du livre. Ouvre sa PROPRE connexion et reprend le verrou
     d'écriture, exactement comme le vrai moteur — c'est ce contrat qui oblige
@@ -243,6 +252,7 @@ def install() -> dict[str, object]:
     embedder._load_vec = _load_vec
     embedder.embed_book = embed_book
     embedder.get_embedding = _fake_vec
+    embedder.get_embeddings_batch = get_embeddings_batch
 
     retriever = types.ModuleType("klody_memory.retriever")
     retriever._bit_table_cache = _bit_table_cache

@@ -17,16 +17,20 @@ omit =
 # réintégration d'api/server.py au scope, quand le total mesuré était ~75.5% ; la
 # couverture avait depuis grimpé à 80.4% sans que le garde-fou suive.
 #
-# Marge au 2026-07-29 : 82.1% mesuré (8291 stmts, 1329 manquants), soit ~175
-# statements de jeu. Elle était de ~36 juste après le relèvement du seuil ;
-# couvrir agent/semantic_memory.py (28% → 98%) l'a quintuplée.
+# Marge au 2026-07-29 : 83.8% mesuré (8291 stmts, 1190 manquants), soit ~313
+# statements de jeu. Elle était de ~36 juste après le relèvement du seuil ; les
+# trois modules que la CI ne pouvait pas exercer l'ont rendue confortable —
+# semantic_memory (28→98%), embeddings (18→100%), audio (25→96%).
 #
-# En cas d'échec : couvrir le code ajouté (voie normale) plutôt que rabaisser le
-# seuil. Restent peu couverts, et pour la même raison — une dépendance externe
-# absente en CI : tools/audio.py (25%) et tools/embeddings.py (18%). La recette
-# qui a marché pour semantic_memory est dans tests/fake_klody_memory.py : un
-# double du paquet manquant injecté dans sys.modules, avec le vrai SQLite
-# derrière, de sorte que c'est bien le code du dépôt qui est jugé.
+# Tous les trois étaient bas pour la MÊME raison, et aucune n'était « code
+# structurellement peu testable » : une dépendance absente en CI (klody_memory,
+# librosa/soundfile) faisait sortir le module sur sa dégradation douce avant
+# d'exécuter quoi que ce soit. La recette est dans tests/fake_klody_memory.py et
+# tests/fake_audio_libs.py — doubler UNIQUEMENT le paquet manquant, en gardant
+# réels SQLite, numpy et les fichiers, pour que ce soit bien le code du dépôt qui
+# soit jugé. Elle a d'ailleurs déterré un fade_out cassé depuis toujours.
+#
+# En cas d'échec : couvrir le code ajouté plutôt que rabaisser le seuil.
 fail_under = 80
 precision = 1
 show_missing = True
