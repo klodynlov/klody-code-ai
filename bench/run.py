@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -97,10 +98,29 @@ def _run_klody(prompt: str, workdir: Path) -> None:
     orch.run(full_prompt)
 
 
-def _run_one(task_cls: type[Task]) -> Result:
+# Le workdir du bench est annoncé au modèle en toutes lettres (voir _run_klody).
+# Le tmpdir par défaut de macOS — /var/folders/6d/8b_zjbj96t55q3n5_t_r11wh0000gn/T/ —
+# fait 62 caractères de bruit : mesuré le 2026-07-29, le modèle le « normalise » en
+# /tmp/klody-bench, y fait le travail, et validate() ne voit rien. Un chemin court
+# retire la tentation. `dir=None` retombe sur le défaut là où /tmp n'existe pas.
+#
+# nosec B108 : bandit signale le chemin en dur, à raison dans le cas général.
+# Ici le chemin prévisible est le PARENT — TemporaryDirectory passe par mkdtemp,
+# qui crée dessous un sous-dossier au nom aléatoire en 0700 et échoue s'il existe
+# déjà. C'est exactement la protection que demande CWE-377. Surchargeable par
+# BENCH_TMP_ROOT pour qui veut un autre parent.
+_TMP_ROOT = os.getenv("BENCH_TMP_ROOT") or (  # nosec B108
+    "/tmp" if Path("/tmp").is_dir() else None  # nosec B108
+)
+
+
+def _run_one_inprocess(task_cls: type[Task]) -> Result:
     task = task_cls()
-    with tempfile.TemporaryDirectory(prefix="klody-bench-") as tmp:
-        workdir = Path(tmp)
+    with tempfile.TemporaryDirectory(prefix="kb-", dir=_TMP_ROOT) as tmp:
+        # Résolu tout de suite : sur macOS /tmp est un lien vers /private/tmp, et
+        # file_manager.root est resolve() plus bas. Sans ça le chemin annoncé au
+        # modèle et celui que path_safety contrôle ne seraient pas le même.
+        workdir = Path(tmp).resolve()
         try:
             task.setup(workdir)
         except Exception as exc:
@@ -147,6 +167,71 @@ def _run_one(task_cls: type[Task]) -> Result:
             iterations=m.iterations,
             error=err,
         )
+
+
+# Une tâche = un processus neuf. Mesuré le 2026-07-29 : en processus partagé, la
+# MÊME tâche rendait ✅ à la 1ʳᵉ passe et ❌ à la 2ᵉ — `FileManager.allowed_roots`
+# est figé dans __init__ et _run_klody ne repatchait que `.root`, si bien que les
+# tâches 2..N gardaient les racines d'un workdir déjà supprimé. Les cinq tâches
+# `easy` passaient seules et une seule passait en lot : le banc mesurait sa propre
+# fuite d'état, pas le modèle. Repatcher `allowed_roots` aurait corrigé CE cas ;
+# un processus par tâche corrige aussi ceux qu'on n'a pas encore trouvés.
+_TASK_TIMEOUT_S = int(os.getenv("BENCH_TASK_TIMEOUT", "600"))
+
+
+def _run_one(task_cls: type[Task]) -> Result:
+    """Exécute une tâche dans un sous-processus dédié.
+
+    `BENCH_ISOLATION=0` retombe sur l'exécution en processus partagé — utile pour
+    débogguer sous pdb, à ne pas utiliser pour mesurer.
+    """
+    if os.getenv("BENCH_ISOLATION") == "0":
+        return _run_one_inprocess(task_cls)
+
+    def _failed(detail: str, error: str) -> Result:
+        return Result(
+            task_id=task_cls.id,
+            category=task_cls.category,
+            success=False,
+            detail=detail,
+            latency_s=0.0,
+            tokens_generated=0,
+            tokens_per_sec=0.0,
+            tool_calls_total=0,
+            tool_calls_broken=0,
+            iterations=0,
+            error=error,
+        )
+
+    with tempfile.TemporaryDirectory(prefix="kb-out-", dir=_TMP_ROOT) as out_dir:
+        out_path = Path(out_dir) / "result.json"
+        cmd = [
+            sys.executable, "-m", "bench.run",
+            "--child-task", task_cls.id,
+            "--child-out", str(out_path),
+        ]
+        try:
+            # stdout hérité : on garde l'affichage live du parcours de l'agent.
+            # Le résultat transite par le fichier, donc le bruit du transcript
+            # (rich, barres de chargement) ne peut pas le corrompre.
+            proc = subprocess.run(cmd, cwd=REPO_ROOT, timeout=_TASK_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return _failed(
+                f"timeout après {_TASK_TIMEOUT_S}s",
+                f"le sous-processus n'a pas rendu la main en {_TASK_TIMEOUT_S}s",
+            )
+
+        if not out_path.exists():
+            # Le fils est mort avant d'écrire : sans ça on rendrait un succès muet.
+            return _failed(
+                f"sous-processus sorti en code {proc.returncode} sans résultat",
+                f"bench.run --child-task {task_cls.id} : code {proc.returncode}, "
+                f"aucun {out_path.name} écrit",
+            )
+        try:
+            return Result(**json.loads(out_path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            return _failed("résultat du fils illisible", f"{type(exc).__name__}: {exc}")
 
 
 def _write_json(results: list[Result], path: Path, meta: dict | None = None) -> None:
@@ -230,7 +315,25 @@ def main(argv: list[str] | None = None) -> int:
         help="répète la sélection N fois (défaut 1) — nécessaire pour comparer "
              "deux configurations : un run unique ne sépare pas un écart du bruit",
     )
+    # Mode fils : exécute UNE tâche et écrit son Result. Jamais appelé à la main.
+    p.add_argument("--child-task", default=None, help=argparse.SUPPRESS)
+    p.add_argument("--child-out", default=None, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
+
+    if args.child_task:
+        if not args.child_out:
+            print("--child-task exige --child-out.")
+            return 1
+        matches = list(filter_tasks(discover_tasks(), task_id=args.child_task))
+        if not matches:
+            print(f"Tâche inconnue : {args.child_task}")
+            return 1
+        metrics.install_patches()
+        result = _run_one_inprocess(matches[0])
+        Path(args.child_out).write_text(
+            json.dumps(result.__dict__, ensure_ascii=False), encoding="utf-8"
+        )
+        return 0
 
     if args.repeat < 1:
         print("--repeat doit valoir au moins 1.")
