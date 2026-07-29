@@ -298,7 +298,11 @@ def _write_markdown(results: list[Result], path: Path, label: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Bench Klody")
-    p.add_argument("--category", choices=["easy", "medium", "hard", "expert"], default=None)
+    p.add_argument(
+        "--category",
+        choices=["easy", "medium", "hard", "expert", "discovery"],
+        default=None,
+    )
     p.add_argument("--task", default=None, help="ID exact, ex: easy/rename_var")
     p.add_argument("--dry-run", action="store_true", help="liste sans exécuter")
     p.add_argument("--label", default=None, help="label du run pour les fichiers de sortie")
