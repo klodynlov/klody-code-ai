@@ -7,7 +7,7 @@
 Pas d'API cloud. Aucune donnée ne quitte la machine. Le cerveau (MLX/Apple Silicon),
 les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tournent en local.
 
-![Tests](https://img.shields.io/badge/tests-699%20passing-success)
+![Tests](https://img.shields.io/badge/tests-2030%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-78%25-success)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
@@ -19,7 +19,7 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 
 </div>
 
-> **Status** : v2.1+ stable · **699 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
+> **Status** : v2.1+ stable · **2030 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
 <!-- 📸 À AJOUTER : une capture (thème sombre conseillé) + un GIF de démo 20-30s dans docs/assets/,
      puis DÉ-COMMENTER la ligne ci-dessous (laissée commentée pour ne pas afficher d'image cassée) :
@@ -40,13 +40,13 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | | |
 |---|---|
 | 🔒 **Privé par conception** | 100 % local. Sandbox fichiers multi-racines, fichiers sensibles bloqués partout, anti-SSRF sur le web, commits signés. |
-| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 12 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
+| 🧭 **Orchestration, pas brute force** | Routeur (easy/medium/hard × 14 types de tâches, F1≈0,85), boucle auto-prolongée, Best-of-N conditionnel, anti-stall. |
 | 🔌 **Extensible via MCP** | Client MCP (consomme Gmail, web, n'importe quel serveur) + serveur MCP (Cline/Zed/Continue consomment Klody). |
 | 🧰 **Complet** | 69 outils, app desktop (Tauri/React, thème clair/sombre/auto), mémoire long terme, RAG livres, retrieval code-aware. |
 | 🖥️ **Pilote ton environnement** | macOS (AppleScript, Spotlight, Raccourcis→HomeKit/Automator, Finder), maison connectée (MQTT : ESP32, Raspberry Pi), automatisation fichiers (renommage, organisation, sauvegarde, synchro). |
 | 🔨 **Toolsmithing** | Klody ne se contente pas d'utiliser des outils, il les **fabrique** : scripts, CLI, APIs FastAPI, serveurs MCP, workflows, pipelines, plugins Klody, interfaces web — chacun livré avec son test. |
 | ⚙️ **Ops \& génération** | Introspection Docker/Kubernetes/Git (lecture seule, mutations gated), SQL SQLite sandboxé, diagrammes UML, scaffolding d'API REST/GraphQL, SDK et repository NoSQL. |
-| ✅ **Production-grade** | 699 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
+| ✅ **Production-grade** | 2030 tests, coverage 78 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
 
@@ -57,7 +57,7 @@ flowchart TD
     API --> ORCH
 
     subgraph ORCH["🧭 Adaptive Orchestrator — boucle ReAct"]
-        R["Router · easy/medium/hard × 6 task_types"]
+        R["Router · easy/medium/hard × 14 task_types"]
         L["Boucle auto-prolongée + anti-stall + Best-of-N"]
         R --> L
     end
@@ -93,7 +93,7 @@ flowchart TD
 | # | Feature | Détail |
 |---|---|---|
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
-| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 12 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
+| 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 14 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate, creative, music) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
 | 4 | **Sandbox isolé multi-racines** | venv jetable par racine, `ALLOWED_ROOTS`, exec auto après write (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
@@ -114,7 +114,7 @@ flowchart TD
 | RAG livres | **LibraryBrain** — sqlite-vec + FTS5 (`:8765`) |
 | MCP | **FastMCP** — Klody client *et* serveur ; connecteurs Gmail/Web |
 | UI graphique | `klody-ui` — Tauri 2 + React 19 + Tailwind 4 ([repo](https://github.com/klodynlov/klody-ui)) |
-| Tests | `pytest` — **699 tests** · coverage 78 % |
+| Tests | `pytest` — **2030 tests** (+20 skipped) · coverage 78 % |
 
 ## Installation
 
@@ -161,6 +161,17 @@ MAX_ITERATIONS=25                                     # plafond boucle ReAct
 # Connecteurs MCP (optionnels) — Klody les découvre au démarrage
 # KLODY_MCP_SERVERS={"gmail":"http://127.0.0.1:8084/mcp","web":"http://127.0.0.1:8085/mcp"}
 ```
+
+> **Deux modes, deux conventions.** Ci-dessus le mode **autonome** : deux `mlx_lm.server`
+> lancés par ce dépôt, adressés par **id HF** sur `:8080`/`:8081`. C'est le bon point de
+> départ pour une première installation.
+>
+> Derrière le **gateway Klody Core** (`:8090`), on référence au contraire des **alias**
+> (`MLX_MODEL=brain`) — un id HF figé s'y périme à la première bascule de modèle et
+> renvoie un 404 « modèle inconnu ». Le choix n'est pas cosmétique :
+> `start-local-ai.sh` lit `MLX_MODEL` comme un id HF, donc `MLX_MODEL=brain` le fait
+> échouer, et réciproquement. Tout est détaillé dans
+> [`README-local-ai.md`](README-local-ai.md).
 
 ## Lancement
 
@@ -234,15 +245,30 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 - **Pilotage macOS** : garde plateforme (hors macOS → message clair, jamais d'exception) ; **blocklist AppleScript** (suppression, vidage corbeille, extinction, `do shell script`, contrôle UI synthétique refusés) ; `reveal_in_finder`/Spotlight confinés aux racines autorisées ; timeouts + sortie plafonnée.
 - **Automatisation & toolsmithing** : opérations de masse en **`dry_run` par défaut** (montrent le plan avant d'agir) ; fichiers sensibles exclus partout ; destinations confinées aux racines autorisées ; refus d'écraser un dossier existant. **MQTT** borné (écoute à timeout dur, payload plafonné, broker local par défaut).
 - **Secrets** : `.env` gitignoré, jamais hardcodés ni loggés. **Commits signés** (ED25519), branch protection sur `main`.
-- **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI.
+- **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI. Plus un **bench nightly** sur runner self-hosted (non-régression vs baseline versionnée), avec sentinelle qui coupe court — et le dit — si aucun runner n'est disponible.
 
 ## Tests & bench
 
 ```bash
-python -m pytest tests/ -q                        # 699 passing
-BACKEND=mlx python -m bench.run --category easy    # bench reproductible
+python -m pytest tests/ -q                         # 2030 passing
+BACKEND=mlx python -m bench.run --category easy    # bench reproductible (20 tâches)
 BACKEND=mlx python -m bench.router_eval            # précision du routeur (F1 macro)
 ```
+
+Le bench n'est pas décoratif : **aucune amélioration ne passe sans gain chiffré**
+(principe n°2 de la [roadmap](ROADMAP.md)). Trois outils l'appliquent :
+
+```bash
+python -m bench.gate                               # non-régression vs baseline (CI nightly)
+python -m bench.run --repeat 3 --label qwen        # 3 passes — sinon la variance noie l'écart
+python -m bench.compare -a qwen*.json -b oss*.json # A/B de deux cerveaux sur TES tâches
+```
+
+`bench.compare` sort les agrégats (succès, latence, débit, **tool calls cassés**,
+itérations ReAct), la ventilation par catégorie et les bascules tâche par tâche. Chaque
+run enregistre sa **provenance** — dont le modèle réellement servi, résolu derrière
+l'alias du gateway — donc deux fichiers de résultats ne sont jamais confondables.
+Détails : [`bench/README.md`](bench/README.md).
 
 ## Commandes CLI
 
@@ -275,6 +301,9 @@ python main.py --session <id-court>   # reprend une session précise
 ## Documentation
 
 - 📐 [**Étude de cas technique**](docs/CASE-STUDY.md) — les décisions d'ingénierie (routeur, MCP, sandbox, la saga `max_tokens`).
+- 🧠 [**Pile d'inférence locale**](README-local-ai.md) — gateway vs mode autonome, modèles, réglages non négociables (thinking coupé, pas de draft model sur le MoE).
+- 📊 [**Banc de mesure**](bench/README.md) — non-régression, A/B de configurations, répétitions, provenance.
+- 🗺️ [**Roadmap**](ROADMAP.md) — les 12 étapes livrées et les décisions qui les ont motivées.
 - 🛠️ [**OPS**](docs/OPS.md) — exploitation, services permanents (LaunchAgents).
 - 💼 [**Pour les entreprises**](docs/CONSULTING.md) — agents IA privés / local-first.
 
