@@ -245,7 +245,7 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 - **Pilotage macOS** : garde plateforme (hors macOS → message clair, jamais d'exception) ; **blocklist AppleScript** (suppression, vidage corbeille, extinction, `do shell script`, contrôle UI synthétique refusés) ; `reveal_in_finder`/Spotlight confinés aux racines autorisées ; timeouts + sortie plafonnée.
 - **Automatisation & toolsmithing** : opérations de masse en **`dry_run` par défaut** (montrent le plan avant d'agir) ; fichiers sensibles exclus partout ; destinations confinées aux racines autorisées ; refus d'écraser un dossier existant. **MQTT** borné (écoute à timeout dur, payload plafonné, broker local par défaut).
 - **Secrets** : `.env` gitignoré, jamais hardcodés ni loggés. **Commits signés** (ED25519), branch protection sur `main`.
-- **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 75 %, snapshots contrat MCP/OpenAPI. Plus un **bench nightly** sur runner self-hosted (non-régression vs baseline versionnée), avec sentinelle qui coupe court — et le dit — si aucun runner n'est disponible.
+- **CI** : bandit (HIGH), gitleaks, pip-audit `--strict`, gate coverage 80 %, snapshots contrat MCP/OpenAPI. Plus un **bench nightly** sur runner self-hosted (non-régression vs baseline versionnée), avec sentinelle qui coupe court — et le dit — si aucun runner n'est disponible.
 
 ## Tests & bench
 

@@ -13,12 +13,22 @@ omit =
     # branché à _build_streaming_orchestrator) en plus des routes REST.
 
 [report]
-# Gate à 75% : seuil posé après réintégration d'api/server.py au scope (chemin WS
-# chat couvert par test_websocket_chat.py), quand le total mesuré était ~75.5%.
-# Mesure du 2026-07-29 : 80.55% (8291 stmts, 1463 manquants). La marge s'est
-# creusée d'elle-même — on garde la gate à 75 pour ne pas transformer chaque
-# ajout de code non couvert en échec de CI, mais l'écart se surveille.
-fail_under = 75
+# Gate à 80% (relevée depuis 75% le 2026-07-29). Le seuil de 75 datait de la
+# réintégration d'api/server.py au scope, quand le total mesuré était ~75.5% ; la
+# couverture avait depuis grimpé à 80.4% sans que le garde-fou suive.
+#
+# ⚠️ MARGE ÉTROITE — ASSUMÉE. Mesure CI du 2026-07-29 : 80.44% (8291 stmts, 1471
+# manquants, Python 3.11). Il reste donc ~36 statements de jeu avant échec : une
+# seule fonction non testée d'une trentaine de lignes fait rougir la CI. C'est
+# l'effet recherché — le code non couvert doit coûter quelque chose — mais cela
+# veut dire qu'ajouter du code sans test devient bloquant, pas seulement
+# déconseillé.
+#
+# En cas d'échec : couvrir le code ajouté (voie normale) plutôt que rabaisser le
+# seuil. Les modules structurellement peu testables (agent/semantic_memory.py à
+# 28%, tools/audio.py à 25%, tools/embeddings.py à 18% — tous dépendants de
+# services externes) sont les premiers candidats si on veut regagner de la marge.
+fail_under = 80
 precision = 1
 show_missing = True
 skip_covered = False
