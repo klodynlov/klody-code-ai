@@ -25,9 +25,44 @@ python -m bench.run --category medium
 python -m bench.run --task easy/rename_var
 ```
 
-> ⚠️ `python -m bench.compare` (comparaison libre de deux runs) est **encore à
-> écrire** — le module n'existe pas. Pour l'instant, seule la comparaison
-> baseline ↔ dernier run est outillée, via `bench.gate` ci-dessous.
+## Comparer deux configurations (A/B)
+
+`bench/compare.py` met deux runs — ou deux **séries** de runs — face à face. C'est
+l'outil pour trancher une question du type « ce cerveau est-il meilleur que l'autre
+sur *mes* tâches ? », là où `bench.gate` ne rend qu'un verdict binaire vs baseline.
+
+```bash
+# Deux runs, cas simple
+python -m bench.compare results/2026-07-29_qwen.json results/2026-07-29_oss.json
+
+# Séries répétées, avec des noms lisibles
+python -m bench.compare -a results/qwen_*.json -b results/oss_*.json \
+    --label-a qwen3.6 --label-b gpt-oss-120b
+
+# Sortie Markdown (collable dans une PR ou la ROADMAP)
+python -m bench.compare a.json b.json --format md > compare.md
+```
+
+Le rapport donne les agrégats (succès, latence, débit, **tool calls cassés**,
+itérations ReAct), la ventilation par catégorie — un modèle peut gagner sur `easy` et
+perdre sur `hard` —, les **bascules** tâche par tâche (ce qui passe au vert, ce qui
+passe au rouge), puis le détail complet.
+
+> ⚠️ **Un run par côté ne conclut rien.** Un agent LLM est non-déterministe : sa
+> variance sur une tâche dépasse couramment l'écart qu'on cherche à mesurer. Chaque
+> côté accepte donc N fichiers, agrégés par `task_id` (succès comptés sur N, métriques
+> moyennées). Viser ≥3 runs par côté ; en dessous, le rapport le signale lui-même.
+>
+> ```bash
+> for i in 1 2 3; do python -m bench.run --label qwen_$i; done
+> ```
+>
+> Un `bench.run --repeat N` reste à faire, tout comme l'enregistrement de la config
+> modèle dans le JSON — aujourd'hui c'est `--label` qui porte cette information, à la
+> main.
+
+La comparaison se fait sur l'**intersection des `task_id`** : les tâches absentes d'un
+côté sont listées puis écartées des agrégats, jamais comptées comme des échecs.
 
 ## Gate de non-régression
 
