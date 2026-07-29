@@ -1,0 +1,22 @@
+{
+  "name": "empty_after_reasoning_recovery",
+  "description": "Sur `explain` (CoT actif), le raisonnement consomme tout sans répondre NI agir. Le LoopGuard du stream ne voit rien (aucune répétition verbatim) et l'anti-stall ne couvre pas explain → sans ce garde-fou, écran blanc. On attend un nudge + une relance SANS thinking.",
+  "user_prompt": "Explique-moi comment fonctionne le routeur adaptatif.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "question d'explication, pas d'edit"
+  },
+  "llm_responses": [
+    { "content": "", "tool_calls": null },
+    { "content": "Le routeur classe chaque prompt en difficulté et type de tâche, puis en dérive un budget d'itérations.", "tool_calls": null }
+  ],
+  "expectations": {
+    "min_llm_calls": 2,
+    "max_llm_calls": 2,
+    "no_tool_calls": true,
+    "final_content_contains": ["routeur classe"],
+    "empty_reasoning_fired": true,
+    "relaunch_without_thinking": true
+  }
+}

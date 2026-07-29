@@ -1,0 +1,42 @@
+{
+  "name": "library_guard_forces_content_search",
+  "description": "Incident 27/07 : le modèle interroge le CATALOGUE (titre+auteur), n'obtient pas de hit, et conclut « aucune source » — alors que le catalogue ne dit RIEN du contenu. Le garde refuse la conclusion et force un search_books avant de la laisser passer.",
+  "user_prompt": "Qu'est-ce que ma bibliothèque dit sur la puériculture ?",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "question sur le contenu de la bibliothèque"
+  },
+  "max_iterations": 6,
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_cat",
+          "type": "function",
+          "function": { "name": "library_catalog", "arguments": "{\"query\": \"puericulture\"}" }
+        }
+      ]
+    },
+    { "content": "Il n'y a aucune source sur ce sujet dans ta bibliothèque.", "tool_calls": null },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_search",
+          "type": "function",
+          "function": { "name": "search_books", "arguments": "{\"query\": \"puericulture\"}" }
+        }
+      ]
+    },
+    { "content": "Après recherche dans le contenu, voici ce que j'ai trouvé sur la puériculture.", "tool_calls": null }
+  ],
+  "expectations": {
+    "min_llm_calls": 4,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": ["library_catalog", "search_books"],
+    "final_content_contains": ["Après recherche dans le contenu"],
+    "library_guard_fired": true
+  }
+}
