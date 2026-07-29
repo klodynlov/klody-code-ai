@@ -17,7 +17,7 @@ omit =
 # réintégration d'api/server.py au scope, quand le total mesuré était ~75.5% ; la
 # couverture avait depuis grimpé à 80.4% sans que le garde-fou suive.
 #
-# Marge au 2026-07-29 : 83.8% mesuré (8291 stmts, 1190 manquants), soit ~313
+# Marge au 2026-07-29 : 84.3% mesuré (8291 stmts, 1142 manquants), soit ~357
 # statements de jeu. Elle était de ~36 juste après le relèvement du seuil ; les
 # trois modules que la CI ne pouvait pas exercer l'ont rendue confortable —
 # semantic_memory (28→98%), embeddings (18→100%), audio (25→96%).

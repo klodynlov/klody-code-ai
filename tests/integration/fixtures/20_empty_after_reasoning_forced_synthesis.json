@@ -1,0 +1,22 @@
+{
+  "name": "empty_after_reasoning_forced_synthesis",
+  "description": "Même départ que #19, mais PLUS RIEN ne sort ensuite : ni la relance sans thinking, ni la synthèse forcée, ni son second essai sur contexte rogné. Le repli déterministe doit alors garantir que l'utilisateur voit quelque chose — c'est la promesse anti-écran-blanc, et son dernier maillon.",
+  "user_prompt": "Explique-moi la stratégie Best-of-N.",
+  "router_decision": {
+    "difficulty": "hard",
+    "task_type": "explain",
+    "reasoning": "explication d'une stratégie"
+  },
+  "llm_responses": [
+    { "content": "", "tool_calls": null },
+    { "content": "", "tool_calls": null },
+    { "content": "", "tool_calls": null },
+    { "content": "", "tool_calls": null }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "no_tool_calls": true,
+    "empty_reasoning_fired": true,
+    "forced_synthesis_fired": true
+  }
+}

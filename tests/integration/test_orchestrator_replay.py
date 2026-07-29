@@ -32,6 +32,9 @@ SCENARIOS = [
     "16_anti_scan_break_synthesis",
     "17_forced_final_empty_fallback",
     "18_producer_echo_break",
+    "19_empty_after_reasoning_recovery",
+    "20_empty_after_reasoning_forced_synthesis",
+    "21_library_guard_forces_content_search",
 ]
 
 
@@ -244,6 +247,60 @@ def _assert_expectations(
             "L'anti-boucle classique a coupé alors que les résultats étaient "
             "distincts — l'anti-écho devait être le seul garde-fou déclenché."
         )
+
+    # 11. Empty-after-reasoning (#19, #20) — le CoT a tout consommé sans produire
+    # ni réponse ni tool. Sous-cas DISTINCT de la boucle verbatim : rien ne se
+    # répète, donc le LoopGuard du stream reste aveugle, et l'anti-stall ne couvre
+    # pas `explain`. Sans ce garde-fou, l'utilisateur voit un écran blanc.
+    if exp.get("empty_reasoning_fired"):
+        nudge_seen = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "Ton raisonnement précédent n'a produit AUCUNE réponse" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert nudge_seen, (
+            "Le garde empty-after-reasoning n'a PAS injecté son nudge. "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+
+    # La relance doit couper le thinking : c'est le CoT qui est le problème, le
+    # relancer avec produirait le même silence.
+    if exp.get("relaunch_without_thinking"):
+        assert fake_llm.call_log[0]["enable_thinking"] is True, (
+            "Le 1er appel devait avoir le CoT actif (task_type explain) — sans quoi "
+            "le scénario ne teste pas ce qu'il prétend."
+        )
+        assert fake_llm.call_log[-1]["enable_thinking"] is False, (
+            "La relance devait couper le thinking. "
+            f"call_log: {[c['enable_thinking'] for c in fake_llm.call_log]}"
+        )
+
+    # 12. Synthèse forcée (#20) — quand la relance reste muette elle aussi, on
+    # sort avec un message plutôt qu'un tour vide.
+    if exp.get("forced_synthesis_fired"):
+        assert final.strip(), (
+            "Aucun contenu final : l'anti-écran-blanc n'a pas produit de synthèse."
+        )
+
+    # 13. Garde-fou LibraryBrain (#21) — le catalogue n'indexe que titre+auteur ;
+    # conclure « aucune source » sans avoir cherché dans le CONTENU est un faux
+    # négatif (incident 27/07). Le garde doit refuser cette conclusion.
+    if exp.get("library_guard_fired"):
+        relance_vue = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "ne conclus pas à l'absence" in m["content"]
+            and "search_books" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert relance_vue, (
+            "Le garde LibraryBrain n'a PAS forcé de recherche de contenu. "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+        # On ne relit PAS `orch._content_searched` : comme les flags anti-stall,
+        # il est remis à zéro en fin de run. C'est `tool_calls_invoked` de la
+        # fixture qui prouve que search_books a bien fini par être appelé.
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
