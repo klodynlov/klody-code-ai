@@ -17,17 +17,16 @@ omit =
 # réintégration d'api/server.py au scope, quand le total mesuré était ~75.5% ; la
 # couverture avait depuis grimpé à 80.4% sans que le garde-fou suive.
 #
-# ⚠️ MARGE ÉTROITE — ASSUMÉE. Mesure CI du 2026-07-29 : 80.44% (8291 stmts, 1471
-# manquants, Python 3.11). Il reste donc ~36 statements de jeu avant échec : une
-# seule fonction non testée d'une trentaine de lignes fait rougir la CI. C'est
-# l'effet recherché — le code non couvert doit coûter quelque chose — mais cela
-# veut dire qu'ajouter du code sans test devient bloquant, pas seulement
-# déconseillé.
+# Marge au 2026-07-29 : 82.1% mesuré (8291 stmts, 1329 manquants), soit ~175
+# statements de jeu. Elle était de ~36 juste après le relèvement du seuil ;
+# couvrir agent/semantic_memory.py (28% → 98%) l'a quintuplée.
 #
 # En cas d'échec : couvrir le code ajouté (voie normale) plutôt que rabaisser le
-# seuil. Les modules structurellement peu testables (agent/semantic_memory.py à
-# 28%, tools/audio.py à 25%, tools/embeddings.py à 18% — tous dépendants de
-# services externes) sont les premiers candidats si on veut regagner de la marge.
+# seuil. Restent peu couverts, et pour la même raison — une dépendance externe
+# absente en CI : tools/audio.py (25%) et tools/embeddings.py (18%). La recette
+# qui a marché pour semantic_memory est dans tests/fake_klody_memory.py : un
+# double du paquet manquant injecté dans sys.modules, avec le vrai SQLite
+# derrière, de sorte que c'est bien le code du dépôt qui est jugé.
 fail_under = 80
 precision = 1
 show_missing = True
