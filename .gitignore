@@ -65,6 +65,11 @@ bench/results/*.md
 # pouvait structurellement pas échouer. La promouvoir : `python -m bench.run
 # --promote-baseline` (ou copier un run existant sur bench/results/baseline.json).
 !bench/results/baseline.json
+# EXCEPTION : les runs de RÉFÉRENCE, gardés parce qu'ils établissent un fait qu'on
+# citera plus tard (stabilité, comparaison de modèles, effet d'un correctif). Un run
+# ordinaire reste local — sinon le dépôt collecterait un JSON par exécution.
+# Convention : préfixer `reference_` pour verser une mesure au dépôt.
+!bench/results/reference_*.json
 
 # Mémoire agent
 memory/
