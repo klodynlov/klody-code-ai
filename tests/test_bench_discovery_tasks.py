@@ -30,10 +30,17 @@ from bench.tasks.discovery import (
     ConfigPrecedence,
     DataContract,
     ErrorContract,
+    FirstWriteMethod,
     HiddenInvariant,
 )
 
-TACHES_DISCOVERY = [HiddenInvariant, ConfigPrecedence, ErrorContract, DataContract]
+TACHES_DISCOVERY = [
+    HiddenInvariant,
+    ConfigPrecedence,
+    ErrorContract,
+    DataContract,
+    FirstWriteMethod,
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -152,11 +159,33 @@ def _resoudre_data_contract(workdir: Path) -> None:
     (workdir / "ledger.py").write_text(_LEDGER_REFERENCE, encoding="utf-8")
 
 
+def _resoudre_first_write_method(workdir: Path) -> None:
+    src = (workdir / "store.py").read_text(encoding="utf-8")
+    (workdir / "store.py").write_text(
+        "import copy\n"
+        "\n"
+        "\n" + src.replace(
+            "    def get(self, key, default=None):",
+            "    def set_many(self, mapping):\n"
+            "        for key in mapping:\n"
+            "            if not isinstance(key, str):\n"
+            "                raise TypeError('clé non str: %r' % (key,))\n"
+            "        for key, value in mapping.items():\n"
+            "            # ADR-007 : jamais la mémoire de l'appelant.\n"
+            "            self._data[key] = copy.deepcopy(value)\n"
+            "\n"
+            "    def get(self, key, default=None):",
+        ),
+        encoding="utf-8",
+    )
+
+
 SOLUTIONS = {
     HiddenInvariant: _resoudre_hidden_invariant,
     ConfigPrecedence: _resoudre_config_precedence,
     ErrorContract: _resoudre_error_contract,
     DataContract: _resoudre_data_contract,
+    FirstWriteMethod: _resoudre_first_write_method,
 }
 
 
@@ -209,6 +238,7 @@ FAITS_DECISIFS = [
     (ConfigPrecedence, "`APP_TIMEOUT` vide vaut ABSENTE", ("priorité", "vide vaut", "gagne")),
     (ErrorContract, "lève **`ParseError`**", ("ParseError", "AppError", "line=")),
     (DataContract, "$1,250.00", ("$", "virgule", "coercition")),
+    (FirstWriteMethod, "copie profonde", ("deepcopy", "copie profonde", "copy")),
 ]
 
 
@@ -583,6 +613,165 @@ class TestGardesDeDocumentation:
         task.setup(tmp_path)
         _resoudre_error_contract(tmp_path)
         (tmp_path / "csv_reader.py").write_text("# vidé\n", encoding="utf-8")
+        ok, detail = task.validate(tmp_path)
+        assert ok is False
+        assert "modifié" in detail, detail
+
+
+class TestTemoinControle:
+    """`first_write_method` est le TÉMOIN de `hidden_invariant`.
+
+    Une expérience contrôlée ne vaut que si une seule chose varie. Ces tests
+    verrouillent ce qui doit rester identique — sinon la paire dériverait en
+    silence et on croirait mesurer le contexte en mesurant autre chose.
+    """
+
+    def test_la_sonde_est_litteralement_partagee(self):
+        """Deux copies auraient divergé d'un détail, et l'écart des sondes se
+        lirait comme un écart de comportement de l'agent."""
+        from bench.tasks import discovery
+
+        source = Path(discovery.__file__).read_text(encoding="utf-8")
+        assert source.count("def _sonde_invariants(") == 1
+        # Les deux validate passent par le constructeur commun, aucun ne
+        # réimplémente la sonde en ligne.
+        assert source.count("_sonde_invariants(") == 3  # 1 def + 2 appels
+
+    @pytest.mark.parametrize(
+        ("module", "classe", "ref_copie", "ref_cle"),
+        [("cache", "Cache", "incident 2026-03", "incident 2026-05"),
+         ("store", "Store", "ADR-007", "ADR-009")],
+        ids=["hidden_invariant", "first_write_method"],
+    )
+    def test_la_sonde_verifie_les_memes_quatre_choses(self, module, classe, ref_copie, ref_cle):
+        from bench.tasks.discovery import _sonde_invariants
+
+        sonde = _sonde_invariants(module, classe, ref_copie, ref_cle)
+        assert f"from {module} import {classe}" in sonde
+        # Les quatre contrôles, dans les deux tâches, au mot près.
+        assert "source = {'a': 1, 'b': [1, 2], 'c': {'liste': [7]}}" in sonde
+        assert "source['a'] = 999" in sonde
+        assert "source['b'].append(3)" in sonde
+        assert "source['c']['liste'].append(9)" in sonde
+        assert f"{classe}().set_many({{7: 'x'}})" in sonde
+
+    def test_le_temoin_n_a_aucune_methode_d_ecriture(self, tmp_path):
+        """LA variable de l'expérience. Si une méthode d'écriture réapparaissait
+        dans la fixture, le témoin cesserait d'en être un — et rien d'autre ne le
+        signalerait."""
+        import ast
+
+        FirstWriteMethod().setup(tmp_path)
+        arbre = ast.parse((tmp_path / "store.py").read_text(encoding="utf-8"))
+        methodes = {
+            n.name
+            for cls in arbre.body
+            if isinstance(cls, ast.ClassDef)
+            for n in cls.body
+            if isinstance(n, ast.FunctionDef)
+        }
+        assert methodes == {"__init__", "get", "keys", "__len__"}, methodes
+        assert "set_many" not in methodes
+
+    def test_le_temoin_ne_montre_aucune_copie(self, tmp_path):
+        """Un `dict(initial)` visible dans la fixture pousserait vers la bonne
+        réponse : le témoin serait biaisé dans l'autre sens."""
+        FirstWriteMethod().setup(tmp_path)
+        src = (tmp_path / "store.py").read_text(encoding="utf-8")
+        for indice in ("copy", "deepcopy", "dict(", ".copy()"):
+            assert indice not in src, f"indice de copie « {indice} » dans la fixture"
+
+    def test_les_deux_taches_demandent_le_meme_geste(self):
+        """Même méthode, mêmes deux décisions à trouver, même emplacement de la
+        source de vérité (un document sous docs/)."""
+        for cls in (HiddenInvariant, FirstWriteMethod):
+            assert "set_many(mapping)" in cls.prompt
+            assert "docs/" in cls.prompt
+            assert _AVERTISSEMENT_ATTENDU in cls.prompt
+
+    def test_le_temoin_est_plus_severe_sur_les_cles(self, tmp_path):
+        """Assumé et documenté : dans hidden_invariant la règle des clés `str`
+        est visible DEUX fois (le document et `Cache.set`) ; ici une seule (le
+        document). Si le témoin passe malgré ça, la conclusion en est renforcée."""
+        HiddenInvariant().setup(tmp_path / "a")
+        FirstWriteMethod().setup(tmp_path / "b")
+        assert "isinstance(key, str)" in (tmp_path / "a" / "cache.py").read_text(
+            encoding="utf-8"
+        )
+        assert "isinstance" not in (tmp_path / "b" / "store.py").read_text(encoding="utf-8")
+
+
+_AVERTISSEMENT_ATTENDU = "NE SONT PAS écrites dans cet énoncé"
+
+
+class TestTemoinImplementationIgnorante:
+    """Les mêmes pièges que pour `hidden_invariant` : si le témoin les acceptait,
+    son ✅ ne voudrait rien dire."""
+
+    def _ecrire_set_many(self, tmp_path: Path, corps: str, *, import_copy: bool = False) -> None:
+        src = (tmp_path / "store.py").read_text(encoding="utf-8")
+        if import_copy:
+            src = "import copy\n\n\n" + src
+        (tmp_path / "store.py").write_text(
+            src.replace(
+                "    def get(self, key, default=None):",
+                "    def set_many(self, mapping):\n" + corps + "\n    def get(self, key, default=None):",
+            ),
+            encoding="utf-8",
+        )
+
+    def test_sans_copie(self, tmp_path):
+        task = FirstWriteMethod()
+        task.setup(tmp_path)
+        self._ecrire_set_many(
+            tmp_path,
+            "        for key, value in mapping.items():\n"
+            "            if not isinstance(key, str):\n"
+            "                raise TypeError('clé non str')\n"
+            "            self._data[key] = value\n",
+        )
+        ok, detail = task.validate(tmp_path)
+        assert ok is False
+        assert "ADR-007" in detail, detail
+
+    def test_copie_superficielle(self, tmp_path):
+        task = FirstWriteMethod()
+        task.setup(tmp_path)
+        self._ecrire_set_many(
+            tmp_path,
+            "        for key, value in mapping.items():\n"
+            "            if not isinstance(key, str):\n"
+            "                raise TypeError('clé non str')\n"
+            "            self._data[key] = copy.copy(value)\n",
+            import_copy=True,
+        )
+        ok, detail = task.validate(tmp_path)
+        assert ok is False
+        assert "superficielle" in detail, detail
+
+    def test_sans_controle_de_cle(self, tmp_path):
+        task = FirstWriteMethod()
+        task.setup(tmp_path)
+        self._ecrire_set_many(
+            tmp_path,
+            "        for key, value in mapping.items():\n"
+            "            self._data[key] = copy.deepcopy(value)\n",
+            import_copy=True,
+        )
+        ok, detail = task.validate(tmp_path)
+        assert ok is False
+        # pytest échoue d'abord (test_cle_non_str_refusee), ou la sonde le dit.
+        assert "pytest KO" in detail or "ADR-009" in detail, detail
+
+    def test_doc_reecrite_refusee(self, tmp_path):
+        task = FirstWriteMethod()
+        task.setup(tmp_path)
+        _resoudre_first_write_method(tmp_path)
+        chemin = tmp_path / "docs" / "DECISIONS.md"
+        chemin.write_text(
+            chemin.read_text(encoding="utf-8").replace("copie profonde", "(supprimé)"),
+            encoding="utf-8",
+        )
         ok, detail = task.validate(tmp_path)
         assert ok is False
         assert "modifié" in detail, detail
