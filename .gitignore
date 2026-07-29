@@ -59,6 +59,12 @@ _uploads/
 bench/results/*.json
 bench/results/*.md
 !bench/results/.gitkeep
+# EXCEPTION : la baseline est versionnée. Le gate de non-régression du nightly
+# la lit depuis un checkout frais — ignorée, elle n'existait jamais côté CI, donc
+# le gate tombait toujours dans sa branche « pas de baseline → on accepte » et ne
+# pouvait structurellement pas échouer. La promouvoir : `python -m bench.run
+# --promote-baseline` (ou copier un run existant sur bench/results/baseline.json).
+!bench/results/baseline.json
 
 # Mémoire agent
 memory/

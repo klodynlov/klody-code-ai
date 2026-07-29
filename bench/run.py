@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from bench import metrics  # noqa: E402
+from bench import metrics, provenance  # noqa: E402
 from bench.framework import (  # noqa: E402
     Result,
     Task,
@@ -149,10 +149,16 @@ def _run_one(task_cls: type[Task]) -> Result:
         )
 
 
-def _write_json(results: list[Result], path: Path) -> None:
+def _write_json(results: list[Result], path: Path, meta: dict | None = None) -> None:
+    """Écrit l'enveloppe {meta, results}.
+
+    Le format a changé de « liste plate » à « enveloppe » pour porter la provenance
+    (quel modèle a produit ces chiffres). `bench.gate.load_run` lit toujours les deux,
+    donc les baselines déjà promues restent valides.
+    """
     path.write_text(
         json.dumps(
-            [r.__dict__ for r in results],
+            {"meta": meta or {}, "results": [r.__dict__ for r in results]},
             indent=2,
             ensure_ascii=False,
         ),
@@ -160,11 +166,21 @@ def _write_json(results: list[Result], path: Path) -> None:
     )
 
 
+def _scope_label(results: list[Result]) -> str:
+    """« 20 tâches » ou « 20 tâches × 3 passes » — sans quoi un run répété
+    afficherait 60 tâches, ce qui n'est pas ce qui a été mesuré."""
+    distinct = len({r.task_id for r in results})
+    if not distinct:
+        return "0 tâche"
+    passes = len(results) // distinct
+    return f"{distinct} tâches" + (f" × {passes} passes" if passes > 1 else "")
+
+
 def _write_markdown(results: list[Result], path: Path, label: str) -> None:
     lines = [
         f"# Bench Klody — {label}",
         "",
-        f"_{len(results)} tâches_  ",
+        f"_{_scope_label(results)}_  ",
         f"Succès global : **{sum(1 for r in results if r.success)}/{len(results)}**",
         "",
         "| Task | Cat | OK | Latence | Tokens | tok/s | Tools | Cassés | Iter | Détail |",
@@ -201,7 +217,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--task", default=None, help="ID exact, ex: easy/rename_var")
     p.add_argument("--dry-run", action="store_true", help="liste sans exécuter")
     p.add_argument("--label", default=None, help="label du run pour les fichiers de sortie")
+    p.add_argument(
+        "--promote-baseline",
+        action="store_true",
+        help="écrit aussi results/baseline.json (référence du gate de non-régression)",
+    )
+    p.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help="répète la sélection N fois (défaut 1) — nécessaire pour comparer "
+             "deux configurations : un run unique ne sépare pas un écart du bruit",
+    )
     args = p.parse_args(argv)
+
+    if args.repeat < 1:
+        print("--repeat doit valoir au moins 1.")
+        return 1
 
     all_tasks = discover_tasks()
     selected = list(filter_tasks(all_tasks, args.category, args.task))
@@ -220,31 +253,57 @@ def main(argv: list[str] | None = None) -> int:
         print("⚠️  Impossible d'installer le monkey-patch métriques. "
               "Le bench tournera mais sans tokens/tool_calls.")
 
+    # Provenance capturée AVANT les tâches : si le modèle est basculé en cours de
+    # route, on veut la configuration qui a réellement démarré le run.
+    started_at = datetime.now().isoformat(timespec="seconds")
+    meta = provenance.describe_config()
+    print(f"→ configuration : {provenance.describe_short(meta)}")
+
     RESULTS_DIR.mkdir(exist_ok=True)
     results: list[Result] = []
-    for cls in selected:
-        print(f"\n=== {cls.id} ===")
-        r = _run_one(cls)
-        results.append(r)
-        status = "✅" if r.success else "❌"
-        print(f"  {status} {r.latency_s}s — {r.detail}")
-        if r.error:
-            print(f"  ERROR: {r.error.splitlines()[0]}")
+    # N passes complètes plutôt que N exécutions consécutives par tâche : répéter une
+    # tâche dos à dos la sert depuis un cache de prompt chaud, ce qui fabriquerait une
+    # latence artificiellement basse sur les répétitions.
+    for pass_no in range(1, args.repeat + 1):
+        if args.repeat > 1:
+            print(f"\n──── passe {pass_no}/{args.repeat} ────")
+        for cls in selected:
+            print(f"\n=== {cls.id} ===")
+            r = _run_one(cls)
+            results.append(r)
+            status = "✅" if r.success else "❌"
+            print(f"  {status} {r.latency_s}s — {r.detail}")
+            if r.error:
+                print(f"  ERROR: {r.error.splitlines()[0]}")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     label = args.label or "run"
     json_path = RESULTS_DIR / f"{timestamp}_{label}.json"
     md_path = RESULTS_DIR / f"{timestamp}_{label}.md"
-    _write_json(results, json_path)
+    meta |= {
+        "label": label,
+        "started_at": started_at,
+        "repeat": args.repeat,
+        "category": args.category,
+        "task": args.task,
+        "tasks_selected": len(selected),
+    }
+    _write_json(results, json_path, meta=meta)
     _write_markdown(results, md_path, label=f"{timestamp} — {label}")
     (RESULTS_DIR / "latest.json").write_text(
         json_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
+    if args.promote_baseline:
+        baseline_path = RESULTS_DIR / "baseline.json"
+        baseline_path.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"📌  baseline → {baseline_path} (à committer)")
 
     print(f"\n📊  JSON → {json_path}")
     print(f"📊  MD   → {md_path}")
     ok = sum(1 for r in results if r.success)
     print(f"\nRésultat : {ok}/{len(results)} succès")
+    if args.repeat > 1:
+        print(f"({len(selected)} tâche(s) × {args.repeat} passe(s))")
     return 0 if ok == len(results) else 2
 
 
