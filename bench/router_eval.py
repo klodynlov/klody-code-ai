@@ -63,13 +63,13 @@ def _confusion(y_true: list[str], y_pred: list[str], labels: list[str]) -> dict:
 # ---------------------------------------------------------------------------- #
 
 
-# Le Router classe dans `Literal["easy", "medium", "hard"]` : « expert » n'existe
-# pas dans son espace de sortie, et n'a pas à y entrer — c'est un palier de
-# DIFFICULTÉ DU BANC, pas une stratégie d'exécution de plus. La bonne prédiction
-# pour une tâche expert est donc `hard` (planner + best-of-N + 25 itérations).
-# Sans cette projection, chaque tâche expert compterait comme une erreur du
+# Le Router classe dans `Literal["easy", "medium", "hard"]` : « expert » et
+# « discovery » n'existent pas dans son espace de sortie, et n'ont pas à y
+# entrer — ce sont des paliers DU BANC, pas des stratégies d'exécution de plus.
+# La bonne prédiction pour ces tâches est donc `hard` (planner + best-of-N +
+# 25 itérations). Sans cette projection, chacune compterait comme une erreur du
 # Router et ferait chuter le F1 macro pour une raison étrangère au Router.
-_CATEGORIE_ATTENDUE = {"expert": "hard"}
+_CATEGORIE_ATTENDUE = {"expert": "hard", "discovery": "hard"}
 
 
 def _attendu(categorie: str) -> str:
