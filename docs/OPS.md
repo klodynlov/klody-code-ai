@@ -68,18 +68,34 @@ tail -f ~/.github-runner/_diag/Runner_*.log
 
 ### Démarrage des services avant le run nightly
 
-Le workflow bench attend MLX et Ollama joignables. Si la machine vient de
-démarrer, lancer manuellement (ou via LaunchAgents) :
+Le workflow bench sonde le **gateway Klody Core** sur `MLX_BASE_URL`
+(`:8090` par défaut) et valide que les alias `brain` et `coder` résolvent — un port
+qui répond ne suffit pas, c'est la résolution d'alias qui casse en pratique
+(cf. [`../README-local-ai.md`](../README-local-ai.md)). Ollama est sondé en plus,
+pour les embeddings bge-m3, mais son absence n'est qu'un avertissement.
+
+Si la machine vient de démarrer, tout doit être levé **avant** le run planifié —
+idéalement via les LaunchAgents, sinon à la main :
 
 ```bash
-# MLX
-cd ~/Projets/klody-code-ai
-source .venv/bin/activate
-python -m mlx_lm.server --model mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit-dwq-v2 --port 8080 --host 127.0.0.1 &
+# Gateway Klody Core (:8090) — voir son propre dépôt
+# Vérifier qu'il répond ET que les alias résolvent :
+curl -sf http://127.0.0.1:8090/v1/models >/dev/null && echo "gateway ok"
+curl -sf http://127.0.0.1:8090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"brain","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
+  >/dev/null && echo "alias brain ok"
 
-# Ollama
+# Ollama (embeddings bge-m3)
 ollama serve &
 ```
+
+En mode autonome (sans gateway), c'est `./start-local-ai.sh both` qui lève les deux
+serveurs — et le workflow doit alors pointer `MLX_BASE_URL` sur `:8080`.
+
+> Si aucun runner self-hosted n'est enregistré, inutile de chercher plus loin : le job
+> `verify-runner` annule le run après 15 min avec un message explicite. Un historique
+> de runs « annulés » sans autre trace, c'est ça.
 
 ### Démarrage automatique de MLX (LaunchAgent)
 

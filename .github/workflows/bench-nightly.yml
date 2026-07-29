@@ -3,11 +3,11 @@ name: Bench nightly (MLX)
 # Nightly bench non-régression. Tourne UNIQUEMENT sur runner self-hosted
 # macOS avec la pile d'inférence locale joignable (Apple Silicon).
 #
-# ⚠️ Il n'existe PAS de job sentinelle : sans runner portant les labels ci-dessous,
-# chaque run planifié reste en file puis est annulé au timeout. C'est ce qui s'est
-# produit sur l'intégralité des runs jusqu'au 2026-07-29 (aucune exécution réelle).
-# Vérifier `Settings → Actions → Runners` avant de conclure quoi que ce soit d'un
-# historique vert-vide.
+# Le job `verify-runner` monte la garde : sans runner portant les labels ci-dessous,
+# un run planifié reste en file jusqu'à l'expiration GitHub (~24 h) puis est annulé
+# sans un mot. C'est ce qui s'est produit sur l'intégralité des runs jusqu'au
+# 2026-07-29 — 63 runs, aucune exécution réelle, aucun signal. La sentinelle coupe
+# court après quelques minutes et DIT pourquoi.
 #
 # Setup requis (une fois) :
 #   1. Settings → Actions → Runners → New self-hosted runner (macOS)
@@ -31,6 +31,89 @@ permissions:
   contents: read
 
 jobs:
+  # Sentinelle : surveille que le job `bench` sorte de la file d'attente.
+  #
+  # Elle NE consulte PAS l'API des runners — `administration` n'existe pas parmi les
+  # scopes accordables au GITHUB_TOKEN via `permissions:`, lister les runners
+  # self-hosted demanderait donc un PAT en secret. On observe l'effet plutôt que la
+  # cause : si `bench` est encore `queued` passé le délai de grâce, c'est qu'aucun
+  # runner ne l'a pris — on annule le run avec un message explicite au lieu de le
+  # laisser pourrir 24 h.
+  #
+  # Tourne en PARALLÈLE de `bench`, jamais en `needs:` — la sentinelle attend que
+  # `bench` démarre, donc l'en faire dépendre les bloquerait mutuellement.
+  verify-runner:
+    name: Sentinelle runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: write # lire l'état des jobs du run, et l'annuler le cas échéant
+
+    env:
+      # Délai laissé à un runner pour prendre le job. Généreux à dessein : un Mac
+      # qui sort de veille à 03:00 UTC met une minute ou deux, et le runner peut
+      # être brièvement occupé par un run précédent.
+      GRACE_SECONDS: "900"
+      POLL_SECONDS: "30"
+      SENTINEL_NAME: Sentinelle runner
+
+    steps:
+      - name: Attendre qu'un runner prenne le bench
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deadline=$(( SECONDS + GRACE_SECONDS ))
+          # La sentinelle n'annule QUE sur preuve. Si l'API n'a jamais répondu, on ne
+          # sait pas si le bench est en file ou en train de tourner — l'annuler
+          # tuerait peut-être un run sain en accusant à tort le runner.
+          seen_status=0
+
+          # Statut du premier job du run qui n'est pas la sentinelle elle-même.
+          # Filtrer par nom plutôt que le coder en dur garde la sentinelle valide
+          # si le job bench est renommé.
+          bench_status() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
+                 --jq '.jobs[] | "\(.name)\t\(.status)"' 2>/dev/null \
+              | grep -v "^$SENTINEL_NAME	" \
+              | head -1 | cut -f2
+          }
+
+          while :; do
+            status="$(bench_status || true)"
+
+            if [ -n "$status" ]; then
+              seen_status=1
+              if [ "$status" != "queued" ] && [ "$status" != "waiting" ]; then
+                echo "✓ Le bench est pris en charge (statut : $status) — sentinelle terminée."
+                exit 0
+              fi
+            fi
+
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              if [ "$seen_status" -eq 0 ]; then
+                echo "::warning title=Sentinelle aveugle::Impossible de lire l'état des \
+          jobs du run pendant $((GRACE_SECONDS / 60)) min (API indisponible ?). Aucune \
+          conclusion tirée, run laissé intact."
+                exit 0
+              fi
+              echo "::error title=Aucun runner self-hosted::Le job bench est resté en \
+          file plus de $((GRACE_SECONDS / 60)) min : aucun runner portant les labels \
+          [self-hosted, macOS, klody] n'est disponible. Vérifier Settings → Actions → \
+          Runners, et que la machine est allumée. Run annulé pour ne pas rester en \
+          attente ~24 h."
+              gh api --method POST \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel" >/dev/null
+              # L'annulation emporte la sentinelle ; le exit ci-dessous n'est qu'un
+              # filet si l'appel échoue (droits, API indisponible).
+              exit 1
+            fi
+
+            echo "… bench ${status:-inconnu} — nouvelle vérification dans ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
+
   bench:
     name: Bench MLX (self-hosted Mac)
     runs-on: [self-hosted, macOS, klody]
