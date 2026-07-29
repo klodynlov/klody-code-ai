@@ -71,13 +71,70 @@ Coût marginal nul (même contexte conservé), qualité ++.
 | ✅ 9 | **Optims** (MCP expose ✅, LoRA scaffolding ✅, spec decoding ⚠) | done | Klody MCP server 8 outils ; pipeline LoRA prêt ; spec decoding sans gain sur MoE |
 | ✅ 10 | **Pilotage de l'environnement + Toolsmithing** | done | macOS (AppleScript/Spotlight/Raccourcis/Finder), maison (MQTT), automatisation fichiers, et **toolsmithing** (Klody fabrique scripts/CLI/API/serveurs MCP/workflows/pipelines/plugins/interfaces). Chaque artefact généré livré avec son test. |
 | ✅ 11 | **Expansion des capacités** (task_types + langages + Ops + génération) | done | +6 task_types focalisés ; retrieval Rust/Go/Java/PHP ; outils `analyze_dependencies`, `run_sql` (SQLite sandboxé), introspection Docker/Kubernetes/Git + mutations gated, `generate_uml`, `scaffold_api` (REST/GraphQL) / `scaffold_sdk` / `scaffold_nosql` ; 7 skills de domaine. **69 outils au total.** |
+| ✅ 12 | **Outillage de mesure** (gate réparé, A/B, répétitions, provenance) | done | gate de non-régression opérationnel (il ne pouvait structurellement pas échouer) ; `bench.compare` écrit ; `--repeat N` + provenance du modèle ; sentinelle runner. **58 tests sur `bench/`.** |
 
-**Total : 11/11 étapes livrées.**
+**Total : 12/12 étapes livrées.**
 
 Klody est passé d'un ReAct mono-modèle Ollama qwen2.5-coder:32b à un système
 agentique adaptatif MLX multi-modèles avec routing, hot-swap prompts, sandbox
 auto-feedback, retrieval code-aware, best-of-N gated, memory de conventions,
 mémoire d'erreurs récurrentes, et exposé comme serveur MCP pour d'autres agents.
+
+Le banc de mesure qui a piloté ce parcours est lui-même redevenu opérationnel à
+l'étape 12 : non-régression qui peut réellement échouer, comparaison A/B de deux
+configurations, répétitions, et traçabilité du modèle mesuré.
+
+### Étape 12 — Outillage de mesure (le principe n°2 rendu applicable)
+
+Le principe directeur n°2 dit « aucune amélioration ne passe sans gain chiffré au
+bench ». Il était **inapplicable** : le garde-fou censé le faire respecter était mort,
+et rien ne le signalait. Trois pannes se masquaient l'une l'autre.
+
+- `bench/results/baseline.json` était couvert par `bench/results/*.json` dans
+  `.gitignore`. Sur un checkout frais la référence n'existait donc jamais, et le gate
+  tombait systématiquement dans sa branche « pas de baseline → on accepte ». Il ne
+  **pouvait pas** échouer.
+- Le gate, écrit en heredoc dans le workflow, lisait `base.get("counts_by_category")`
+  alors que `bench.run` sérialise une **liste plate** : `AttributeError` garanti dès
+  qu'une baseline serait apparue. Deux bugs qui s'annulaient.
+- Le workflow nightly sondait `:8080` alors que la pile est passée au gateway `:8090`,
+  et tournait sur des labels self-hosted sans runner enregistré : **63 runs planifiés,
+  tous annulés au timeout, aucune exécution réelle, aucun signal.**
+
+Ce qui a été livré :
+
+1. **Gate opérationnel** (`bench/gate.py`) — sorti du YAML, donc linté et testé. La
+   comparaison se fait sur l'**intersection des `task_id`** : un run filtré
+   `--category easy` reste jugeable face à une baseline complète sans que la
+   différence de périmètre passe pour une régression. L'absence de baseline reste non
+   bloquante mais **annotée** — un gate mort ne doit pas être indiscernable d'un gate
+   vert. Baseline dé-ignorée + `bench.run --promote-baseline`.
+2. **A/B de configurations** (`bench/compare.py`) — documenté depuis l'origine, jamais
+   écrit. Agrégats (succès, latence, débit, tool calls cassés, itérations), ventilation
+   par catégorie — un modèle peut gagner sur `easy` et perdre sur `hard` —, bascules
+   tâche par tâche, sortie texte ou Markdown.
+3. **Répétitions** (`bench.run --repeat N`) — **N passes complètes**, pas N exécutions
+   consécutives par tâche : répéter une tâche dos à dos la sert depuis un cache de
+   prompt chaud et fabriquerait une latence artificiellement basse. Sans répétitions,
+   la variance d'un agent non-déterministe dépasse l'écart qu'on cherche à mesurer.
+4. **Provenance** (`bench/provenance.py`) — quel modèle a produit ces chiffres. En mode
+   gateway `.env` ne porte qu'un alias, et le `/v1/models` de `mlx_lm.server` liste tout
+   le cache HF plutôt que le modèle chargé : l'alias est résolu par une complétion d'un
+   token, dont la réponse OpenAI porte le nom effectif.
+5. **Sentinelle runner** (`verify-runner`) — promise dans l'en-tête du workflow depuis
+   l'origine, jamais écrite. Elle n'interroge pas l'API des runners (`administration`
+   n'est pas accordable au `GITHUB_TOKEN` via `permissions:`, il faudrait un PAT) : elle
+   observe l'effet. Bench encore en file passé 15 min → run annulé en nommant les labels
+   attendus. Et **seulement sur preuve** : API muette ≠ runner absent, sinon on tuerait
+   un run sain.
+
+Leçon transposable : un garde-fou qui ne peut pas échouer est indiscernable d'un
+garde-fou qui passe. Tout gate ajouté ici doit avoir un mode « je n'ai pas pu juger »
+distinct de « j'ai jugé, c'est bon ».
+
+**Reste à faire, hors code** : enregistrer un runner self-hosted (`self-hosted, macOS,
+klody`) et promouvoir une baseline depuis la machine d'inférence. Aucune baseline n'est
+versionnée à ce stade — fabriquée, elle rendrait le gate vert sur des chiffres inventés.
 
 ### Étape 11 — Expansion des capacités (4 leviers, additif)
 
@@ -138,6 +195,7 @@ composables. L'étape 10 les actionne sans casser l'existant :
 
 Principe : privilégier l'additif et la dégradation gracieuse. Les langages
 étendus et les grammaires optionnelles n'imposent rien à l'installation de base.
+
 ### Étape 10 — Pilotage de l'environnement & Toolsmithing
 
 Avec Apple Silicon et les bons connecteurs, Klody pilote l'environnement — et,
@@ -171,9 +229,16 @@ Chaque tâche du bench mesure :
 - **tool_calls_total** (int)
 - **tool_calls_broken** (int) — JSON cassé, schéma non respecté
 - **iterations** (int) — nombre de tours ReAct
-- **cost_usd_equiv** (float) — équivalent prix API si appelé sur un cloud (référence)
+- **error** (str | None) — trace si la tâche a levé
 
-Output : `bench/results/<timestamp>.json` + `bench/results/<timestamp>.md`.
+> `cost_usd_equiv` figurait ici depuis l'origine mais n'a jamais existé dans le
+> dataclass `Result` : métrique fantôme, retirée à l'étape 12. Sur une pile 100 %
+> locale elle n'aurait de toute façon mesuré qu'un prix hypothétique.
+
+Output : `bench/results/<timestamp>_<label>.json` + `.md`, plus `latest.json`.
+Depuis l'étape 12 le JSON est une enveloppe `{"meta": …, "results": […]}` : `meta`
+porte la **provenance** (backend, base URL, modèle configuré, modèle réellement servi,
+fenêtre de contexte, nombre de passes). L'ancienne liste plate reste lue.
 
 ## Tâches du bench
 
