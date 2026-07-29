@@ -135,7 +135,10 @@ def edit_wav(path: str, start: float | None = None, end: float | None = None,
         if fade_out and fade_out > 0:
             fade_samples = int(fade_out * sr_int)
             fade_out_curve = np.linspace(1, 0, fade_samples)
-            y[-fade_samples:] *= fade_out_curve[-len(y[-fade_samples]):]
+            # `y[-fade_samples:]` — les deux-points sont indispensables : sans eux
+            # c'est un scalaire, `len()` lève, et le except large en faisait un
+            # dict d'erreur. fade_out n'a donc jamais fonctionné jusqu'au 2026-07-29.
+            y[-fade_samples:] *= fade_out_curve[-len(y[-fade_samples:]):]
         
         # Normalize
         if normalize:
