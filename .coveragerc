@@ -13,8 +13,11 @@ omit =
     # branché à _build_streaming_orchestrator) en plus des routes REST.
 
 [report]
-# Gate à 75% : atteint après réintégration d'api/server.py au scope (chemin WS
-# chat couvert par test_websocket_chat.py). Total mesuré ~75.5%.
+# Gate à 75% : seuil posé après réintégration d'api/server.py au scope (chemin WS
+# chat couvert par test_websocket_chat.py), quand le total mesuré était ~75.5%.
+# Mesure du 2026-07-29 : 80.55% (8291 stmts, 1463 manquants). La marge s'est
+# creusée d'elle-même — on garde la gate à 75 pour ne pas transformer chaque
+# ajout de code non couvert en échec de CI, mais l'écart se surveille.
 fail_under = 75
 precision = 1
 show_missing = True
