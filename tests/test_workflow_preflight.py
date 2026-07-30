@@ -70,7 +70,11 @@ def etape_sh(tmp_path_factory: pytest.TempPathFactory) -> Path:
                 chemin = tmp_path_factory.mktemp("preflight") / "etape.sh"
                 chemin.write_text(etape["run"], encoding="utf-8")
                 return chemin
-    pytest.fail(f"étape « {ETAPE} » introuvable dans {WORKFLOW}")
+    # `raise` explicite plutôt que `pytest.fail()` : ce dernier sort par exception
+    # lui aussi, mais l'analyse statique ne le sait pas et voit la fonction tomber
+    # en fin de corps sans rien rendre (CodeQL — « explicit returns mixed with
+    # implicit returns »). Un test qui garde un contrat mérite un flot lisible.
+    raise AssertionError(f"étape « {ETAPE} » introuvable dans {WORKFLOW}")
 
 
 def jouer(etape_sh: Path, tmp_path: Path, *reponses: str) -> subprocess.CompletedProcess:
