@@ -221,9 +221,37 @@ jobs:
               exit 1
             fi
           done
-          # Ollama (pour bge-m3)
+          # Ollama (bge-m3). AVERTISSEMENT et non erreur, à dessein : en
+          # BACKEND=mlx, Ollama ne sert QUE les embeddings, et tools/embeddings.py
+          # les enveloppe dans try/except (`is_available()`). Un run sans Ollama
+          # est dégradé sur la recherche sémantique, pas cassé.
+          #
+          # ⚠️ Le dire explicitement, parce que l'inverse a été cru : le 2026-07-30
+          # le nightly a rendu 1/5 avec « ✗ Impossible de joindre Ollama » en tête
+          # du log — message émis par agent/llm.py sur le chemin LLM, donc sur le
+          # GATEWAY. Ollama était bien éteint, ce qui rendait la fausse piste
+          # crédible. La vraie cause était la saturation mémoire du gateway.
           if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
-            echo "::warning::Ollama (port 11434) injoignable — embeddings dégradés."
+            echo "::warning::Ollama (11434) injoignable — embeddings bge-m3 dégradés. \
+          N'affecte PAS le LLM (BACKEND=mlx → gateway $MLX_BASE_URL) : si le bench \
+          échoue avec des erreurs de connexion, chercher du côté du gateway."
+          fi
+
+          # État mémoire du gateway, à titre de TRACE et jamais de blocage.
+          # Une jauge lue à l'instant t ne prédit pas la disponibilité à t+1 : le
+          # gateway évince ses workers À LA DEMANDE, donc une machine à 6 Go
+          # libres peut en offrir 40 une seconde plus tard. Bloquer là-dessus
+          # produirait des refus faux — même raisonnement que `preflight.py` côté
+          # local-suno. Mais sans cette trace, un échec de connexion en cours de
+          # run reste inexplicable après coup.
+          # Écrit en une ligne logique : un bloc python multi-ligne collé ici
+          # sortirait du scalaire `run: |` dès que son code revient en colonne 0,
+          # et le YAML ne parse plus. Constaté en écrivant ce job.
+          etat=$(curl -sf --max-time 5 "${MLX_BASE_URL%/v1}/admin/status" || true)
+          if [ -n "$etat" ]; then
+            printf '%s' "$etat" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  gateway: budget=%s resident=%s libre=%s" % (d.get("budget_gb"), d.get("resident_gb"), d.get("free_gb"))); [print("    %s: ram=%s inflight=%s" % (k, w.get("est_ram_gb"), w.get("inflight"))) for k, w in (d.get("workers") or {}).items() if w.get("running")]' || echo "  (état gateway illisible)"
+          else
+            echo "  (/admin/status indisponible — trace mémoire absente)"
           fi
 
       # ⚠️ requirements-macos.lock, PAS requirements.lock. Ce dernier est résolu
