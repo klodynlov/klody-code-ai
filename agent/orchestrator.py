@@ -1,10 +1,11 @@
 import contextlib
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from config import (
     BEST_OF_N_COUNT,
@@ -415,6 +416,56 @@ def _is_continuation(text: str) -> bool:
     return bool(_CONTINUATION_RE.match(t))
 
 
+# ── Garde « les décisions du projet n'ont jamais été ouvertes » ───────────────
+# Mesuré le 2026-07-30 sur le palier `discovery` du banc (cf.
+# bench/results/reference_2026-07-30_lot_trace_ouverture_docs.json) : quand
+# l'agent ouvre un document du projet, il tient la contrainte non écrite **8 fois
+# sur 8** ; quand il ne l'ouvre pas, **0 fois sur 10**. Séparation parfaite,
+# n=18, Fisher p = 2,3e-05.
+#
+# Ce qui l'arrête n'est PAS le budget : c'est un VERT. Il écrit le fichier, lance
+# la suite de tests déjà présente, la voit passer, et conclut. Or ces tests ont
+# été écrits AVANT sa modification : ils ne peuvent pas couvrir une contrainte
+# qu'il n'a jamais lue. Le signal qui le fait s'arrêter ne porte pas la
+# conclusion qu'il en tire — même sophisme que le garde LibraryBrain, où un
+# catalogue qui n'indexe que les titres ne prouve rien sur le contenu.
+#
+# On attaque donc le CRITÈRE D'ARRÊT, pas la lecture : l'instruction (« explore
+# avant d'écrire ») est déjà dans l'énoncé du banc, et une consigne de plus avait
+# échoué (0/3, annulée). Une instruction ne peut pas concurrencer un test vert.
+_DOC_SUFFIXES = frozenset({".md", ".rst", ".adoc"})
+# Dossiers où un projet range ses décisions. `docs` est une convention répandue,
+# pas une particularité du banc — la même règle attrape doc/, adr/, rfcs/.
+_DOC_DIRS = frozenset({"docs", "doc", "adr", "decisions", "rfc", "rfcs"})
+# Balayage borné : un README à la racine et docs/**/*.md sont couverts sans
+# descendre un arbre entier. Le garde tourne au moment de conclure, pas à chaque
+# tour, mais un `rglob` sur un gros dépôt se paierait quand même.
+_DOC_SCAN_DEPTH = 3
+_DOC_SCAN_MAX = 40
+# Cités dans le nudge. Nommer les documents ne donne pas la réponse — elle est
+# DANS le document, qu'il faut encore lire et appliquer. C'est l'exact pendant du
+# garde LibraryBrain, qui nomme `search_books` sans répondre à la question.
+_DOC_NUDGE_MAX = 6
+# Outils qui modifient le dépôt. Volontairement plus étroit que _PRODUCING_TOOLS :
+# un `preview_code` ou un `run_in_sandbox` fabrique un artefact jetable, il
+# n'engage pas le projet et ne justifie pas d'exiger la lecture de ses décisions.
+_DOC_WRITE_TOOLS = frozenset({"write_file", "create_project", "scaffold_tool"})
+
+
+def _est_documentation(path: str) -> bool:
+    """Vrai si `path` désigne un document de projet (décisions, conventions).
+
+    Deux formes : une extension de documentation à la racine (README.md,
+    CONTRIBUTING.md), ou n'importe quel fichier sous un dossier de documentation.
+    Un `.md` quelque part dans du code compte aussi — le garde préfère se
+    désarmer à tort que forcer une lecture inutile.
+    """
+    p = PurePosixPath(str(path).replace("\\", "/"))
+    if p.suffix.lower() in _DOC_SUFFIXES:
+        return True
+    return any(part.lower() in _DOC_DIRS for part in p.parts[:-1])
+
+
 # Auto-continue : quand le budget d'itérations est épuisé alors que l'agent
 # travaille encore (des tools ont été appelés dans la passe), on prolonge le
 # budget au lieu d'arrêter et de forcer l'utilisateur à relancer. Borné pour
@@ -654,6 +705,16 @@ def _format_search_results(result: str, pattern: str) -> Panel:
 
 
 class Orchestrator:
+    # État du garde « décisions du projet jamais ouvertes », remis à neuf par
+    # run() (cf. _should_force_doc_read). Annoté ici plutôt qu'au premier
+    # assignement : l'inventaire vaut `None` tant qu'il n'a pas été balayé, ce que
+    # l'inférence lit sinon comme un `list[str]` et refuse de remettre à None.
+    _code_ecrit: bool
+    _doc_consulte: bool
+    _doc_guard_fired: bool
+    _doc_inventaire: list[str] | None
+    _doc_ecrits: set[str]
+
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
         self.llm = LLMClient()
@@ -1236,6 +1297,156 @@ class Orchestrator:
             and not self._library_guard_fired
             and iteration < max_iter - 1
             and _claims_no_library_source(content)
+        )
+
+    def _note_doc_probe(self, tool_name: str, tool_args: dict, result: str) -> None:
+        """Suit, sur le run courant, ce que l'agent a lu et ce qu'il a écrit.
+
+        Une lecture compte quand elle porte sur un document (`read_file`), et
+        aussi quand une recherche RAMÈNE du contenu de document : `search_in_files`
+        affiche les chemins trouvés, donc l'agent a bien vu les décisions passer.
+        Ne compter que `read_file` armerait le garde après une découverte par grep
+        parfaitement valable.
+
+        `list_files` ne compte PAS : voir un nom de fichier n'est pas lire ce qu'il
+        contient. C'est exactement l'erreur du garde LibraryBrain — un catalogue de
+        titres ne dit rien du contenu.
+        """
+        if tool_name in _DOC_WRITE_TOOLS:
+            self._code_ecrit = True
+            # Un document que l'agent vient d'ÉCRIRE n'est pas une décision du
+            # projet — lui demander de le relire est absurde. Faux positif RÉEL,
+            # attrapé par deux scénarios de rejeu (04, 12) dont la tâche était
+            # « crée un README.md » : le garde exigeait la lecture du fichier
+            # produit à l'instant, et brûlait un tour à chaque fois.
+            rel = self._chemin_relatif(str((tool_args or {}).get("path", "")))
+            if rel:
+                self._doc_ecrits.add(rel)
+            return
+        if self._doc_consulte:
+            return
+        if tool_name == "read_file":
+            chemin = (tool_args or {}).get("path", "")
+            if chemin and _est_documentation(str(chemin)):
+                self._doc_consulte = True
+        elif tool_name == "search_in_files":
+            if any(_est_documentation(ligne) for ligne in str(result).splitlines()[:200]):
+                self._doc_consulte = True
+
+    def _chemin_relatif(self, brut: str) -> str | None:
+        """Chemin d'outil → chemin relatif POSIX à la racine, ou None hors racine.
+
+        Les arguments d'outils arrivent tantôt relatifs (`README.md`), tantôt
+        absolus ; l'inventaire, lui, ne rend que du relatif. Sans normalisation
+        commune, l'exclusion des documents écrits par l'agent ne mordrait que sur
+        l'une des deux formes.
+        """
+        if not brut:
+            return None
+        try:
+            racine = Path(self.file_manager.root).resolve()
+            chemin = Path(brut)
+            chemin = chemin if chemin.is_absolute() else racine / chemin
+            return chemin.resolve().relative_to(racine).as_posix()
+        except (OSError, ValueError):
+            return None
+
+    def _documentation_du_projet(self) -> list[str]:
+        """Documents du projet dans la racine courante, en chemins relatifs.
+
+        Calculé au plus une fois par run et SEULEMENT quand le reste du garde est
+        déjà vrai : un balayage systématique se paierait à chaque tour pour un
+        garde qui ne sert qu'au moment de conclure. Un dépôt sans documentation
+        rend une liste vide et le garde ne se déclenche jamais — c'est le cas des
+        25 tâches non-`discovery` du banc, qui ne peuvent donc pas régresser.
+
+        Les documents écrits par l'agent pendant ce run sont exclus (cf.
+        `_note_doc_probe`). Le cache est donc posé au moment de conclure, quand
+        cette liste d'exclusion est complète.
+        """
+        cache = getattr(self, "_doc_inventaire", None)
+        if cache is not None:
+            return cache
+        trouves: list[str] = []
+        try:
+            racine = Path(self.file_manager.root).resolve()
+            # ⚠️ Parcours ÉLAGUÉ, pas un `rglob("*")`. Mesuré sur ce dépôt :
+            # `sorted(rglob("*"))` énumère 88 706 entrées en 0,79 s, parce qu'il
+            # DESCEND dans `.venv`, `_downloads`, `graphify-out`… avant que le
+            # filtre de profondeur ne les écarte. On coupe les branches à
+            # l'entrée : le coût devient celui des dossiers réellement utiles.
+            for dossier, sous_dossiers, fichiers in os.walk(racine):
+                rel_dir = Path(dossier).relative_to(racine)
+                profondeur = 0 if rel_dir == Path(".") else len(rel_dir.parts)
+                if profondeur + 1 >= _DOC_SCAN_DEPTH:
+                    sous_dossiers[:] = []
+                else:
+                    sous_dossiers[:] = [
+                        d for d in sous_dossiers if not d.startswith((".", "_"))
+                    ]
+                for nom in fichiers:
+                    if nom.startswith((".", "_")):
+                        continue
+                    if Path(nom).suffix.lower() not in _DOC_SUFFIXES:
+                        continue
+                    rel = (rel_dir / nom).as_posix().removeprefix("./")
+                    if rel not in self._doc_ecrits:
+                        trouves.append(rel)
+                if len(trouves) >= _DOC_SCAN_MAX:
+                    break
+        except OSError as exc:  # racine illisible → garde silencieux, jamais fatal
+            logger.debug("[doc-guard] inventaire impossible : %s", exc)
+            trouves = []
+        self._doc_inventaire = sorted(trouves)[:_DOC_SCAN_MAX]
+        return self._doc_inventaire
+
+    def _should_force_doc_read(
+        self, content: str | None, iteration: int, max_iter: int
+    ) -> bool:
+        """Vrai si l'agent conclut une modification du dépôt sans avoir ouvert un
+        seul document du projet.
+
+        ⚠️ Aucune analyse de `content`, à la différence du garde LibraryBrain — et
+        c'est délibéré. Là-bas, la faute est dans ce que le modèle AFFIRME (une
+        absence) ; une réponse sourcée est irréprochable avec les mêmes outils
+        appelés. Ici la faute est dans ce qu'il n'a PAS fait : quelle que soit la
+        formulation, une modification livrée sans avoir lu les décisions du projet
+        repose sur un vert qui ne les couvre pas. Le paramètre est conservé pour
+        garder la signature des gardes homogène et rester gréable plus tard.
+
+        Une seule relance par run (`_doc_guard_fired`) : si l'agent lit le document
+        et conclut quand même de travers, la 2e conclusion passe — le garde force
+        une consultation, il ne juge pas le code. Marge d'une itération, sinon la
+        relance meurt sur le cap sans réponse.
+        """
+        return (
+            self._code_ecrit
+            and not self._doc_consulte
+            and not self._doc_guard_fired
+            and iteration < max_iter - 1
+            and bool(self._documentation_du_projet())
+        )
+
+    def _doc_guard_nudge(self, documents: list[str]) -> str:
+        """Message injecté quand le garde se déclenche. Nomme les documents, comme
+        le garde LibraryBrain nomme `search_books` : trouver le fichier n'est pas
+        la difficulté mesurée — l'ouvrir l'est."""
+        liste = ", ".join(f"`{d}`" for d in documents[:_DOC_NUDGE_MAX])
+        reste = len(documents) - _DOC_NUDGE_MAX
+        if reste > 0:
+            liste += f" (+{reste} autre(s))"
+        return (
+            "STOP — ne conclus pas encore. Tu as modifié le projet sans avoir "
+            "ouvert un seul de ses documents. Si tu t'appuies sur des tests qui "
+            "passent : ils ont été écrits AVANT ta modification, donc ils ne "
+            "testent pas ce que tu viens d'ajouter. Un vert obtenu sur eux ne "
+            "prouve rien sur les règles du projet — il prouve seulement que tu "
+            "n'as rien cassé de ce qui existait déjà.\n"
+            f"Ce projet documente ses décisions ici : {liste}.\n"
+            "Lis-les MAINTENANT avec `read_file`. Puis, une par une, confronte-les "
+            "à ton code : si l'une impose quelque chose que tu n'as pas fait, "
+            "corrige le code et relance les tests. Si après lecture tout est déjà "
+            "conforme, dis-le en citant la règle vérifiée — et conclus."
         )
 
     def _cmd_loop_nudge(self, tool_args: dict, streak: int) -> None:
@@ -2319,6 +2530,12 @@ class Orchestrator:
         self._catalog_missed = False       # ≥1 `library_catalog` sans hit exact
         self._content_searched = False     # ≥1 `search_books` lancé
         self._library_guard_fired = False  # 1 relance max par run()
+        # Garde « décisions du projet jamais ouvertes » (cf. _should_force_doc_read).
+        self._code_ecrit = False           # ≥1 écriture dans le dépôt
+        self._doc_consulte = False         # ≥1 document du projet lu
+        self._doc_guard_fired = False      # 1 relance max par run()
+        self._doc_inventaire = None        # balayage paresseux, au plus 1 par run()
+        self._doc_ecrits = set()           # documents écrits par l'agent ce run
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2587,6 +2804,9 @@ class Orchestrator:
                     # Garde-fou LibraryBrain : suit « catalogue sans hit exact » et
                     # « contenu jamais cherché » (cf. _should_force_content_search).
                     self._note_library_probe(tool_name, result)
+                    # « Décisions du projet jamais ouvertes » : suit ce qui a été
+                    # écrit et ce qui a été lu (cf. _should_force_doc_read).
+                    self._note_doc_probe(tool_name, tool_args, result)
 
                     # Anti-boucle : on compte les appels (nom+args) qui rendent le
                     # MÊME résultat. Un sondage (statut_generation) voit son résultat
@@ -2910,6 +3130,28 @@ class Orchestrator:
                     })
                     continue
 
+                # Garde-fou « décisions du projet jamais ouvertes » : l'agent a
+                # modifié le dépôt et s'apprête à conclure sans avoir lu une seule
+                # ligne de sa documentation. Ce qui l'arrête est en général un vert
+                # de tests PRÉEXISTANTS — un signal qui ne couvre pas ce qu'il vient
+                # d'écrire. On refuse la conclusion et on force la lecture.
+                if self._should_force_doc_read(content, iteration, max_iter):
+                    self._doc_guard_fired = True
+                    _docs = self._documentation_du_projet()
+                    logger.info(
+                        "[doc-guard] conclusion après écriture sans lecture de doc "
+                        "→ relance forcée (iter=%d, %d doc(s))", iteration, len(_docs))
+                    console.print(
+                        "[dim yellow]  ⤵  Tu as modifié le projet sans ouvrir sa "
+                        "documentation — je vais la lire avant de conclure[/dim yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": self._doc_guard_nudge(_docs),
+                        "timestamp": None,
+                    })
+                    continue
+
                 # Text-to-action fallback : le LLM n'a pas appelé de tool mais a
                 # peut-être écrit du code dans des blocs markdown. On extrait et
                 # on appelle le tool nous-mêmes. C'est notre filet ultime pour
@@ -2976,6 +3218,11 @@ class Orchestrator:
         self._catalog_missed = False
         self._content_searched = False
         self._library_guard_fired = False
+        self._code_ecrit = False
+        self._doc_consulte = False
+        self._doc_guard_fired = False
+        self._doc_inventaire = None
+        self._doc_ecrits = set()
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
