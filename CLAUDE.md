@@ -129,73 +129,71 @@ travaillaient sur un workdir déjà supprimé. Une tâche = un processus (#171)
 Le banc saturé ne départageait plus rien, d'où deux paliers : `expert` (#174,
 **5/5** — n'a PAS rouvert d'écart, l'empilement de difficulté ne suffit pas) et
 `discovery` (#175, **3/4**). Le seul échec, `discovery/hidden_invariant`, est
-reproductible : **0/8**. Son « témoin » `first_write_method` (#177), identique en
+reproductible : **0/8**. Son témoin `first_write_method` (#177), identique en
 tout sauf qu'aucune méthode d'écriture n'y est imitable, faisait **4/4**.
-⚠️ **Ces deux chiffres sont périmés — lire l'encadré 🛑 plus bas avant de s'en
-servir** : mesurés appariés sur 5 passes, ils donnent 0/5 et **2/5**, et la
-différence n'est pas significative.
+⚠️ **Ne pas raisonner sur ces deux taux — lire l'encadré ✅ plus bas** : ce qu'ils
+mesurent indirectement est le taux d'OUVERTURE de `docs/`, seule variable qui
+décide, et le témoin n'est pas à 100 % (8/10 mesuré).
 
 Le premier nightly complet sur les 30 tâches (run 30532826914, 2026-07-30) le
 confirme d'une source indépendante : **29/30**, seul `hidden_invariant` échoue
 (« valeur non copiée : la liste est partagée »), `first_write_method` passe. Porte
 verte, `Δ +0,0 %`.
 
-> ### 🛑 LE TÉMOIN N'EN EST PAS UN — mesure appariée du 2026-07-30
+> ### ✅ MÉCANISME ÉTABLI PAR LES TRACES — l'ouverture de `docs/` décide de tout
 >
-> `bench.run --category discovery --repeat 5`, 25 tirages, mêmes conditions,
-> mêmes passes (`bench/results/reference_2026-07-30_taux_discovery_apparie.json`) :
+> Lot apparié TRACÉ du 2026-07-30 (`--repeat 5` + traces isolées, n=18 sur les
+> deux jumeaux ; `bench/results/reference_2026-07-30_appels_outils_jumeaux.md`
+> porte les appels d'outils instance par instance) :
 >
-> | tâche | tirages | taux |
+> | | ✅ | ❌ | succès |
+> |---|---|---|---|
+> | **`docs/` lu** | **8** | 0 | **100 %** |
+> | **`docs/` non lu** | 0 | **10** | **0 %** |
+>
+> **Séparation parfaite, Fisher bilatéral p = 2,3 × 10⁻⁵.** L'ouverture du
+> document prédit le verdict sans une seule exception sur 18 instances.
+>
+> ⚠️ **La copie profonde ne rate JAMAIS quand le document est lu.** Elle n'est pas
+> la difficulté ; elle n'est que le symptôme mesuré par la sonde. Chercher
+> pourquoi l'agent « rate la copie profonde » est une impasse — il ne la rate pas,
+> il ne sait pas qu'elle est exigée.
+>
+> Ce qui varie entre les jumeaux est donc le TAUX D'OUVERTURE de `docs/` :
+>
+> | | ouverture de `docs/` |
+> |---|---|
+> | `hidden_invariant` | **0/8** |
+> | `first_write_method` | **8/10** (p = 1,05 × 10⁻³) |
+>
+> **Le mécanisme, lu dans les appels d'outils** — les totaux sont identiques
+> (5 appels partout), les compositions sont opposées :
+>
+> | appel | `hidden_invariant` | `first_write_method` |
 > |---|---|---|
-> | `hidden_invariant` | ❌❌❌❌❌ | **0/5** |
-> | **`first_write_method`** (le « témoin ») | ❌ ✅ ❌ ❌ ✅ | **2/5** |
-> | `config_precedence`, `error_contract`, `data_contract` | ✅ partout | 15/15 |
+> | 4ᵉ | **`write_file`** | **`read_file docs/DECISIONS.md`** |
+> | 5ᵉ | `pytest` | `write_file` |
 >
-> **Le témoin échoue, et du MÊME défaut, mot pour mot** : « valeur non copiée :
-> la liste est partagée ». Sa raison d'être était de montrer qu'une méthode
-> d'écriture imitable SUFFIT à réussir. Elle ne suffit pas — 3 fois sur 5.
+> `hidden_invariant` ÉCRIT avant d'avoir rien cherché, puis lance les tests
+> visibles — **qui passent**, puisqu'ils ne testent pas la copie. Il reçoit donc
+> une CONFIRMATION VERTE de sa réponse fausse et s'arrête. Le contexte local lui
+> fournit une histoire complète et cohérente : une méthode `set` à imiter, des
+> tests au vert. Le témoin, privé de modèle à imiter, n'a pas cette histoire sous
+> la main et va chercher.
 >
-> | comparaison | taux | Fisher bilatéral |
-> |---|---|---|
-> | **ce lot seul** — apparié, mêmes conditions | 0/5 vs 2/5 | **p = 0,44 — non significatif** |
-> | cumul de l'historique (approximatif) | 7 % vs 70 % | p = 0,0023 |
+> ⚠️ **Les 2 échecs du témoin dans le lot du matin étaient EXACTEMENT les 2 passes
+> où il n'a pas ouvert son document.** Il n'existe pas de second mode d'échec.
 >
-> ⚠️ **Ne pas se rabattre sur le cumul.** Il mélange des jours, des états du dépôt
-> et des conditions différents, et il inclut les données qui ont fait NAÎTRE
-> l'hypothèse — exactement ce qui gonfle un p. La seule comparaison proprement
-> appariée ne montre rien.
+> **Instrument à préférer** : le TAUX D'OUVERTURE de `docs/`, pas le taux de
+> succès. C'est la variable médiatrice, elle se mesure directement dans les
+> traces, elle prédit parfaitement — et elle sépare « n'a pas cherché » de « a
+> cherché sans comprendre », ce que le taux de succès confond.
 >
-> Ce qui TIENT : `hidden_invariant` échoue beaucoup, sur un défaut de copie
-> profonde. Le PALIER `discovery` garde tout son sens — 3 de ses 5 tâches sont à
-> 5/5, il départage donc réellement.
-> Ce qui TOMBE : l'EXPLICATION. « Un contexte local suffisant supprime le besoin
-> de chercher » reposait entièrement sur un témoin censé réussir, qui échoue.
-> Ce qui TOMBE AUSSI : « 0/8 reproductible » lu comme un échec certain — le run
-> 30534579266 a rendu **30/30**, `hidden_invariant` ✅ en 95,2 s, sans qu'aucune
-> variable de la tâche, des prompts, du modèle ou du routage ait bougé.
->
-> Signal faible, intra-lot donc licite : les deux succès du témoin ont coûté
-> 70,4 s et 50,0 s, ses trois échecs 40,6 / 49,7 / 44,3 s. Cohérent avec
-> « réussir demande de chercher plus longtemps », sur n = 5.
->
-> **Méthode, et c'est le vrai enseignement** : ces deux tâches n'avaient jamais
-> été mesurées APPARIÉES sur plusieurs passes. Quatre affirmations successives du
-> dépôt (0/8, 4/4, « témoin renforcé » en #183, « échec déterministe ») venaient
-> toutes d'échantillons de taille 1 à 9, lus comme des règles. Un écart de taux
-> se mesure en passes répétées, ou ne se mesure pas.
-
-> **Mode d'échec — formulation À REVOIR, l'explication n'est plus étayée.**
-> L'agent lit `cache.py`, y trouve une ligne qui ressemble à la réponse, et
-> n'ouvre jamais `docs/` — sept fois sur sept, alors que `📁 docs/` figure dans la
-> sortie de `list_files` qu'il vient de recevoir. Ces sept traces restent
-> exactes, et le symptôme est réel.
->
-> ⚠️ Mais « un contexte local suffisant SUPPRIME le besoin de chercher » n'est
-> plus soutenu : le témoin, dépourvu de ce contexte local, échoue du même défaut
-> 3 fois sur 5. Ce que la mesure établit aujourd'hui, c'est un défaut de **copie
-> profonde** que l'agent commet dans les deux tâches, pas un effet du contexte
-> local. Un correctif doit viser à DÉPLACER UN TAUX et se mesurer sur plusieurs
-> passes — jamais sur un run, qui ne distingue pas un remède d'un tirage chanceux.
+> ⚠️ **Trois révisions de cette conclusion dans la même journée** (0/8 vu comme
+> déterministe → « l'explication tombe » en #186 → mécanisme établi ici). Les deux
+> premières venaient de TAUX à petit n sans traces ; celle-ci vient du mécanisme
+> observé. Quand un taux et un mécanisme se contredisent, aller chercher le
+> mécanisme — un taux à n=5 ne distingue pas deux causes, il les moyenne.
 
 Mesures de référence dans `bench/results/reference_*.json` (convention : ce
 préfixe est dé-ignoré, cf. `.gitignore`).
@@ -209,11 +207,20 @@ préfixe est dé-ignoré, cf. `.gitignore`).
    tâches**). ⚠️ Elle fige `hidden_invariant` en échec attendu, ce qui la place
    à 96,7 % : un run à 30/30 rend donc `Δ +3,3 %`. À re-promouvoir seulement
    quand le TAUX de cette tâche sera mesuré, pas sur un run chanceux.
-3. ~~Mesurer le taux de succès de `hidden_invariant`~~ — **fait** le 2026-07-30,
-   `--repeat 5`, et le résultat a démoli le témoin (cf. l'encadré 🛑). Ce qui
-   reste ouvert change donc de nature : **trouver pourquoi l'agent rate la copie
-   profonde**, sur les DEUX jumeaux, au lieu de chercher un effet du contexte
-   local qui n'est plus étayé. Toute piste se juge sur `--repeat 5` minimum.
+3. ~~Mesurer le taux, puis le mécanisme~~ — **fait** le 2026-07-30 : l'ouverture
+   de `docs/` décide de tout, séparation parfaite sur n=18 (encadré ✅).
+   Ce qui reste ouvert : **faire monter le taux d'ouverture de `docs/`** quand un
+   modèle local est imitable — `hidden_invariant` est à 0/8.
+   - ⚠️ La consigne de prompt a DÉJÀ échoué (0/3, `base.md`, tracé identique,
+     revertée). Ne pas la rejouer telle quelle.
+   - Piste que le mécanisme désigne : l'agent tire une **confirmation verte de
+     sa réponse fausse** en lançant les tests visibles, qui ne couvrent pas la
+     contrainte. Agir sur le critère d'arrêt vaut mieux que sur la consigne.
+   - Se juge sur le TAUX D'OUVERTURE, pas sur le taux de succès : il est
+     parfaitement prédictif, et il sépare « n'a pas cherché » de « a cherché
+     sans comprendre ». `--repeat 5` minimum, traces capturées
+     (`PYTHONUNBUFFERED=1`, sinon les en-têtes du parent se désynchronisent de
+     la sortie des sous-processus et l'attribution est fausse).
 4. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
    Qwen3.6-35B-A3B. Trois raisons, dans l'ordre où elles ont compté : à 20/20
    partout et `tool_calls_cassés` à 0, le banc n'avait **aucune marge** pour
