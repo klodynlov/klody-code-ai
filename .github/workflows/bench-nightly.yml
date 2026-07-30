@@ -372,7 +372,29 @@ jobs:
           if [ -n "${{ inputs.category }}" ]; then
             category_flag="--category ${{ inputs.category }}"
           fi
+          # ⚠️ Le code 2 de `bench.run` signifie « mesure faite, des tâches ont
+          # échoué ». Ce n'est PAS un verdict de CI : le juge, c'est l'étape
+          # suivante, qui seule connaît la baseline. Depuis que celle-ci est passée
+          # à 30 tâches en y GELANT `discovery/hidden_invariant` comme échec
+          # attendu, `bench.run` ne peut plus rendre 0 — le nightly était donc rouge
+          # sur un run parfait, et l'étape « non-régression » SAUTÉE, c'est-à-dire
+          # exactement l'inverse du but. Constaté le 2026-07-30 sur le run
+          # 30532826914 : 29/30, porte rejouée à la main = Δ +0,0 %, aucune
+          # régression.
+          #
+          # Tout autre code reste fatal : 1 = exception du harnais, 2 = résultat.
+          # Un `|| true` confondrait les deux et rendrait le banc silencieusement
+          # inopérant — c'est la panne qui a coûté le plus cher à ce dépôt (le banc
+          # a rendu ~13 % pendant des mois en se mesurant lui-même).
+          set +e
           python -m bench.run $category_flag --label "ci_nightly_$(date +%Y%m%d)"
+          code=$?
+          set -e
+          if [ "$code" != "0" ] && [ "$code" != "2" ]; then
+            echo "::error::bench.run a cassé (code $code) — ce n'est pas un résultat de mesure, le harnais est en panne."
+            exit "$code"
+          fi
+          echo "  bench.run : code $code (0 = tout passe, 2 = des tâches ont échoué — la porte tranche)"
 
       - name: Vérifier non-régression vs baseline
         run: |

@@ -65,6 +65,26 @@ l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N hors
 baseline, non jugée(s) » — les 10 tâches des deux nouveaux paliers ne sont donc
 pas jugées tant qu'une baseline ne les inclut pas.
 
+### ⚠️ `bench.run` MESURE, `bench.gate` JUGE — deux codes de sortie, un seul verdict
+
+`bench.run` rend **2 dès qu'une tâche échoue** (`bench/run.py:414`, verrouillé par
+`tests/test_bench_expert_tasks.py`). C'est le bon contrat en local. Ce n'est **pas**
+un verdict de CI : le juge est la porte, seule à connaître la baseline.
+
+Ces deux critères se sont contredits le jour où la baseline est passée à 30 tâches
+**en y gelant `discovery/hidden_invariant` comme échec attendu** : depuis,
+`bench.run` ne peut plus rendre 0, donc le nightly ne pouvait plus être vert, même
+sur un run parfait — et le rouge faisait SAUTER l'étape de non-régression, c'est-à-
+dire exactement l'inverse du but. Constaté le 2026-07-30 sur le run 30532826914 :
+**29/30**, porte rejouée à la main sur le JSON produit ⇒ `Δ +0,0 %`, aucune
+régression, job rouge quand même.
+
+L'étape accepte donc 0 et 2, et **rien d'autre** : 1 = exception du harnais.
+⚠️ Un `|| true` confondrait les deux et rendrait le banc silencieusement inopérant
+— c'est la panne la plus coûteuse de ce dépôt (~13 % pendant des mois, le banc se
+mesurant lui-même sans que rien ne rougisse). Verrouillé par
+`tests/test_workflow_preflight.py::TestCodeDeSortieDuBanc`.
+
 ### ⚠️ Les latences ne sont PAS comparables d'un run à l'autre
 
 Mesuré le 2026-07-30 : **la même tâche `discovery/hidden_invariant` a rendu
@@ -111,6 +131,11 @@ Le banc saturé ne départageait plus rien, d'où deux paliers : `expert` (#174,
 `discovery` (#175, **3/4**). Le seul échec, `discovery/hidden_invariant`, est
 reproductible : **0/8**. Son témoin `first_write_method` (#177), identique en
 tout sauf qu'aucune méthode d'écriture n'y est imitable, fait **4/4**.
+
+Le premier nightly complet sur les 30 tâches (run 30532826914, 2026-07-30) le
+confirme d'une source indépendante : **29/30**, seul `hidden_invariant` échoue
+(« valeur non copiée : la liste est partagée »), `first_write_method` passe. Porte
+verte, `Δ +0,0 %`.
 
 > **Le mode d'échec établi : un contexte local suffisant supprime le besoin de
 > chercher.** L'agent lit `cache.py`, y trouve une ligne qui ressemble à la
