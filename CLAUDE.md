@@ -168,6 +168,20 @@ préfixe est dé-ignoré, cf. `.gitignore`).
   échouer, et une solution de référence doit passer. C'est la seconde moitié qui
   a trouvé ce défaut et deux autres (`spec_beyond_tests` rejetait sa propre
   solution correcte ; `copy.copy` passait une tâche qui exige `deepcopy`).
+- **Ollama n'est PAS requis.** `SEMANTIC_MEMORY_PROVIDER` vaut `st` par défaut —
+  sentence-transformers en processus, même modèle bge-m3, `cos(ollama, st) =
+  1.0000` mesuré. Vérifié le 2026-07-30 : Ollama n'est même pas installé sur la
+  machine, et `embeddings.is_available()` rend `True` (1024 dimensions, norme
+  1.0). L'en-tête de `bench-nightly.yml` le liste encore comme prérequis de
+  setup ; c'est faux depuis le passage à `st`.
+- **Un AVERTISSEMENT qui décrit un problème inexistant coûte autant qu'une
+  erreur fausse.** Le nightly criait « Ollama injoignable — embeddings dégradés »
+  alors que rien n'était dégradé. Le 2026-07-30, ce faux avertissement en tête du
+  log a orienté tout le diagnostic d'un 1/5 vers Ollama ; la cause était
+  `MLX_CODE_BASE_URL`. ⚠️ Et j'ai ÉDITÉ cette ligne une heure avant de la
+  corriger, pour la rendre plus précise, sans vérifier que sa prémisse était
+  vraie. Deux fois le même angle mort dans la même journée : **croire un message
+  au lieu de vérifier ce qu'il affirme.**
 - **Un message d'erreur qui nomme la mauvaise dépendance coûte une enquête
   entière.** `agent/llm.py` affichait « ✗ Impossible de joindre Ollama » sur
   TOUTE `APIConnectionError` — hérité du mode ollama, alors qu'en `BACKEND=mlx`
