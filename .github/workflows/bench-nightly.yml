@@ -236,15 +236,56 @@ jobs:
           # en pratique (incident 2026-07-03 — un id périmé renvoie 404 « modèle
           # inconnu » et le bench part en échec sur les 20 tâches). On valide donc
           # chaque alias par une complétion d'un token avant de lancer quoi que ce soit.
+          #
+          # ⚠️ DEUX échecs distincts se cachaient derrière le même `curl -sf` :
+          #   • 404 « modèle inconnu »   → l'alias ne résout pas. C'est CE contrôle-ci,
+          #     et il doit rester rouge.
+          #   • 503 « RAM insuffisante » → l'alias a parfaitement résolu (le gateway le
+          #     NOMME et connaît son empreinte). Rouge ici = un contrôle qui invente un
+          #     obstacle et envoie chercher la panne dans le resolver, qui va bien.
+          # `-f` rend le même code d'erreur pour les deux et `-s … > /dev/null` jette le
+          # message qui les sépare : on lit désormais le code HTTP et le corps.
+          #
+          # Le 503 est transitoire, et le préflight le PROVOQUE : pinger `brain` charge
+          # 44 Go, après quoi `vm_stat` sous-estime la RAM disponible — les pages
+          # fraîchement touchées comptent `active` et n'ont pas encore vieilli vers
+          # `inactive`, la file que lit le garde-fou anti-OOM (gateway/sysmem.py).
+          # Mesuré le 2026-07-30 : 41 GiB à t+9 s (refus de `coder` à 1 GiB près),
+          # 62 GiB à t+2 min, `coder` chargé en 8,3 s. On attend, on ne contourne pas —
+          # le banc a réellement besoin des deux modèles co-résidents (44 + 30 sur un
+          # budget de 80), `brain` étant `pinned=True` donc jamais évincé pour `coder`.
           for alias in "$MLX_MODEL" "$MLX_CODE_MODEL"; do
             [ -z "$alias" ] && continue
-            if ! curl -sf "$MLX_BASE_URL/chat/completions" \
-                 -H "Content-Type: application/json" \
-                 -d "{\"model\":\"$alias\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" \
-                 > /dev/null; then
-              echo "::error::L'alias '$alias' ne résout pas sur $MLX_BASE_URL. Vérifier le resolver du gateway."
+            for essai in 1 2 3 4 5 6; do
+              reponse=$(curl -s -w '\n%{http_code}' --max-time 300 "$MLX_BASE_URL/chat/completions" \
+                   -H "Content-Type: application/json" \
+                   -d "{\"model\":\"$alias\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" \
+                   || printf '\n000')
+              code=$(printf '%s' "$reponse" | tail -n 1)
+              corps=$(printf '%s' "$reponse" | sed '$d')
+              if [ "$code" = "200" ]; then
+                echo "  alias '$alias' : OK (essai $essai)"
+                break
+              fi
+              # Seul le manque de RAM est réessayé. Tout le reste — 404, resolver mort,
+              # gateway tombé en cours de route — échoue tout de suite : réessayer
+              # masquerait la panne pendant trois minutes avant de la signaler quand même.
+              if [ "$code" = "503" ] && printf '%s' "$corps" | grep -q "RAM insuffisante"; then
+                if [ "$essai" -eq 6 ]; then
+                  echo "::error::L'alias '$alias' résout, mais le gateway n'a pas libéré la RAM en 5 min : $corps"
+                  exit 1
+                fi
+                echo "  alias '$alias' : RAM indisponible (essai $essai/6), nouvelle tentative dans 60 s — $corps"
+                sleep 60
+                continue
+              fi
+              if [ "$code" = "000" ]; then
+                echo "::error::Pas de réponse du gateway pour '$alias' (connexion coupée ou > 300 s). Ce n'est PAS un défaut de resolver — regarder le gateway, pas les alias."
+                exit 1
+              fi
+              echo "::error::L'alias '$alias' ne résout pas sur $MLX_BASE_URL (http $code). Vérifier le resolver du gateway. $corps"
               exit 1
-            fi
+            done
           done
           # Le contrôle du provider d'embeddings vit APRÈS `Setup venv` (étape
           # « Embeddings ») : il doit interroger config.py, ce qui exige le venv.
