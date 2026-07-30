@@ -129,34 +129,92 @@ travaillaient sur un workdir déjà supprimé. Une tâche = un processus (#171)
 Le banc saturé ne départageait plus rien, d'où deux paliers : `expert` (#174,
 **5/5** — n'a PAS rouvert d'écart, l'empilement de difficulté ne suffit pas) et
 `discovery` (#175, **3/4**). Le seul échec, `discovery/hidden_invariant`, est
-reproductible : **0/8**. Son témoin `first_write_method` (#177), identique en
-tout sauf qu'aucune méthode d'écriture n'y est imitable, fait **4/4**.
+reproductible : **0/8**. Son « témoin » `first_write_method` (#177), identique en
+tout sauf qu'aucune méthode d'écriture n'y est imitable, faisait **4/4**.
+⚠️ **Ces deux chiffres sont périmés — lire l'encadré 🛑 plus bas avant de s'en
+servir** : mesurés appariés sur 5 passes, ils donnent 0/5 et **2/5**, et la
+différence n'est pas significative.
 
 Le premier nightly complet sur les 30 tâches (run 30532826914, 2026-07-30) le
 confirme d'une source indépendante : **29/30**, seul `hidden_invariant` échoue
 (« valeur non copiée : la liste est partagée »), `first_write_method` passe. Porte
 verte, `Δ +0,0 %`.
 
-> **Le mode d'échec établi : un contexte local suffisant supprime le besoin de
-> chercher.** L'agent lit `cache.py`, y trouve une ligne qui ressemble à la
-> réponse, et n'ouvre jamais `docs/` — sept fois sur sept, alors que
-> `📁 docs/` figure dans la sortie de `list_files` qu'il vient de recevoir.
-> C'est le cas le plus fréquent en vrai, puisqu'on demande presque toujours
-> d'étendre du code existant.
+> ### 🛑 LE TÉMOIN N'EN EST PAS UN — mesure appariée du 2026-07-30
+>
+> `bench.run --category discovery --repeat 5`, 25 tirages, mêmes conditions,
+> mêmes passes (`bench/results/reference_2026-07-30_taux_discovery_apparie.json`) :
+>
+> | tâche | tirages | taux |
+> |---|---|---|
+> | `hidden_invariant` | ❌❌❌❌❌ | **0/5** |
+> | **`first_write_method`** (le « témoin ») | ❌ ✅ ❌ ❌ ✅ | **2/5** |
+> | `config_precedence`, `error_contract`, `data_contract` | ✅ partout | 15/15 |
+>
+> **Le témoin échoue, et du MÊME défaut, mot pour mot** : « valeur non copiée :
+> la liste est partagée ». Sa raison d'être était de montrer qu'une méthode
+> d'écriture imitable SUFFIT à réussir. Elle ne suffit pas — 3 fois sur 5.
+>
+> | comparaison | taux | Fisher bilatéral |
+> |---|---|---|
+> | **ce lot seul** — apparié, mêmes conditions | 0/5 vs 2/5 | **p = 0,44 — non significatif** |
+> | cumul de l'historique (approximatif) | 7 % vs 70 % | p = 0,0023 |
+>
+> ⚠️ **Ne pas se rabattre sur le cumul.** Il mélange des jours, des états du dépôt
+> et des conditions différents, et il inclut les données qui ont fait NAÎTRE
+> l'hypothèse — exactement ce qui gonfle un p. La seule comparaison proprement
+> appariée ne montre rien.
+>
+> Ce qui TIENT : `hidden_invariant` échoue beaucoup, sur un défaut de copie
+> profonde. Le PALIER `discovery` garde tout son sens — 3 de ses 5 tâches sont à
+> 5/5, il départage donc réellement.
+> Ce qui TOMBE : l'EXPLICATION. « Un contexte local suffisant supprime le besoin
+> de chercher » reposait entièrement sur un témoin censé réussir, qui échoue.
+> Ce qui TOMBE AUSSI : « 0/8 reproductible » lu comme un échec certain — le run
+> 30534579266 a rendu **30/30**, `hidden_invariant` ✅ en 95,2 s, sans qu'aucune
+> variable de la tâche, des prompts, du modèle ou du routage ait bougé.
+>
+> Signal faible, intra-lot donc licite : les deux succès du témoin ont coûté
+> 70,4 s et 50,0 s, ses trois échecs 40,6 / 49,7 / 44,3 s. Cohérent avec
+> « réussir demande de chercher plus longtemps », sur n = 5.
+>
+> **Méthode, et c'est le vrai enseignement** : ces deux tâches n'avaient jamais
+> été mesurées APPARIÉES sur plusieurs passes. Quatre affirmations successives du
+> dépôt (0/8, 4/4, « témoin renforcé » en #183, « échec déterministe ») venaient
+> toutes d'échantillons de taille 1 à 9, lus comme des règles. Un écart de taux
+> se mesure en passes répétées, ou ne se mesure pas.
+
+> **Mode d'échec — formulation À REVOIR, l'explication n'est plus étayée.**
+> L'agent lit `cache.py`, y trouve une ligne qui ressemble à la réponse, et
+> n'ouvre jamais `docs/` — sept fois sur sept, alors que `📁 docs/` figure dans la
+> sortie de `list_files` qu'il vient de recevoir. Ces sept traces restent
+> exactes, et le symptôme est réel.
+>
+> ⚠️ Mais « un contexte local suffisant SUPPRIME le besoin de chercher » n'est
+> plus soutenu : le témoin, dépourvu de ce contexte local, échoue du même défaut
+> 3 fois sur 5. Ce que la mesure établit aujourd'hui, c'est un défaut de **copie
+> profonde** que l'agent commet dans les deux tâches, pas un effet du contexte
+> local. Un correctif doit viser à DÉPLACER UN TAUX et se mesurer sur plusieurs
+> passes — jamais sur un run, qui ne distingue pas un remède d'un tirage chanceux.
 
 Mesures de référence dans `bench/results/reference_*.json` (convention : ce
 préfixe est dé-ignoré, cf. `.gitignore`).
 
 ### Ce qui reste à faire
 
-1. **Enregistrer un runner self-hosted** — labels `self-hosted, macOS, klody`.
-   Sans lui le nightly fait la queue puis est annulé ; le job `verify-runner` le
-   dit désormais explicitement au lieu de laisser un historique vert-vide.
-2. ~~Promouvoir une baseline~~ — **fait** (#172), 20/20 committée. Reste à
-   décider si les 10 tâches `expert` + `discovery` y entrent : elles sont
-   mesurées (5/5 et 4/5 stables sur 3 passes) donc gelables, mais une baseline
-   à 30 fige aussi l'échec connu de `hidden_invariant`.
-3. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
+1. ~~Enregistrer un runner self-hosted~~ — **fait**, `klody-mac` en ligne
+   (labels `self-hosted, macOS, ARM64, klody`). Le nightly tourne de bout en
+   bout depuis le 2026-07-30 (run 30534579266, **30/30**, porte verte).
+2. ~~Promouvoir une baseline~~ — **fait** (#172 pour 20/20, puis promue à **30
+   tâches**). ⚠️ Elle fige `hidden_invariant` en échec attendu, ce qui la place
+   à 96,7 % : un run à 30/30 rend donc `Δ +3,3 %`. À re-promouvoir seulement
+   quand le TAUX de cette tâche sera mesuré, pas sur un run chanceux.
+3. ~~Mesurer le taux de succès de `hidden_invariant`~~ — **fait** le 2026-07-30,
+   `--repeat 5`, et le résultat a démoli le témoin (cf. l'encadré 🛑). Ce qui
+   reste ouvert change donc de nature : **trouver pourquoi l'agent rate la copie
+   profonde**, sur les DEUX jumeaux, au lieu de chercher un effet du contexte
+   local qui n'est plus étayé. Toute piste se juge sur `--repeat 5` minimum.
+4. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
    Qwen3.6-35B-A3B. Trois raisons, dans l'ordre où elles ont compté : à 20/20
    partout et `tool_calls_cassés` à 0, le banc n'avait **aucune marge** pour
    départager deux modèles (c'est ce qui a motivé les paliers `expert` et
