@@ -59,26 +59,87 @@ répéter dos à dos sert depuis un cache de prompt chaud et fausse la latence.
 Chaque run enregistre sa **provenance** (modèle réellement servi, résolu derrière
 l'alias par une complétion d'un token).
 
-## État au 2026-07-29
+Cinq paliers, 30 tâches : `easy`, `medium`, `hard` (les 20 de la baseline),
+`expert` (le réflexe est faux), `discovery` (la contrainte n'est pas dans
+l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N hors
+baseline, non jugée(s) » — les 10 tâches des deux nouveaux paliers ne sont donc
+pas jugées tant qu'une baseline ne les inclut pas.
 
-Couverture **84,3 %** (gate 80), **2146 tests**. Huit PR (#162→#169) ont remis
-l'instrumentation en service : gate de non-régression opérationnel, `bench.compare`
-écrit, `--repeat` + provenance, sentinelle runner, et couverture de
-`semantic_memory` (98 %), `embeddings` (100 %), `audio` (96 %), `orchestrator` (76 %).
+### ⚠️ Les latences ne sont PAS comparables d'un run à l'autre
+
+Mesuré le 2026-07-30 : **la même tâche `discovery/hidden_invariant` a rendu
+34 s dans un run et 119 s dans un autre**, sans qu'aucune variable de la tâche
+ni du modèle ne change. Un run complet montrait 2-3× la latence de référence
+sur les cinq paliers à la fois, y compris sur des tâches où rien n'avait bougé.
+
+Conséquence : **tout jugement de vitesse doit être INTRA-RUN.** Comparer la
+latence d'une tâche mesurée aujourd'hui à celle d'un run d'hier ne dit rien.
+
+Ça a produit une conclusion fausse qu'il a fallu retirer d'une PR : la latence
+de `first_write_method` (70-82 s) contre celle de `hidden_invariant` (34-38 s)
+avait été lue comme « l'agent travaille deux fois plus quand il explore ». Les
+deux tâches mesurées **dans un même run** coûtent 119,5 s et 119,8 s — soit
+rigoureusement la même chose. L'écart était de la dérive d'environnement, pas
+du comportement.
+
+Ce qui reste comparable entre runs : les **verdicts** (succès/échec), les
+**itérations**, les **appels d'outils**, et les **traces d'exploration**. Ce
+sont eux qui portent les conclusions de `bench/results/reference_*.json` ; la
+latence n'en porte aucune.
+
+⚠️ `bench.compare` affiche des deltas de latence entre deux runs. Ils sont
+donc à traiter comme du bruit sauf écart énorme et répété — la colonne utile
+est le taux de succès, pas la vitesse.
+
+## État au 2026-07-30
+
+Couverture **84,3 %** (gate 80), **2313 tests** (`pytest tests/ --collect-only`).
+Huit PR (#162→#169) ont remis l'instrumentation en service : gate de
+non-régression opérationnel, `bench.compare` écrit, `--repeat` + provenance,
+sentinelle runner, et couverture de `semantic_memory` (98 %), `embeddings`
+(100 %), `audio` (96 %), `orchestrator` (76 %).
+
+Sept PR (#171→#177) ont rendu le banc capable de mesurer autre chose que
+lui-même. Le point de départ : il rendait **~13 %** depuis des mois, et c'était
+un artefact — `FileManager.allowed_roots` est figé dans `__init__`, or toutes
+les tâches tournaient dans un processus partagé, si bien que les tâches 2..N
+travaillaient sur un workdir déjà supprimé. Une tâche = un processus (#171)
+⇒ **20/20**, puis 60/60 sur 3 passes (#173).
+
+Le banc saturé ne départageait plus rien, d'où deux paliers : `expert` (#174,
+**5/5** — n'a PAS rouvert d'écart, l'empilement de difficulté ne suffit pas) et
+`discovery` (#175, **3/4**). Le seul échec, `discovery/hidden_invariant`, est
+reproductible : **0/8**. Son témoin `first_write_method` (#177), identique en
+tout sauf qu'aucune méthode d'écriture n'y est imitable, fait **4/4**.
+
+> **Le mode d'échec établi : un contexte local suffisant supprime le besoin de
+> chercher.** L'agent lit `cache.py`, y trouve une ligne qui ressemble à la
+> réponse, et n'ouvre jamais `docs/` — sept fois sur sept, alors que
+> `📁 docs/` figure dans la sortie de `list_files` qu'il vient de recevoir.
+> C'est le cas le plus fréquent en vrai, puisqu'on demande presque toujours
+> d'étendre du code existant.
+
+Mesures de référence dans `bench/results/reference_*.json` (convention : ce
+préfixe est dé-ignoré, cf. `.gitignore`).
 
 ### Ce qui reste à faire
 
 1. **Enregistrer un runner self-hosted** — labels `self-hosted, macOS, klody`.
    Sans lui le nightly fait la queue puis est annulé ; le job `verify-runner` le
    dit désormais explicitement au lieu de laisser un historique vert-vide.
-2. **Promouvoir une baseline** : `python -m bench.run --promote-baseline`, puis
-   committer `bench/results/baseline.json` (dé-ignoré exprès). Sans elle le gate
-   s'annonce neutralisé par un `::warning::` — il ne peut pas échouer.
-3. **Trancher l'A/B cerveau** : Qwen3.6-35B-A3B (~50-60 tok/s) vs gpt-oss-120b
-   (~61 GB, ~30 tok/s, réputé pour la fiabilité de ses tool calls). Hypothèse à
-   falsifier : gpt-oss gagne sur `hard`, perd sur `easy`, parce qu'un tool call
-   malformé coûte une itération entière là où 25 tok/s de moins ne coûtent que
-   des secondes. **La colonne à regarder d'abord est `tool_calls_cassés`.**
+2. ~~Promouvoir une baseline~~ — **fait** (#172), 20/20 committée. Reste à
+   décider si les 10 tâches `expert` + `discovery` y entrent : elles sont
+   mesurées (5/5 et 4/5 stables sur 3 passes) donc gelables, mais une baseline
+   à 30 fige aussi l'échec connu de `hidden_invariant`.
+3. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
+   Qwen3.6-35B-A3B. Trois raisons, dans l'ordre où elles ont compté : à 20/20
+   partout et `tool_calls_cassés` à 0, le banc n'avait **aucune marge** pour
+   départager deux modèles (c'est ce qui a motivé les paliers `expert` et
+   `discovery`) ; gpt-oss-120b n'est pas sur la machine ; et `brain` est le
+   modèle **partagé** avec Library Brain et KlodyAI, donc basculer l'alias
+   changeait ces applications aussi. Depuis, `KLODY_CORE_BRAIN_MODEL` existe
+   côté klody-core — un futur A/B passe par une entrée dédiée du registre,
+   pas par une surcharge de `brain`.
 
 ## Pièges qui coûtent du temps
 
@@ -99,6 +160,21 @@ l'instrumentation en service : gate de non-régression opérationnel, `bench.com
 - **Les flags de garde sont remis à zéro en fin de run** (`_catalog_missed`,
   `_content_searched`, anti-stall) : les tester après `orch.run()` ne prouve rien,
   il faut chercher la trace laissée en mémoire.
+- **Une porte de perf se DIMENSIONNE par la mesure, jamais par l'estimation.**
+  Une tâche `expert` bornait un dédoublonnage quadratique à N=4000 en supposant
+  ~5 s : mesuré, **0,087 s** — `in` sur une liste compare les dicts côté C. La
+  porte ne se serait jamais fermée, et la tâche aurait rendu un ✅ crédible et
+  faux. Corollaire : une tâche de banc a besoin de DEUX tests — la fixture doit
+  échouer, et une solution de référence doit passer. C'est la seconde moitié qui
+  a trouvé ce défaut et deux autres (`spec_beyond_tests` rejetait sa propre
+  solution correcte ; `copy.copy` passait une tâche qui exige `deepcopy`).
+- **Une consigne ajoutée au prompt peut changer le DISCOURS sans changer la
+  CONDUITE.** Mesuré : `base.md` enrichi de « ouvre la documentation avant
+  d'écrire » → l'agent répond « je vais d'abord explorer le projet » aux trois
+  passes, puis lit les deux mêmes fichiers et écrit. 0/3, tracé identique,
+  reverté. ⚠️ `compose_system_prompt` place le prompt de type **après**
+  `base.md`, et `feature.md` ouvre sur « Agis d'abord. Lance directement un
+  tool_call. » — la consigne opposée, en position favorable. Non testé.
 
 ## Le mode de défaillance dominant du dépôt
 
