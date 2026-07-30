@@ -271,10 +271,25 @@ préfixe est dé-ignoré, cf. `.gitignore`).
 1. ~~Enregistrer un runner self-hosted~~ — **fait**, `klody-mac` en ligne
    (labels `self-hosted, macOS, ARM64, klody`). Le nightly tourne de bout en
    bout depuis le 2026-07-30 (run 30534579266, **30/30**, porte verte).
-2. ~~Promouvoir une baseline~~ — **fait** (#172 pour 20/20, puis promue à **30
-   tâches**). ⚠️ Elle fige `hidden_invariant` en échec attendu, ce qui la place
-   à 96,7 % : un run à 30/30 rend donc `Δ +3,3 %`. À re-promouvoir seulement
-   quand le TAUX de cette tâche sera mesuré, pas sur un run chanceux.
+2. ~~Promouvoir une baseline~~ — **fait** (#172 pour 20/20, promue à 30 tâches,
+   puis **re-promue à 30/30 le 2026-07-30 au soir**, après le garde du point 4.
+   Elle ne fige plus aucun échec attendu.) Trois runs complets à 30/30 la
+   précèdent — local, nightly sur le runner, puis un run FRAIS pour la
+   promotion elle-même : promouvoir le run qui a servi à plaider la
+   non-régression aurait été circulaire.
+   - ⚠️ **Figer un échec attendu dans une baseline ne rend pas la porte neutre,
+     il la DESSERRE.** Tant qu'elle était à 96,7 %, il fallait **4** tâches
+     cassées pour rougir ; à 100 % il en faut **3**. L'arithmétique en
+     pourcentage donne du mou dès que la référence n'est plus parfaite.
+   - ⚠️ **Le tableau de sensibilité de `bench/gate.py` était FAUX d'une unité**
+     sur toute sa colonne `29/30` (2/3/4 annoncés, 3/4/5 réels), du matin au
+     soir du 2026-07-30. La justification écrite du passage 0.10 → 0.09 en
+     découlait : elle prétendait ramener la porte à 3 tâches, il en fallait 4 —
+     **la porte est restée plus lâche qu'annoncé toute la journée**. Le tableau
+     avait été calculé de tête, dans le commit même qui changeait le seuil.
+     Corrigé par mesure, et `tests/test_gate_sensibilite.py` le verrouille
+     désormais case par case. **Un commentaire qui chiffre une sensibilité EST
+     un réglage** — et un réglage que rien ne vérifie finit par mentir.
 3. ~~Mesurer le taux, puis le mécanisme~~ — **fait** le 2026-07-30 : l'ouverture
    de `docs/` décide de tout, séparation parfaite sur n=18 (encadré ✅).
    - ⚠️ La consigne de prompt a DÉJÀ échoué (0/3, `base.md`, tracé identique,
@@ -293,9 +308,8 @@ préfixe est dé-ignoré, cf. `.gitignore`).
    - **Mesurer le coût sur un vrai dépôt** : un appel d'outil de plus par tâche
      de code qui n'ouvre aucun document. Le banc ne peut pas le voir, ses
      dossiers de travail sont vides de documentation hors `discovery`.
-   - **Re-promouvoir la baseline** une fois ce taux stabilisé : elle fige encore
-     `hidden_invariant` en échec attendu (96,7 %), ce qui la rend fausse dans
-     l'autre sens depuis ce garde.
+   - ~~Re-promouvoir la baseline~~ — **fait** le soir même (cf. point 2). Elle
+     est à **30/30**, `hidden_invariant` comprise.
 5. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
    Qwen3.6-35B-A3B. Trois raisons, dans l'ordre où elles ont compté : à 20/20
    partout et `tool_calls_cassés` à 0, le banc n'avait **aucune marge** pour
