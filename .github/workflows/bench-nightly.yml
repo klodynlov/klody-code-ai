@@ -194,6 +194,25 @@ jobs:
       MLX_BASE_URL: http://127.0.0.1:8090/v1
       MLX_MODEL: brain
       MLX_CODE_MODEL: coder
+      # ⚠️ INDISPENSABLE, et l'oubli est silencieux. `MLX_CODE_MODEL` non vide
+      # ACTIVE la bascule vers le modèle code (orchestrator.py:797 →
+      # `switch_to(CODE_MODEL, CODE_BASE_URL, …)`), mais l'ADRESSE vient d'une
+      # variable distincte : sans elle, config.py:40 retombe sur
+      # `http://localhost:8081/v1` — le port du MODE AUTONOME, où rien n'écoute
+      # en mode gateway. En mode gateway les deux modèles sont servis par :8090,
+      # départagés par leur alias.
+      #
+      # Symptôme vécu le 2026-07-30 : 1/5 sur `easy`. Seul `add_docstring`
+      # passait — le router le classe `docs`, donc il reste sur le brain. Toutes
+      # les tâches classées `edit`/`bug_fix` basculaient sur 8081 et tombaient en
+      # ~2,7 s. Diagnostic long parce que l'erreur affichait « Impossible de
+      # joindre Ollama » ; c'est le message corrigé dans cette même PR qui a
+      # imprimé l'URL réelle et donné la réponse en une ligne.
+      #
+      # C'est le PIÈGE N°1 de CLAUDE.md (deux modes d'inférence, deux
+      # conventions) : le commentaire ci-dessus annonçait « on fixe la base ET
+      # les alias », fait pour le modèle principal, oublié pour le code.
+      MLX_CODE_BASE_URL: http://127.0.0.1:8090/v1
 
     steps:
       - uses: actions/checkout@v7
