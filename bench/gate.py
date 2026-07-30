@@ -31,28 +31,37 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # ⚠️ Ce seuil est un POURCENTAGE : sa sensibilité en nombre de tâches dépend de
 # la taille de la baseline, ce qu'aucune lecture de la constante ne laisse voir.
 # Le test est `delta < -max_drop`, donc strict : un écart qui vaut exactement le
-# seuil PASSE. Mesuré (première perte qui fait rougir) :
+# seuil PASSE. Première perte qui fait rougir, MESURÉE en appelant `compare()`
+# (cf. tests/test_gate_sensibilite.py, qui verrouille exactement ce tableau) :
 #
-#   seuil   baseline 20/20   baseline 29/30
-#   0.06         2                2          ← les seules égales
-#   0.09         2                3
-#   0.10         3                4
+#   seuil   baseline 20/20   baseline 29/30   baseline 30/30
+#   0.06         2                3                2
+#   0.09         2                4                3
+#   0.10         3                5                4
 #
-# Passé de 0.10 à 0.09 le 2026-07-30 en promouvant la baseline de 20 à 30
-# tâches. À 0.10, agrandir le banc AFFAIBLISSAIT le gate — 4 tâches cassées
-# nécessaires contre 3 auparavant — parce qu'une baseline à 29/30 n'est plus à
-# 100 % et que l'arithmétique en pourcentage donne du mou. 0.09 rend le gate à
-# 30 tâches exactement aussi sensible que l'était celui à 20 tâches sous 0.10 :
-# trois tâches cassées, pas quatre.
+# ⚠️ **La colonne 29/30 était FAUSSE d'une unité dans ce commentaire**, du
+# 2026-07-30 matin jusqu'à sa vérification le soir. Elle annonçait 2/3/4 là où
+# le gate rend 3/4/5. La justification écrite du passage 0.10 → 0.09 en
+# découlait et ne tenait pas : elle prétendait ramener le gate à « 3 tâches
+# cassées, comme celui à 20 tâches sous 0.10 », alors qu'il en fallait 4. La
+# porte est restée plus lâche qu'annoncé toute la journée.
 #
-# ⚠️ Ce que 0.09 ne fait PAS, et que j'ai d'abord écrit à tort : il ne donne pas
-# « 3 tâches » aux deux tailles. Le tableau montre qu'AUCUN seuil en pourcentage
-# ne le peut — les contraintes sont incompatibles (il faudrait ≥ 0.10 pour 20
-# tâches et < 0.10 pour 30). Seul 0.06 égalise, à 2 tâches. C'est structurel :
-# un seuil relatif ne conserve pas une sensibilité absolue quand la taille
-# change. Ici on optimise donc pour la taille RÉELLE de la baseline (30) ; l'
-# effet de bord est que les intersections plus petites (`--category easy`, 5
-# tâches) deviennent plus strictes, ce qui est le bon sens de l'erreur.
+# Rien ne vérifiait ce tableau : il avait été calculé de tête, dans le même
+# commit que le changement de seuil qu'il justifiait. D'où le test — un
+# commentaire qui chiffre une sensibilité est un réglage, et un réglage qui
+# ment est pire qu'un réglage absent.
+#
+# Ce que la promotion de la baseline à 30/30 change (2026-07-30 soir, après le
+# garde « décisions jamais ouvertes ») : la ligne utile passe de 4 à **3**, ce
+# qui atteint enfin la cible que 0.09 visait — la sensibilité du gate historique
+# à 20 tâches sous 0.10.
+#
+# ⚠️ AUCUN seuil en pourcentage ne donne la même sensibilité absolue à deux
+# tailles de baseline : il faudrait ≥ 0.10 pour 20 tâches et < 0.10 pour 30.
+# C'est structurel, un seuil relatif ne conserve pas un compte absolu. On
+# optimise donc pour la taille RÉELLE de la baseline (30) ; l'effet de bord est
+# que les intersections plus petites (`--category easy`, 5 tâches) deviennent
+# plus strictes, ce qui est le bon sens de l'erreur.
 #
 # ⚠️ Corollaire : tout nouveau palier de tâches oblige à RECALCULER ce seuil.
 # Un banc qui grandit sans ça devient de plus en plus permissif et rien ne le
