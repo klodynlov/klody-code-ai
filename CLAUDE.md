@@ -195,6 +195,74 @@ verte, `Δ +0,0 %`.
 > observé. Quand un taux et un mécanisme se contredisent, aller chercher le
 > mécanisme — un taux à n=5 ne distingue pas deux causes, il les moyenne.
 
+> ### ✅ LE CRITÈRE D'ARRÊT EST ATTAQUÉ — garde « décisions jamais ouvertes »
+>
+> Suite directe de l'encadré précédent. `agent/orchestrator.py` refuse désormais
+> une conclusion posée après une écriture dans le dépôt quand l'agent n'a ouvert
+> AUCUN document du projet, et lui injecte la lecture. Jumeau exact du garde
+> LibraryBrain — même sophisme, autre preuve invoquée :
+>
+> | | LibraryBrain | ce garde |
+> |---|---|---|
+> | preuve invoquée | catalogue (titres seuls) | tests **préexistants** au vert |
+> | ce qu'elle ne porte pas | le contenu des livres | ce que l'agent vient d'écrire |
+> | action forcée | `search_books` | `read_file` sur les documents trouvés |
+>
+> Lot apparié `--repeat 5`, même protocole que la mesure du matin :
+>
+> | tâche | avant | après |
+> |---|---|---|
+> | **`hidden_invariant`** | **0/5** | **5/5** (Fisher p = 7,9 × 10⁻³) |
+> | **`first_write_method`** | **2/5** | **5/5** |
+> | les deux jumeaux | 2/10 | **10/10** (p = 7,1 × 10⁻⁴) |
+> | `config_precedence` | 5/5 | 4/5 |
+> | `error_contract`, `data_contract` | 5/5 | 5/5 |
+> | **total `discovery`** | **17/25** | **24/25** |
+>
+> ⚠️ **Ce que ce garde ne fait PAS, et c'est le point central : le taux
+> d'ouverture SPONTANÉE n'a pas bougé.**
+>
+> | | ouverture spontanée | garde déclenché | succès |
+> |---|---|---|---|
+> | `hidden_invariant` | **0/5** (référence : 0/8) | 5/5 | 5/5 |
+> | `first_write_method` | 3/5 (référence : 8/10) | 2/5 | 5/5 |
+>
+> Le modèle ne s'est pas mis à chercher. Son critère d'arrêt est intact — c'est
+> le HARNAIS qui refuse la conclusion et le renvoie lire. La feuille de route
+> demandait « faire monter le taux d'ouverture » : ce n'est pas ce qui a été
+> fait. Ce qui a été fait, c'est **rendre le non-ouverture sans conséquence**, en
+> l'attrapant au moment où il devient une réponse livrée.
+>
+> Le fait qui rend la manœuvre légitime : **une lecture FORCÉE vaut une lecture
+> spontanée** — 5/5 dans les deux cas. La variable médiatrice reste parfaitement
+> prédictive, on la contrôle désormais au lieu de l'espérer.
+>
+> **Coût mesuré**, médianes sur `hidden_invariant` : appels d'outils 5 → **9**,
+> itérations 4 → **10**, latence 45,0 → **72,1 s**. Il lit, corrige, relance les
+> tests — c'est le travail attendu, pas de la surcharge.
+>
+> ⚠️ **Faux positif RÉEL attrapé avant le banc, par deux scénarios de rejeu**
+> (04, 12) : la tâche était « crée un `README.md` », et le garde exigeait la
+> lecture du fichier écrit à l'instant. Les documents produits par l'agent
+> pendant le run sont exclus de l'inventaire. Sans la suite de rejeu, ce garde
+> partait en production en brûlant un tour sur toute création de document.
+>
+> **Rayon de souffle borné par construction, et vérifié** : le garde ne se
+> déclenche que si le dossier de travail contient un document que l'agent n'a pas
+> écrit lui-même. Seul `bench/tasks/discovery.py` en pose — les 25 autres tâches
+> du banc ne peuvent pas le déclencher. Mesuré dans le lot : 0 déclenchement sur
+> `config_precedence`, `error_contract` et `data_contract`.
+>
+> ⚠️ L'unique échec restant (`config_precedence`, passe 2) est survenu **sans
+> déclenchement du garde**, donc sur un chemin de code inchangé. Non imputable au
+> garde — mais n=1, et cette tâche était à 5/5 le matin : à re-mesurer plutôt
+> qu'à écarter.
+>
+> ⚠️ **Dans un dépôt réellement documenté — klody-code-ai lui-même — le garde
+> coûte un appel d'outil supplémentaire par tâche de code** qui n'ouvre rien.
+> Borné à un par run, mais réel, et ce banc ne le mesure pas : ses dossiers de
+> travail sont minuscules.
+
 Mesures de référence dans `bench/results/reference_*.json` (convention : ce
 préfixe est dé-ignoré, cf. `.gitignore`).
 
@@ -209,19 +277,26 @@ préfixe est dé-ignoré, cf. `.gitignore`).
    quand le TAUX de cette tâche sera mesuré, pas sur un run chanceux.
 3. ~~Mesurer le taux, puis le mécanisme~~ — **fait** le 2026-07-30 : l'ouverture
    de `docs/` décide de tout, séparation parfaite sur n=18 (encadré ✅).
-   Ce qui reste ouvert : **faire monter le taux d'ouverture de `docs/`** quand un
-   modèle local est imitable — `hidden_invariant` est à 0/8.
    - ⚠️ La consigne de prompt a DÉJÀ échoué (0/3, `base.md`, tracé identique,
      revertée). Ne pas la rejouer telle quelle.
-   - Piste que le mécanisme désigne : l'agent tire une **confirmation verte de
-     sa réponse fausse** en lançant les tests visibles, qui ne couvrent pas la
-     contrainte. Agir sur le critère d'arrêt vaut mieux que sur la consigne.
    - Se juge sur le TAUX D'OUVERTURE, pas sur le taux de succès : il est
      parfaitement prédictif, et il sépare « n'a pas cherché » de « a cherché
      sans comprendre ». `--repeat 5` minimum, traces capturées
      (`PYTHONUNBUFFERED=1`, sinon les en-têtes du parent se désynchronisent de
      la sortie des sous-processus et l'attribution est fausse).
-4. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
+4. ~~Attaquer le critère d'arrêt~~ — **fait** le 2026-07-30 : garde
+   « décisions jamais ouvertes » dans `agent/orchestrator.py`, `discovery` à
+   **24/25** (encadré ✅). Ce qui reste ouvert :
+   - **Le taux d'ouverture SPONTANÉE est toujours 0/5** sur `hidden_invariant`.
+     Le garde compense, il ne corrige pas. Un modèle qui cherche de lui-même
+     resterait préférable — mais aucune piste actuelle n'y mène.
+   - **Mesurer le coût sur un vrai dépôt** : un appel d'outil de plus par tâche
+     de code qui n'ouvre aucun document. Le banc ne peut pas le voir, ses
+     dossiers de travail sont vides de documentation hors `discovery`.
+   - **Re-promouvoir la baseline** une fois ce taux stabilisé : elle fige encore
+     `hidden_invariant` en échec attendu (96,7 %), ce qui la rend fausse dans
+     l'autre sens depuis ce garde.
+5. ~~Trancher l'A/B cerveau~~ — **clos par décision** le 2026-07-29 : on garde
    Qwen3.6-35B-A3B. Trois raisons, dans l'ordre où elles ont compté : à 20/20
    partout et `tool_calls_cassés` à 0, le banc n'avait **aucune marge** pour
    départager deux modèles (c'est ce qui a motivé les paliers `expert` et
