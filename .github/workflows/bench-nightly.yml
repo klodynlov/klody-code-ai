@@ -246,36 +246,8 @@ jobs:
               exit 1
             fi
           done
-          # Ollama n'est contrôlé QUE s'il est réellement utilisé.
-          #
-          # ⚠️ Ce bloc annonçait « embeddings bge-m3 dégradés » dès qu'Ollama ne
-          # répondait pas. C'était FAUX : `SEMANTIC_MEMORY_PROVIDER` vaut `st` par
-          # défaut (config.py) — sentence-transformers EN PROCESSUS, même modèle
-          # bge-m3, `cos(ollama, st) = 1.0000` mesuré (tools/embeddings.py). Sans
-          # Ollama, rien n'est dégradé. Vérifié le 2026-07-30 : Ollama n'est même
-          # pas installé sur la machine, et `embeddings.is_available()` rend True,
-          # vecteurs de dimension 1024, norme 1.0.
-          #
-          # Un avertissement qui décrit un problème inexistant coûte cher : le
-          # nightly a rendu 1/5 le même jour, ce faux avertissement en tête du
-          # log, et il a orienté le diagnostic vers Ollama. La cause était
-          # `MLX_CODE_BASE_URL` absent (cf. bloc `env:`) — aucun rapport. C'est le
-          # même défaut que le message d'`agent/llm.py` corrigé dans la même PR :
-          # nommer une dépendance qui n'est pas en cause.
-          #
-          # ⚠️ `${SEMANTIC_MEMORY_PROVIDER:-st}` DUPLIQUE le défaut de config.py.
-          # Ce contrôle tourne avant `Setup venv`, donc il ne peut pas importer
-          # config. Si le défaut change là-bas, cette ligne dérive en silence.
-          provider="${SEMANTIC_MEMORY_PROVIDER:-st}"
-          if [ "$provider" = "ollama" ]; then
-            if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
-              echo "::warning::SEMANTIC_MEMORY_PROVIDER=ollama mais le daemon (11434) \
-          ne répond pas — recherche sémantique et mémoire longue dégradées. \
-          N'affecte PAS le LLM (BACKEND=mlx → gateway $MLX_BASE_URL)."
-            fi
-          else
-            echo "  embeddings: provider=$provider (en processus) — Ollama non requis"
-          fi
+          # Le contrôle du provider d'embeddings vit APRÈS `Setup venv` (étape
+          # « Embeddings ») : il doit interroger config.py, ce qui exige le venv.
 
           # État mémoire du gateway, à titre de TRACE et jamais de blocage.
           # Une jauge lue à l'instant t ne prédit pas la disponibilité à t+1 : le
@@ -316,6 +288,38 @@ jobs:
           fi
           source .venv/bin/activate
           pip install -r requirements-macos.lock
+
+      # Après `Setup venv` À DESSEIN : le provider effectif est lu DANS config.py.
+      #
+      # ⚠️ La version précédente vivait dans « Vérifier services locaux » et
+      # écrivait `${SEMANTIC_MEMORY_PROVIDER:-st}` — une COPIE du défaut de
+      # config.py, dans un fichier qui ne le voit pas. Le jour où ce défaut
+      # change, le workflow avertit sur un provider qui n'est plus le bon, et
+      # rien ne le signale. C'est le mode de défaillance dominant du dépôt :
+      # deux endroits qui doivent dire la même chose, un seul qui décide.
+      #
+      # Le contrôle lui-même existe parce que l'inverse a été affirmé : ce
+      # workflow criait « embeddings bge-m3 dégradés » dès qu'Ollama ne répondait
+      # pas, alors que le provider par défaut est `st` — sentence-transformers en
+      # processus, même modèle, `cos(ollama, st) = 1.0000` mesuré. Ce faux
+      # avertissement a orienté tout le diagnostic d'un 1/5 le 2026-07-30 ; la
+      # cause était `MLX_CODE_BASE_URL` absent.
+      - name: Embeddings — Ollama requis ou non
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          provider=$(python -c 'from config import SEMANTIC_MEMORY_PROVIDER as p; print(p)')
+          if [ "$provider" = "ollama" ]; then
+            if curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
+              echo "  embeddings: provider=ollama, daemon joignable ✅"
+            else
+              echo "::warning::SEMANTIC_MEMORY_PROVIDER=ollama mais le daemon (11434) \
+          ne répond pas — recherche sémantique et mémoire longue dégradées. \
+          N'affecte PAS le LLM (BACKEND=mlx → gateway $MLX_BASE_URL)."
+            fi
+          else
+            echo "  embeddings: provider=$provider (en processus) — Ollama non requis"
+          fi
 
       - name: Run bench
         env:
