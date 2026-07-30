@@ -201,6 +201,40 @@ préfixe est dé-ignoré, cf. `.gitignore`).
   une jauge lue à l'instant t ne prédit rien. C'est le raisonnement déjà écrit
   dans `preflight.py` côté local-suno. Le workflow en garde une **trace** dans
   ses logs, jamais un refus ; le vrai remède serait de sérialiser, pas de mesurer.
+  - ⚠️ **`libre` du gateway est un budget VIRTUEL, pas de la RAM libre.**
+    `libre=6` veut dire `80 − 74 résidents`, donc **les deux modèles chargés** —
+    l'état NOMINAL du banc, pas un état critique. Comparer ce chiffre à un
+    `available` système (74,5 Go le 2026-07-30) compare deux axes différents ;
+    je l'ai fait, et ça inverse la lecture du run.
+- ⚠️ **Le préflight du nightly FABRIQUAIT la condition qui le faisait échouer.**
+  Le 2026-07-30, run 30531761423 rouge sur « L'alias 'coder' ne résout pas —
+  vérifier le resolver du gateway ». Le resolver allait parfaitement bien. La
+  réponse réelle était un **503 « RAM insuffisante pour coder (~30 Go) : libre
+  36/80 Go virtuel, RAM réelle 41 Go (plancher 12) »** — raté d'**1 Go**.
+  - **Deux pannes derrière un seul `curl -sf`.** Un 404 « modèle inconnu » dit
+    que l'alias ne résout pas — c'est la seule raison d'être du contrôle
+    (incident 2026-07-03). Un 503 RAM prouve **l'inverse** : le gateway a nommé
+    l'alias et connaît son empreinte. `-f` rend le même code d'erreur pour les
+    deux, et `-s … > /dev/null` jette le message qui les sépare.
+  - **Pourquoi le préflight se sabote** : il ping `brain` (44 Go) puis `coder`
+    neuf secondes plus tard. Or `vm_stat` SOUS-ESTIME la RAM disponible juste
+    après un gros chargement — les pages fraîchement touchées comptent `active`
+    et n'ont pas encore vieilli vers `inactive`, la file que somme le garde-fou
+    anti-OOM (`klody-core/gateway/sysmem.py`, `free + inactive + speculative`).
+    Mesuré : **41 GiB à t+9 s** (refus), **62 GiB à t+2 min**, `coder` chargé en
+    8,3 s. Rien ne s'était libéré entre-temps.
+  - **La co-résidence est une VRAIE contrainte, pas un artefact** : `brain` est
+    `pinned=True` (`gateway/config.py:132`, modèle partagé Library Brain +
+    KlodyAI), et `pinned` bloque l'éviction AUTOMATIQUE — le chemin exact d'une
+    requête `coder`. Le banc a donc besoin des deux résidents (44 + 30 sur 80).
+    D'où un **réessai** (6 × 60 s), pas un contournement.
+  - Le contrôle est verrouillé par `tests/test_workflow_preflight.py` : il
+    EXÉCUTE le bloc `run:` extrait du YAML avec un `curl` bouchonné, sous
+    `/bin/bash` 3.2 (la version du runner). 404 échoue toujours **sans réessai**.
+  - ⚠️ Piège rencontré en écrivant ce bouchon : `reponse=$(curl …)` tourne dans
+    un **sous-shell**, donc un compteur d'appels en variable est remis à zéro et
+    le bouchon rend toujours la première réponse — tous les scénarios d'échec
+    passaient au vert. Compteur sur fichier.
 - **Une consigne ajoutée au prompt peut changer le DISCOURS sans changer la
   CONDUITE.** Mesuré : `base.md` enrichi de « ouvre la documentation avant
   d'écrire » → l'agent répond « je vais d'abord explorer le projet » aux trois
