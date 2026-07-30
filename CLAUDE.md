@@ -205,9 +205,17 @@ préfixe est dé-ignoré, cf. `.gitignore`).
   CONDUITE.** Mesuré : `base.md` enrichi de « ouvre la documentation avant
   d'écrire » → l'agent répond « je vais d'abord explorer le projet » aux trois
   passes, puis lit les deux mêmes fichiers et écrit. 0/3, tracé identique,
-  reverté. ⚠️ `compose_system_prompt` place le prompt de type **après**
-  `base.md`, et `feature.md` ouvre sur « Agis d'abord. Lance directement un
-  tool_call. » — la consigne opposée, en position favorable. Non testé.
+  reverté.
+- ⚠️ **La piste « `feature.md` contredit `base.md` » est RÉFUTÉE — ne pas y
+  repartir.** `compose_system_prompt` place bien le prompt de type APRÈS
+  `base.md`, et `feature.md` ouvre bien sur « Agis d'abord. Lance directement un
+  tool_call. » Mais `hidden_invariant` (❌ 0/9) et son témoin
+  `first_write_method` (✅ 4/4) routent **tous deux** en `easy · feature ·
+  max_iter=6` : même prompt assemblé, même budget d'itérations. La contradiction
+  s'applique aux deux et ne peut donc pas les départager. Vérifié le 2026-07-30
+  en une commande — la donnée dormait dans les logs de #177 depuis le début.
+  Corollaire utile : le résultat du témoin en sort RENFORCÉ, puisqu'une variable
+  candidate de plus est éliminée entre les jumeaux.
 
 ## Le mode de défaillance dominant du dépôt
 
