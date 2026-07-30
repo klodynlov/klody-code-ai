@@ -26,8 +26,40 @@ from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
-# Chute de taux de succès tolérée avant de casser le build (10 points).
-DEFAULT_MAX_DROP = 0.10
+# Chute de taux de succès tolérée avant de casser le build (9 points).
+#
+# ⚠️ Ce seuil est un POURCENTAGE : sa sensibilité en nombre de tâches dépend de
+# la taille de la baseline, ce qu'aucune lecture de la constante ne laisse voir.
+# Le test est `delta < -max_drop`, donc strict : un écart qui vaut exactement le
+# seuil PASSE. Mesuré (première perte qui fait rougir) :
+#
+#   seuil   baseline 20/20   baseline 29/30
+#   0.06         2                2          ← les seules égales
+#   0.09         2                3
+#   0.10         3                4
+#
+# Passé de 0.10 à 0.09 le 2026-07-30 en promouvant la baseline de 20 à 30
+# tâches. À 0.10, agrandir le banc AFFAIBLISSAIT le gate — 4 tâches cassées
+# nécessaires contre 3 auparavant — parce qu'une baseline à 29/30 n'est plus à
+# 100 % et que l'arithmétique en pourcentage donne du mou. 0.09 rend le gate à
+# 30 tâches exactement aussi sensible que l'était celui à 20 tâches sous 0.10 :
+# trois tâches cassées, pas quatre.
+#
+# ⚠️ Ce que 0.09 ne fait PAS, et que j'ai d'abord écrit à tort : il ne donne pas
+# « 3 tâches » aux deux tailles. Le tableau montre qu'AUCUN seuil en pourcentage
+# ne le peut — les contraintes sont incompatibles (il faudrait ≥ 0.10 pour 20
+# tâches et < 0.10 pour 30). Seul 0.06 égalise, à 2 tâches. C'est structurel :
+# un seuil relatif ne conserve pas une sensibilité absolue quand la taille
+# change. Ici on optimise donc pour la taille RÉELLE de la baseline (30) ; l'
+# effet de bord est que les intersections plus petites (`--category easy`, 5
+# tâches) deviennent plus strictes, ce qui est le bon sens de l'erreur.
+#
+# ⚠️ Corollaire : tout nouveau palier de tâches oblige à RECALCULER ce seuil.
+# Un banc qui grandit sans ça devient de plus en plus permissif et rien ne le
+# signale — le mode de défaillance dominant du dépôt (« un garde-fou qui ne peut
+# pas rougir est indiscernable d'un garde-fou vert »). Le tableau se reproduit
+# avec `tests/test_bench_gate.py::TestSensibiliteSelonTaille`.
+DEFAULT_MAX_DROP = 0.09
 
 
 def load_run(path: Path) -> tuple[dict, list[dict]]:
