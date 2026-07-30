@@ -263,6 +263,47 @@ verte, `Δ +0,0 %`.
 > Borné à un par run, mais réel, et ce banc ne le mesure pas : ses dossiers de
 > travail sont minuscules.
 
+> ### ❌ RÉSULTAT NÉGATIF — la piste était donnée à chaque fois, et jamais suivie
+>
+> Question posée en voulant faire monter le taux d'ouverture SPONTANÉE : l'agent
+> ignore-t-il **où** chercher, ou refuse-t-il de chercher ?
+>
+> **Il sait où.** `_relevant_files_section` (recherche sémantique proactive,
+> `tools.code_search`) injecte les fichiers pertinents dans le prompt système, dès
+> le tour 1, sous un intitulé qui dit en toutes lettres « à confirmer **en lisant
+> les fichiers avant d'agir** ». Relevé dans `logs/agent.log` sur la fenêtre du lot
+> apparié (2026-07-30 16:47 → 17:13) :
+>
+> | | |
+> |---|---|
+> | injections de `docs/INCIDENTS.md` | **5** — une par passe |
+> | score de pertinence | 0,59 (seuil `RETRIEVAL_MIN_SCORE` = 0,35) |
+> | lectures spontanées | **0** |
+>
+> **Trois canaux indépendants donnent l'adresse, aucun ne produit une lecture :**
+>
+> | canal | contenu | résultat |
+> |---|---|---|
+> | énoncé de la tâche (`_AVERTISSEMENT`) | « explore avant d'écrire » | 100 % des passes, ignoré |
+> | consigne de prompt système | instruction dédiée dans `base.md` | **0/3**, revertée |
+> | recherche sémantique | **nomme `docs/INCIDENTS.md`** | **5/5 injections, 0/5 lectures** |
+>
+> ⚠️ **Le levier « mieux le lui dire » est donc épuisé, et démontré tel** — pas
+> supposé. Ce qui manque n'est pas l'adresse du document : c'est une raison de
+> regarder AVANT de se sentir fini. Un agent qui tient déjà une histoire complète
+> et cohérente (une méthode à imiter, des tests au vert) n'ouvre pas un fichier
+> qu'on lui a pourtant nommé.
+>
+> **Corollaire, et c'est ce qui rend ce négatif utile** : agir sur le critère
+> d'arrêt n'était pas un pis-aller faute de mieux — c'était le seul levier
+> restant. Le garde ne compense pas un défaut d'information, il répond au vrai
+> défaut.
+>
+> ⚠️ Ne pas rejouer : une 4ᵉ manière de nommer le fichier (outil dédié, note dans
+> le résultat de `write_file`, ré-injection à chaque tour). Ces trois-là couvrent
+> déjà le prompt de tâche, le prompt système et le retrieval. Preuve figée dans
+> `bench/results/reference_2026-07-30_piste_donnee_jamais_suivie.json`.
+
 Mesures de référence dans `bench/results/reference_*.json` (convention : ce
 préfixe est dé-ignoré, cf. `.gitignore`).
 
@@ -303,8 +344,9 @@ préfixe est dé-ignoré, cf. `.gitignore`).
    « décisions jamais ouvertes » dans `agent/orchestrator.py`, `discovery` à
    **24/25** (encadré ✅). Ce qui reste ouvert :
    - **Le taux d'ouverture SPONTANÉE est toujours 0/5** sur `hidden_invariant`.
-     Le garde compense, il ne corrige pas. Un modèle qui cherche de lui-même
-     resterait préférable — mais aucune piste actuelle n'y mène.
+     Le garde compense, il ne corrige pas. ⚠️ **Et ce n'est PAS un problème
+     d'information** — encadré ❌ ci-dessous. Le levier « mieux le lui dire » est
+     épuisé, sur trois canaux indépendants.
    - **Mesurer le coût sur un vrai dépôt** : un appel d'outil de plus par tâche
      de code qui n'ouvre aucun document. Le banc ne peut pas le voir, ses
      dossiers de travail sont vides de documentation hors `discovery`.

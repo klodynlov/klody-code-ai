@@ -1,0 +1,37 @@
+{
+  "titre": "La piste était donnée à chaque fois — et jamais suivie",
+  "date": "2026-07-30",
+  "question": "Le taux d'ouverture SPONTANÉE de docs/ reste 0/5 sur discovery/hidden_invariant. Est-ce que l'agent ignore OÙ chercher, ou refuse-t-il de chercher ?",
+  "reponse": "Il sait où. `_relevant_files_section` (recherche sémantique proactive, tools.code_search) a injecté `docs/INCIDENTS.md` dans le prompt système des 5 passes du lot apparié, sous un intitulé qui dit explicitement « à confirmer en lisant les fichiers avant d'agir ». Il ne l'a ouvert 0 fois.",
+  "lot": "doc_guard_apres — discovery --repeat 5, 2026-07-30T16:47:12 → 17:13:05",
+  "injections_INCIDENTS_md": 5,
+  "passes_du_lot": 5,
+  "lectures_spontanees": 0,
+  "score_de_pertinence": 0.59,
+  "seuil_RETRIEVAL_MIN_SCORE": 0.35,
+  "lignes_de_log": [
+    "2026-07-30 16:48:14,459 [INFO] agent.orchestrator: [retrieval] 3 piste(s) injectée(s) : cache.py, test_cache.py, docs/INCIDENTS.md",
+    "2026-07-30 16:51:31,254 [INFO] agent.orchestrator: [retrieval] 3 piste(s) injectée(s) : cache.py, test_cache.py, docs/INCIDENTS.md",
+    "2026-07-30 16:55:36,686 [INFO] agent.orchestrator: [retrieval] 3 piste(s) injectée(s) : cache.py, test_cache.py, docs/INCIDENTS.md",
+    "2026-07-30 17:00:00,747 [INFO] agent.orchestrator: [retrieval] 3 piste(s) injectée(s) : cache.py, test_cache.py, docs/INCIDENTS.md",
+    "2026-07-30 17:09:06,312 [INFO] agent.orchestrator: [retrieval] 3 piste(s) injectée(s) : cache.py, test_cache.py, docs/INCIDENTS.md"
+  ],
+  "canaux_epuises": [
+    {
+      "canal": "énoncé de la tâche (_AVERTISSEMENT)",
+      "contenu": "les contraintes sont dans le dossier de travail, explore avant d'écrire",
+      "resultat": "présent sur 100 % des passes, ignoré"
+    },
+    {
+      "canal": "consigne de prompt système",
+      "contenu": "instruction dédiée ajoutée à base.md",
+      "resultat": "0/3, revertée le 2026-07-30"
+    },
+    {
+      "canal": "recherche sémantique proactive",
+      "contenu": "docs/INCIDENTS.md nommé, score 0.59",
+      "resultat": "5/5 injections, 0/5 lectures"
+    }
+  ],
+  "conclusion": "L'agent ne manque pas d'information sur l'endroit où chercher. Trois canaux indépendants la lui donnent, dont un qui NOMME le fichier à chaque tirage. Mieux la lui délivrer ne peut donc pas marcher — ce qui manque n'est pas l'adresse, c'est une raison de regarder AVANT de se sentir fini. Corollaire : agir sur le critère d'arrêt n'était pas un pis-aller, c'était le seul levier restant."
+}
