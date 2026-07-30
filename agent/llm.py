@@ -490,10 +490,29 @@ class LLMClient:
             return full_content, tool_calls
 
         except APIConnectionError as e:
-            logger.error("Ollama inaccessible: %s", e)
+            # Nomme le backend RÉELLEMENT visé. Le message disait « Impossible de
+            # joindre Ollama » quoi qu'il arrive — hérité du mode ollama, alors
+            # que `BACKEND=mlx` parle au gateway Klody Core sur :8090 et qu'Ollama
+            # n'est pas dans ce chemin (il ne sert que les embeddings bge-m3,
+            # eux-mêmes best-effort, cf. tools/embeddings.py).
+            #
+            # Vécu le 2026-07-30 : le nightly rend 1/5 avec ce message en tête.
+            # Ollama était effectivement éteint, ce qui rendait le diagnostic
+            # crédible ET faux — le gateway saturait (6 Go libres sur 80, une
+            # requête encore en vol). Une enquête entière au mauvais endroit
+            # parce que l'erreur nommait la mauvaise dépendance.
+            cible = "le gateway Klody Core" if self._backend == "mlx" else "Ollama"
+            remede = (
+                "le démarrer, et vérifier sa mémoire : "
+                "curl $MLX_BASE_URL/models puis /admin/status"
+                if self._backend == "mlx"
+                else "ollama serve"
+            )
+            logger.error("%s inaccessible sur %s: %s", cible, self._base_url, e)
             console.print(
-                "\n[bold red]✗ Impossible de joindre Ollama.[/bold red]\n"
-                "[dim]  → ollama serve[/dim]\n"
+                f"\n[bold red]✗ Impossible de joindre {cible} "
+                f"({self._base_url}).[/bold red]\n"
+                f"[dim]  backend={self._backend} → {remede}[/dim]\n"
             )
             raise
         except APITimeoutError as e:

@@ -70,23 +70,34 @@ jobs:
           # tuerait peut-être un run sain en accusant à tort le runner.
           seen_status=0
 
-          # Statut du premier job du run qui n'est pas la sentinelle elle-même.
-          # Filtrer par nom plutôt que le coder en dur garde la sentinelle valide
-          # si le job bench est renommé.
-          bench_status() {
+          # Statuts de TOUS les jobs du run sauf la sentinelle elle-même.
+          # Filtrer par nom plutôt que coder les noms en dur garde la sentinelle
+          # valide quand un job est renommé.
+          #
+          # ⚠️ « Tous » et non « le premier », depuis l'ajout de `macos-lockfile`
+          # (2026-07-30). Avec deux jobs self-hosted dont l'un dépend de l'autre,
+          # `bench` est légitimement `queued` pendant tout le contrôle du lock :
+          # regarder le premier job renvoyé par l'API — dont l'ordre n'est pas
+          # garanti — pouvait donc faire annuler un run parfaitement sain. Ce que
+          # la sentinelle veut savoir est « un runner a-t-il pris QUELQUE
+          # CHOSE ? », pas « ce job précis a-t-il démarré ? ».
+          autres_statuts() {
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" \
                  --jq '.jobs[] | "\(.name)\t\(.status)"' 2>/dev/null \
               | grep -v "^$SENTINEL_NAME	" \
-              | head -1 | cut -f2
+              | cut -f2
           }
 
           while :; do
-            status="$(bench_status || true)"
+            statuts="$(autres_statuts || true)"
 
-            if [ -n "$status" ]; then
+            if [ -n "$statuts" ]; then
               seen_status=1
-              if [ "$status" != "queued" ] && [ "$status" != "waiting" ]; then
-                echo "✓ Le bench est pris en charge (statut : $status) — sentinelle terminée."
+              # Un seul job sorti de la file prouve qu'un runner répond.
+              demarre="$(printf '%s\n' "$statuts" | grep -vcE '^(queued|waiting)$' || true)"
+              if [ "${demarre:-0}" -gt 0 ]; then
+                echo "✓ Un runner a pris le travail — sentinelle terminée."
+                printf '  statuts : %s\n' "$(printf '%s ' $statuts)"
                 exit 0
               fi
             fi
@@ -114,9 +125,65 @@ jobs:
             sleep "$POLL_SECONDS"
           done
 
+  # Fraîcheur du lock macOS. Pendant du gate « Lockfile freshness » de ci.yml,
+  # qui ne peut PAS le couvrir : il tourne sur ubuntu-latest et y recompilerait
+  # une résolution Linux.
+  #
+  # ⚠️ POURQUOI ICI ET PAS DANS ci.yml, alors qu'un contrôle de PR serait plus
+  # utile : ce job exige un runner self-hosted, et le dépôt est PUBLIC. L'ajouter
+  # à un workflow déclenché par `pull_request` permettrait à n'importe quel fork
+  # d'exécuter du code sur la machine — le vecteur que GitHub déconseille
+  # explicitement. `bench-nightly.yml` ne se déclenche que sur `schedule` et
+  # `workflow_dispatch` (accès en écriture requis), donc la porte reste fermée.
+  # Le prix assumé : un lock périmé est vu sous 24 h au lieu de l'être à la PR.
+  macos-lockfile:
+    name: Fraîcheur du lock macOS
+    runs-on: [self-hosted, macOS, klody]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Recompiler et comparer
+        run: |
+          set -euo pipefail
+          python3.11 -m venv /tmp/lockcheck-venv
+          # Même version que le gate Linux : deux versions de pip-tools ne
+          # rendent pas le même fichier, et le diff accuserait le lock.
+          /tmp/lockcheck-venv/bin/pip install --quiet "pip-tools==7.5.3"
+          cp requirements-macos.lock /tmp/macos.lock.bak
+          # -c requirements.lock : la contrainte EST le correctif. Sans elle la
+          # recompilation dérive vers les versions du jour et ce gate rougirait
+          # à chaque nouvelle publication sur PyPI, sans qu'aucun commit ne
+          # l'explique.
+          /tmp/lockcheck-venv/bin/pip-compile requirements.txt \
+            -c requirements.lock \
+            --output-file requirements-macos.lock \
+            --strip-extras --allow-unsafe --quiet
+          if ! diff -q /tmp/macos.lock.bak requirements-macos.lock > /dev/null; then
+            echo "::error::requirements-macos.lock est obsolète. Lance: pip-compile requirements.txt -c requirements.lock --output-file requirements-macos.lock --strip-extras --allow-unsafe"
+            diff /tmp/macos.lock.bak requirements-macos.lock | head -50
+            exit 1
+          fi
+          echo "Lock macOS à jour ✅"
+
+      - name: Aucun paquet impossible sur Apple Silicon
+        run: |
+          # Contrôle de FOND, pas de forme : le diff ci-dessus dit « conforme à
+          # la recette », celui-ci dit « installable ici ». Les deux peuvent
+          # diverger si la recette elle-même devient fausse.
+          if grep -iqE "^(cuda-|nvidia-|triton==)" requirements-macos.lock; then
+            echo "::error::Paquet CUDA/NVIDIA dans le lock macOS — pip échouera sur Apple Silicon."
+            grep -inE "^(cuda-|nvidia-|triton==)" requirements-macos.lock
+            exit 1
+          fi
+          echo "Aucun paquet CUDA/NVIDIA ✅"
+
   bench:
     name: Bench MLX (self-hosted Mac)
     runs-on: [self-hosted, macOS, klody]
+    needs: macos-lockfile
     timeout-minutes: 60
 
     # Mode gateway (cf. README-local-ai.md) : un checkout frais n'a pas de .env, et
@@ -127,6 +194,25 @@ jobs:
       MLX_BASE_URL: http://127.0.0.1:8090/v1
       MLX_MODEL: brain
       MLX_CODE_MODEL: coder
+      # ⚠️ INDISPENSABLE, et l'oubli est silencieux. `MLX_CODE_MODEL` non vide
+      # ACTIVE la bascule vers le modèle code (orchestrator.py:797 →
+      # `switch_to(CODE_MODEL, CODE_BASE_URL, …)`), mais l'ADRESSE vient d'une
+      # variable distincte : sans elle, config.py:40 retombe sur
+      # `http://localhost:8081/v1` — le port du MODE AUTONOME, où rien n'écoute
+      # en mode gateway. En mode gateway les deux modèles sont servis par :8090,
+      # départagés par leur alias.
+      #
+      # Symptôme vécu le 2026-07-30 : 1/5 sur `easy`. Seul `add_docstring`
+      # passait — le router le classe `docs`, donc il reste sur le brain. Toutes
+      # les tâches classées `edit`/`bug_fix` basculaient sur 8081 et tombaient en
+      # ~2,7 s. Diagnostic long parce que l'erreur affichait « Impossible de
+      # joindre Ollama » ; c'est le message corrigé dans cette même PR qui a
+      # imprimé l'URL réelle et donné la réponse en une ligne.
+      #
+      # C'est le PIÈGE N°1 de CLAUDE.md (deux modes d'inférence, deux
+      # conventions) : le commentaire ci-dessus annonçait « on fixe la base ET
+      # les alias », fait pour le modèle principal, oublié pour le code.
+      MLX_CODE_BASE_URL: http://127.0.0.1:8090/v1
 
     steps:
       - uses: actions/checkout@v7
@@ -154,18 +240,61 @@ jobs:
               exit 1
             fi
           done
-          # Ollama (pour bge-m3)
+          # Ollama (bge-m3). AVERTISSEMENT et non erreur, à dessein : en
+          # BACKEND=mlx, Ollama ne sert QUE les embeddings, et tools/embeddings.py
+          # les enveloppe dans try/except (`is_available()`). Un run sans Ollama
+          # est dégradé sur la recherche sémantique, pas cassé.
+          #
+          # ⚠️ Le dire explicitement, parce que l'inverse a été cru : le 2026-07-30
+          # le nightly a rendu 1/5 avec « ✗ Impossible de joindre Ollama » en tête
+          # du log — message émis par agent/llm.py sur le chemin LLM, donc sur le
+          # GATEWAY. Ollama était bien éteint, ce qui rendait la fausse piste
+          # crédible. La vraie cause était la saturation mémoire du gateway.
           if ! curl -sf http://127.0.0.1:11434/api/tags > /dev/null; then
-            echo "::warning::Ollama (port 11434) injoignable — embeddings dégradés."
+            echo "::warning::Ollama (11434) injoignable — embeddings bge-m3 dégradés. \
+          N'affecte PAS le LLM (BACKEND=mlx → gateway $MLX_BASE_URL) : si le bench \
+          échoue avec des erreurs de connexion, chercher du côté du gateway."
           fi
 
+          # État mémoire du gateway, à titre de TRACE et jamais de blocage.
+          # Une jauge lue à l'instant t ne prédit pas la disponibilité à t+1 : le
+          # gateway évince ses workers À LA DEMANDE, donc une machine à 6 Go
+          # libres peut en offrir 40 une seconde plus tard. Bloquer là-dessus
+          # produirait des refus faux — même raisonnement que `preflight.py` côté
+          # local-suno. Mais sans cette trace, un échec de connexion en cours de
+          # run reste inexplicable après coup.
+          # Écrit en une ligne logique : un bloc python multi-ligne collé ici
+          # sortirait du scalaire `run: |` dès que son code revient en colonne 0,
+          # et le YAML ne parse plus. Constaté en écrivant ce job.
+          etat=$(curl -sf --max-time 5 "${MLX_BASE_URL%/v1}/admin/status" || true)
+          if [ -n "$etat" ]; then
+            printf '%s' "$etat" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  gateway: budget=%s resident=%s libre=%s" % (d.get("budget_gb"), d.get("resident_gb"), d.get("free_gb"))); [print("    %s: ram=%s inflight=%s" % (k, w.get("est_ram_gb"), w.get("inflight"))) for k, w in (d.get("workers") or {}).items() if w.get("running")]' || echo "  (état gateway illisible)"
+          else
+            echo "  (/admin/status indisponible — trace mémoire absente)"
+          fi
+
+      # ⚠️ requirements-macos.lock, PAS requirements.lock. Ce dernier est résolu
+      # sur ubuntu-latest par le gate « Lockfile freshness » et contient donc
+      # 19 paquets CUDA/NVIDIA que `torch` déclare sur Linux seulement, plus
+      # jeepney et secretstorage (keyring Linux). Sur Apple Silicon, pip échoue
+      # net : « No matching distribution found for cuda-bindings==13.3.1 ».
+      # Vécu le 2026-07-30, premier run réel de ce workflow — les 63 runs
+      # annulés en file d'attente masquaient ce défaut derrière l'absence de
+      # runner.
+      #
+      # Le lock macOS est le lock Linux MOINS ces 21 paquets, aux mêmes versions :
+      # il est généré avec `-c requirements.lock`, donc la résolution ne peut pas
+      # dériver. Sans cette contrainte, une simple recompilation sur le Mac
+      # remontait 52 des 147 paquets communs (mypy 2.1→2.3, ruff 0.15.15→0.16,
+      # pytest 9.0.3→9.1.1…) — une dérive de DATE prise pour une différence de
+      # plateforme. Le job `macos-lockfile` ci-dessus vérifie que ça tient.
       - name: Setup venv
         run: |
           if [ ! -d .venv ]; then
             python3.11 -m venv .venv
           fi
           source .venv/bin/activate
-          pip install -r requirements.lock
+          pip install -r requirements-macos.lock
 
       - name: Run bench
         env:

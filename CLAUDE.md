@@ -168,6 +168,25 @@ préfixe est dé-ignoré, cf. `.gitignore`).
   échouer, et une solution de référence doit passer. C'est la seconde moitié qui
   a trouvé ce défaut et deux autres (`spec_beyond_tests` rejetait sa propre
   solution correcte ; `copy.copy` passait une tâche qui exige `deepcopy`).
+- **Un message d'erreur qui nomme la mauvaise dépendance coûte une enquête
+  entière.** `agent/llm.py` affichait « ✗ Impossible de joindre Ollama » sur
+  TOUTE `APIConnectionError` — hérité du mode ollama, alors qu'en `BACKEND=mlx`
+  l'appel va au gateway sur `:8090` et qu'Ollama ne sert que les embeddings
+  bge-m3 (best-effort, `tools/embeddings.py`). Le 2026-07-30 le nightly rend
+  1/5 avec ce message en tête ; Ollama était effectivement éteint, ce qui rendait
+  la fausse piste **crédible**. La vraie cause était la saturation mémoire du
+  gateway. Le message nomme désormais le backend réellement visé.
+- **Le banc en CI concurrence le gateway pour la mémoire unifiée.** Constaté le
+  2026-07-30 : `budget=80 resident=74 libre=6`, une requête encore en vol, et
+  des `APIConnectionError` en cascade — une tâche cassée APRÈS 21 s (connexion
+  perdue en cours d'appel), trois autres en moins de 3,5 s (refus immédiat).
+  Le runner travaille dans son propre checkout avec son propre venv, donc un
+  second jeu de processus torch face à brain (44 Go) + coder (30 Go).
+  ⚠️ **Ne pas transformer ça en garde-fou bloquant** : vingt minutes plus tard
+  le même gateway affichait `libre=36` — il évince ses workers À LA DEMANDE, donc
+  une jauge lue à l'instant t ne prédit rien. C'est le raisonnement déjà écrit
+  dans `preflight.py` côté local-suno. Le workflow en garde une **trace** dans
+  ses logs, jamais un refus ; le vrai remède serait de sérialiser, pas de mesurer.
 - **Une consigne ajoutée au prompt peut changer le DISCOURS sans changer la
   CONDUITE.** Mesuré : `base.md` enrichi de « ouvre la documentation avant
   d'écrire » → l'agent répond « je vais d'abord explorer le projet » aux trois
