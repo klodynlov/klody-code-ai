@@ -485,6 +485,13 @@ GREETING_ENABLED: bool = os.getenv("GREETING_ENABLED", "true").lower() in ("1", 
 # payé (découverte MCP, sonde LibraryBrain) pendant lequel le thread travaille
 # gratuitement : le cas chaud (0,37 s) arrive donc très largement dedans.
 GREETING_DEADLINE_S: float = float(os.getenv("GREETING_DEADLINE_S", 1.5))
+# Accessibilité : dit l'accueil À VOIX HAUTE (salutation, rappel, propositions
+# numérotées — numérotées à l'oral aussi, pour répondre « 2 » sans voir l'écran).
+# Passe par l'outil speak (CLI VocalBrain + afplay), dans un thread détaché : la
+# synthèse est synchrone (~6 s à froid), elle ne doit jamais retarder le prompt.
+# Off par défaut : parler sans qu'on l'ait demandé est le mauvais défaut, et la
+# CLI VocalBrain vit hors dépôt (venv local-suno).
+GREETING_VOICE: bool = os.getenv("GREETING_VOICE", "false").lower() in ("1", "true", "yes", "on")
 
 LOG_DIR.mkdir(exist_ok=True)
 # MEMORY_DIR n'est plus un alias de LOG_DIR : il ne profite plus du mkdir ci-dessus.

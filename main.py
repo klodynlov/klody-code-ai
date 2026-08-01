@@ -4,6 +4,7 @@
 import argparse
 import logging
 import sys
+import threading
 from pathlib import Path
 
 from agent.greeting import AccueilEnTacheDeFond
@@ -13,6 +14,7 @@ from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
 from config import (
     BACKEND,
+    GREETING_VOICE,
     LIBRARYBRAIN_DIR,
     LIBRARYBRAIN_URL,
     LLM_BASE_URL,
@@ -569,8 +571,15 @@ def _run_extraction(orchestrator: Orchestrator) -> None:
         )
 
 
-def repl(orchestrator: Orchestrator) -> None:
-    """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions)."""
+def repl(orchestrator: Orchestrator, propositions: tuple[str, ...] = ()) -> None:
+    """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions).
+
+    `propositions` : les pistes affichées par l'accueil. Tant qu'aucune entrée
+    n'a été traitée, taper leur numéro les lance. La correspondance meurt à la
+    première entrée, quelle qu'elle soit : « 2 » au milieu d'une conversation
+    redevient la chaîne « 2 », le raccourci ne doit pas capturer une réponse à
+    une question de l'agent.
+    """
 
     session: PromptSession = PromptSession(
         history=FileHistory(str(_HISTORY_FILE)),
@@ -590,6 +599,14 @@ def repl(orchestrator: Orchestrator) -> None:
 
             if not user_input:
                 continue
+
+            # Propositions de l'accueil : « 1 » lance la première, etc.
+            if propositions and user_input.isdigit():
+                index = int(user_input) - 1
+                if 0 <= index < len(propositions):
+                    user_input = propositions[index]
+                    console.print(f"  [dim]→ {user_input}[/dim]")
+            propositions = ()  # une seule chance, cf. docstring
 
             # Continuation multi-ligne : "phrase \\" → on concatène
             while user_input.endswith("\\"):
@@ -627,16 +644,53 @@ def repl(orchestrator: Orchestrator) -> None:
 # Entrée                                                               #
 # ------------------------------------------------------------------ #
 
-def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> None:
-    """Affiche la phrase d'accueil. Ne doit JAMAIS empêcher la CLI de démarrer.
+def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
+    """Affiche l'accueil interactif et retourne ses propositions.
 
-    `recuperer()` est déjà borné et sans exception ; ce garde couvre le rendu
-    lui-même, qui reste du code exécuté sur le chemin de démarrage.
+    Ne doit JAMAIS empêcher la CLI de démarrer : `recuperer()` est déjà borné et
+    sans exception, ce garde couvre le rendu lui-même. Retourne les propositions
+    pour que le REPL accepte « 1 », « 2 », « 3 » comme première entrée.
     """
     try:
-        console.print(Align.center(Text(accueil.recuperer(), style="italic dim")))
+        rendu = accueil.recuperer()
+        console.print(Align.center(Text(rendu.salutation, style="italic")))
+        if rendu.rappel:
+            console.print(Align.center(Text(rendu.rappel, style="dim")))
+        if rendu.propositions:
+            console.print()
+            for i, proposition in enumerate(rendu.propositions, 1):
+                console.print(f"    [bold cyan]{i}[/bold cyan]  {proposition}")
+            console.print(
+                "    [dim]Tape un numéro pour lancer, ou pose ta question.[/dim]"
+            )
+        _dire_accueil(rendu)
+        return rendu.propositions
     except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
         logger.debug("accueil non affiché : %s", exc)
+        return ()
+
+
+def _dire_accueil(rendu) -> None:
+    """Option vocale (accessibilité) : dit l'accueil, propositions numérotées.
+
+    Thread détaché OBLIGATOIRE : la synthèse VocalBrain est synchrone (~6 s à
+    froid). La faire attendre sur le chemin de démarrage recréerait exactement
+    le gel que l'accueil en tâche de fond existe pour éviter. L'échec est
+    silencieux à l'écran — `speak` rend une chaîne d'erreur, jamais d'exception,
+    et un accueil muet n'est pas une panne à annoncer.
+    """
+    if not GREETING_VOICE:
+        return
+
+    def _parler() -> None:
+        try:
+            from tools.voice import speak
+
+            speak(rendu.en_texte(), "fr")
+        except Exception as exc:  # pragma: no cover - CLI VocalBrain absente
+            logger.debug("accueil vocal indisponible : %s", exc)
+
+    threading.Thread(target=_parler, name="klody-accueil-voix", daemon=True).start()
 
 
 def main() -> None:
@@ -684,9 +738,9 @@ def main() -> None:
     orchestrator = Orchestrator(memory)
     print_banner(memory)
     ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
-    _afficher_accueil(accueil)
+    propositions = _afficher_accueil(accueil)
     console.print()
-    repl(orchestrator)
+    repl(orchestrator, propositions)
 
 
 if __name__ == "__main__":

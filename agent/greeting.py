@@ -1,45 +1,51 @@
-"""Accueil de session : une phrase, produite EN TÂCHE DE FOND, jamais bloquante.
+"""Accueil de session INTERACTIF, produit en tâche de fond.
 
-Ce que ce module fait, et pourquoi il le fait comme ça — la mesure a décidé de
-tout. Relevé du 2026-08-01 (gateway `:8090`, alias `brain` →
-Qwen3.6-35B-A3B-8bit, `scripts/mesure_plancher_accueil.py --passes 3`) :
+Un accueil utile ne dit pas seulement bonjour : il rappelle où on en était et
+propose des suites concrètes, sélectionnables au clavier. C'est aussi le seul
+moment où l'agent peut orienter quelqu'un qui ne sait pas quoi lui demander.
 
-    plancher     6,52 s (1ᵉʳ appel du run)  →  0,13 s à chaud
-    accueil      0,46 s                     →  0,37 s à chaud
+Trois morceaux, dans cet ordre à l'écran :
 
-**Ce n'est PAS le coût qui interdit l'accueil synchrone — c'est la VARIANCE.**
-0,37 s serait invisible ; 6,52 s serait un gel du prompt au lancement. Le même
-appel donne l'un ou l'autre selon que le gateway est réveillé, et rien ne permet
-de le savoir à l'avance. Et 6,52 s est un plancher du cas froid : un vrai
-chargement des 44 Go de `brain` coûterait davantage (voisin documenté : `coder`,
-30 Go, chargé en 8,3 s).
+    salutation    « Bonjour — 12 sessions sur klody-code-ai. »
+    rappel        « Hier, tu travaillais sur : mesurer le coût du garde doc. »
+    propositions  1..3 pistes, tapables par leur numéro
 
-D'où la forme retenue : un thread démon lancé le plus tôt possible, et une
-attente BORNÉE au moment d'afficher. Le cas chaud arrive largement dans les
-temps ; le cas froid rate l'échéance et retombe, sans un mot, sur un accueil
-composé localement. Aucun des deux ne se voit.
+**Le socle ne dépend d'aucun appel LLM.** `accueil_local()` compose les trois
+morceaux à partir du disque et de SQLite — déjà payés par le démarrage. Le
+modèle, quand il répond à temps, ne fait que mieux les formuler. Un accueil sans
+gateway reste donc un accueil complet, propositions comprises : c'est ce qui
+permet de le rendre inconditionnel.
 
-Trois règles tenues par les tests :
+**Pourquoi en tâche de fond** — mesuré le 2026-08-01 (gateway `:8090`, `brain` →
+Qwen3.6-35B-A3B-8bit, relevé dans `bench/results/reference_2026-08-01_plancher_accueil.md`) :
+
+    à chaud   0,37 s        →  invisible
+    à froid   6,52 s        →  gel du prompt au lancement
+
+Ce n'est pas le coût qui interdit le synchrone, c'est la VARIANCE : le même
+appel donne l'un ou l'autre selon que le gateway est réveillé, sans moyen de le
+savoir à l'avance. D'où un thread démon et une attente bornée à l'affichage.
+
+Règles tenues par les tests :
 
 1. `recuperer()` ne lève JAMAIS et n'attend jamais au-delà de son échéance.
-2. L'appel ne porte AUCUN schéma d'outil. Les 69 outils pèsent ~12,5 k tokens de
-   prefill, contre ~150 pour ce micro-prompt : router l'accueil par la boucle
-   ReAct coûterait deux ordres de grandeur pour une phrase.
-3. Le repli local n'appelle rien du tout — il lit SQLite et le disque, déjà
-   payés par le démarrage.
+2. L'appel ne porte AUCUN schéma d'outil (~150 tokens contre ~12,3 k pour les
+   69 outils, soit ~0,4 s contre ~4,6 s à cache froid).
+3. Le socle rend toujours au moins une proposition — sinon l'accueil
+   « interactif » ne le serait plus dès que le modèle manque à l'appel.
 
 ⚠️ Effet de bord assumé : lancer la CLI réveille `brain`, modèle PARTAGÉ avec
-Library Brain et KlodyAI (`pinned=True` côté gateway). En pratique il est
-résident, donc l'appel est à chaud ; mais l'effet sort du périmètre de la CLI.
-`GREETING_ENABLED=false` le coupe sans rien casser : le repli local devient
-simplement le seul chemin.
+Library Brain et KlodyAI (`pinned` côté gateway). `GREETING_ENABLED=false` coupe
+l'appel ; le socle local, propositions comprises, reste.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -55,26 +61,26 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Micro-prompt VOLONTAIREMENT identique à celui de
-# `scripts/mesure_plancher_accueil.py` : c'est lui qui a été chronométré à
-# 0,37 s. Le faire diverger rendrait la mesure caduque sans que rien ne rougisse.
+# Micro-prompt. Le format de réponse est LIGNE À LIGNE, pas du JSON : un accueil
+# raté doit dégrader vers le socle, pas déclencher la validation + retry borné de
+# `docs/json-constraint-policy.md`. Personne n'attend un accueil deux fois.
 _SYSTEME = (
-    "Tu es Klody, agent de code local. Salue l'utilisateur en UNE phrase, "
-    "en français, sans emoji et sans poser de question."
+    "Tu es Klody, agent de code local. Accueille l'utilisateur qui ouvre une "
+    "session, en français, sans emoji.\n"
+    "Réponds EXACTEMENT dans ce format, rien d'autre :\n"
+    "BONJOUR: <une phrase de salutation>\n"
+    "RAPPEL: <une phrase sur la session précédente, ou vide s'il n'y en a pas>\n"
+    "- <proposition d'action concrète>\n"
+    "- <autre proposition>\n"
+    "- <autre proposition>\n"
+    "Les propositions sont des actions que TU peux faire maintenant, formulées "
+    "à l'infinitif, courtes (moins de 60 caractères)."
 )
 
-# Plafond de sortie. 60 tokens suffisent à une phrase ; au-delà le modèle
-# broderait, et l'accueil doit tenir sur une ligne.
-_MAX_TOKENS = 60
-
-# Borne de l'appel lui-même, distincte de l'échéance d'affichage. Le thread est
-# démon : dépasser l'échéance ne gêne personne, mais laisser l'appel traîner
-# occuperait un créneau du gateway pour un résultat que plus personne ne lira.
+_MAX_TOKENS = 160
 _TIMEOUT_APPEL_S = 30.0
-
-# Longueur maximale affichée. Aussi la borne utile si l'accueil est un jour dit à
-# voix haute : `tools/voice.speak` tronque à 600 caractères.
-_CAP = 240
+_CAP_LIGNE = 200
+_MAX_PROPOSITIONS = 3
 
 _MARKDOWN = re.compile(r"[*_`#>]+")
 _ESPACES = re.compile(r"\s+")
@@ -87,19 +93,82 @@ class ContexteAccueil:
     projet: str
     sessions_passees: int
     faits: tuple[str, ...] = ()
+    derniere_tache: str = ""
+    derniere_date: str = ""
+
+
+@dataclass(frozen=True)
+class Accueil:
+    """Le rendu prêt à afficher — et à dire à voix haute."""
+
+    salutation: str
+    rappel: str = ""
+    propositions: tuple[str, ...] = field(default_factory=tuple)
+
+    def en_texte(self) -> str:
+        """Version linéaire, pour la synthèse vocale et les logs.
+
+        Les propositions sont numérotées à l'oral aussi : quelqu'un qui n'a que
+        le son doit pouvoir répondre « 2 » comme les autres.
+        """
+        morceaux = [self.salutation]
+        if self.rappel:
+            morceaux.append(self.rappel)
+        for i, proposition in enumerate(self.propositions, 1):
+            morceaux.append(f"{i}. {proposition}")
+        return " ".join(morceaux)
+
+
+def _date_relative(horodatage: float, maintenant: float | None = None) -> str:
+    maintenant = time.time() if maintenant is None else maintenant
+    jours = int((maintenant - horodatage) // 86400)
+    if jours <= 0:
+        return "plus tôt aujourd'hui"
+    if jours == 1:
+        return "hier"
+    if jours < 7:
+        return f"il y a {jours} jours"
+    return "la dernière fois"
+
+
+def _derniere_tache(memory_dir: Path) -> tuple[str, str]:
+    """Première demande de la session précédente, et sa date relative.
+
+    C'est le meilleur résumé disponible pour zéro token : le premier message
+    utilisateur d'une session dit ce qu'on venait y faire, alors que le dernier
+    dit souvent « merci » ou « relance les tests ».
+    """
+    try:
+        fichiers = sorted(
+            memory_dir.glob("memory_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError as exc:  # pragma: no cover - disque indisponible
+        logger.debug("accueil : sessions illisibles (%s)", exc)
+        return "", ""
+    if not fichiers:
+        return "", ""
+
+    dernier = fichiers[0]
+    try:
+        donnees = json.loads(dernier.read_text(encoding="utf-8"))
+        for message in donnees.get("messages", []):
+            if message.get("role") == "user" and message.get("content"):
+                tache = _une_ligne(str(message["content"]))
+                return tache, _date_relative(dernier.stat().st_mtime)
+    except (OSError, ValueError, TypeError) as exc:
+        logger.debug("accueil : session précédente illisible (%s)", exc)
+    return "", ""
 
 
 def collecter_contexte() -> ContexteAccueil:
-    """Photographie locale du contexte. Ne lève jamais, ne parle à personne.
-
-    Les deux sources sont déjà payées par le démarrage : le disque (fichiers de
-    session) et SQLite (mémoire long terme). Vérifier qu'elles sont *justes*
-    coûterait plus cher que l'accueil lui-même — on prend ce qui est là.
-    """
+    """Photographie locale du contexte. Ne lève jamais, ne parle à personne."""
     projet = PROJECT_ROOT.name or str(PROJECT_ROOT)
+    dossier = Path(MEMORY_DIR)
 
     try:
-        sessions = len(list(Path(MEMORY_DIR).glob("memory_*.json")))
+        sessions = len(list(dossier.glob("memory_*.json")))
     except OSError as exc:  # pragma: no cover - disque indisponible
         logger.debug("accueil : sessions illisibles (%s)", exc)
         sessions = 0
@@ -115,46 +184,112 @@ def collecter_contexte() -> ContexteAccueil:
             if e.get("category") in ("user", "preference") and e.get("content")
         )[:3]
     except Exception as exc:
-        # La mémoire long terme est un CONFORT ici : son absence ne doit pas
-        # priver l'utilisateur d'un bonjour.
+        # La mémoire long terme est un CONFORT : son absence ne doit pas priver
+        # l'utilisateur d'un bonjour.
         logger.debug("accueil : mémoire long terme indisponible (%s)", exc)
 
-    return ContexteAccueil(projet=projet, sessions_passees=sessions, faits=faits)
+    tache, date = _derniere_tache(dossier)
+    return ContexteAccueil(
+        projet=projet,
+        sessions_passees=sessions,
+        faits=faits,
+        derniere_tache=tache,
+        derniere_date=date,
+    )
 
 
-def accueil_local(contexte: ContexteAccueil) -> str:
+def accueil_local(contexte: ContexteAccueil) -> Accueil:
     """Accueil composé sans le moindre appel. C'est le SOCLE, pas un pis-aller.
 
     Il sert dans trois cas indiscernables pour l'utilisateur : accueil désactivé,
-    échéance ratée, appel en échec. Il doit donc être présentable seul.
+    échéance ratée, appel en échec. Il doit donc être présentable seul —
+    propositions comprises, sinon « interactif » deviendrait conditionnel à la
+    disponibilité du gateway.
     """
     if contexte.sessions_passees <= 1:
-        return f"Bonjour — première session sur {contexte.projet}."
-    return f"Bonjour — {contexte.sessions_passees} sessions sur {contexte.projet}."
+        salutation = f"Bonjour — première session sur {contexte.projet}."
+    else:
+        salutation = (
+            f"Bonjour — {contexte.sessions_passees} sessions sur {contexte.projet}."
+        )
+
+    rappel = ""
+    propositions: list[str] = []
+    if contexte.derniere_tache:
+        apercu = _tronquer(contexte.derniere_tache, 90)
+        quand = contexte.derniere_date or "la dernière fois"
+        rappel = f"{quand.capitalize()}, tu me demandais : « {apercu} »"
+        propositions.append("Reprendre là où on s'est arrêté")
+
+    propositions.append("Faire le point sur les changements en cours")
+    propositions.append("Lancer les tests du projet")
+    return Accueil(
+        salutation=salutation,
+        rappel=rappel,
+        propositions=tuple(propositions[:_MAX_PROPOSITIONS]),
+    )
 
 
 def _decrire_contexte(contexte: ContexteAccueil) -> str:
-    morceaux = [f"Projet : {contexte.projet}.",
-                f"Sessions précédentes : {contexte.sessions_passees}."]
+    morceaux = [
+        f"Projet : {contexte.projet}.",
+        f"Sessions précédentes : {contexte.sessions_passees}.",
+    ]
+    if contexte.derniere_tache:
+        morceaux.append(
+            f"{(contexte.derniere_date or 'La dernière fois').capitalize()}, "
+            f"la demande était : {_tronquer(contexte.derniere_tache, 200)}."
+        )
     if contexte.faits:
         morceaux.append("À savoir : " + " ; ".join(contexte.faits) + ".")
-    return " ".join(morceaux) + " Dis bonjour."
+    return " ".join(morceaux)
+
+
+def _une_ligne(texte: str) -> str:
+    texte = _MARKDOWN.sub("", texte or "")
+    return _ESPACES.sub(" ", texte).strip().strip('"«»').strip()
+
+
+def _tronquer(texte: str, cap: int) -> str:
+    texte = _une_ligne(texte)
+    return texte if len(texte) <= cap else texte[: cap - 1].rstrip() + "…"
 
 
 def nettoyer(texte: str) -> str:
-    """Ramène une génération libre à une ligne affichable. Jamais d'exception.
+    """Ramène une génération libre à une ligne affichable. Jamais d'exception."""
+    return _tronquer(texte, _CAP_LIGNE)
 
-    Le modèle rend parfois du markdown, des guillemets, ou deux phrases. La
-    bannière n'a de place que pour une ligne — et le jour où cette phrase sera
-    dite à voix haute, `speak` exigera de toute façon du texte nu.
+
+def analyser(brut: str, socle: Accueil) -> Accueil:
+    """Lit le format ligne à ligne du modèle, champ par champ, sans jamais lever.
+
+    Le repli est PARTIEL et c'est le point : un modèle qui donne une belle
+    salutation mais oublie les propositions ne doit pas faire perdre celles du
+    socle. Un format global (JSON) aurait imposé le tout ou rien.
     """
-    texte = _MARKDOWN.sub("", texte or "")
-    texte = _ESPACES.sub(" ", texte).strip().strip('"«»').strip()
-    if len(texte) > _CAP:
-        coupe = texte[:_CAP]
-        point = max(coupe.rfind(". "), coupe.rfind("! "), coupe.rfind("? "))
-        texte = coupe[: point + 1] if point > _CAP // 2 else coupe.rstrip() + "…"
-    return texte
+    salutation = ""
+    rappel = ""
+    propositions: list[str] = []
+
+    for ligne in (brut or "").splitlines():
+        depouillee = ligne.strip()
+        if not depouillee:
+            continue
+        haut = depouillee.upper()
+        if haut.startswith("BONJOUR:"):
+            salutation = nettoyer(depouillee.split(":", 1)[1])
+        elif haut.startswith("RAPPEL:"):
+            rappel = nettoyer(depouillee.split(":", 1)[1])
+        elif depouillee.startswith(("-", "•", "*")):
+            proposition = nettoyer(depouillee.lstrip("-•* ").strip())
+            if proposition:
+                propositions.append(proposition)
+
+    return Accueil(
+        salutation=salutation or socle.salutation,
+        rappel=rappel or socle.rappel,
+        propositions=tuple(propositions[:_MAX_PROPOSITIONS]) or socle.propositions,
+    )
 
 
 class AccueilEnTacheDeFond:
@@ -164,7 +299,7 @@ class AccueilEnTacheDeFond:
         accueil = AccueilEnTacheDeFond()
         accueil.demarrer()          # le plus tôt possible dans le démarrage
         ...                         # travail de démarrage déjà prévu
-        print(accueil.recuperer())  # attente bornée, jamais bloquante
+        rendu = accueil.recuperer() # attente bornée, jamais bloquante
     """
 
     def __init__(
@@ -179,7 +314,7 @@ class AccueilEnTacheDeFond:
         self.actif = GREETING_ENABLED if actif is None else actif
         self.echeance_s = GREETING_DEADLINE_S if echeance_s is None else echeance_s
         self._client = client
-        self._texte: str | None = None
+        self._accueil: Accueil | None = None
         self._pret = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -192,8 +327,7 @@ class AccueilEnTacheDeFond:
             base_url=LLM_BASE_URL,
             api_key=LLM_API_KEY,
             timeout=_TIMEOUT_APPEL_S,
-            # Aucun réessai : un accueil raté n'a aucune valeur à la 2ᵉ tentative,
-            # l'échéance d'affichage sera passée depuis longtemps.
+            # Aucun réessai : l'échéance d'affichage sera passée depuis longtemps.
             max_retries=0,
         )
 
@@ -210,14 +344,12 @@ class AccueilEnTacheDeFond:
                 # PAS de `tools=` : cf. l'en-tête du module.
             )
             brut = reponse.choices[0].message.content or ""
-            texte = nettoyer(brut)
-            self._texte = texte or None
+            self._accueil = analyser(brut, accueil_local(self.contexte))
         except Exception as exc:
-            # Tout échec est SILENCIEUX côté écran : l'accueil n'est pas une
-            # fonctionnalité pour laquelle il vaut la peine d'inquiéter
-            # quelqu'un. La trace part dans le log.
+            # Échec SILENCIEUX à l'écran : un accueil n'est pas une raison
+            # d'inquiéter quelqu'un. La trace part dans le log.
             logger.debug("accueil généré indisponible (%s)", exc)
-            self._texte = None
+            self._accueil = None
         finally:
             self._pret.set()
 
@@ -227,25 +359,20 @@ class AccueilEnTacheDeFond:
         """Lance le thread. Sans effet si l'accueil généré est désactivé."""
         if not self.actif or self._thread is not None:
             return
-        # daemon=True : si l'utilisateur quitte pendant la génération, le
-        # processus ne doit pas rester accroché à une phrase de politesse.
+        # daemon=True : quitter pendant la génération ne doit pas retenir le
+        # processus pour une phrase de politesse.
         self._thread = threading.Thread(
             target=self._travailler, name="klody-accueil", daemon=True
         )
         self._thread.start()
 
-    def recuperer(self) -> str:
-        """Rend la phrase à afficher. Attente BORNÉE, jamais d'exception.
-
-        Retombe sur `accueil_local` si l'accueil généré n'est pas arrivé à
-        temps, a échoué, ou n'a jamais été lancé — trois cas que l'utilisateur
-        n'a aucune raison de distinguer.
-        """
+    def recuperer(self) -> Accueil:
+        """Rend l'accueil à afficher. Attente BORNÉE, jamais d'exception."""
         if self._thread is not None:
             self._pret.wait(max(0.0, self.echeance_s))
-        return self._texte or accueil_local(self.contexte)
+        return self._accueil or accueil_local(self.contexte)
 
     @property
     def genere(self) -> bool:
-        """Vrai si la phrase rendue vient du modèle. Pour les tests et le log."""
-        return self._texte is not None
+        """Vrai si le rendu vient du modèle. Pour les tests et le log."""
+        return self._accueil is not None
