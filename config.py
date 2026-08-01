@@ -492,6 +492,14 @@ GREETING_DEADLINE_S: float = float(os.getenv("GREETING_DEADLINE_S", 1.5))
 # Off par défaut : parler sans qu'on l'ait demandé est le mauvais défaut, et la
 # CLI VocalBrain vit hors dépôt (venv local-suno).
 GREETING_VOICE: bool = os.getenv("GREETING_VOICE", "false").lower() in ("1", "true", "yes", "on")
+# Lit à voix haute la CONCLUSION de chaque réponse de l'agent (commande /voix
+# pour basculer en cours de session). Hérite de GREETING_VOICE : pour un usage
+# malvoyant, UNE variable doit suffire à rendre toute la session parlante —
+# accueil ET réponses. Surchargable séparément (VOICE_REPLIES=false garde
+# l'accueil parlant mais des réponses muettes).
+VOICE_REPLIES: bool = os.getenv(
+    "VOICE_REPLIES", os.getenv("GREETING_VOICE", "false")
+).lower() in ("1", "true", "yes", "on")
 
 LOG_DIR.mkdir(exist_ok=True)
 # MEMORY_DIR n'est plus un alias de LOG_DIR : il ne profite plus du mkdir ci-dessus.

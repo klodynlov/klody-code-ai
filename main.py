@@ -3,6 +3,7 @@
 
 import argparse
 import logging
+import re
 import sys
 import threading
 from pathlib import Path
@@ -25,6 +26,7 @@ from config import (
     PREVIEW_PORT,
     PROJECT_ROOT,
     SEMANTIC_MEMORY_PROVIDER,
+    VOICE_REPLIES,
 )
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -54,6 +56,15 @@ _PT_STYLE = Style.from_dict({
 })
 
 _HISTORY_FILE = Path.home() / ".klody_history"
+
+# Lecture vocale des réponses (accessibilité). Basculable en session par /voix ;
+# valeur de départ héritée de la config (GREETING_VOICE → VOICE_REPLIES).
+_voix_reponses: bool = VOICE_REPLIES
+
+# Un bloc de code lu à voix haute est du bruit pur — trente secondes de
+# ponctuation épelée. On le remplace par une mention, l'écran l'a de toute façon.
+_BLOC_CODE = re.compile(r"```.*?(```|$)", re.DOTALL)
+_MARQUES_MD = re.compile(r"[*_`#>|]+")
 
 # ------------------------------------------------------------------ #
 # Bannière                                                             #
@@ -237,6 +248,7 @@ HELP_TEXT = """
   [cyan]/export[/cyan]            Exporter la session en Markdown
   [cyan]/profile[/cyan]           Profil utilisateur détecté (techs, patterns)
   [cyan]/status[/cyan]            État du système (backend LLM, LibraryBrain, Preview)
+  [cyan]/voix[/cyan]              Lire les réponses à voix haute (accessibilité)
   [cyan]/exit[/cyan]              Quitter
 
 [bold]Apprentissage & Profil :[/bold]
@@ -281,6 +293,13 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
     if token == "/clear":
         orchestrator.memory.clear()
         console.print("\n  [green]✓[/green] Historique effacé.\n")
+        return True
+
+    if token == "/voix":
+        global _voix_reponses
+        _voix_reponses = not _voix_reponses
+        etat = "activée" if _voix_reponses else "désactivée"
+        console.print(f"\n  [green]✓[/green] Lecture vocale des réponses {etat}.\n")
         return True
 
     if token == "/memory":
@@ -563,6 +582,16 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
 
 def _run_extraction(orchestrator: Orchestrator) -> None:
     """Extraction silencieuse des faits importants en fin de session."""
+    # Note de reprise D'ABORD : elle est instantanée et déterministe, alors que
+    # l'extraction fait un appel LLM qui peut échouer — la reprise du lendemain
+    # ne doit pas dépendre de lui.
+    try:
+        from agent.greeting import noter_reprise
+
+        noter_reprise(orchestrator.memory.messages)
+    except Exception as exc:  # pragma: no cover - défense du chemin de sortie
+        logger.debug("note de reprise non écrite : %s", exc)
+
     lt = get_long_term_memory()
     facts = extract_and_save(orchestrator.memory.messages, lt)
     if facts:
@@ -624,6 +653,7 @@ def repl(orchestrator: Orchestrator, propositions: tuple[str, ...] = ()) -> None
             console.print(Rule(title="[dim]Klody[/dim]", style="dim blue", align="left"))
             console.print()
             orchestrator.run(user_input)
+            _dire_reponse(orchestrator)
             console.print()
 
         except KeyboardInterrupt:
@@ -668,6 +698,53 @@ def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
     except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
         logger.debug("accueil non affiché : %s", exc)
         return ()
+
+
+def _texte_pour_voix(texte: str) -> str:
+    """Prépare une réponse d'agent pour la synthèse : parlable, pas récitable.
+
+    Les blocs de code sont REMPLACÉS par une mention — les lire épellerait de la
+    ponctuation pendant trente secondes, et l'écran les affiche de toute façon.
+    Le cap est en deçà des 600 caractères de `speak` pour couper sur une phrase
+    à nous plutôt que de lui laisser trancher au milieu.
+    """
+    texte = _BLOC_CODE.sub(" Un bloc de code est affiché à l'écran. ", texte or "")
+    texte = _MARQUES_MD.sub("", texte)
+    texte = re.sub(r"\s+", " ", texte).strip()
+    if len(texte) > 500:
+        coupe = texte[:500]
+        point = max(coupe.rfind(". "), coupe.rfind("! "), coupe.rfind("? "))
+        texte = coupe[: point + 1] if point > 250 else coupe + "…"
+    return texte
+
+
+def _dire_reponse(orchestrator: Orchestrator) -> None:
+    """Lit la dernière réponse de l'agent à voix haute, en thread détaché.
+
+    Même contrat que l'accueil vocal : la synthèse est synchrone (~6 s à froid),
+    elle ne doit jamais retenir le prompt suivant, et son échec est silencieux à
+    l'écran (`speak` rend une chaîne d'erreur, jamais d'exception).
+    """
+    if not _voix_reponses:
+        return
+    derniere = next(
+        (m.get("content") for m in reversed(orchestrator.memory.messages)
+         if m.get("role") == "assistant" and m.get("content")),
+        "",
+    )
+    texte = _texte_pour_voix(str(derniere))
+    if not texte:
+        return
+
+    def _parler() -> None:
+        try:
+            from tools.voice import speak
+
+            speak(texte, "fr")
+        except Exception as exc:  # pragma: no cover - CLI VocalBrain absente
+            logger.debug("lecture vocale indisponible : %s", exc)
+
+    threading.Thread(target=_parler, name="klody-voix-reponse", daemon=True).start()
 
 
 def _dire_accueil(rendu) -> None:

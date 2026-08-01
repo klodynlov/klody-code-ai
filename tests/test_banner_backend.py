@@ -194,6 +194,90 @@ class TestVoixAccueil:
         assert "VocalBrain" not in capture.getvalue()
 
 
+class TestVoixReponses:
+    """/voix : la lecture des réponses de l'agent, cœur de l'accessibilité."""
+
+    class _OrchestrateurFactice:
+        class _Memoire:
+            messages = [
+                {"role": "user", "content": "question"},
+                {"role": "assistant", "content": "Voici :\n```python\nprint(1)\n```\nC'est corrigé."},
+            ]
+
+        memory = _Memoire()
+
+    def test_la_commande_voix_bascule(self, monkeypatch, capture):
+        monkeypatch.setattr(main, "_voix_reponses", False)
+        assert main.handle_special_command("/voix", None) is True
+        assert main._voix_reponses is True
+        assert "activée" in capture.getvalue()
+        main.handle_special_command("/voix", None)
+        assert main._voix_reponses is False
+
+    def test_le_texte_dit_saute_les_blocs_de_code(self):
+        """Lire du code à voix haute épelle de la ponctuation — on le mentionne."""
+        texte = main._texte_pour_voix("Voici :\n```python\nprint(1)\n```\nC'est corrigé.")
+        assert "print" not in texte
+        assert "bloc de code" in texte
+        assert "C'est corrigé." in texte
+
+    def test_le_texte_dit_est_borne_et_coupe_sur_une_phrase(self):
+        texte = main._texte_pour_voix("Première phrase. " + "blabla " * 200)
+        assert len(texte) <= 510
+
+    def test_desactivee_ne_parle_pas(self, monkeypatch):
+        import threading
+
+        monkeypatch.setattr(main, "_voix_reponses", False)
+        avant = {t.name for t in threading.enumerate()}
+        main._dire_reponse(self._OrchestrateurFactice())
+        assert not any(
+            "voix-reponse" in n for n in {t.name for t in threading.enumerate()} - avant
+        )
+
+    def test_activee_dit_la_derniere_reponse_en_thread_detache(self, monkeypatch):
+        import threading
+
+        import tools.voice as voice
+
+        monkeypatch.setattr(main, "_voix_reponses", True)
+        dits: list[str] = []
+        fini = threading.Event()
+
+        def _faux_speak(texte, langue="fr"):
+            dits.append(texte)
+            fini.set()
+            return "ok"
+
+        monkeypatch.setattr(voice, "speak", _faux_speak)
+        main._dire_reponse(self._OrchestrateurFactice())
+        assert fini.wait(2.0), "speak n'a jamais été appelé"
+        assert "C'est corrigé." in dits[0]
+        assert "print" not in dits[0]
+
+
+class TestNoteDeRepriseALaSortie:
+    def test_run_extraction_ecrit_la_note_meme_si_l_extraction_echoue(
+        self, monkeypatch, tmp_path, capture
+    ):
+        """La reprise du lendemain ne doit pas dépendre d'un appel LLM de sortie."""
+        from agent import greeting
+
+        notes: list[list] = []
+        monkeypatch.setattr(greeting, "noter_reprise", lambda msgs, d=None: notes.append(msgs))
+
+        def _extraction_cassee(*_a, **_k):
+            raise RuntimeError("LLM injoignable")
+
+        monkeypatch.setattr(main, "extract_and_save", _extraction_cassee)
+        monkeypatch.setattr(main, "get_long_term_memory", lambda: None)
+
+        orch = TestVoixReponses._OrchestrateurFactice()
+        with pytest.raises(RuntimeError):
+            main._run_extraction(orch)
+        assert notes and notes[0] is orch.memory.messages
+
+
 class TestPropositionsDansLeRepl:
     """« 1 » lance la première proposition — mais UNE seule fois, au départ."""
 

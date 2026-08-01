@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -88,13 +89,23 @@ _ESPACES = re.compile(r"\s+")
 
 @dataclass(frozen=True)
 class ContexteAccueil:
-    """Ce que l'accueil sait, sans rien demander au réseau."""
+    """Ce que l'accueil sait, sans rien demander au réseau.
+
+    `arret` distingue deux qualités de rappel : True = la tâche vient de la note
+    de reprise écrite à la FERMETURE de la session précédente (là où on s'est
+    arrêté) ; False = repli sur le premier message de cette session (ce qu'on
+    venait y faire). Le premier autorise « on continue ? », le second non.
+    """
 
     projet: str
     sessions_passees: int
     faits: tuple[str, ...] = ()
     derniere_tache: str = ""
     derniere_date: str = ""
+    arret: bool = False
+    branche: str = ""
+    modifs_git: int = 0
+    erreur_recurrente: str = ""
 
 
 @dataclass(frozen=True)
@@ -131,12 +142,70 @@ def _date_relative(horodatage: float, maintenant: float | None = None) -> str:
     return "la dernière fois"
 
 
-def _derniere_tache(memory_dir: Path) -> tuple[str, str]:
-    """Première demande de la session précédente, et sa date relative.
+_FICHIER_REPRISE = "reprise.json"
+# Marge au-delà de laquelle une session SANS note de reprise (crash, kill -9)
+# est considérée plus récente que la note : la note ne parle alors plus de la
+# bonne session, on retombe sur le balayage des fichiers.
+_REPRISE_PERIMEE_S = 120.0
 
-    C'est le meilleur résumé disponible pour zéro token : le premier message
-    utilisateur d'une session dit ce qu'on venait y faire, alors que le dernier
-    dit souvent « merci » ou « relance les tests ».
+
+def noter_reprise(messages: list[dict], memory_dir: Path | None = None) -> None:
+    """Écrit la note de reprise à la FERMETURE de session. Ne lève jamais.
+
+    Zéro appel LLM, délibérément : la note est la DERNIÈRE demande utilisateur —
+    là où on s'est arrêté — pas un résumé généré. Un résumé raterait sa cible
+    une fois sur cinq et coûterait un appel au moment précis où l'utilisateur
+    veut partir ; la dernière demande est exacte par construction et gratuite.
+    L'accueil suivant la cite : « on s'est arrêté sur X — on continue ? ».
+    """
+    dossier = Path(memory_dir) if memory_dir is not None else Path(MEMORY_DIR)
+    derniere = next(
+        (
+            _une_ligne(str(m.get("content", "")))
+            for m in reversed(messages or [])
+            if m.get("role") == "user" and m.get("content")
+        ),
+        "",
+    )
+    if not derniere:
+        return
+    try:
+        (dossier / _FICHIER_REPRISE).write_text(
+            json.dumps(
+                {"quand": time.time(), "derniere_demande": derniere},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except OSError as exc:  # pragma: no cover - disque indisponible
+        logger.debug("accueil : note de reprise non écrite (%s)", exc)
+
+
+def _lire_reprise(memory_dir: Path, plus_recent_mtime: float) -> tuple[str, str]:
+    """Lit la note de reprise si elle parle bien de la dernière session.
+
+    Une session qui a crashé n'écrit pas de note : ses fichiers mémoire sont
+    alors plus récents que la note, qui décrirait une session antérieure. Dans
+    ce cas on rend vide et l'appelant retombe sur le balayage.
+    """
+    try:
+        brut = json.loads((memory_dir / _FICHIER_REPRISE).read_text(encoding="utf-8"))
+        quand = float(brut["quand"])
+        demande = _une_ligne(str(brut["derniere_demande"]))
+    except (OSError, ValueError, TypeError, KeyError):
+        return "", ""
+    if not demande or plus_recent_mtime > quand + _REPRISE_PERIMEE_S:
+        return "", ""
+    return demande, _date_relative(quand)
+
+
+def _derniere_tache(memory_dir: Path) -> tuple[str, str, bool]:
+    """(tâche, date relative, vient-de-la-note-de-reprise).
+
+    Priorité à la note de reprise : elle porte la FIN de la session précédente
+    (là où on s'est arrêté), quand le balayage ne donne que son DÉBUT (ce qu'on
+    venait y faire). Le repli reste utile pour les sessions crashées et les
+    installations antérieures à la note.
     """
     try:
         fichiers = sorted(
@@ -146,20 +215,65 @@ def _derniere_tache(memory_dir: Path) -> tuple[str, str]:
         )
     except OSError as exc:  # pragma: no cover - disque indisponible
         logger.debug("accueil : sessions illisibles (%s)", exc)
-        return "", ""
+        return "", "", False
     if not fichiers:
-        return "", ""
+        return "", "", False
 
     dernier = fichiers[0]
+    mtime = dernier.stat().st_mtime
+
+    tache, date = _lire_reprise(memory_dir, mtime)
+    if tache:
+        return tache, date, True
+
     try:
         donnees = json.loads(dernier.read_text(encoding="utf-8"))
         for message in donnees.get("messages", []):
             if message.get("role") == "user" and message.get("content"):
-                tache = _une_ligne(str(message["content"]))
-                return tache, _date_relative(dernier.stat().st_mtime)
+                return _une_ligne(str(message["content"])), _date_relative(mtime), False
     except (OSError, ValueError, TypeError) as exc:
         logger.debug("accueil : session précédente illisible (%s)", exc)
-    return "", ""
+    return "", "", False
+
+
+def _etat_git(racine: Path) -> tuple[str, int]:
+    """(branche courante, nb de fichiers modifiés non commités). Jamais d'exception.
+
+    `git status --porcelain` sur le dépôt de travail : local, ~quelques dizaines
+    de ms. Timeout court quand même — un accueil ne négocie pas avec un iCloud
+    qui hydrate. Tout échec (pas un dépôt git, git absent, timeout) rend un état
+    vide et l'accueil s'en passe.
+    """
+    try:
+        statut = subprocess.run(
+            ["git", "-C", str(racine), "status", "--porcelain", "--branch"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.debug("accueil : état git indisponible (%s)", exc)
+        return "", 0
+    if statut.returncode != 0:
+        return "", 0
+
+    lignes = statut.stdout.splitlines()
+    branche = ""
+    if lignes and lignes[0].startswith("## "):
+        # « ## main...origin/main [ahead 1] » → « main »
+        branche = lignes[0][3:].split("...")[0].split(" ")[0].strip()
+    modifs = sum(1 for ligne in lignes[1:] if ligne.strip())
+    return branche, modifs
+
+
+def _erreur_recurrente(racine: Path) -> str:
+    """Signature de l'erreur sandbox la plus fréquente des dernières 24 h, ou vide."""
+    try:
+        from agent.error_memory import ErrorMemory
+
+        frequentes = ErrorMemory(workdir=racine).recurrent()
+        return frequentes[0][0] if frequentes else ""
+    except Exception as exc:
+        logger.debug("accueil : erreurs récurrentes indisponibles (%s)", exc)
+        return ""
 
 
 def collecter_contexte() -> ContexteAccueil:
@@ -188,13 +302,18 @@ def collecter_contexte() -> ContexteAccueil:
         # l'utilisateur d'un bonjour.
         logger.debug("accueil : mémoire long terme indisponible (%s)", exc)
 
-    tache, date = _derniere_tache(dossier)
+    tache, date, arret = _derniere_tache(dossier)
+    branche, modifs = _etat_git(Path(PROJECT_ROOT))
     return ContexteAccueil(
         projet=projet,
         sessions_passees=sessions,
         faits=faits,
         derniere_tache=tache,
         derniere_date=date,
+        arret=arret,
+        branche=branche,
+        modifs_git=modifs,
+        erreur_recurrente=_erreur_recurrente(Path(PROJECT_ROOT)),
     )
 
 
@@ -215,11 +334,30 @@ def accueil_local(contexte: ContexteAccueil) -> Accueil:
 
     rappel = ""
     propositions: list[str] = []
+    quand = (contexte.derniere_date or "la dernière fois").capitalize()
     if contexte.derniere_tache:
         apercu = _tronquer(contexte.derniere_tache, 90)
-        quand = contexte.derniere_date or "la dernière fois"
-        rappel = f"{quand.capitalize()}, tu me demandais : « {apercu} »"
-        propositions.append("Reprendre là où on s'est arrêté")
+        if contexte.arret:
+            rappel = f"{quand}, on s'est arrêté sur : « {apercu} »"
+            propositions.append(
+                f"Approfondir : {_tronquer(contexte.derniere_tache, 48)}"
+            )
+        else:
+            rappel = f"{quand}, tu me demandais : « {apercu} »"
+            propositions.append("Reprendre là où on s'est arrêté")
+
+    # Propositions branchées sur l'ÉTAT RÉEL, par urgence décroissante : du
+    # travail non commité se perd, une erreur récurrente se re-paie à chaque
+    # session — les deux passent avant le générique.
+    if contexte.modifs_git:
+        ou = f" sur {contexte.branche}" if contexte.branche else ""
+        propositions.append(
+            f"Finir{ou} : {contexte.modifs_git} fichier(s) modifié(s) non commité(s)"
+        )
+    if contexte.erreur_recurrente:
+        propositions.append(
+            f"Corriger l'erreur récurrente : {_tronquer(contexte.erreur_recurrente, 40)}"
+        )
 
     propositions.append("Faire le point sur les changements en cours")
     propositions.append("Lancer les tests du projet")
@@ -236,10 +374,18 @@ def _decrire_contexte(contexte: ContexteAccueil) -> str:
         f"Sessions précédentes : {contexte.sessions_passees}.",
     ]
     if contexte.derniere_tache:
+        etat = "la session s'est arrêtée sur" if contexte.arret else "la demande était"
         morceaux.append(
             f"{(contexte.derniere_date or 'La dernière fois').capitalize()}, "
-            f"la demande était : {_tronquer(contexte.derniere_tache, 200)}."
+            f"{etat} : {_tronquer(contexte.derniere_tache, 200)}."
         )
+    if contexte.modifs_git:
+        morceaux.append(
+            f"Dépôt : {contexte.modifs_git} fichier(s) modifié(s) non commité(s)"
+            + (f" sur la branche {contexte.branche}." if contexte.branche else ".")
+        )
+    if contexte.erreur_recurrente:
+        morceaux.append(f"Erreur récurrente en sandbox : {contexte.erreur_recurrente}.")
     if contexte.faits:
         morceaux.append("À savoir : " + " ; ".join(contexte.faits) + ".")
     return " ".join(morceaux)
