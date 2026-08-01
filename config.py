@@ -473,6 +473,17 @@ VOICE_PROJECT_ID: str = os.getenv("VOICE_PROJECT_ID", "58a252a5-1c07-4bd1-bf36-a
 VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
 VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
 VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
+# Voix passée à `vocalbrain generate --voice`. VIDE = on ne passe pas l'option,
+# donc comportement inchangé — c'est la valeur sûre par défaut, tant qu'on ne
+# connaît pas les valeurs acceptées sur une installation donnée.
+#
+# ⚠️ Pourquoi ça existe : le modèle servi est un Qwen3-TTS 0.6B **Base**, sans
+# conditionnement de locuteur. Un texte de plusieurs phrases est scindé en
+# interne sur les `\n` (cf. tools/voice._segment_sentences, découpage OBLIGATOIRE
+# pour que l'EOS soit émis), et chaque morceau peut alors se voir attribuer un
+# timbre différent — constaté le 2026-08-01 : l'accueil parlé sortait « avec
+# différentes voix », le diagnostic mono-phrase n'ayant rien pu montrer.
+VOICE_PRESET: str = os.getenv("VOICE_PRESET", "")
 
 # --- Accueil de session généré (agent/greeting.py) ---
 # Une phrase produite par le modèle au lancement, EN TÂCHE DE FOND. Mesuré le

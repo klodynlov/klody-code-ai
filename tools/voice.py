@@ -153,6 +153,12 @@ def speak(text: str, language: str = "fr") -> str:
         "--lang", lang,
         "--segment-id", seg,
     ]
+    # Ajoutée SEULEMENT si configurée : une option passée à vide serait un
+    # changement de comportement pour toute installation qui marche déjà.
+    # Le personnage (`-c`) ne suffit pas à figer le timbre sur un modèle Base —
+    # cf. le commentaire de config.VOICE_PRESET.
+    if config.VOICE_PRESET:
+        cmd += ["--voice", config.VOICE_PRESET]
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_SYNTH_TIMEOUT,
