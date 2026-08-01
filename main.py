@@ -300,6 +300,16 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         _voix_reponses = not _voix_reponses
         etat = "activée" if _voix_reponses else "désactivée"
         console.print(f"\n  [green]✓[/green] Lecture vocale des réponses {etat}.\n")
+        # À l'ACTIVATION, on sonde tout de suite : découvrir une voix cassée au
+        # bout de trois réponses muettes coûte bien plus qu'attendre ici. La
+        # sonde est courte et son compte rendu est affiché quoi qu'il arrive.
+        if _voix_reponses:
+            try:
+                from tools.voice import speak
+
+                _signaler_voix(speak("Lecture vocale activée.", "fr"))
+            except Exception as exc:
+                _signaler_voix(f"speak inutilisable : {exc}")
         return True
 
     if token == "/memory":
@@ -700,6 +710,42 @@ def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
         return ()
 
 
+# `speak` marque ses succès par cet emoji ; TOUT le reste est un échec rendu
+# sous forme de chaîne. Il ne lève jamais d'exception.
+_VOIX_SUCCES = "🔊"
+
+# Un échec de synthèse par session suffit à comprendre ; le répéter à chaque
+# réponse transformerait la panne en spam sur le seul écran que l'utilisateur lit.
+_voix_deja_signalee = False
+
+
+def _signaler_voix(rapport: str) -> None:
+    """Rend visible un échec de `speak`. Sans ça, « aucun son » n'a aucune trace.
+
+    ⚠️ Le défaut réparé ici : `speak` ne lève JAMAIS, il RETOURNE son compte
+    rendu — « CLI VocalBrain introuvable », « modèle TTS absent », « lecture
+    impossible »… L'appelant jetait cette valeur et n'entourait l'appel que d'un
+    `except`, qui ne pouvait rien attraper. Les quatre modes d'échec étaient donc
+    strictement indiscernables d'un succès : silence à l'écran, silence au log.
+
+    La règle qui manquait : le silence est acceptable quand personne n'a demandé
+    la voix, mais dès que l'utilisateur l'a ACTIVÉE, ne rien dire est la panne.
+    """
+    global _voix_deja_signalee
+    if rapport.startswith(_VOIX_SUCCES) and "lecture impossible" not in rapport:
+        logger.debug("voix : %s", rapport)
+        return
+
+    logger.warning("voix : %s", rapport)
+    if _voix_deja_signalee:
+        return
+    _voix_deja_signalee = True
+    console.print(
+        f"\n  [yellow]⚠  Voix indisponible :[/yellow] [dim]{rapport}[/dim]"
+        "\n  [dim]→ diagnostic : python scripts/diagnostic_voix.py[/dim]"
+    )
+
+
 def _texte_pour_voix(texte: str) -> str:
     """Prépare une réponse d'agent pour la synthèse : parlable, pas récitable.
 
@@ -740,9 +786,9 @@ def _dire_reponse(orchestrator: Orchestrator) -> None:
         try:
             from tools.voice import speak
 
-            speak(texte, "fr")
-        except Exception as exc:  # pragma: no cover - CLI VocalBrain absente
-            logger.debug("lecture vocale indisponible : %s", exc)
+            _signaler_voix(speak(texte, "fr"))
+        except Exception as exc:  # pragma: no cover - import de tools.voice cassé
+            _signaler_voix(f"speak inutilisable : {exc}")
 
     threading.Thread(target=_parler, name="klody-voix-reponse", daemon=True).start()
 
@@ -752,9 +798,11 @@ def _dire_accueil(rendu) -> None:
 
     Thread détaché OBLIGATOIRE : la synthèse VocalBrain est synchrone (~6 s à
     froid). La faire attendre sur le chemin de démarrage recréerait exactement
-    le gel que l'accueil en tâche de fond existe pour éviter. L'échec est
-    silencieux à l'écran — `speak` rend une chaîne d'erreur, jamais d'exception,
-    et un accueil muet n'est pas une panne à annoncer.
+    le gel que l'accueil en tâche de fond existe pour éviter.
+
+    ⚠️ L'échec n'est PLUS silencieux. Il l'a été, et c'était le défaut : quand
+    l'utilisateur a explicitement demandé la voix, ne rien dire ne le protège de
+    rien — ça lui retire juste tout moyen de comprendre. Cf. `_signaler_voix`.
     """
     if not GREETING_VOICE:
         return
@@ -763,9 +811,9 @@ def _dire_accueil(rendu) -> None:
         try:
             from tools.voice import speak
 
-            speak(rendu.en_texte(), "fr")
-        except Exception as exc:  # pragma: no cover - CLI VocalBrain absente
-            logger.debug("accueil vocal indisponible : %s", exc)
+            _signaler_voix(speak(rendu.en_texte(), "fr"))
+        except Exception as exc:  # pragma: no cover - import de tools.voice cassé
+            _signaler_voix(f"speak inutilisable : {exc}")
 
     threading.Thread(target=_parler, name="klody-accueil-voix", daemon=True).start()
 

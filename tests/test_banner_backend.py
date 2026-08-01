@@ -235,6 +235,61 @@ class TestVoixReponses:
             "voix-reponse" in n for n in {t.name for t in threading.enumerate()} - avant
         )
 
+    def test_un_echec_de_speak_est_VISIBLE(self, monkeypatch, capture):
+        """LE défaut réparé : speak ne lève jamais, il RETOURNE son échec.
+
+        L'appelant jetait la valeur de retour et n'entourait l'appel que d'un
+        `except` — incapable d'attraper quoi que ce soit. « Aucun son » ne
+        laissait alors ni message ni log : quatre modes d'échec strictement
+        indiscernables d'un succès.
+        """
+        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._signaler_voix(
+            "speak indisponible : CLI VocalBrain introuvable (/x/vocalbrain)."
+        )
+        sortie = capture.getvalue()
+        assert "Voix indisponible" in sortie
+        assert "CLI VocalBrain introuvable" in sortie
+        assert "diagnostic_voix" in sortie
+
+    def test_un_succes_ne_dit_rien(self, monkeypatch, capture):
+        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._signaler_voix("🔊 Dit à voix haute (2.1s), joué sur les haut-parleurs : « Bonjour »")
+        assert capture.getvalue() == ""
+
+    def test_une_synthese_ok_mais_muette_est_signalee(self, monkeypatch, capture):
+        """WAV généré, lecteur qui n'a pas démarré : c'est exactement « aucun son »."""
+        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._signaler_voix("🔊 Dit à voix haute (2.1s), généré (lecture impossible : /tmp/a.wav)")
+        assert "Voix indisponible" in capture.getvalue()
+
+    def test_l_echec_n_est_signale_qu_une_fois(self, monkeypatch, capture):
+        """Sinon la panne devient du spam sur le seul écran que l'utilisateur lit."""
+        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._signaler_voix("speak : échec")
+        main._signaler_voix("speak : échec")
+        main._signaler_voix("speak : échec")
+        assert capture.getvalue().count("Voix indisponible") == 1
+
+    def test_activer_la_voix_sonde_tout_de_suite(self, monkeypatch, capture):
+        """Découvrir la panne au bout de trois réponses muettes coûte plus cher."""
+        import tools.voice as voice
+
+        monkeypatch.setattr(main, "_voix_reponses", False)
+        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        monkeypatch.setattr(voice, "speak", lambda t, lang="fr": "speak : échec de la synthèse")
+        main.handle_special_command("/voix", None)
+        assert "Voix indisponible" in capture.getvalue()
+
+    def test_desactiver_la_voix_ne_sonde_pas(self, monkeypatch, capture):
+        import tools.voice as voice
+
+        monkeypatch.setattr(main, "_voix_reponses", True)
+        appels: list = []
+        monkeypatch.setattr(voice, "speak", lambda t, lang="fr": appels.append(t) or "ok")
+        main.handle_special_command("/voix", None)
+        assert appels == []
+
     def test_activee_dit_la_derniere_reponse_en_thread_detache(self, monkeypatch):
         import threading
 
