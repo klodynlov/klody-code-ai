@@ -359,7 +359,42 @@ sonder, et l'écran d'accueil en était la vitrine.
 > ⚠️ **La conclusion qui dépasse l'accueil** : le **premier tour de chaque
 > session** paie ces ~4,1 s, accueil ou pas. C'est une taxe de démarrage de
 > l'agent lui-même, et tout ce qui invalide le préfixe (outil ajouté, schéma
-> modifié, serveur MCP qui apparaît, bascule de modèle) la fait re-payer.
+> modifié, serveur MCP qui apparaît) la fait re-payer. La bascule de modèle
+> figurait dans cette liste par principe — **mesurée le jour même : elle n'en
+> fait PAS partie** (encadré suivant).
+
+> ### ✅ MESURÉ — la bascule `brain` ↔ `coder` ne re-paie PAS le prefill
+>
+> Run 3 du même relevé (`--bascule`, 69 outils dans CHAQUE appel, amorçage
+> exclu ; JSON : `reference_2026-08-01_bascule_brain_coder.json`) :
+>
+> | phase | médiane (n=3) |
+> |---|---|
+> | alternance · `brain` | 0,23 s |
+> | alternance · `coder` | 0,22 s |
+> | témoin · `brain` (sans bascule) | 0,24 s |
+> | **écart alternance − témoin** | **−0,01 s** |
+>
+> Là où « prefill re-payé » exigeait ~+3,7 s. **Chaque modèle garde son cache
+> de préfixe** : la bascule du routeur est gratuite en régime chaud, seul le
+> chargement initial de `coder` (30 Go, 8,3 s) se paie, une fois par session.
+> Alias distincts vérifiés par la réponse (8bit / UD-4bit) — le garde « même
+> modèle des deux côtés » n'a pas eu à rougir.
+>
+> ⚠️ **Un écart nul admettait DEUX lectures**, et le run seul ne les séparait
+> pas : cache touché — ou champ `tools` JETÉ par le gateway, auquel cas rien
+> n'avait été mesuré. 0,23 s pour 12,5 k tokens de schémas est le même chiffre
+> dans les deux cas. `scripts/controle_prefill_outils.py` tranche dans un même
+> run : `prompt_tokens=13 802` avec outils contre 38 sans — le juge est le
+> compte rendu par le backend, pas la latence — +3,7 s à froid (cohérent avec
+> le balayage, protocole indépendant), effondrement 3,90 → 0,18 s au rejeu.
+> Les 0,23 s sont des cache-hits réels.
+>
+> ⚠️ **Ce que ça n'établit PAS** : mesuré sur préfixe court et FIXE. En session
+> réelle, l'historique de conversation change le préfixe entre deux passages
+> sur le même modèle, et le cache rate alors pour une raison étrangère à la
+> bascule. Le run dit « la bascule en soi n'invalide rien », pas « le cache
+> survit à tout ».
 
 **`agent/greeting.py`** — accueil de session généré, en tâche de fond. Ce n'est
 pas le coût qui interdisait le synchrone (0,37 s est invisible), c'est la
@@ -432,25 +467,13 @@ L'appel ne porte **aucun schéma d'outil** : ~150 tokens contre ~12,3 k.
    changeait ces applications aussi. Depuis, `KLODY_CORE_BRAIN_MODEL` existe
    côté klody-core — un futur A/B passe par une entrée dédiée du registre,
    pas par une surcharge de `brain`.
-6. **Mesurer la bascule `brain` → `coder`** — outil écrit et testé (PR #191),
-   **mesure PAS ENCORE LANCÉE**. C'est le prolongement direct de l'encadré ✅
-   ci-dessus : le routeur bascule de modèle à chaque tâche de code, et un cache
-   de préfixe appartient à UN modèle. Re-paie-t-on ~4 s À CHAQUE aller-retour ?
-
-   ```bash
-   python scripts/mesure_plancher_accueil.py --bascule --passes 3
-   ```
-
-   - ⚠️ **Deux effets se confondent** et n'ont pas la même portée : le
-     CHARGEMENT de `coder` (30 Go, 8,3 s mesuré) est un coût **unique** ; le
-     prefill re-payé est **récurrent**. Un protocole naïf les additionne. D'où
-     trois phases — amorçage (exclu), alternance, témoin — et **la comparaison
-     qui répond est `alternance(brain)` contre `témoin(brain)`** : même modèle,
-     même préfixe, même run.
-   - ⚠️ Si les deux alias résolvent vers le **même** modèle, la sortie dit
-     « MESURE NON CONCLUANTE » et n'affiche pas d'écart. Sans ce garde,
-     « aucune bascule n'a eu lieu » se lirait « la bascule est gratuite ».
-   - Reste aussi ouvert : le coût du garde « décisions jamais ouvertes » sur un
+6. ~~Mesurer la bascule `brain` → `coder`~~ — **fait** le 2026-08-01 :
+   **elle ne re-paie pas le prefill**, écart −0,01 s là où « re-payé » exigeait
+   ~+3,7 s (encadré ✅ « la bascule ne re-paie PAS »). La conclusion n'a été
+   posée qu'après le contrôle de validité (`controle_prefill_outils.py`) — un
+   écart nul aurait aussi bien pu dire « le gateway jette `tools` », et le
+   `prompt_tokens` du backend a tranché (13 802 vs 38).
+   - Reste ouvert : le coût du garde « décisions jamais ouvertes » sur un
      vrai dépôt documenté (cf. point 4), que le banc ne peut pas voir.
 
 ## Pièges qui coûtent du temps
