@@ -80,26 +80,10 @@ class TestBanniere:
         assert "Messages" in sortie
 
 
-def test_aucune_mention_en_dur_du_backend_dans_le_source():
-    """Filet anti-récidive : le nom du backend ne se réécrit pas en dur.
-
-    Le défaut réparé ici est revenu par copier-coller ailleurs (message d'erreur
-    de agent/llm.py, en-tête du nightly). Si une chaîne « Ollama » réapparaît
-    dans main.py, elle doit être un chemin de code propre au mode ollama
-    (OLLAMA_BASE_URL, `ollama serve` dans /status), pas une affirmation
-    d'accueil.
-    """
-    source = main.__file__
-    with open(source, encoding="utf-8") as f:
-        lignes = [
-            ligne for ligne in f
-            if "Ollama" in ligne and not ligne.lstrip().startswith("#")
-        ]
-    # Les seules occurrences légitimes vivent dans /status, qui sonde
-    # explicitement le daemon ollama, et dans _backend_label lui-même.
-    for ligne in lignes:
-        assert (
-            "OLLAMA_BASE_URL" in ligne
-            or "ollama serve" in ligne
-            or '"Ollama"' in ligne
-        ), f"Mention en dur du backend hors du chemin ollama : {ligne.strip()}"
+# ⚠️ Un scan du SOURCE de main.py à la recherche de « Ollama » a existé ici, et
+# il a servi : c'est lui qui a trouvé la 3ᵉ occurrence, dans HELP_TEXT. Il a été
+# retiré parce qu'il confondait la PROSE et la SORTIE — il rougissait sur les
+# commentaires et docstrings qui *expliquent* le correctif, ce qui aurait fini
+# par pousser à supprimer les explications pour faire taire le test. La propriété
+# qui compte est comportementale (« l'écran ne nomme pas un service inutilisé »),
+# elle est vérifiée par les rendus ci-dessus et par tests/test_status_backend.py.

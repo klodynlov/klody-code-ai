@@ -14,11 +14,14 @@ from config import (
     BACKEND,
     LIBRARYBRAIN_DIR,
     LIBRARYBRAIN_URL,
+    LLM_BASE_URL,
     LLM_MODEL,
     MEMORY_DIR,
+    OLLAMA_BASE_URL,
     PREVIEW_DIR,
     PREVIEW_PORT,
     PROJECT_ROOT,
+    SEMANTIC_MEMORY_PROVIDER,
 )
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -61,6 +64,81 @@ def _backend_label() -> str:
     les classes du module et casse les `pytest.raises` alentour.
     """
     return "MLX" if BACKEND == "mlx" else "Ollama"
+
+
+def _sonde_backend_llm() -> tuple[str, str, str]:
+    """Sonde le backend LLM RÉELLEMENT actif. Retourne (service, état, détails).
+
+    ⚠️ C'est une sonde de DISPONIBILITÉ, délibérément pas de résolution d'alias :
+    on interroge `/v1/models`, jamais une complétion. Une complétion peut
+    déclencher le chargement des 44 Go de `brain` ou se faire refuser en 503 —
+    c'est le piège du préflight du nightly, qui FABRIQUAIT la condition qu'il
+    prétendait détecter (`vm_stat` sous-estime la RAM juste après un gros
+    chargement : 41 GiB à t+9 s, 62 GiB à t+2 min, rien n'ayant été libéré).
+    Un /status ne doit rien coûter à la machine.
+
+    Corollaire : le CONTENU de `/v1/models` ne veut rien dire en mode autonome
+    (`mlx_lm.server` y liste tout le cache HF, pas le modèle chargé). Seul le
+    fait qu'il réponde est exploitable — d'où un détail qui montre l'URL sondée
+    plutôt qu'un décompte trompeur.
+    """
+    import httpx
+
+    libelle = f"Backend LLM ({_backend_label()})"
+    if BACKEND == "mlx":
+        url = f"{LLM_BASE_URL.rstrip('/')}/models"
+        remede = "démarrer le gateway Klody Core (:8090) ou start-local-ai.sh"
+    else:
+        url = OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
+        remede = "ollama serve"
+
+    try:
+        reponse = httpx.get(url, timeout=2.0)
+        reponse.raise_for_status()
+    except Exception:
+        return libelle, "[red]✗ hors ligne[/red]", remede
+
+    if BACKEND == "mlx":
+        return libelle, "[green]✓ en ligne[/green]", LLM_BASE_URL
+    try:
+        n = len(reponse.json().get("models", []))
+    except Exception:
+        return libelle, "[green]✓ en ligne[/green]", OLLAMA_BASE_URL
+    return libelle, "[green]✓ en ligne[/green]", f"{n} modèle(s)"
+
+
+def _ligne_embeddings() -> tuple[str, str, str]:
+    """Ligne « Embeddings » — sondée seulement si Ollama les sert vraiment.
+
+    /status sondait Ollama INCONDITIONNELLEMENT et affichait « ✗ hors ligne »
+    en mode mlx, où Ollama n'est ni le backend LLM ni le fournisseur
+    d'embeddings (`SEMANTIC_MEMORY_PROVIDER` vaut `st` par défaut :
+    sentence-transformers en processus, `cos(ollama, st) = 1.0000` mesuré).
+
+    Un avertissement qui décrit un problème inexistant coûte autant qu'une
+    erreur fausse : le 2026-07-30, un faux « Ollama injoignable » en tête de log
+    a orienté tout le diagnostic d'un 1/5 vers Ollama, alors que la cause était
+    `MLX_CODE_BASE_URL`.
+
+    Hors mode ollama, on n'invente donc pas un verdict : on affiche « non
+    sondé » et le fournisseur configuré. Vérifier réellement `st` imposerait de
+    charger bge-m3 en processus — un /status ne doit rien coûter.
+    """
+    if SEMANTIC_MEMORY_PROVIDER != "ollama":
+        return (
+            "Embeddings",
+            "[dim]non sondé[/dim]",
+            f"fournisseur « {SEMANTIC_MEMORY_PROVIDER} », en processus",
+        )
+
+    import httpx
+
+    try:
+        reponse = httpx.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags", timeout=2.0)
+        reponse.raise_for_status()
+    except Exception:
+        return "Embeddings", "[red]✗ Ollama hors ligne[/red]", "ollama serve"
+    return "Embeddings", "[green]✓ Ollama en ligne[/green]", "fournisseur « ollama »"
 
 
 def print_banner(memory: ConversationMemory) -> None:
@@ -427,21 +505,14 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         return True
 
     if token == "/status":
-        import httpx
-        from config import OLLAMA_BASE_URL
-
         tbl = Table(title="[bold]État du système[/bold]", box=box.ROUNDED, border_style="cyan")
         tbl.add_column("Service", style="bold", no_wrap=True)
         tbl.add_column("État", no_wrap=True)
         tbl.add_column("Détails", style="dim")
 
-        # Ollama
-        try:
-            r = httpx.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags", timeout=2.0)
-            models = [m["name"] for m in r.json().get("models", [])]
-            tbl.add_row("Ollama", "[green]✓ en ligne[/green]", f"{len(models)} modèle(s)")
-        except Exception:
-            tbl.add_row("Ollama", "[red]✗ hors ligne[/red]", "ollama serve")
+        # Backend LLM réellement actif (et non « Ollama » quoi qu'il arrive)
+        tbl.add_row(*_sonde_backend_llm())
+        tbl.add_row(*_ligne_embeddings())
 
         # Modèle
         tbl.add_row("Modèle", f"[cyan]{orchestrator.llm.model}[/cyan]", f"~{orchestrator.llm.total_tokens:,} tokens")
