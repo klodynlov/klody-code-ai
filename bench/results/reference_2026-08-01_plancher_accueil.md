@@ -1,6 +1,6 @@
 # Plancher de latence d'un accueil de session — 2026-08-01
 
-Configuration des deux runs, identique : `BACKEND=mlx`, gateway `http://localhost:8090/v1`,
+Configuration des quatre runs, identique : `BACKEND=mlx`, gateway `http://localhost:8090/v1`,
 alias `brain` → **`unsloth/Qwen3.6-35B-A3B-MLX-8bit`** (résolu par la réponse),
 69 outils dans `tools.registry.TOOLS`, M5 Max 128 Go.
 
@@ -9,6 +9,8 @@ Recalcul :
 ```bash
 python scripts/mesure_plancher_accueil.py --passes 3
 python scripts/mesure_plancher_accueil.py --balayage --passes 3
+python scripts/mesure_plancher_accueil.py --bascule --passes 3
+python scripts/controle_prefill_outils.py
 ```
 
 ⚠️ **Lecture intra-run uniquement.** Ces latences ne se comparent pas à celles
@@ -85,8 +87,8 @@ heuristique.
   génération non caché, et les Δ **surestiment légèrement** le prefill.
 - Rien ici ne mesure une **bascule de modèle** `brain` ↔ `coder`. Le routeur en
   fait à chaque tâche, et un modèle différent implique un cache de préfixe
-  différent — donc, en principe, ce prefill re-payé. **Hypothèse non mesurée**,
-  candidate au prochain balayage.
+  différent — donc, en principe, ce prefill re-payé. ~~Hypothèse non mesurée~~
+  — **mesurée le jour même, run 3 : réfutée.**
 
 ### Conséquences
 
@@ -96,4 +98,66 @@ heuristique.
 2. **Le premier tour de chaque session paie ce prefill**, accueil ou pas. Ce
    n'est plus une question d'accueil : c'est une taxe de démarrage de l'agent
    lui-même, et tout ce qui invalide le préfixe (outil ajouté, schéma modifié,
-   serveur MCP qui apparaît, bascule de modèle) la fait re-payer.
+   serveur MCP qui apparaît) la fait re-payer. La bascule de modèle figurait
+   dans cette liste par principe — le run 3 l'en retire.
+
+---
+
+## Run 3 — bascule : `brain` → `coder` re-paie-t-il le prefill ?
+
+Le routeur bascule de modèle à chaque tâche de code, et un cache de préfixe
+appartient à un modèle. Si la bascule invalidait le cache, chaque aller-retour
+`brain` ↔ `coder` coûterait les ~4,1 s du run 2 — récurrent, pas amorti.
+
+Protocole (`--bascule`) : amorçage exclu (il porte le chargement des modèles),
+puis alternance `brain, coder, brain, coder…` contre témoin `brain, brain,
+brain…`, **même préfixe partout, 69 outils dans chaque appel**. La comparaison
+qui répond : alternance(brain) vs témoin(brain) — seule change la présence d'un
+appel `coder` intercalé.
+
+| phase | latence (médiane, n=3) |
+|---|---|
+| amorçage `brain` / `coder` | 0,53 s / 0,36 s (exclu) |
+| alternance · `brain` | 0,23 s |
+| alternance · `coder` | 0,22 s |
+| témoin · `brain` (sans bascule) | 0,24 s |
+| **écart alternance − témoin** | **−0,01 s** |
+
+Alias distincts vérifiés par la réponse : `brain` →
+`unsloth/Qwen3.6-35B-A3B-MLX-8bit`, `coder` →
+`unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit`. JSON brut :
+`reference_2026-08-01_bascule_brain_coder.json`.
+
+**Conclusion : chaque modèle garde son cache de préfixe.** L'écart est nul là
+où la lecture « prefill re-payé » exigeait ~+3,7 s (le prefill payable mesuré
+dans le même contexte, voir contrôle ci-dessous). La bascule du routeur est
+gratuite en régime chaud ; seul le chargement initial de `coder` (30 Go, 8,3 s
+mesuré le 2026-07-30) se paie, une fois par session.
+
+### Contrôle de validité — l'écart nul aurait pu mentir
+
+0,23 s partout avec 12,5 k tokens de schémas dans chaque appel, ça admet deux
+lectures : cache touché (conclusion tenue) — ou **champ `tools` jeté par le
+gateway** (rien n'a été mesuré, conclusion nulle). Un garde-fou incapable de
+rougir est indiscernable d'un garde-fou vert ; ce run-là aussi devait pouvoir
+rougir. `scripts/controle_prefill_outils.py` sépare les deux dans un même run :
+
+| appel | latence | `prompt_tokens` |
+|---|---|---|
+| 69 outils, préfixe unique (froid) | **3,90 s** | **13 802** |
+| le même, rejoué (chaud) | 0,18 s | — |
+| 0 outil, préfixe unique (froid) | 0,20 s | 38 |
+
+Le juge est la colonne `prompt_tokens`, rendue par le backend : 13 802 contre
+38, les schémas sont lus et comptés. La latence confirme (+3,7 s à froid,
+cohérente avec les ~4,1 s du run 2 mesurés par un autre protocole), et
+l'effondrement froid → chaud (3,90 → 0,18 s) montre que le cache de préfixe
+porte bien les schémas. Les 0,23 s du run 3 sont donc des cache-hits réels.
+
+### Ce que ça ne dit pas
+
+Mesuré sur un préfixe court et fixe (micro-prompt + schémas). En session
+réelle, le préfixe empile l'historique de conversation : s'il change entre deux
+passages sur le même modèle, le cache rate — pour une raison qui n'a rien à
+voir avec la bascule. Ce run établit que la bascule *en soi* n'invalide rien,
+pas que le cache survit à tout.
