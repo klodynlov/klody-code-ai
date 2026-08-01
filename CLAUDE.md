@@ -480,6 +480,24 @@ L'appel ne porte **aucun schéma d'outil** : ~150 tokens contre ~12,3 k.
 
 - **zsh n'active pas les commentaires en interactif.** Coller un bloc avec des
   lignes `#` les exécute. `setopt interactive_comments` dans `~/.zshrc`.
+  ⚠️ Vécu de nouveau le 2026-08-01, dans un bloc que j'avais moi-même écrit en
+  connaissant le piège : `vocalbrain --help  # y a-t-il une sous-commande ?` →
+  `zsh: no matches found: ?`, la commande n'a jamais tourné. **Ne jamais mettre
+  de commentaire dans un bloc destiné au copier-coller.**
+- **La voix Klody sort avec PLUSIEURS TIMBRES si le clonage est absent.**
+  Le modèle est un Qwen3-TTS 0.6B **Base**, sans conditionnement de locuteur.
+  `tools/voice._segment_sentences` découpe une phrase par ligne — découpage
+  OBLIGATOIRE, sans lui le Base n'émet jamais l'EOS (103 caractères → WAV de
+  163,8 s) — et Qwen3-TTS scinde en interne sur ces `\n`. Chaque morceau prend
+  alors son propre timbre : un accueil de cinq phrases sort avec cinq voix.
+  - Le juge est la ligne **`clonage :`** du `vocalbrain generate --dry-run`,
+    pas la configuration locale. `python scripts/diagnostic_voix.py` la lit.
+  - ⚠️ **`--voice <valeur-inconnue>` est accepté SANS ERREUR puis ignoré.** Une
+    `VOICE_PRESET` mal orthographiée ne produit donc ni message ni changement.
+    Le diagnostic dénonce ce cas explicitement (« la valeur est INCONNUE de
+    VocalBrain, qui l'ignore en silence »).
+  - Le remède est **hors de ce dépôt** : créer une voix clonée pour le
+    personnage côté VocalBrain, puis la nommer dans `VOICE_PRESET`.
 - **`.gitignore` disait « préfixer `reference_` », mais ne dé-ignorait que
   `.json`.** Un `reference_*.md` était donc silencieusement écarté par
   `git add` — `reference_2026-07-30_appels_outils_jumeaux.md` n'est dans le
