@@ -54,6 +54,7 @@ files = [
     "agent/best_of_n.py",
     "agent/approval.py",
     "agent/preview_errors.py",
+    "agent/greeting.py",
     "tools/file_manager.py",
     "tools/terminal.py",
     "tools/sandbox.py",

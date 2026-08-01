@@ -80,6 +80,47 @@ class TestBanniere:
         assert "Messages" in sortie
 
 
+class TestAffichageAccueil:
+    """Le branchement CLI de l'accueil généré (agent/greeting.py).
+
+    Le module est déjà couvert à 100 % chez lui ; ce qui se teste ici est le
+    CHEMIN DE DÉMARRAGE : rien de ce qui touche à l'accueil ne doit pouvoir
+    empêcher la CLI de s'ouvrir.
+    """
+
+    class _AccueilFactice:
+        def __init__(self, texte="Bonjour — 12 sessions.", leve=False):
+            self.texte = texte
+            self.leve = leve
+
+        def recuperer(self):
+            if self.leve:
+                raise RuntimeError("boum")
+            return self.texte
+
+    def test_affiche_la_phrase(self, capture):
+        main._afficher_accueil(self._AccueilFactice())
+        assert "12 sessions" in capture.getvalue()
+
+    def test_un_accueil_qui_explose_ne_casse_pas_le_demarrage(self, capture):
+        """Sinon une phrase de politesse empêcherait d'ouvrir la CLI."""
+        main._afficher_accueil(self._AccueilFactice(leve=True))
+        assert capture.getvalue() == "" or "boum" not in capture.getvalue()
+
+    def test_lance_avant_la_construction_de_l_orchestrator(self):
+        """L'ordre EST la fonctionnalité : le thread se nourrit du temps déjà payé.
+
+        `demarrer()` doit précéder `Orchestrator(...)` (découverte MCP, réseau)
+        et la sonde LibraryBrain ; sinon l'échéance de 1,5 s se retrouve seule
+        face aux 6,52 s du cas froid mesuré, et le repli local devient la règle.
+        """
+        import inspect
+
+        source = inspect.getsource(main.main)
+        assert source.index("accueil.demarrer()") < source.index("Orchestrator(memory)")
+        assert source.index("Orchestrator(memory)") < source.index("_afficher_accueil")
+
+
 # ⚠️ Un scan du SOURCE de main.py à la recherche de « Ollama » a existé ici, et
 # il a servi : c'est lui qui a trouvé la 3ᵉ occurrence, dans HELP_TEXT. Il a été
 # retiré parce qu'il confondait la PROSE et la SORTIE — il rougissait sur les

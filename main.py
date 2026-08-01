@@ -6,6 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
+from agent.greeting import AccueilEnTacheDeFond
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
@@ -626,6 +627,18 @@ def repl(orchestrator: Orchestrator) -> None:
 # Entrée                                                               #
 # ------------------------------------------------------------------ #
 
+def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> None:
+    """Affiche la phrase d'accueil. Ne doit JAMAIS empêcher la CLI de démarrer.
+
+    `recuperer()` est déjà borné et sans exception ; ce garde couvre le rendu
+    lui-même, qui reste du code exécuté sur le chemin de démarrage.
+    """
+    try:
+        console.print(Align.center(Text(accueil.recuperer(), style="italic dim")))
+    except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
+        logger.debug("accueil non affiché : %s", exc)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=f"Klody Code Ai — Agent de coding local (backend {_backend_label()})",
@@ -661,9 +674,17 @@ def main() -> None:
     if memory is None:
         memory = ConversationMemory()
 
+    # Accueil généré : lancé AVANT la construction de l'orchestrator, qui fait la
+    # découverte MCP (réseau), et avant la sonde LibraryBrain. Ce temps de
+    # démarrage est déjà payé — le thread s'en sert gratuitement, et le cas chaud
+    # (0,37 s mesuré) est prêt bien avant qu'on ne l'affiche.
+    accueil = AccueilEnTacheDeFond()
+    accueil.demarrer()
+
     orchestrator = Orchestrator(memory)
     print_banner(memory)
     ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
+    _afficher_accueil(accueil)
     console.print()
     repl(orchestrator)
 
