@@ -166,6 +166,117 @@ class TestBalayage:
         assert mod.main() == 0
 
 
+class TestBascule:
+    """Le mode qui mesure si une bascule brain → coder re-paie le prefill.
+
+    Le protocole EST la mesure : sans la phase témoin, l'alternance ne se
+    compare à rien ; sans l'exclusion de l'amorçage, le chargement de coder
+    (30 Go, 8,3 s mesuré) serait attribué à la bascule.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _deux_modeles(self, monkeypatch):
+        monkeypatch.setattr(mod.config, "LLM_MODEL", "brain")
+        monkeypatch.setattr(mod.config, "CODE_MODEL", "coder")
+
+    @staticmethod
+    def _observer(vus: list[str], outils: list[int] | None = None):
+        def _handler(requete: httpx.Request) -> httpx.Response:
+            import json as _json
+            charge = _json.loads(requete.content)
+            vus.append(charge["model"])
+            if outils is not None:
+                outils.append(len(charge.get("tools") or []))
+            return httpx.Response(
+                200,
+                json={"model": f"servi/{charge['model']}",
+                      "choices": [{"message": {"content": "ok"}}], "usage": {}},
+                request=requete,
+            )
+
+        return _handler
+
+    def test_refuse_quand_aucun_modele_code_n_est_configure(self, bouchon, monkeypatch):
+        """Sans second modèle, la bascule n'existe pas — ne pas rendre 0 et un tableau."""
+        monkeypatch.setattr(mod.config, "CODE_MODEL", "")
+        bouchon(_reponse_ok)
+        with pytest.raises(mod.MesureImpossible) as exc:
+            mod.basculer(passes=1)
+        assert "CODE_MODEL" in str(exc.value)
+
+    def test_l_ordre_des_appels_suit_le_protocole(self, bouchon):
+        vus: list[str] = []
+        bouchon(self._observer(vus))
+        mod.basculer(passes=2)
+        assert vus == [
+            "brain", "coder",                                  # amorçage
+            "brain", "coder", "brain", "coder",                # alternance
+            "brain", "brain",                                  # témoin
+        ]
+
+    def test_le_temoin_ne_bascule_jamais(self, bouchon):
+        """C'est tout son intérêt : même préfixe, même modèle, sans interruption."""
+        bouchon(self._observer([]))
+        mesure = mod.basculer(passes=3)
+        temoin = [m for m in mesure["mesures"] if m["phase"] == "témoin"]
+        assert temoin and all(m["role"] == "brain" for m in temoin)
+
+    def test_l_amorcage_est_isole_des_conclusions(self, bouchon):
+        bouchon(self._observer([]))
+        mesure = mod.basculer(passes=2)
+        phases = {m["phase"] for m in mesure["mesures"]}
+        assert phases == {"amorçage", "alternance", "témoin"}
+        assert sum(m["phase"] == "amorçage" for m in mesure["mesures"]) == 2
+
+    def test_chaque_appel_porte_bien_les_schemas(self, bouchon):
+        """Le prefill dont on teste la survie, c'est celui des outils."""
+        outils: list[int] = []
+        bouchon(self._observer([], outils))
+        mod.basculer(passes=1)
+        assert outils and all(n == len(mod.TOOLS) for n in outils)
+
+    def test_les_deux_modeles_servis_sont_rapportes(self, bouchon):
+        bouchon(self._observer([]))
+        mesure = mod.basculer(passes=1)
+        assert mesure["model_served"] == "servi/brain"
+        assert mesure["code_model_served"] == "servi/coder"
+
+    def test_alias_identiques_rend_la_mesure_NON_CONCLUANTE(self, capsys):
+        """Sans ce garde, « aucune bascule » se lirait « bascule gratuite »."""
+        mod._resume_bascule({
+            "mesures": [
+                {"phase": "alternance", "role": "brain", "latence_s": 0.4},
+                {"phase": "alternance", "role": "coder", "latence_s": 0.4},
+                {"phase": "témoin", "role": "brain", "latence_s": 0.4},
+            ],
+            "model_served": "meme/modele",
+            "code_model_served": "meme/modele",
+        })
+        sortie = capsys.readouterr().out
+        assert "NON CONCLUANTE" in sortie
+
+    def test_ecart_affiche_quand_les_modeles_different(self, capsys):
+        mod._resume_bascule({
+            "mesures": [
+                {"phase": "alternance", "role": "brain", "latence_s": 4.5},
+                {"phase": "alternance", "role": "coder", "latence_s": 4.4},
+                {"phase": "témoin", "role": "brain", "latence_s": 0.4},
+            ],
+            "model_served": "a", "code_model_served": "b",
+        })
+        sortie = capsys.readouterr().out
+        assert "ÉCART" in sortie and "4.10" in sortie
+        assert "NON CONCLUANTE" not in sortie
+
+    def test_backend_injoignable_ne_rend_pas_un_chiffre(self, bouchon):
+        def _tombe(_requete):
+            raise httpx.ConnectError("connexion refusée")
+
+        bouchon(_tombe)
+        with pytest.raises(mod.MesureImpossible):
+            mod.basculer(passes=1)
+
+
 def test_main_rend_1_quand_la_mesure_est_impossible(bouchon, monkeypatch, capsys):
     """Le code de sortie sépare « pas pu juger » de « jugé, c'est bon »."""
     def _tombe(_requete):

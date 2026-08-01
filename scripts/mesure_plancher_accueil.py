@@ -24,6 +24,7 @@ Usage :
     python scripts/mesure_plancher_accueil.py                  # 3 passes, 3 bras
     python scripts/mesure_plancher_accueil.py --passes 5
     python scripts/mesure_plancher_accueil.py --balayage       # coût des schémas
+    python scripts/mesure_plancher_accueil.py --bascule        # brain → coder
     python scripts/mesure_plancher_accueil.py --json mesure.json
 
 ⚠️ Le TOUT PREMIER appel du run porte le réveil du gateway — pas toute la
@@ -107,10 +108,11 @@ def _appel(
     messages: list[dict],
     max_tokens: int,
     outils: list[dict] | None,
+    modele: str | None = None,
 ) -> tuple[float, str | None, dict]:
     """Un aller-retour chronométré. Retourne (secondes, modèle servi, usage)."""
     charge: dict[str, Any] = {
-        "model": config.LLM_MODEL,
+        "model": modele or config.LLM_MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
     }
@@ -291,6 +293,148 @@ def balayer(passes: int) -> dict[str, Any]:
     }
 
 
+def _client(base_url: str, api_key: str) -> httpx.Client:
+    entetes = {"Content-Type": "application/json"}
+    if api_key:
+        entetes["Authorization"] = f"Bearer {api_key}"
+    return httpx.Client(
+        base_url=base_url.rstrip("/"),
+        headers=entetes,
+        timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0),
+    )
+
+
+def basculer(passes: int) -> dict[str, Any]:
+    """Coût d'une bascule `brain` → `coder` : le prefill est-il re-payé ?
+
+    Le balayage du 2026-08-01 a établi que les 69 schémas d'outils coûtent
+    ~4,1 s de prefill à cache froid. Le routeur bascule de modèle à chaque
+    tâche de code (`orchestrator._switch_model` → `llm.switch_to(CODE_MODEL,
+    CODE_BASE_URL, CODE_API_KEY)`). Or un cache de préfixe appartient à un
+    modèle : la bascule le rend-elle caduc, et re-paie-t-on ~4 s À CHAQUE
+    ALLER-RETOUR entre les deux ?
+
+    ⚠️ DEUX EFFETS SE CONFONDENT ici, et ils n'ont pas du tout la même portée :
+      · le CHARGEMENT du modèle (30 Go pour coder, 8,3 s mesuré le 2026-07-30)
+        — coût unique, amorti sur la session ;
+      · le PREFILL re-payé — coût récurrent, à chaque bascule.
+    Un protocole naïf (appeler coder, chronométrer) les additionne et attribue
+    tout à la bascule. D'où trois phases :
+
+      1. amorçage  : un appel sur chaque modèle. Absorbe les chargements et le
+                     premier prefill. Affiché, mais EXCLU des conclusions.
+      2. alternance: brain, coder, brain, coder… même préfixe partout.
+      3. témoin    : brain, brain, brain… même préfixe, SANS bascule.
+
+    La comparaison qui répond est `alternance(brain)` contre `témoin(brain)` :
+    même modèle, même préfixe, même run — seule change la présence d'un appel
+    sur l'autre modèle entre les deux. Écart proche de zéro ⇒ chaque modèle
+    garde son cache, la bascule est presque gratuite. Écart de l'ordre du
+    prefill ⇒ le routeur paie ~4 s à chaque changement de modèle.
+    """
+    if not config.CODE_MODEL:
+        raise MesureImpossible(
+            "aucun modèle code configuré (CODE_MODEL vide) : la bascule "
+            f"n'existe pas en BACKEND={config.BACKEND}. Renseigner MLX_CODE_MODEL."
+        )
+
+    # Préfixe RÉALISTE et strictement identique partout : c'est lui dont on veut
+    # savoir s'il survit à la bascule. max_tokens petit — on mesure du prefill,
+    # pas de la génération.
+    messages = _BRAS["accueil"]["messages"]
+    max_tokens = 8
+
+    releve: list[dict[str, Any]] = []
+    servi: dict[str, str | None] = {"brain": None, "coder": None}
+
+    cli_brain = _client(config.LLM_BASE_URL, config.LLM_API_KEY)
+    cli_coder = _client(config.CODE_BASE_URL, config.CODE_API_KEY)
+
+    def _un(role: str, phase: str) -> None:
+        client = cli_brain if role == "brain" else cli_coder
+        modele = config.LLM_MODEL if role == "brain" else config.CODE_MODEL
+        try:
+            ecoule, rendu, _usage = _appel(
+                client, messages=messages, max_tokens=max_tokens,
+                outils=TOOLS, modele=modele,
+            )
+        except httpx.HTTPError as exc:
+            raise MesureImpossible(
+                f"{client.base_url} injoignable ({type(exc).__name__}) sur « {modele} »."
+            ) from exc
+        servi[role] = rendu or servi[role]
+        releve.append({"phase": phase, "role": role, "latence_s": round(ecoule, 3)})
+        print(f"  {phase:<11} {role:<6} {ecoule:6.2f}s", flush=True)
+
+    try:
+        _un("brain", "amorçage")
+        _un("coder", "amorçage")
+        print(flush=True)
+        for _ in range(passes):
+            _un("brain", "alternance")
+            _un("coder", "alternance")
+        print(flush=True)
+        for _ in range(passes):
+            _un("brain", "témoin")
+    finally:
+        cli_brain.close()
+        cli_coder.close()
+
+    return {
+        "mode": "bascule",
+        "backend": config.BACKEND,
+        "base_url": config.LLM_BASE_URL,
+        "code_base_url": config.CODE_BASE_URL,
+        "model_configured": config.LLM_MODEL,
+        "code_model_configured": config.CODE_MODEL,
+        "model_served": servi["brain"],
+        "code_model_served": servi["coder"],
+        "passes": passes,
+        "max_tokens": max_tokens,
+        "nb_outils": len(TOOLS),
+        "mesures": releve,
+    }
+
+
+def _resume_bascule(mesure: dict[str, Any]) -> None:
+    def _med(phase: str, role: str) -> float | None:
+        valeurs = [m["latence_s"] for m in mesure["mesures"]
+                   if m["phase"] == phase and m["role"] == role]
+        return statistics.median(valeurs) if valeurs else None
+
+    alt_b, alt_c, tem_b = _med("alternance", "brain"), _med("alternance", "coder"), _med("témoin", "brain")
+
+    print("┌─ Bascule brain ↔ coder (médianes, hors amorçage) ───────────────")
+    print(f"│ alternance · brain   {alt_b:>7.2f}s" if alt_b else "│ alternance · brain      —")
+    print(f"│ alternance · coder   {alt_c:>7.2f}s" if alt_c else "│ alternance · coder      —")
+    print(f"│ témoin     · brain   {tem_b:>7.2f}s   (sans bascule)" if tem_b else "│ témoin —")
+    if alt_b is not None and tem_b is not None:
+        print(f"│ ÉCART                {alt_b - tem_b:>7.2f}s   ← la réponse")
+    print("└────────────────────────────────────────────────────────────────")
+    print()
+
+    # ⚠️ Contrôle qui peut invalider tout le reste : si les deux alias résolvent
+    # vers le MÊME modèle, il n'y a pas de bascule, et un écart nul se lirait
+    # « la bascule est gratuite » alors qu'elle n'a simplement pas eu lieu.
+    if mesure["model_served"] and mesure["model_served"] == mesure["code_model_served"]:
+        print("✗ MESURE NON CONCLUANTE — les deux alias résolvent vers le même")
+        print(f"  modèle ({mesure['model_served']}) : aucune bascule n'a eu lieu.")
+        print("  Un écart nul ne dirait rien ici. Vérifier MLX_CODE_MODEL.")
+        return
+
+    print(f"    brain → {mesure['model_served']}")
+    print(f"    coder → {mesure['code_model_served']}")
+    print()
+    print("    Écart ≈ 0        ⇒ chaque modèle garde son cache de préfixe,")
+    print("                       la bascule ne re-paie pas le prefill.")
+    print("    Écart ≈ prefill  ⇒ le routeur paie ce prefill à CHAQUE bascule")
+    print("                       (~4,1 s pour 69 outils, mesuré le 2026-08-01).")
+    print()
+    print("⚠️  L'amorçage est exclu : il porte le chargement des modèles (30 Go")
+    print("    pour coder, 8,3 s mesuré), coût UNIQUE, à ne pas confondre avec le")
+    print("    coût RÉCURRENT de la bascule.")
+
+
 def _resume_balayage(mesure: dict[str, Any]) -> None:
     # Groupé par PALIER, pas par nombre exact d'outils : le décalage anti-cache
     # fait varier ce nombre de ±(passes-1), et grouper dessus éclaterait chaque
@@ -348,25 +492,39 @@ def main() -> int:
         "--balayage", action="store_true",
         help="Mesure la latence à 0/17/34/69 outils pour isoler le prefill des schémas",
     )
+    parser.add_argument(
+        "--bascule", action="store_true",
+        help="Mesure si une bascule brain → coder re-paie le prefill des schémas",
+    )
     parser.add_argument("--json", type=str, default=None, metavar="FICHIER")
     args = parser.parse_args()
+    if args.balayage and args.bascule:
+        parser.error("--balayage et --bascule mesurent deux choses différentes : une à la fois")
 
     print(f"→ backend {config.BACKEND} · {config.LLM_BASE_URL} · modèle demandé "
           f"« {config.LLM_MODEL} » · {len(TOOLS)} outils\n")
 
     try:
-        mesure = balayer(args.passes) if args.balayage else mesurer(args.passes)
+        if args.bascule:
+            mesure = basculer(args.passes)
+        elif args.balayage:
+            mesure = balayer(args.passes)
+        else:
+            mesure = mesurer(args.passes)
     except MesureImpossible as exc:
         print(f"✗ MESURE IMPOSSIBLE — {exc}", file=sys.stderr)
         print("  (aucun chiffre produit : ce n'est pas un résultat lent, c'est "
               "une absence de résultat)", file=sys.stderr)
         return 1
 
-    if args.balayage:
+    if args.bascule:
+        _resume_bascule(mesure)
+    elif args.balayage:
         _resume_balayage(mesure)
+        print(f"\n  modèle réellement servi : {mesure['model_served']}")
     else:
         _resume(mesure["latences_s"])
-    print(f"\n  modèle réellement servi : {mesure['model_served']}")
+        print(f"\n  modèle réellement servi : {mesure['model_served']}")
 
     if args.json:
         Path(args.json).write_text(
