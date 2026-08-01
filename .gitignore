@@ -70,6 +70,13 @@ bench/results/*.md
 # ordinaire reste local — sinon le dépôt collecterait un JSON par exécution.
 # Convention : préfixer `reference_` pour verser une mesure au dépôt.
 !bench/results/reference_*.json
+# Les mesures ne sont pas toutes des runs de bench : certaines sont des relevés
+# rédigés (appels d'outils instance par instance, balayages de latence). La
+# convention disait « préfixer reference_ », mais la dé-ignore ne couvrait que
+# .json — un reference_*.md était donc silencieusement ignoré par `git add`, et
+# reference_2026-07-30_appels_outils_jumeaux.md n'est dans le dépôt que parce
+# qu'il a été forcé. La convention vaut pour les deux formats.
+!bench/results/reference_*.md
 
 # Mémoire agent
 memory/

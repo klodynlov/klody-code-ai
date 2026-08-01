@@ -1,0 +1,70 @@
+{
+  "mode": "bascule",
+  "backend": "mlx",
+  "base_url": "http://localhost:8090/v1",
+  "code_base_url": "http://localhost:8090/v1",
+  "model_configured": "brain",
+  "code_model_configured": "coder",
+  "model_served": "unsloth/Qwen3.6-35B-A3B-MLX-8bit",
+  "code_model_served": "unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit",
+  "passes": 3,
+  "max_tokens": 8,
+  "nb_outils": 69,
+  "mesures": [
+    {
+      "phase": "amorçage",
+      "role": "brain",
+      "latence_s": 0.532
+    },
+    {
+      "phase": "amorçage",
+      "role": "coder",
+      "latence_s": 0.359
+    },
+    {
+      "phase": "alternance",
+      "role": "brain",
+      "latence_s": 0.236
+    },
+    {
+      "phase": "alternance",
+      "role": "coder",
+      "latence_s": 0.224
+    },
+    {
+      "phase": "alternance",
+      "role": "brain",
+      "latence_s": 0.234
+    },
+    {
+      "phase": "alternance",
+      "role": "coder",
+      "latence_s": 0.221
+    },
+    {
+      "phase": "alternance",
+      "role": "brain",
+      "latence_s": 0.234
+    },
+    {
+      "phase": "alternance",
+      "role": "coder",
+      "latence_s": 0.225
+    },
+    {
+      "phase": "témoin",
+      "role": "brain",
+      "latence_s": 0.232
+    },
+    {
+      "phase": "témoin",
+      "role": "brain",
+      "latence_s": 0.246
+    },
+    {
+      "phase": "témoin",
+      "role": "brain",
+      "latence_s": 0.243
+    }
+  ]
+}

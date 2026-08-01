@@ -6,18 +6,23 @@ import logging
 import sys
 from pathlib import Path
 
+from agent.greeting import AccueilEnTacheDeFond
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
 from config import (
+    BACKEND,
     LIBRARYBRAIN_DIR,
     LIBRARYBRAIN_URL,
+    LLM_BASE_URL,
+    LLM_MODEL,
     MEMORY_DIR,
-    MODEL_NAME,
+    OLLAMA_BASE_URL,
     PREVIEW_DIR,
     PREVIEW_PORT,
     PROJECT_ROOT,
+    SEMANTIC_MEMORY_PROVIDER,
 )
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -52,6 +57,91 @@ _HISTORY_FILE = Path.home() / ".klody_history"
 # Bannière                                                             #
 # ------------------------------------------------------------------ #
 
+def _backend_label() -> str:
+    """Nom lisible du backend LLM réellement visé, dérivé de BACKEND.
+
+    Lit le global du module (et non `config.BACKEND` capturé) pour rester
+    surchargeable en test sans recharger config — un `importlib.reload` recrée
+    les classes du module et casse les `pytest.raises` alentour.
+    """
+    return "MLX" if BACKEND == "mlx" else "Ollama"
+
+
+def _sonde_backend_llm() -> tuple[str, str, str]:
+    """Sonde le backend LLM RÉELLEMENT actif. Retourne (service, état, détails).
+
+    ⚠️ C'est une sonde de DISPONIBILITÉ, délibérément pas de résolution d'alias :
+    on interroge `/v1/models`, jamais une complétion. Une complétion peut
+    déclencher le chargement des 44 Go de `brain` ou se faire refuser en 503 —
+    c'est le piège du préflight du nightly, qui FABRIQUAIT la condition qu'il
+    prétendait détecter (`vm_stat` sous-estime la RAM juste après un gros
+    chargement : 41 GiB à t+9 s, 62 GiB à t+2 min, rien n'ayant été libéré).
+    Un /status ne doit rien coûter à la machine.
+
+    Corollaire : le CONTENU de `/v1/models` ne veut rien dire en mode autonome
+    (`mlx_lm.server` y liste tout le cache HF, pas le modèle chargé). Seul le
+    fait qu'il réponde est exploitable — d'où un détail qui montre l'URL sondée
+    plutôt qu'un décompte trompeur.
+    """
+    import httpx
+
+    libelle = f"Backend LLM ({_backend_label()})"
+    if BACKEND == "mlx":
+        url = f"{LLM_BASE_URL.rstrip('/')}/models"
+        remede = "démarrer le gateway Klody Core (:8090) ou start-local-ai.sh"
+    else:
+        url = OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
+        remede = "ollama serve"
+
+    try:
+        reponse = httpx.get(url, timeout=2.0)
+        reponse.raise_for_status()
+    except Exception:
+        return libelle, "[red]✗ hors ligne[/red]", remede
+
+    if BACKEND == "mlx":
+        return libelle, "[green]✓ en ligne[/green]", LLM_BASE_URL
+    try:
+        n = len(reponse.json().get("models", []))
+    except Exception:
+        return libelle, "[green]✓ en ligne[/green]", OLLAMA_BASE_URL
+    return libelle, "[green]✓ en ligne[/green]", f"{n} modèle(s)"
+
+
+def _ligne_embeddings() -> tuple[str, str, str]:
+    """Ligne « Embeddings » — sondée seulement si Ollama les sert vraiment.
+
+    /status sondait Ollama INCONDITIONNELLEMENT et affichait « ✗ hors ligne »
+    en mode mlx, où Ollama n'est ni le backend LLM ni le fournisseur
+    d'embeddings (`SEMANTIC_MEMORY_PROVIDER` vaut `st` par défaut :
+    sentence-transformers en processus, `cos(ollama, st) = 1.0000` mesuré).
+
+    Un avertissement qui décrit un problème inexistant coûte autant qu'une
+    erreur fausse : le 2026-07-30, un faux « Ollama injoignable » en tête de log
+    a orienté tout le diagnostic d'un 1/5 vers Ollama, alors que la cause était
+    `MLX_CODE_BASE_URL`.
+
+    Hors mode ollama, on n'invente donc pas un verdict : on affiche « non
+    sondé » et le fournisseur configuré. Vérifier réellement `st` imposerait de
+    charger bge-m3 en processus — un /status ne doit rien coûter.
+    """
+    if SEMANTIC_MEMORY_PROVIDER != "ollama":
+        return (
+            "Embeddings",
+            "[dim]non sondé[/dim]",
+            f"fournisseur « {SEMANTIC_MEMORY_PROVIDER} », en processus",
+        )
+
+    import httpx
+
+    try:
+        reponse = httpx.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags", timeout=2.0)
+        reponse.raise_for_status()
+    except Exception:
+        return "Embeddings", "[red]✗ Ollama hors ligne[/red]", "ollama serve"
+    return "Embeddings", "[green]✓ Ollama en ligne[/green]", "fournisseur « ollama »"
+
+
 def print_banner(memory: ConversationMemory) -> None:
     console.print()
 
@@ -61,7 +151,15 @@ def print_banner(memory: ConversationMemory) -> None:
     title.append(" CODE AI", style="bold cyan")
     title.append("  ◆", style="bold blue")
 
-    subtitle = Text("  Powered by Ollama · 100% local · privé  ", style="dim")
+    # Le sous-titre nommait « Ollama » EN DUR, quel que soit BACKEND. C'est le
+    # défaut du dépôt qui coûte le plus cher : un en-tête qui nomme la mauvaise
+    # dépendance envoie tout le diagnostic au mauvais endroit (vécu le
+    # 2026-07-30 : le nightly rend 1/5 avec « Impossible de joindre Ollama »
+    # alors qu'en BACKEND=mlx l'appel va au gateway ; Ollama n'est même pas
+    # installé sur la machine, il ne sert que les embeddings — et encore, plus
+    # depuis SEMANTIC_MEMORY_PROVIDER=st). On DÉRIVE désormais de la config au
+    # lieu de l'affirmer.
+    subtitle = Text(f"  Servi par {_backend_label()} · 100% local · privé  ", style="dim")
 
     console.print(Panel(
         Align.center(title + Text("\n") + subtitle),
@@ -77,7 +175,13 @@ def print_banner(memory: ConversationMemory) -> None:
     table.add_column(style="bold")
 
     non_system = sum(1 for m in memory.messages if m["role"] != "system")
-    table.add_row("⚙  Modèle",  f"[green]{MODEL_NAME}[/green]")
+    # MODEL_NAME est le modèle du mode OLLAMA. En BACKEND=mlx, l'agent parle à
+    # MLX_MODEL : la bannière annonçait donc « qwen3.5:9b » pendant que la
+    # toolbar (`orchestrator.llm.model`, deux lignes plus bas dans l'écran)
+    # affichait autre chose. LLM_MODEL est la valeur effectivement envoyée au
+    # backend — en mode gateway c'est un ALIAS (`brain`, `coder`), et c'est bien
+    # ce qu'on veut montrer : ce que Klody demande, pas ce qu'on suppose servi.
+    table.add_row("⚙  Modèle",  f"[green]{LLM_MODEL}[/green]")
     table.add_row("📁 Projet",  f"[white]{PROJECT_ROOT}[/white]")
     table.add_row("🔑 Session", f"[cyan]{memory.session_id}[/cyan]")
     table.add_row("💬 Messages", str(non_system))
@@ -130,7 +234,7 @@ HELP_TEXT = """
   [cyan]/preview[/cyan]           Aperçus HTML disponibles + URLs
   [cyan]/export[/cyan]            Exporter la session en Markdown
   [cyan]/profile[/cyan]           Profil utilisateur détecté (techs, patterns)
-  [cyan]/status[/cyan]            État du système (Ollama, LibraryBrain, Preview)
+  [cyan]/status[/cyan]            État du système (backend LLM, LibraryBrain, Preview)
   [cyan]/exit[/cyan]              Quitter
 
 [bold]Apprentissage & Profil :[/bold]
@@ -402,21 +506,14 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         return True
 
     if token == "/status":
-        import httpx
-        from config import OLLAMA_BASE_URL
-
         tbl = Table(title="[bold]État du système[/bold]", box=box.ROUNDED, border_style="cyan")
         tbl.add_column("Service", style="bold", no_wrap=True)
         tbl.add_column("État", no_wrap=True)
         tbl.add_column("Détails", style="dim")
 
-        # Ollama
-        try:
-            r = httpx.get(OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags", timeout=2.0)
-            models = [m["name"] for m in r.json().get("models", [])]
-            tbl.add_row("Ollama", "[green]✓ en ligne[/green]", f"{len(models)} modèle(s)")
-        except Exception:
-            tbl.add_row("Ollama", "[red]✗ hors ligne[/red]", "ollama serve")
+        # Backend LLM réellement actif (et non « Ollama » quoi qu'il arrive)
+        tbl.add_row(*_sonde_backend_llm())
+        tbl.add_row(*_ligne_embeddings())
 
         # Modèle
         tbl.add_row("Modèle", f"[cyan]{orchestrator.llm.model}[/cyan]", f"~{orchestrator.llm.total_tokens:,} tokens")
@@ -530,9 +627,21 @@ def repl(orchestrator: Orchestrator) -> None:
 # Entrée                                                               #
 # ------------------------------------------------------------------ #
 
+def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> None:
+    """Affiche la phrase d'accueil. Ne doit JAMAIS empêcher la CLI de démarrer.
+
+    `recuperer()` est déjà borné et sans exception ; ce garde couvre le rendu
+    lui-même, qui reste du code exécuté sur le chemin de démarrage.
+    """
+    try:
+        console.print(Align.center(Text(accueil.recuperer(), style="italic dim")))
+    except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
+        logger.debug("accueil non affiché : %s", exc)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Klody Code Ai — Agent de coding local (Ollama)",
+        description=f"Klody Code Ai — Agent de coding local (backend {_backend_label()})",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Exemples:\n"
@@ -565,9 +674,17 @@ def main() -> None:
     if memory is None:
         memory = ConversationMemory()
 
+    # Accueil généré : lancé AVANT la construction de l'orchestrator, qui fait la
+    # découverte MCP (réseau), et avant la sonde LibraryBrain. Ce temps de
+    # démarrage est déjà payé — le thread s'en sert gratuitement, et le cas chaud
+    # (0,37 s mesuré) est prêt bien avant qu'on ne l'affiche.
+    accueil = AccueilEnTacheDeFond()
+    accueil.demarrer()
+
     orchestrator = Orchestrator(memory)
     print_banner(memory)
     ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
+    _afficher_accueil(accueil)
     console.print()
     repl(orchestrator)
 

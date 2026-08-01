@@ -304,8 +304,114 @@ verte, `Δ +0,0 %`.
 > déjà le prompt de tâche, le prompt système et le retrieval. Preuve figée dans
 > `bench/results/reference_2026-07-30_piste_donnee_jamais_suivie.json`.
 
-Mesures de référence dans `bench/results/reference_*.json` (convention : ce
+Mesures de référence dans `bench/results/reference_*.{json,md}` (convention : ce
 préfixe est dé-ignoré, cf. `.gitignore`).
+
+## État au 2026-08-01 — accueil de session, et le coût réel du prefill
+
+PR #191. Le fil : la CLI *affirmait* des choses qu'elle pouvait dériver ou
+sonder, et l'écran d'accueil en était la vitrine.
+
+- La bannière annonçait « Powered by **Ollama** » en dur quel que soit
+  `BACKEND`, et affichait `MODEL_NAME` — le modèle du mode *ollama* — même en
+  `BACKEND=mlx`, où l'agent parle à `MLX_MODEL`. Elle se contredisait à l'écran :
+  la toolbar affiche déjà `orchestrator.llm.model`, deux lignes plus bas. Tout
+  est dérivé désormais (`_backend_label()`, `LLM_MODEL`).
+- `/status` sondait Ollama **inconditionnellement** et affichait « ✗ hors ligne /
+  `ollama serve` » en mode mlx, où Ollama n'est ni le backend LLM ni le
+  fournisseur d'embeddings. Il sonde la cible réelle, et n'affiche Ollama que
+  s'il sert vraiment. Sinon la ligne dit « **non sondé** » plutôt que d'inventer
+  un verdict — vérifier `st` imposerait de charger bge-m3 en processus.
+  - ⚠️ Sonde de **disponibilité**, jamais de résolution d'alias : aucune
+    complétion. Une complétion peut charger 44 Go ou rendre 503 — c'est le
+    préflight du nightly qui fabriquait sa propre panne. Un test le verrouille
+    **sur les URL réellement appelées**, pas sur le texte affiché.
+
+> ### ✅ MESURÉ — le prefill des schémas d'outils coûte ~4,1 s, et c'est la
+> ### VARIANCE qui décide, pas le coût
+>
+> Relevé complet : `bench/results/reference_2026-08-01_plancher_accueil.md`
+> (`scripts/mesure_plancher_accueil.py`, gateway `:8090`, `brain` →
+> Qwen3.6-35B-A3B-8bit).
+>
+> | bras | 1ᵉʳ appel | à chaud |
+> |---|---|---|
+> | `plancher` (1 token, sans outils) | **6,52 s** | 0,13 s |
+> | `accueil` (~60 tokens, sans outils) | 0,46 s | **0,37 s** |
+> | `avec_outils` (+ 69 schémas) | 4,06 s | 0,37 s |
+>
+> Balayage à cache froid garanti (deux tailles d'outils = deux préfixes) :
+>
+> | outils | tokens¹ | médiane | Δ vs palier 0 |
+> |---|---|---|---|
+> | 0 | 0 | 0,47 s | — |
+> | 17 | 2 883 | 1,23 s | 0,76 s |
+> | 34 | 5 573 | 2,04 s | 1,57 s |
+> | 69 | 12 291 | **4,58 s** | **4,11 s** |
+>
+> ¹ compte **heuristique** (`tokenizer_is_exact() = False` sur les deux
+> machines). La monotonie se lit sur le nombre d'outils, qui est exact.
+>
+> **Ça réconcilie deux chiffres qui semblaient se contredire** : 4,06 s = le
+> prefill NON CACHÉ des 69 schémas, 0,37 s = le même appel une fois le préfixe
+> en cache. Il ne manquait pas une mesure, il manquait une variable.
+>
+> ⚠️ **La conclusion qui dépasse l'accueil** : le **premier tour de chaque
+> session** paie ces ~4,1 s, accueil ou pas. C'est une taxe de démarrage de
+> l'agent lui-même, et tout ce qui invalide le préfixe (outil ajouté, schéma
+> modifié, serveur MCP qui apparaît) la fait re-payer. La bascule de modèle
+> figurait dans cette liste par principe — **mesurée le jour même : elle n'en
+> fait PAS partie** (encadré suivant).
+
+> ### ✅ MESURÉ — la bascule `brain` ↔ `coder` ne re-paie PAS le prefill
+>
+> Run 3 du même relevé (`--bascule`, 69 outils dans CHAQUE appel, amorçage
+> exclu ; JSON : `reference_2026-08-01_bascule_brain_coder.json`) :
+>
+> | phase | médiane (n=3) |
+> |---|---|
+> | alternance · `brain` | 0,23 s |
+> | alternance · `coder` | 0,22 s |
+> | témoin · `brain` (sans bascule) | 0,24 s |
+> | **écart alternance − témoin** | **−0,01 s** |
+>
+> Là où « prefill re-payé » exigeait ~+3,7 s. **Chaque modèle garde son cache
+> de préfixe** : la bascule du routeur est gratuite en régime chaud, seul le
+> chargement initial de `coder` (30 Go, 8,3 s) se paie, une fois par session.
+> Alias distincts vérifiés par la réponse (8bit / UD-4bit) — le garde « même
+> modèle des deux côtés » n'a pas eu à rougir.
+>
+> ⚠️ **Un écart nul admettait DEUX lectures**, et le run seul ne les séparait
+> pas : cache touché — ou champ `tools` JETÉ par le gateway, auquel cas rien
+> n'avait été mesuré. 0,23 s pour 12,5 k tokens de schémas est le même chiffre
+> dans les deux cas. `scripts/controle_prefill_outils.py` tranche dans un même
+> run : `prompt_tokens=13 802` avec outils contre 38 sans — le juge est le
+> compte rendu par le backend, pas la latence — +3,7 s à froid (cohérent avec
+> le balayage, protocole indépendant), effondrement 3,90 → 0,18 s au rejeu.
+> Les 0,23 s sont des cache-hits réels.
+>
+> ⚠️ **Ce que ça n'établit PAS** : mesuré sur préfixe court et FIXE. En session
+> réelle, l'historique de conversation change le préfixe entre deux passages
+> sur le même modèle, et le cache rate alors pour une raison étrangère à la
+> bascule. Le run dit « la bascule en soi n'invalide rien », pas « le cache
+> survit à tout ».
+
+**`agent/greeting.py`** — accueil de session généré, en tâche de fond. Ce n'est
+pas le coût qui interdisait le synchrone (0,37 s est invisible), c'est la
+**variance** : 0,13 s ou 6,52 s pour le même appel, sans moyen de savoir lequel
+à l'avance. Thread démon lancé **avant** `Orchestrator(...)` (découverte MCP,
+réseau) et la sonde LibraryBrain — ce temps est déjà payé — puis attente bornée
+(`GREETING_DEADLINE_S`, 1,5 s) et repli muet sur un accueil composé localement.
+L'appel ne porte **aucun schéma d'outil** : ~150 tokens contre ~12,3 k.
+
+- Le micro-prompt est **identique** à celui de `scripts/mesure_plancher_accueil.py` :
+  le faire diverger rendrait le 0,37 s caduc sans que rien ne rougisse.
+- ⚠️ Effet de bord assumé : lancer la CLI **réveille `brain`**, modèle partagé
+  avec Library Brain et KlodyAI (`pinned`). `GREETING_ENABLED=false` coupe
+  l'appel, le socle local reste.
+- **Non fait, délibérément** : le chemin websocket. Il demanderait un type de
+  message que klody-ui (hors dépôt) ne sait pas afficher, plus une garde par
+  session — un client qui bat déclencherait un appel `brain` par battement.
 
 ### Ce qui reste à faire
 
@@ -361,11 +467,37 @@ préfixe est dé-ignoré, cf. `.gitignore`).
    changeait ces applications aussi. Depuis, `KLODY_CORE_BRAIN_MODEL` existe
    côté klody-core — un futur A/B passe par une entrée dédiée du registre,
    pas par une surcharge de `brain`.
+6. ~~Mesurer la bascule `brain` → `coder`~~ — **fait** le 2026-08-01 :
+   **elle ne re-paie pas le prefill**, écart −0,01 s là où « re-payé » exigeait
+   ~+3,7 s (encadré ✅ « la bascule ne re-paie PAS »). La conclusion n'a été
+   posée qu'après le contrôle de validité (`controle_prefill_outils.py`) — un
+   écart nul aurait aussi bien pu dire « le gateway jette `tools` », et le
+   `prompt_tokens` du backend a tranché (13 802 vs 38).
+   - Reste ouvert : le coût du garde « décisions jamais ouvertes » sur un
+     vrai dépôt documenté (cf. point 4), que le banc ne peut pas voir.
 
 ## Pièges qui coûtent du temps
 
 - **zsh n'active pas les commentaires en interactif.** Coller un bloc avec des
   lignes `#` les exécute. `setopt interactive_comments` dans `~/.zshrc`.
+- **`.gitignore` disait « préfixer `reference_` », mais ne dé-ignorait que
+  `.json`.** Un `reference_*.md` était donc silencieusement écarté par
+  `git add` — `reference_2026-07-30_appels_outils_jumeaux.md` n'est dans le
+  dépôt que parce qu'il a été **forcé**. Corrigé le 2026-08-01 : la règle vaut
+  pour les deux formats. Une convention écrite qu'un outil n'applique pas est
+  une convention qui ne tient que par accident.
+- **Un test qui scanne le SOURCE confond la prose et la sortie.** Un filet
+  anti-récidive cherchant « Ollama » dans `main.py` a servi (il a trouvé une
+  occurrence oubliée dans `HELP_TEXT`), puis s'est mis à rougir sur les
+  *commentaires qui expliquaient le correctif* — donc à pousser vers la
+  suppression des explications pour le faire taire. Remplacé par la propriété
+  comportementale : « l'écran ne nomme pas un service inutilisé », vérifiée sur
+  le rendu et sur les URL appelées.
+- **Un chronomètre de latence doit dire QUEL appel est froid, pas quelle
+  passe.** L'instrument étiquetait « (à froid) » toute la 1ʳᵉ passe ; seul le
+  premier APPEL l'est. Ça faisait lire un coût de bras (4,06 s pour
+  `avec_outils`) là où il y avait un réveil de gateway attribué au bras qui
+  passait en tête.
 - **Vérifier le venv actif** avant `python -m bench.run` : le module se résout sur
   le cwd, et une autre venv du Mac (`local-suno`) traîne dans le PATH.
 - **Un `importlib.reload` recrée les classes du module** : tout `pytest.raises`

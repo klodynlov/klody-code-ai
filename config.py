@@ -474,6 +474,18 @@ VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
 VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
 VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
 
+# --- Accueil de session généré (agent/greeting.py) ---
+# Une phrase produite par le modèle au lancement, EN TÂCHE DE FOND. Mesuré le
+# 2026-08-01 : 0,37 s à chaud, mais 6,52 s quand le gateway dort. C'est la
+# VARIANCE, pas le coût, qui interdit de le faire en synchrone — d'où un thread
+# démon et une attente bornée à l'affichage, avec repli local muet.
+# Le couper laisse l'accueil composé localement, qui n'appelle rien.
+GREETING_ENABLED: bool = os.getenv("GREETING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+# Échéance d'AFFICHAGE, pas de l'appel. Elle s'ajoute au temps de démarrage déjà
+# payé (découverte MCP, sonde LibraryBrain) pendant lequel le thread travaille
+# gratuitement : le cas chaud (0,37 s) arrive donc très largement dedans.
+GREETING_DEADLINE_S: float = float(os.getenv("GREETING_DEADLINE_S", 1.5))
+
 LOG_DIR.mkdir(exist_ok=True)
 # MEMORY_DIR n'est plus un alias de LOG_DIR : il ne profite plus du mkdir ci-dessus.
 # parents=True car ~/.klody peut ne pas exister encore.
