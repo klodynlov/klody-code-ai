@@ -11,10 +11,11 @@ from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
 from config import (
+    BACKEND,
     LIBRARYBRAIN_DIR,
     LIBRARYBRAIN_URL,
+    LLM_MODEL,
     MEMORY_DIR,
-    MODEL_NAME,
     PREVIEW_DIR,
     PREVIEW_PORT,
     PROJECT_ROOT,
@@ -52,6 +53,16 @@ _HISTORY_FILE = Path.home() / ".klody_history"
 # Bannière                                                             #
 # ------------------------------------------------------------------ #
 
+def _backend_label() -> str:
+    """Nom lisible du backend LLM réellement visé, dérivé de BACKEND.
+
+    Lit le global du module (et non `config.BACKEND` capturé) pour rester
+    surchargeable en test sans recharger config — un `importlib.reload` recrée
+    les classes du module et casse les `pytest.raises` alentour.
+    """
+    return "MLX" if BACKEND == "mlx" else "Ollama"
+
+
 def print_banner(memory: ConversationMemory) -> None:
     console.print()
 
@@ -61,7 +72,15 @@ def print_banner(memory: ConversationMemory) -> None:
     title.append(" CODE AI", style="bold cyan")
     title.append("  ◆", style="bold blue")
 
-    subtitle = Text("  Powered by Ollama · 100% local · privé  ", style="dim")
+    # Le sous-titre nommait « Ollama » EN DUR, quel que soit BACKEND. C'est le
+    # défaut du dépôt qui coûte le plus cher : un en-tête qui nomme la mauvaise
+    # dépendance envoie tout le diagnostic au mauvais endroit (vécu le
+    # 2026-07-30 : le nightly rend 1/5 avec « Impossible de joindre Ollama »
+    # alors qu'en BACKEND=mlx l'appel va au gateway ; Ollama n'est même pas
+    # installé sur la machine, il ne sert que les embeddings — et encore, plus
+    # depuis SEMANTIC_MEMORY_PROVIDER=st). On DÉRIVE désormais de la config au
+    # lieu de l'affirmer.
+    subtitle = Text(f"  Servi par {_backend_label()} · 100% local · privé  ", style="dim")
 
     console.print(Panel(
         Align.center(title + Text("\n") + subtitle),
@@ -77,7 +96,13 @@ def print_banner(memory: ConversationMemory) -> None:
     table.add_column(style="bold")
 
     non_system = sum(1 for m in memory.messages if m["role"] != "system")
-    table.add_row("⚙  Modèle",  f"[green]{MODEL_NAME}[/green]")
+    # MODEL_NAME est le modèle du mode OLLAMA. En BACKEND=mlx, l'agent parle à
+    # MLX_MODEL : la bannière annonçait donc « qwen3.5:9b » pendant que la
+    # toolbar (`orchestrator.llm.model`, deux lignes plus bas dans l'écran)
+    # affichait autre chose. LLM_MODEL est la valeur effectivement envoyée au
+    # backend — en mode gateway c'est un ALIAS (`brain`, `coder`), et c'est bien
+    # ce qu'on veut montrer : ce que Klody demande, pas ce qu'on suppose servi.
+    table.add_row("⚙  Modèle",  f"[green]{LLM_MODEL}[/green]")
     table.add_row("📁 Projet",  f"[white]{PROJECT_ROOT}[/white]")
     table.add_row("🔑 Session", f"[cyan]{memory.session_id}[/cyan]")
     table.add_row("💬 Messages", str(non_system))
@@ -130,7 +155,7 @@ HELP_TEXT = """
   [cyan]/preview[/cyan]           Aperçus HTML disponibles + URLs
   [cyan]/export[/cyan]            Exporter la session en Markdown
   [cyan]/profile[/cyan]           Profil utilisateur détecté (techs, patterns)
-  [cyan]/status[/cyan]            État du système (Ollama, LibraryBrain, Preview)
+  [cyan]/status[/cyan]            État du système (backend LLM, LibraryBrain, Preview)
   [cyan]/exit[/cyan]              Quitter
 
 [bold]Apprentissage & Profil :[/bold]
@@ -532,7 +557,7 @@ def repl(orchestrator: Orchestrator) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Klody Code Ai — Agent de coding local (Ollama)",
+        description=f"Klody Code Ai — Agent de coding local (backend {_backend_label()})",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Exemples:\n"
