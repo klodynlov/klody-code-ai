@@ -23,12 +23,18 @@ ce dépôt (dédoublonnage quadratique supposé ~5 s, mesuré 0,087 s).
 Usage :
     python scripts/mesure_plancher_accueil.py                  # 3 passes, 3 bras
     python scripts/mesure_plancher_accueil.py --passes 5
+    python scripts/mesure_plancher_accueil.py --balayage       # coût des schémas
     python scripts/mesure_plancher_accueil.py --json mesure.json
 
-⚠️ La PREMIÈRE passe porte le chargement éventuel du modèle (44 Go pour brain,
-voisin mesuré : coder, 30 Go, chargé en 8,3 s). Elle est affichée à part et
-JAMAIS moyennée avec les autres : c'est précisément l'écart froid/chaud qui
-décide entre accueil synchrone et accueil asynchrone.
+⚠️ Le TOUT PREMIER appel du run porte le réveil du gateway — pas toute la
+première passe. Mesuré le 2026-08-01 : `plancher` 6,52 s en tête de run, puis
+`accueil` 0,46 s dans la même passe, modèle déjà chaud. Il est affiché à part et
+jamais moyenné : c'est cet écart froid/chaud (0,13 s contre 6,52 s pour le même
+appel) qui décide entre accueil synchrone et accueil asynchrone — la VARIANCE,
+pas le coût nominal.
+
+Le mode `--balayage` répond à une question que les trois bras ne tranchent pas :
+les schémas d'outils coûtent-ils vraiment leur prefill ? Voir `balayer()`.
 
 Codes de sortie — « je n'ai pas pu mesurer » n'est PAS « j'ai mesuré, c'est
 bon » :
@@ -180,7 +186,14 @@ def mesurer(passes: int) -> dict[str, Any]:
                 releve[nom].append(round(ecoule, 3))
                 usages[nom] = usage
                 servi = modele or servi
-                marque = "  (à froid)" if passe == 1 else ""
+                # SEUL le tout premier appel est froid — pas toute la passe 1.
+                # Mesuré le 2026-08-01 : plancher 6,52 s en tête de run, puis
+                # accueil 0,46 s dans la même passe. Les 6,5 s étaient le réveil
+                # du gateway, attribuées au bras qui passait en premier ; étiqueter
+                # « à froid » les deux bras suivants faisait lire un coût de bras
+                # là où il n'y en a pas.
+                premier = passe == 1 and nom == next(iter(_BRAS))
+                marque = "  (1ᵉʳ appel du run — porte le réveil du gateway)" if premier else ""
                 print(f"  passe {passe}  {nom:<12} {ecoule:6.2f}s{marque}", flush=True)
             print(flush=True)
 
@@ -194,6 +207,119 @@ def mesurer(passes: int) -> dict[str, Any]:
         "usage_dernier": usages,
         "nb_outils": len(TOOLS),
     }
+
+
+def balayer(passes: int) -> dict[str, Any]:
+    """Isole le coût de prefill des schémas d'outils en faisant varier leur nombre.
+
+    Pourquoi ce mode existe : dans le run du 2026-08-01, `avec_outils` a rendu
+    4,06 s au premier appel puis 0,37 s ensuite, alors que le modèle était DÉJÀ
+    chaud (`accueil` venait de rendre 0,46 s juste avant). L'explication plausible
+    — les ~12,5 k tokens de schémas se paient une fois en prefill, puis le cache
+    de prompt les rend gratuits — était invérifiable : n=1, et trois bras qui se
+    suivent confondent le réveil du gateway avec le coût des schémas.
+
+    Ici chaque appel envoie un SOUS-ENSEMBLE de taille différente. Deux tailles
+    différentes = deux préfixes différents = cache de prompt froid à chaque fois,
+    sans avoir à parier sur la façon dont le gateway sérialise les outils (un
+    nonce placé dans le message système peut très bien atterrir APRÈS le bloc
+    d'outils, qui resterait alors caché — d'où le choix de faire varier les
+    outils eux-mêmes plutôt que le texte).
+
+    LECTURE — et elle peut invalider une conclusion, c'est le but :
+      latence qui CROÎT avec le nombre de schémas ⇒ le prefill se paie vraiment,
+        et « ne pas router l'accueil par orchestrator.run() » tient debout ;
+      colonne PLATE ⇒ les 4,06 s venaient d'autre chose, et cet argument tombe.
+    """
+    from agent.tokens import count_tokens, tokenizer_is_exact
+
+    entetes = {"Content-Type": "application/json"}
+    if config.LLM_API_KEY:
+        entetes["Authorization"] = f"Bearer {config.LLM_API_KEY}"
+
+    total = len(TOOLS)
+    paliers = sorted({0, total // 4, total // 2, total})
+    releve: list[dict[str, Any]] = []
+    servi: str | None = None
+
+    with httpx.Client(
+        base_url=config.LLM_BASE_URL.rstrip("/"),
+        headers=entetes,
+        timeout=httpx.Timeout(connect=10.0, read=180.0, write=30.0, pool=10.0),
+    ) as client:
+        for passe in range(1, passes + 1):
+            for palier in paliers:
+                # Décalage par passe : sans lui, la passe 2 rejouerait des préfixes
+                # déjà vus et mesurerait le CACHE au lieu du prefill. On décale vers
+                # le bas au dernier palier, faute de place au-dessus.
+                if palier == 0:
+                    n = 0
+                elif palier + passe - 1 <= total:
+                    n = palier + passe - 1
+                else:
+                    n = max(1, palier - (passe - 1))
+                sous_ensemble = TOOLS[:n]
+                try:
+                    ecoule, modele, _usage = _appel(
+                        client,
+                        messages=_BRAS["accueil"]["messages"],
+                        max_tokens=_BRAS["accueil"]["max_tokens"],
+                        outils=sous_ensemble or None,
+                    )
+                except httpx.HTTPError as exc:
+                    raise MesureImpossible(
+                        f"{config.LLM_BASE_URL} injoignable ({type(exc).__name__})."
+                    ) from exc
+                jetons = count_tokens(json.dumps(sous_ensemble, ensure_ascii=False)) if n else 0
+                servi = modele or servi
+                releve.append({"passe": passe, "palier": palier, "outils": n,
+                               "tokens": jetons, "latence_s": round(ecoule, 3)})
+                print(f"  passe {passe}  {n:>3} outils  {jetons:>6} tokens  "
+                      f"{ecoule:6.2f}s", flush=True)
+            print(flush=True)
+
+    return {
+        "mode": "balayage",
+        "backend": config.BACKEND,
+        "base_url": config.LLM_BASE_URL,
+        "model_configured": config.LLM_MODEL,
+        "model_served": servi,
+        "passes": passes,
+        "paliers": paliers,
+        "mesures": releve,
+        "tokenizer_exact": tokenizer_is_exact(),
+    }
+
+
+def _resume_balayage(mesure: dict[str, Any]) -> None:
+    # Groupé par PALIER, pas par nombre exact d'outils : le décalage anti-cache
+    # fait varier ce nombre de ±(passes-1), et grouper dessus éclaterait chaque
+    # palier en lignes à n=1 — une médiane sur un seul point n'en est pas une.
+    par_palier: dict[int, list[float]] = {}
+    jetons: dict[int, list[int]] = {}
+    for ligne in mesure["mesures"]:
+        par_palier.setdefault(ligne["palier"], []).append(ligne["latence_s"])
+        jetons.setdefault(ligne["palier"], []).append(ligne["tokens"])
+
+    print("┌─ Balayage : latence vs nombre de schémas d'outils ──────────────")
+    print(f"│ {'palier':>7} {'tokens':>8} {'médiane':>9} {'min':>7} {'max':>7}")
+    for n in sorted(par_palier):
+        valeurs = par_palier[n]
+        print(f"│ {n:>7} {int(statistics.median(jetons[n])):>8} "
+              f"{statistics.median(valeurs):>9.2f} {min(valeurs):>7.2f} "
+              f"{max(valeurs):>7.2f}")
+    print("└────────────────────────────────────────────────────────────────")
+    if not mesure["tokenizer_exact"]:
+        print()
+        print("⚠️  Le compte de tokens est HEURISTIQUE ici (tokenizer réel absent) :")
+        print("    la colonne `tokens` est indicative, la colonne latence non.")
+    print()
+    print("⚠️  Le palier 0 n'a rien à faire varier : il rejoue le même préfixe à")
+    print("    chaque passe, donc il est CACHÉ dès la 2ᵉ, contrairement aux autres.")
+    print("    La pente se lit entre paliers NON NULS.")
+    print()
+    print("    Latence croissante ⇒ le prefill des schémas se paie.")
+    print("    Colonne plate ⇒ les 4,06 s du 2026-08-01 venaient d'autre chose.")
 
 
 def _resume(releve: dict[str, list[float]]) -> None:
@@ -218,6 +344,10 @@ def _resume(releve: dict[str, list[float]]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--passes", type=int, default=3, help="Nombre de passes (défaut 3)")
+    parser.add_argument(
+        "--balayage", action="store_true",
+        help="Mesure la latence à 0/17/34/69 outils pour isoler le prefill des schémas",
+    )
     parser.add_argument("--json", type=str, default=None, metavar="FICHIER")
     args = parser.parse_args()
 
@@ -225,14 +355,17 @@ def main() -> int:
           f"« {config.LLM_MODEL} » · {len(TOOLS)} outils\n")
 
     try:
-        mesure = mesurer(args.passes)
+        mesure = balayer(args.passes) if args.balayage else mesurer(args.passes)
     except MesureImpossible as exc:
         print(f"✗ MESURE IMPOSSIBLE — {exc}", file=sys.stderr)
         print("  (aucun chiffre produit : ce n'est pas un résultat lent, c'est "
               "une absence de résultat)", file=sys.stderr)
         return 1
 
-    _resume(mesure["latences_s"])
+    if args.balayage:
+        _resume_balayage(mesure)
+    else:
+        _resume(mesure["latences_s"])
     print(f"\n  modèle réellement servi : {mesure['model_served']}")
 
     if args.json:

@@ -104,6 +104,68 @@ class TestMesure:
         assert vues == [0, 0, len(mod.TOOLS)]
 
 
+class TestBalayage:
+    """Le mode qui isole le coût de prefill des schémas d'outils.
+
+    Il n'a de sens que si deux appels ne partagent JAMAIS le même préfixe : un
+    préfixe déjà vu mesure le cache de prompt, pas le prefill — c'est
+    exactement l'ambiguïté du run du 2026-08-01 que ce mode doit lever.
+    """
+
+    @staticmethod
+    def _observer(vues: list[int]):
+        def _handler(requete: httpx.Request) -> httpx.Response:
+            import json as _json
+            vues.append(len(_json.loads(requete.content).get("tools") or []))
+            return _reponse_ok(requete)
+
+        return _handler
+
+    def test_balaye_des_tailles_croissantes(self, bouchon):
+        vues: list[int] = []
+        bouchon(self._observer(vues))
+        mesure = mod.balayer(passes=1)
+        assert vues == sorted(vues), "les paliers doivent monter"
+        assert vues[0] == 0 and vues[-1] == len(mod.TOOLS)
+        assert mesure["paliers"][0] == 0
+
+    def test_aucun_prefixe_rejoue_entre_les_passes(self, bouchon):
+        """Sinon la passe 2 mesurerait le cache et la pente serait fausse."""
+        vues: list[int] = []
+        bouchon(self._observer(vues))
+        mod.balayer(passes=3)
+        non_nuls = [n for n in vues if n]
+        assert len(set(non_nuls)) == len(non_nuls)
+
+    def test_le_dernier_palier_decale_vers_le_bas(self, bouchon):
+        """Il n'y a pas de place au-dessus de len(TOOLS) : on décale à l'envers."""
+        vues: list[int] = []
+        bouchon(self._observer(vues))
+        mod.balayer(passes=2)
+        assert max(vues) <= len(mod.TOOLS)
+
+    def test_chaque_mesure_porte_son_palier(self, bouchon):
+        bouchon(_reponse_ok)
+        mesure = mod.balayer(passes=2)
+        assert all("palier" in m and "tokens" in m for m in mesure["mesures"])
+        assert {m["palier"] for m in mesure["mesures"]} == set(mesure["paliers"])
+
+    def test_backend_injoignable_ne_rend_pas_un_chiffre(self, bouchon):
+        def _tombe(_requete):
+            raise httpx.ConnectError("connexion refusée")
+
+        bouchon(_tombe)
+        with pytest.raises(mod.MesureImpossible):
+            mod.balayer(passes=1)
+
+    def test_main_en_mode_balayage(self, bouchon, monkeypatch):
+        bouchon(_reponse_ok)
+        monkeypatch.setattr(
+            "sys.argv", ["mesure_plancher_accueil.py", "--balayage", "--passes", "1"]
+        )
+        assert mod.main() == 0
+
+
 def test_main_rend_1_quand_la_mesure_est_impossible(bouchon, monkeypatch, capsys):
     """Le code de sortie sépare « pas pu juger » de « jugé, c'est bon »."""
     def _tombe(_requete):
