@@ -714,9 +714,36 @@ def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
 # sous forme de chaîne. Il ne lève jamais d'exception.
 _VOIX_SUCCES = "🔊"
 
-# Un échec de synthèse par session suffit à comprendre ; le répéter à chaque
-# réponse transformerait la panne en spam sur le seul écran que l'utilisateur lit.
-_voix_deja_signalee = False
+# Causes d'échec DÉJÀ signalées, par catégorie. Un ensemble plutôt qu'un
+# booléen : signaler chaque réponse serait du spam, mais un booléen unique
+# avalait la DEUXIÈME cause — « CLI introuvable » puis, une fois réparée,
+# « lecture impossible » : deux pannes distinctes, deux remèdes distincts, et
+# l'utilisateur n'aurait vu que la première. Muté en place, donc sans `global`.
+_voix_signalees: set[str] = set()
+
+# Chaque cause a un remède différent : les distinguer est ce qui rend le message
+# actionnable. Ordre significatif — « lecture impossible » arrive DANS un compte
+# rendu de succès (🔊), il doit donc être testé avant le cas nominal.
+_CAUSES_VOIX: tuple[tuple[str, str], ...] = (
+    ("CLI VocalBrain introuvable", "cli-absente"),
+    ("hf download", "modele-absent"),
+    ("trop longue", "synthese-lente"),
+    ("lecture impossible", "lecteur-muet"),
+    ("fichier audio introuvable", "wav-introuvable"),
+)
+
+
+def _cause_voix(rapport: str) -> str:
+    """Catégorie d'échec, bornée par construction.
+
+    Dédoublonner sur le texte brut ne marcherait pas : les comptes rendus
+    portent une durée et un chemin qui changent à chaque appel, donc chaque
+    échec paraîtrait nouveau et le garde anti-spam ne tiendrait pas.
+    """
+    for marqueur, cause in _CAUSES_VOIX:
+        if marqueur in rapport:
+            return cause
+    return "synthese-echouee"
 
 
 def _signaler_voix(rapport: str) -> None:
@@ -731,15 +758,17 @@ def _signaler_voix(rapport: str) -> None:
     La règle qui manquait : le silence est acceptable quand personne n'a demandé
     la voix, mais dès que l'utilisateur l'a ACTIVÉE, ne rien dire est la panne.
     """
-    global _voix_deja_signalee
     if rapport.startswith(_VOIX_SUCCES) and "lecture impossible" not in rapport:
         logger.debug("voix : %s", rapport)
         return
 
+    # Le log garde TOUT : c'est la trace d'enquête. L'écran ne garde que la
+    # première occurrence de chaque cause.
     logger.warning("voix : %s", rapport)
-    if _voix_deja_signalee:
+    cause = _cause_voix(rapport)
+    if cause in _voix_signalees:
         return
-    _voix_deja_signalee = True
+    _voix_signalees.add(cause)
     console.print(
         f"\n  [yellow]⚠  Voix indisponible :[/yellow] [dim]{rapport}[/dim]"
         "\n  [dim]→ diagnostic : python scripts/diagnostic_voix.py[/dim]"

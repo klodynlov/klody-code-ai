@@ -176,22 +176,34 @@ class TestVoixAccueil:
         assert "1. Reprendre là où on s'est arrêté" in dits[0]
         assert "2. Lancer les tests" in dits[0]
 
-    def test_une_voix_qui_explose_reste_silencieuse_a_l_ecran(self, monkeypatch, capture):
-        import threading
+    def test_une_voix_qui_explose_est_SIGNALEE(self, monkeypatch, capture):
+        """Règle corrigée après un « aucun son » impossible à diagnostiquer.
 
-        monkeypatch.setattr(main, "GREETING_VOICE", True)
-        fini = threading.Event()
+        Ce test affirmait l'inverse — que l'écran devait rester muet — et c'était
+        le défaut : quand l'utilisateur a ACTIVÉ la voix, le silence est la
+        panne. Il ne passait d'ailleurs que par une course (l'assertion tombait
+        avant que le thread n'ait fini), donc il ne prouvait même pas ce qu'il
+        prétendait.
+        """
+        import time
 
         import tools.voice as voice
 
+        monkeypatch.setattr(main, "GREETING_VOICE", True)
+        main._voix_signalees.clear()
+
         def _casse(*_a, **_k):
-            fini.set()
             raise RuntimeError("CLI VocalBrain absente")
 
         monkeypatch.setattr(voice, "speak", _casse)
         main._afficher_accueil(TestAffichageAccueil._AccueilFactice())
-        assert fini.wait(2.0)
-        assert "VocalBrain" not in capture.getvalue()
+
+        # Attente ACTIVE sur l'effet observable, pas sur un événement posé avant
+        # lui : c'est ce décalage qui rendait la version précédente flaky.
+        limite = time.monotonic() + 2.0
+        while "Voix indisponible" not in capture.getvalue() and time.monotonic() < limite:
+            time.sleep(0.02)
+        assert "Voix indisponible" in capture.getvalue()
 
 
 class TestVoixReponses:
@@ -243,7 +255,7 @@ class TestVoixReponses:
         laissait alors ni message ni log : quatre modes d'échec strictement
         indiscernables d'un succès.
         """
-        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._voix_signalees.clear()
         main._signaler_voix(
             "speak indisponible : CLI VocalBrain introuvable (/x/vocalbrain)."
         )
@@ -253,30 +265,61 @@ class TestVoixReponses:
         assert "diagnostic_voix" in sortie
 
     def test_un_succes_ne_dit_rien(self, monkeypatch, capture):
-        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._voix_signalees.clear()
         main._signaler_voix("🔊 Dit à voix haute (2.1s), joué sur les haut-parleurs : « Bonjour »")
         assert capture.getvalue() == ""
 
     def test_une_synthese_ok_mais_muette_est_signalee(self, monkeypatch, capture):
         """WAV généré, lecteur qui n'a pas démarré : c'est exactement « aucun son »."""
-        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._voix_signalees.clear()
         main._signaler_voix("🔊 Dit à voix haute (2.1s), généré (lecture impossible : /tmp/a.wav)")
         assert "Voix indisponible" in capture.getvalue()
 
-    def test_l_echec_n_est_signale_qu_une_fois(self, monkeypatch, capture):
+    def test_une_MEME_cause_n_est_signalee_qu_une_fois(self, monkeypatch, capture):
         """Sinon la panne devient du spam sur le seul écran que l'utilisateur lit."""
-        monkeypatch.setattr(main, "_voix_deja_signalee", False)
-        main._signaler_voix("speak : échec")
-        main._signaler_voix("speak : échec")
-        main._signaler_voix("speak : échec")
+        main._voix_signalees.clear()
+        for _ in range(3):
+            main._signaler_voix("speak : échec de la synthèse VocalBrain — erreur X")
         assert capture.getvalue().count("Voix indisponible") == 1
+
+    def test_deux_causes_DIFFERENTES_sont_signalees_toutes_les_deux(self, capture):
+        """Un booléen unique avalait la seconde — deux pannes, deux remèdes.
+
+        Cas réel : « CLI introuvable », l'utilisateur répare, puis
+        « lecture impossible ». Ne montrer que la première le laisserait croire
+        que son correctif n'a rien changé.
+        """
+        main._voix_signalees.clear()
+        main._signaler_voix("speak indisponible : CLI VocalBrain introuvable (/x)")
+        main._signaler_voix("🔊 Dit à voix haute (2.1s), généré (lecture impossible : /tmp/a.wav)")
+        assert capture.getvalue().count("Voix indisponible") == 2
+
+    def test_les_causes_sont_bornees_malgre_des_chemins_variables(self):
+        """Dédoublonner sur le texte brut échouerait : durée et chemin changent."""
+        causes = {
+            main._cause_voix(f"🔊 Dit à voix haute ({d}s), généré (lecture impossible : /tmp/{d}.wav)")
+            for d in ("1.0", "2.5", "9.9")
+        }
+        assert causes == {"lecteur-muet"}
+
+    @pytest.mark.parametrize(
+        "rapport, attendu",
+        [
+            ("speak indisponible : CLI VocalBrain introuvable (/x)", "cli-absente"),
+            ("speak : synthèse trop longue (> 90s) — abandonnée. hf download …", "modele-absent"),
+            ("speak : synthèse terminée mais fichier audio introuvable.", "wav-introuvable"),
+            ("speak : échec de la synthèse VocalBrain — boom", "synthese-echouee"),
+        ],
+    )
+    def test_chaque_cause_est_reconnue(self, rapport, attendu):
+        assert main._cause_voix(rapport) == attendu
 
     def test_activer_la_voix_sonde_tout_de_suite(self, monkeypatch, capture):
         """Découvrir la panne au bout de trois réponses muettes coûte plus cher."""
         import tools.voice as voice
 
         monkeypatch.setattr(main, "_voix_reponses", False)
-        monkeypatch.setattr(main, "_voix_deja_signalee", False)
+        main._voix_signalees.clear()
         monkeypatch.setattr(voice, "speak", lambda t, lang="fr": "speak : échec de la synthèse")
         main.handle_special_command("/voix", None)
         assert "Voix indisponible" in capture.getvalue()
