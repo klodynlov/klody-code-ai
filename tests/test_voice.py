@@ -35,6 +35,9 @@ def voice_env(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "VOICE_CHARACTER", "Klody")
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
     monkeypatch.setattr(config, "VOICE_PLAY_CMD", "afplay")
+    # Défaut du dépôt : aucune voix imposée. Les tests qui en veulent une la
+    # posent explicitement — sinon on ne verrait pas qu'elle est absente.
+    monkeypatch.setattr(config, "VOICE_PRESET", "")
     return tmp_path / "audio"
 
 
@@ -124,6 +127,53 @@ class TestSpeak:
 # --------------------------------------------------------------------------- #
 # Entrées invalides et troncature                                              #
 # --------------------------------------------------------------------------- #
+
+class TestVoixImposee:
+    """`--voice` : figer le timbre, que le personnage seul ne fige pas.
+
+    Constaté le 2026-08-01 : l'accueil parlé sortait « avec différentes voix ».
+    Le modèle servi est un Qwen3-TTS 0.6B **Base**, sans conditionnement de
+    locuteur ; le découpage par phrase (obligatoire pour que l'EOS soit émis)
+    laisse chaque morceau prendre son propre timbre.
+    """
+
+    def test_absente_par_defaut(self, monkeypatch, voice_env):
+        """Vide = option NON passée. Une option à vide changerait le
+        comportement de toute installation qui marche déjà."""
+        fake_run = _FakeRun(voice_env)
+        monkeypatch.setattr(voice.subprocess, "run", fake_run)
+        monkeypatch.setattr(voice.subprocess, "Popen", lambda *a, **k: None)
+        voice.speak("Bonjour.")
+        assert "--voice" not in fake_run.last_cmd
+
+    def test_transmise_quand_configuree(self, monkeypatch, voice_env):
+        fake_run = _FakeRun(voice_env)
+        monkeypatch.setattr(voice.subprocess, "run", fake_run)
+        monkeypatch.setattr(voice.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(config, "VOICE_PRESET", "klody-fr")
+        voice.speak("Bonjour.")
+        assert fake_run.last_cmd[fake_run.last_cmd.index("--voice") + 1] == "klody-fr"
+
+    def test_n_ecrase_pas_le_personnage(self, monkeypatch, voice_env):
+        """Les deux coexistent : `-c` dit QUI parle, `--voice` COMMENT."""
+        fake_run = _FakeRun(voice_env)
+        monkeypatch.setattr(voice.subprocess, "run", fake_run)
+        monkeypatch.setattr(voice.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(config, "VOICE_PRESET", "klody-fr")
+        voice.speak("Bonjour.")
+        assert fake_run.last_cmd[fake_run.last_cmd.index("-c") + 1] == "Klody"
+        assert "--voice" in fake_run.last_cmd
+
+    def test_le_segment_id_reste_lisible(self, monkeypatch, voice_env):
+        """La recherche du WAV se fait par glob sur le segment-id : l'ajout
+        d'une option ne doit pas décaler ce qui est lu dans la commande."""
+        fake_run = _FakeRun(voice_env)
+        monkeypatch.setattr(voice.subprocess, "run", fake_run)
+        monkeypatch.setattr(voice.subprocess, "Popen", lambda *a, **k: None)
+        monkeypatch.setattr(config, "VOICE_PRESET", "klody-fr")
+        rapport = voice.speak("Bonjour.")
+        assert "🔊" in rapport
+
 
 class TestEntrees:
     def test_texte_vide_refuse_sans_subprocess(self, monkeypatch, voice_env):

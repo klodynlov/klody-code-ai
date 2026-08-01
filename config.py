@@ -473,6 +473,17 @@ VOICE_PROJECT_ID: str = os.getenv("VOICE_PROJECT_ID", "58a252a5-1c07-4bd1-bf36-a
 VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
 VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
 VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
+# Voix passée à `vocalbrain generate --voice`. VIDE = on ne passe pas l'option,
+# donc comportement inchangé — c'est la valeur sûre par défaut, tant qu'on ne
+# connaît pas les valeurs acceptées sur une installation donnée.
+#
+# ⚠️ Pourquoi ça existe : le modèle servi est un Qwen3-TTS 0.6B **Base**, sans
+# conditionnement de locuteur. Un texte de plusieurs phrases est scindé en
+# interne sur les `\n` (cf. tools/voice._segment_sentences, découpage OBLIGATOIRE
+# pour que l'EOS soit émis), et chaque morceau peut alors se voir attribuer un
+# timbre différent — constaté le 2026-08-01 : l'accueil parlé sortait « avec
+# différentes voix », le diagnostic mono-phrase n'ayant rien pu montrer.
+VOICE_PRESET: str = os.getenv("VOICE_PRESET", "")
 
 # --- Accueil de session généré (agent/greeting.py) ---
 # Une phrase produite par le modèle au lancement, EN TÂCHE DE FOND. Mesuré le
@@ -485,6 +496,21 @@ GREETING_ENABLED: bool = os.getenv("GREETING_ENABLED", "true").lower() in ("1", 
 # payé (découverte MCP, sonde LibraryBrain) pendant lequel le thread travaille
 # gratuitement : le cas chaud (0,37 s) arrive donc très largement dedans.
 GREETING_DEADLINE_S: float = float(os.getenv("GREETING_DEADLINE_S", 1.5))
+# Accessibilité : dit l'accueil À VOIX HAUTE (salutation, rappel, propositions
+# numérotées — numérotées à l'oral aussi, pour répondre « 2 » sans voir l'écran).
+# Passe par l'outil speak (CLI VocalBrain + afplay), dans un thread détaché : la
+# synthèse est synchrone (~6 s à froid), elle ne doit jamais retarder le prompt.
+# Off par défaut : parler sans qu'on l'ait demandé est le mauvais défaut, et la
+# CLI VocalBrain vit hors dépôt (venv local-suno).
+GREETING_VOICE: bool = os.getenv("GREETING_VOICE", "false").lower() in ("1", "true", "yes", "on")
+# Lit à voix haute la CONCLUSION de chaque réponse de l'agent (commande /voix
+# pour basculer en cours de session). Hérite de GREETING_VOICE : pour un usage
+# malvoyant, UNE variable doit suffire à rendre toute la session parlante —
+# accueil ET réponses. Surchargable séparément (VOICE_REPLIES=false garde
+# l'accueil parlant mais des réponses muettes).
+VOICE_REPLIES: bool = os.getenv(
+    "VOICE_REPLIES", os.getenv("GREETING_VOICE", "false")
+).lower() in ("1", "true", "yes", "on")
 
 LOG_DIR.mkdir(exist_ok=True)
 # MEMORY_DIR n'est plus un alias de LOG_DIR : il ne profite plus du mkdir ci-dessus.

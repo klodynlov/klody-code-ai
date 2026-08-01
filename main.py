@@ -3,7 +3,9 @@
 
 import argparse
 import logging
+import re
 import sys
+import threading
 from pathlib import Path
 
 from agent.greeting import AccueilEnTacheDeFond
@@ -13,6 +15,7 @@ from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
 from config import (
     BACKEND,
+    GREETING_VOICE,
     LIBRARYBRAIN_DIR,
     LIBRARYBRAIN_URL,
     LLM_BASE_URL,
@@ -23,6 +26,7 @@ from config import (
     PREVIEW_PORT,
     PROJECT_ROOT,
     SEMANTIC_MEMORY_PROVIDER,
+    VOICE_REPLIES,
 )
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -52,6 +56,15 @@ _PT_STYLE = Style.from_dict({
 })
 
 _HISTORY_FILE = Path.home() / ".klody_history"
+
+# Lecture vocale des réponses (accessibilité). Basculable en session par /voix ;
+# valeur de départ héritée de la config (GREETING_VOICE → VOICE_REPLIES).
+_voix_reponses: bool = VOICE_REPLIES
+
+# Un bloc de code lu à voix haute est du bruit pur — trente secondes de
+# ponctuation épelée. On le remplace par une mention, l'écran l'a de toute façon.
+_BLOC_CODE = re.compile(r"```.*?(```|$)", re.DOTALL)
+_MARQUES_MD = re.compile(r"[*_`#>|]+")
 
 # ------------------------------------------------------------------ #
 # Bannière                                                             #
@@ -235,6 +248,7 @@ HELP_TEXT = """
   [cyan]/export[/cyan]            Exporter la session en Markdown
   [cyan]/profile[/cyan]           Profil utilisateur détecté (techs, patterns)
   [cyan]/status[/cyan]            État du système (backend LLM, LibraryBrain, Preview)
+  [cyan]/voix[/cyan]              Lire les réponses à voix haute (accessibilité)
   [cyan]/exit[/cyan]              Quitter
 
 [bold]Apprentissage & Profil :[/bold]
@@ -279,6 +293,23 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
     if token == "/clear":
         orchestrator.memory.clear()
         console.print("\n  [green]✓[/green] Historique effacé.\n")
+        return True
+
+    if token == "/voix":
+        global _voix_reponses
+        _voix_reponses = not _voix_reponses
+        etat = "activée" if _voix_reponses else "désactivée"
+        console.print(f"\n  [green]✓[/green] Lecture vocale des réponses {etat}.\n")
+        # À l'ACTIVATION, on sonde tout de suite : découvrir une voix cassée au
+        # bout de trois réponses muettes coûte bien plus qu'attendre ici. La
+        # sonde est courte et son compte rendu est affiché quoi qu'il arrive.
+        if _voix_reponses:
+            try:
+                from tools.voice import speak
+
+                _signaler_voix(speak("Lecture vocale activée.", "fr"))
+            except Exception as exc:
+                _signaler_voix(f"speak inutilisable : {exc}")
         return True
 
     if token == "/memory":
@@ -561,6 +592,16 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
 
 def _run_extraction(orchestrator: Orchestrator) -> None:
     """Extraction silencieuse des faits importants en fin de session."""
+    # Note de reprise D'ABORD : elle est instantanée et déterministe, alors que
+    # l'extraction fait un appel LLM qui peut échouer — la reprise du lendemain
+    # ne doit pas dépendre de lui.
+    try:
+        from agent.greeting import noter_reprise
+
+        noter_reprise(orchestrator.memory.messages)
+    except Exception as exc:  # pragma: no cover - défense du chemin de sortie
+        logger.debug("note de reprise non écrite : %s", exc)
+
     lt = get_long_term_memory()
     facts = extract_and_save(orchestrator.memory.messages, lt)
     if facts:
@@ -569,8 +610,15 @@ def _run_extraction(orchestrator: Orchestrator) -> None:
         )
 
 
-def repl(orchestrator: Orchestrator) -> None:
-    """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions)."""
+def repl(orchestrator: Orchestrator, propositions: tuple[str, ...] = ()) -> None:
+    """Boucle interactive avec prompt_toolkit (historique, toolbar, suggestions).
+
+    `propositions` : les pistes affichées par l'accueil. Tant qu'aucune entrée
+    n'a été traitée, taper leur numéro les lance. La correspondance meurt à la
+    première entrée, quelle qu'elle soit : « 2 » au milieu d'une conversation
+    redevient la chaîne « 2 », le raccourci ne doit pas capturer une réponse à
+    une question de l'agent.
+    """
 
     session: PromptSession = PromptSession(
         history=FileHistory(str(_HISTORY_FILE)),
@@ -591,6 +639,14 @@ def repl(orchestrator: Orchestrator) -> None:
             if not user_input:
                 continue
 
+            # Propositions de l'accueil : « 1 » lance la première, etc.
+            if propositions and user_input.isdigit():
+                index = int(user_input) - 1
+                if 0 <= index < len(propositions):
+                    user_input = propositions[index]
+                    console.print(f"  [dim]→ {user_input}[/dim]")
+            propositions = ()  # une seule chance, cf. docstring
+
             # Continuation multi-ligne : "phrase \\" → on concatène
             while user_input.endswith("\\"):
                 user_input = user_input[:-1] + " "
@@ -607,6 +663,7 @@ def repl(orchestrator: Orchestrator) -> None:
             console.print(Rule(title="[dim]Klody[/dim]", style="dim blue", align="left"))
             console.print()
             orchestrator.run(user_input)
+            _dire_reponse(orchestrator)
             console.print()
 
         except KeyboardInterrupt:
@@ -627,16 +684,167 @@ def repl(orchestrator: Orchestrator) -> None:
 # Entrée                                                               #
 # ------------------------------------------------------------------ #
 
-def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> None:
-    """Affiche la phrase d'accueil. Ne doit JAMAIS empêcher la CLI de démarrer.
+def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
+    """Affiche l'accueil interactif et retourne ses propositions.
 
-    `recuperer()` est déjà borné et sans exception ; ce garde couvre le rendu
-    lui-même, qui reste du code exécuté sur le chemin de démarrage.
+    Ne doit JAMAIS empêcher la CLI de démarrer : `recuperer()` est déjà borné et
+    sans exception, ce garde couvre le rendu lui-même. Retourne les propositions
+    pour que le REPL accepte « 1 », « 2 », « 3 » comme première entrée.
     """
     try:
-        console.print(Align.center(Text(accueil.recuperer(), style="italic dim")))
+        rendu = accueil.recuperer()
+        console.print(Align.center(Text(rendu.salutation, style="italic")))
+        if rendu.rappel:
+            console.print(Align.center(Text(rendu.rappel, style="dim")))
+        if rendu.propositions:
+            console.print()
+            for i, proposition in enumerate(rendu.propositions, 1):
+                console.print(f"    [bold cyan]{i}[/bold cyan]  {proposition}")
+            console.print(
+                "    [dim]Tape un numéro pour lancer, ou pose ta question.[/dim]"
+            )
+        _dire_accueil(rendu)
+        return rendu.propositions
     except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
         logger.debug("accueil non affiché : %s", exc)
+        return ()
+
+
+# `speak` marque ses succès par cet emoji ; TOUT le reste est un échec rendu
+# sous forme de chaîne. Il ne lève jamais d'exception.
+_VOIX_SUCCES = "🔊"
+
+# Causes d'échec DÉJÀ signalées, par catégorie. Un ensemble plutôt qu'un
+# booléen : signaler chaque réponse serait du spam, mais un booléen unique
+# avalait la DEUXIÈME cause — « CLI introuvable » puis, une fois réparée,
+# « lecture impossible » : deux pannes distinctes, deux remèdes distincts, et
+# l'utilisateur n'aurait vu que la première. Muté en place, donc sans `global`.
+_voix_signalees: set[str] = set()
+
+# Chaque cause a un remède différent : les distinguer est ce qui rend le message
+# actionnable. Ordre significatif — « lecture impossible » arrive DANS un compte
+# rendu de succès (🔊), il doit donc être testé avant le cas nominal.
+_CAUSES_VOIX: tuple[tuple[str, str], ...] = (
+    ("CLI VocalBrain introuvable", "cli-absente"),
+    ("hf download", "modele-absent"),
+    ("trop longue", "synthese-lente"),
+    ("lecture impossible", "lecteur-muet"),
+    ("fichier audio introuvable", "wav-introuvable"),
+)
+
+
+def _cause_voix(rapport: str) -> str:
+    """Catégorie d'échec, bornée par construction.
+
+    Dédoublonner sur le texte brut ne marcherait pas : les comptes rendus
+    portent une durée et un chemin qui changent à chaque appel, donc chaque
+    échec paraîtrait nouveau et le garde anti-spam ne tiendrait pas.
+    """
+    for marqueur, cause in _CAUSES_VOIX:
+        if marqueur in rapport:
+            return cause
+    return "synthese-echouee"
+
+
+def _signaler_voix(rapport: str) -> None:
+    """Rend visible un échec de `speak`. Sans ça, « aucun son » n'a aucune trace.
+
+    ⚠️ Le défaut réparé ici : `speak` ne lève JAMAIS, il RETOURNE son compte
+    rendu — « CLI VocalBrain introuvable », « modèle TTS absent », « lecture
+    impossible »… L'appelant jetait cette valeur et n'entourait l'appel que d'un
+    `except`, qui ne pouvait rien attraper. Les quatre modes d'échec étaient donc
+    strictement indiscernables d'un succès : silence à l'écran, silence au log.
+
+    La règle qui manquait : le silence est acceptable quand personne n'a demandé
+    la voix, mais dès que l'utilisateur l'a ACTIVÉE, ne rien dire est la panne.
+    """
+    if rapport.startswith(_VOIX_SUCCES) and "lecture impossible" not in rapport:
+        logger.debug("voix : %s", rapport)
+        return
+
+    # Le log garde TOUT : c'est la trace d'enquête. L'écran ne garde que la
+    # première occurrence de chaque cause.
+    logger.warning("voix : %s", rapport)
+    cause = _cause_voix(rapport)
+    if cause in _voix_signalees:
+        return
+    _voix_signalees.add(cause)
+    console.print(
+        f"\n  [yellow]⚠  Voix indisponible :[/yellow] [dim]{rapport}[/dim]"
+        "\n  [dim]→ diagnostic : python scripts/diagnostic_voix.py[/dim]"
+    )
+
+
+def _texte_pour_voix(texte: str) -> str:
+    """Prépare une réponse d'agent pour la synthèse : parlable, pas récitable.
+
+    Les blocs de code sont REMPLACÉS par une mention — les lire épellerait de la
+    ponctuation pendant trente secondes, et l'écran les affiche de toute façon.
+    Le cap est en deçà des 600 caractères de `speak` pour couper sur une phrase
+    à nous plutôt que de lui laisser trancher au milieu.
+    """
+    texte = _BLOC_CODE.sub(" Un bloc de code est affiché à l'écran. ", texte or "")
+    texte = _MARQUES_MD.sub("", texte)
+    texte = re.sub(r"\s+", " ", texte).strip()
+    if len(texte) > 500:
+        coupe = texte[:500]
+        point = max(coupe.rfind(". "), coupe.rfind("! "), coupe.rfind("? "))
+        texte = coupe[: point + 1] if point > 250 else coupe + "…"
+    return texte
+
+
+def _dire_reponse(orchestrator: Orchestrator) -> None:
+    """Lit la dernière réponse de l'agent à voix haute, en thread détaché.
+
+    Même contrat que l'accueil vocal : la synthèse est synchrone (~6 s à froid),
+    elle ne doit jamais retenir le prompt suivant, et son échec est silencieux à
+    l'écran (`speak` rend une chaîne d'erreur, jamais d'exception).
+    """
+    if not _voix_reponses:
+        return
+    derniere = next(
+        (m.get("content") for m in reversed(orchestrator.memory.messages)
+         if m.get("role") == "assistant" and m.get("content")),
+        "",
+    )
+    texte = _texte_pour_voix(str(derniere))
+    if not texte:
+        return
+
+    def _parler() -> None:
+        try:
+            from tools.voice import speak
+
+            _signaler_voix(speak(texte, "fr"))
+        except Exception as exc:  # pragma: no cover - import de tools.voice cassé
+            _signaler_voix(f"speak inutilisable : {exc}")
+
+    threading.Thread(target=_parler, name="klody-voix-reponse", daemon=True).start()
+
+
+def _dire_accueil(rendu) -> None:
+    """Option vocale (accessibilité) : dit l'accueil, propositions numérotées.
+
+    Thread détaché OBLIGATOIRE : la synthèse VocalBrain est synchrone (~6 s à
+    froid). La faire attendre sur le chemin de démarrage recréerait exactement
+    le gel que l'accueil en tâche de fond existe pour éviter.
+
+    ⚠️ L'échec n'est PLUS silencieux. Il l'a été, et c'était le défaut : quand
+    l'utilisateur a explicitement demandé la voix, ne rien dire ne le protège de
+    rien — ça lui retire juste tout moyen de comprendre. Cf. `_signaler_voix`.
+    """
+    if not GREETING_VOICE:
+        return
+
+    def _parler() -> None:
+        try:
+            from tools.voice import speak
+
+            _signaler_voix(speak(rendu.en_texte(), "fr"))
+        except Exception as exc:  # pragma: no cover - import de tools.voice cassé
+            _signaler_voix(f"speak inutilisable : {exc}")
+
+    threading.Thread(target=_parler, name="klody-accueil-voix", daemon=True).start()
 
 
 def main() -> None:
@@ -684,9 +892,9 @@ def main() -> None:
     orchestrator = Orchestrator(memory)
     print_banner(memory)
     ensure_librarybrain(LIBRARYBRAIN_DIR, LIBRARYBRAIN_URL)
-    _afficher_accueil(accueil)
+    propositions = _afficher_accueil(accueil)
     console.print()
-    repl(orchestrator)
+    repl(orchestrator, propositions)
 
 
 if __name__ == "__main__":
