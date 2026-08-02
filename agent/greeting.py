@@ -108,6 +108,19 @@ class ContexteAccueil:
     erreur_recurrente: str = ""
 
 
+# Phrase qui apprend qu'on peut répondre par un chiffre. SOURCE UNIQUE : l'écran
+# (`main._afficher_accueil`) et la voix (`Accueil.en_texte`) la tirent d'ici.
+#
+# ⚠️ Vécu le 2026-08-02 : elle n'existait qu'à l'écran. La voix disait donc les
+# trois propositions numérotées SANS jamais dire qu'un numéro était une réponse
+# acceptable — c'est-à-dire en retirant l'affordance à la seule personne qui ne
+# peut pas la lire, alors que numéroter à l'oral n'avait été fait que pour elle.
+# Attrapé en transcrivant la prise, pas en lisant le code : à l'écran tout allait
+# bien. Un accueil « interactif » dont l'interactivité ne s'entend pas ne l'est
+# qu'à moitié.
+INVITE_PROPOSITIONS = "Tape un numéro pour lancer, ou pose ta question."
+
+
 @dataclass(frozen=True)
 class Accueil:
     """Le rendu prêt à afficher — et à dire à voix haute."""
@@ -120,13 +133,18 @@ class Accueil:
         """Version linéaire, pour la synthèse vocale et les logs.
 
         Les propositions sont numérotées à l'oral aussi : quelqu'un qui n'a que
-        le son doit pouvoir répondre « 2 » comme les autres.
+        le son doit pouvoir répondre « 2 » comme les autres — et l'invitation
+        qui le DIT suit le même chemin, pour la même raison.
         """
         morceaux = [self.salutation]
         if self.rappel:
             morceaux.append(self.rappel)
         for i, proposition in enumerate(self.propositions, 1):
             morceaux.append(f"{i}. {proposition}")
+        if self.propositions:
+            # Conditionnée comme à l'écran : « tape un numéro » sans numéro
+            # affiché n'est pas une invitation, c'est une consigne impossible.
+            morceaux.append(INVITE_PROPOSITIONS)
         return " ".join(morceaux)
 
 
