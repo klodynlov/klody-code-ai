@@ -13,7 +13,8 @@ différemment et se réparent différemment :
     1. VOICE_CLI          le binaire vocalbrain existe-t-il, est-il exécutable ?
     2. le lecteur audio   afplay est-il là ? (macOS uniquement)
     3. le dossier audio   VOICE_AUDIO_DIR est-il accessible en écriture ?
-    4. la synthèse        un vrai appel speak(), compte rendu AFFICHÉ
+    4. le clonage         le timbre est-il FIGÉ ? (juge : le --dry-run de la CLI)
+    5. la synthèse        un vrai appel speak(), compte rendu AFFICHÉ
 
 Un test qui n'appellerait pas réellement `speak` ne prouverait rien : le mode
 d'échec le plus fréquent (modèle TTS à moitié téléchargé) n'apparaît qu'à
@@ -116,15 +117,16 @@ def _lancer(args_cli: list[str], timeout: float = 20.0) -> str:
 def controler_clonage() -> bool:
     """Le timbre est-il FIGÉ ? C'est ce qui décide de « différentes voix ».
 
-    ⚠️ Le mode d'échec que ce contrôle existe pour attraper est SILENCIEUX :
-    `vocalbrain generate --voice <valeur-inconnue>` est accepté sans erreur et
-    ignoré. Une `VOICE_PRESET` mal orthographiée ne produit donc ni message, ni
-    changement — exactement le genre de panne muette qui a déjà coûté une
-    session ici.
+    Le juge est la ligne `clonage :` du `--dry-run`, rendue par la CLI — pas
+    notre configuration, qui ne prouverait que nos propres intentions. Un dry-run
+    ne synthétise rien : le contrôle est quasi gratuit.
 
-    Le juge est la ligne `clonage :` du `--dry-run`, rendue par la CLI —
-    pas notre configuration, qui ne prouverait que nos propres intentions.
-    Un dry-run ne synthétise rien : le contrôle est quasi gratuit.
+    ⚠️ Ce contrôle existait d'abord pour attraper une panne SILENCIEUSE :
+    `--voice <valeur-inconnue>` était accepté sans erreur puis ignoré, donc une
+    `VOICE_PRESET` mal orthographiée ne produisait ni message ni changement. Le
+    mécanisme est passé à `--preset`, qui refuse net un preset inconnu — le mode
+    muet est mort, mais le juge reste la CLI : c'est ce qui permet de le vérifier
+    au lieu de le supposer.
     """
     sortie = _lancer([
         "generate",
@@ -133,10 +135,26 @@ def controler_clonage() -> bool:
         "-t", "Test.",
         "--lang", "french",
         "--dry-run",
-        *(["--voice", config.VOICE_PRESET] if config.VOICE_PRESET else []),
+        *(["--preset", config.VOICE_PRESET] if config.VOICE_PRESET else []),
     ])
     if sortie.startswith("__ECHEC__"):
         _ko(f"dry-run impossible : {sortie[10:]}")
+        return False
+
+    preset = config.VOICE_PRESET or "(aucun)"
+
+    # À lire AVANT la ligne `clonage :`, qui manquera : la CLI sort en erreur sur
+    # un preset inconnu, et « pas de ligne clonage » se lirait alors comme « CLI
+    # d'une autre version », donc comme un non-problème.
+    if "preset de voix introuvable" in sortie.lower():
+        _ko(
+            f"preset « {preset} » inconnu de VocalBrain — la CLI refuse la synthèse",
+            "corrige VOICE_PRESET (la sortie ci-dessous liste les presets connus), "
+            "ou vide-la pour renoncer au clonage",
+        )
+        for ligne in sortie.splitlines():
+            if "presets disponibles" in ligne.lower():
+                print(f"     {ligne.strip()}")
         return False
 
     ligne = next(
@@ -148,10 +166,14 @@ def controler_clonage() -> bool:
         print("  ? clonage : la CLI ne le rapporte pas — version différente ?")
         return True  # inconnu ≠ cassé : on ne bloque pas sur une sortie inattendue
 
-    clone = ligne.split(":", 1)[1].strip().lower().startswith(("oui", "yes", "true"))
-    preset = config.VOICE_PRESET or "(aucune)"
+    # La CLI rend la SOURCE du timbre (« klody_e250 (preset « klody ») ») ou le
+    # mot « non ». Juger sur l'absence de « non » plutôt que sur la présence d'un
+    # « oui » qu'elle n'écrit jamais : sinon le contrôle est vert de naissance et
+    # rouge à jamais, sans rapport avec l'état réel.
+    valeur = ligne.split(":", 1)[1].strip()
+    clone = bool(valeur) and valeur.split()[0].lower() not in ("non", "no", "none", "aucun")
     if clone:
-        _ok(f"clonage actif — timbre figé, VOICE_PRESET={preset}")
+        _ok(f"clonage actif — timbre figé par {valeur} (VOICE_PRESET={preset})")
         return True
 
     _ko(
@@ -161,8 +183,8 @@ def controler_clonage() -> bool:
         "plusieurs phrases sort avec PLUSIEURS VOIX.",
     )
     if config.VOICE_PRESET:
-        print("     → et VOICE_PRESET est pourtant renseignée : la valeur est donc")
-        print("       INCONNUE de VocalBrain, qui l'ignore en silence.")
+        print("     → et VOICE_PRESET est pourtant renseignée, ET acceptée : le")
+        print("       preset existe mais n'impose aucun timbre — vérifie sa fiche.")
     print("     → remède : créer une voix clonée pour le personnage côté")
     print("       VocalBrain, puis la nommer dans VOICE_PRESET (cf. sous-commandes)")
     return False

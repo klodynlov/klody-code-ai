@@ -512,6 +512,54 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
 - La conversion distance → similarité (`1 - d/2`) a été **vérifiée sur l'index
   réel** (concordance à 1e-6 avec le cosinus recalculé), pas déduite de la doc.
 
+## État au 2026-08-02 — Klody a UN timbre, et il est figé
+
+Jusqu'ici la voix parlée sortait de Qwen3-TTS 0.6B **Base**, conditionné par
+aucun locuteur : le timbre était **tiré au sort à chaque phrase**. Klody n'avait
+pas une voix, il en avait une par réplique — un défaut qui ne se lit nulle part,
+il s'entend.
+
+`config.VOICE_PRESET` nomme désormais un **preset de voix clonée**, transmis à
+chaque synthèse (`vocalbrain generate --preset klody`, ajouté côté VocalBrain).
+Le preset `klody` convertit la prise au modèle RVC **`klody_e250`** — l'epoch
+retenu au test d'écoute du 2026-07-28. Conséquence utile : la voix **parlée** de
+Klody est maintenant la même que sa voix **chantée** dans local-suno.
+
+Le nom part de l'appelant, pas du profil du personnage : ce profil est un JSON
+que Klody ne lit jamais, et un profil vidé ferait retomber la synthèse sur le
+timbre aléatoire **sans que rien ne le signale**. Preset absent ⇒ la CLI refuse
+la synthèse. Coût mesuré : **~4,7 s de RVC pour 2,6 s de parole**, dans le même
+subprocess (`speak` n'importe toujours ni torch ni mlx_audio) — un `speak`
+complet passe de ~3 s à **~8 s**.
+
+> ### ❌ RÉSULTAT NÉGATIF — le clonage zero-shot TTS PARLE, et dit n'importe quoi
+>
+> Premier chemin essayé : clonage zero-shot à partir d'un extrait de référence
+> de 12,2 s. Le câblage était à faire des deux côtés — `mlx_backend` passait
+> `ref_audio` en **chaîne de caractères** là où les modèles mlx-audio attendent
+> un `mx.array` (`_prepare_reference_prompt` fait `audio.ndim`), et comme leurs
+> signatures finissent par `**kwargs`, le filtre laissait tout passer : **ce
+> chemin n'avait jamais pu fonctionner**. Corrigé (`_load_reference_audio`).
+>
+> Une fois câblé, Fish S2 Pro 8bit — **seul modèle de clonage en cache** — rend
+> du charabia phonétique. Transcription Whisper large-v3-turbo :
+>
+> | attendu | entendu |
+> |---|---|
+> | « La voix clonée de Klody est maintenant active. » | « La voix crueuse est le clou de la peau de l'orpective. » |
+> | « Hello, this is a test of the cloned voice. » | « Hello. Hello. » |
+> | « Bonjour, ceci est un test de la voix clonée. » | « Bonjour. » |
+>
+> Anglais comme français, **avec ou sans référence** : ce n'est pas le clonage
+> qui casse, c'est le modèle. La référence, elle, est parfaite — transcrite mot
+> pour mot, avant comme après RVC. Donc : rien à corriger côté preset, tout à
+> jeter côté modèle.
+>
+> ⚠️ **Ne pas rejouer sans mesurer autrement** : le seul autre modèle de clonage
+> installable est à télécharger (Qwen3-TTS CustomVoice, ~2-3 Go), et rien ne dit
+> qu'il fait mieux dans cette version de mlx-audio (0.4.3). Le RVC, lui, est
+> entraîné, écouté et retenu.
+
 ## État au 2026-08-05 — un service long peut servir des dépendances mortes
 
 > ### ⚠️ INCIDENT — `pip install` sous un process vivant, symptôme 23 h plus tard
@@ -612,6 +660,21 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
   traduire silencieusement la requête d'un utilisateur serait une
   transformation invisible de son intention. C'est à l'appelant de le savoir,
   d'où le rappel dans la docstring de l'outil MCP.
+
+- ⚠️ **Un TTS cassé PARLE — l'oreille du script ne suffit pas, il faut
+  transcrire.** Le 2026-08-02, j'ai jugé une prise Fish « de la vraie parole »
+  sur son enveloppe (RMS variable, 44 % de silences, durée plausible) et je l'ai
+  jouée comme preuve que le clonage marchait. Whisper a rendu « La voix crueuse
+  est le clou de la peau de l'orpective. » Aucune statistique de signal ne
+  sépare la parole du charabia **phonétiquement voisin** : seul un ASR est un
+  verdict. `mlx_whisper` est en cache, la vérification coûte quelques secondes.
+- **Une conversion qui laisse l'original à côté du converti se fait jouer à
+  l'envers.** RVC écrivait `seg_take01_abc_rvc_klody_e250.wav` à côté de
+  `seg_take01_abc.wav` ; `speak` retrouve sa prise par
+  `glob(f"*/{seg}_take*.wav")` puis `sorted()[0]` — et `.` (46) trie avant `_`
+  (95), donc il aurait joué la voix NON convertie en croyant tenir la voix
+  clonée. La conversion écrase désormais sur place : une seule prise sur le
+  disque, donc un seul timbre possible.
 - **zsh n'active pas les commentaires en interactif.** Coller un bloc avec des
   lignes `#` les exécute. `setopt interactive_comments` dans `~/.zshrc`.
   ⚠️ Vécu de nouveau le 2026-08-01, dans un bloc que j'avais moi-même écrit en
@@ -626,12 +689,18 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
   alors son propre timbre : un accueil de cinq phrases sort avec cinq voix.
   - Le juge est la ligne **`clonage :`** du `vocalbrain generate --dry-run`,
     pas la configuration locale. `python scripts/diagnostic_voix.py` la lit.
-  - ⚠️ **`--voice <valeur-inconnue>` est accepté SANS ERREUR puis ignoré.** Une
-    `VOICE_PRESET` mal orthographiée ne produit donc ni message ni changement.
-    Le diagnostic dénonce ce cas explicitement (« la valeur est INCONNUE de
-    VocalBrain, qui l'ignore en silence »).
-  - Le remède est **hors de ce dépôt** : créer une voix clonée pour le
-    personnage côté VocalBrain, puis la nommer dans `VOICE_PRESET`.
+    ⚠️ Elle rend la SOURCE du timbre (`klody_e250 (preset « klody »)`) ou le mot
+    `non` — **jamais « oui »**. Un analyseur qui chercherait « oui » serait vert
+    contre un faux complaisant et rouge à jamais sur la machine.
+  - **Réglé le 2026-08-02** : `VOICE_PRESET=klody` fige le timbre (section « Klody
+    a UN timbre » plus haut). Le mécanisme n'est plus `--voice` mais `--preset`.
+  - ⚠️ **`--voice <valeur-inconnue>` était accepté SANS ERREUR puis ignoré** — il
+    ne figeait donc rien, et une `VOICE_PRESET` mal orthographiée ne produisait ni
+    message ni changement. `--preset` refuse net. Le mode muet est mort, mais le
+    refus sort **sans ligne `clonage :`** : sans lecture explicite, cette absence
+    se lirait « CLI d'une autre version », donc comme un non-problème — la panne
+    muette rentrerait par la fenêtre. Verrouillé par
+    `tests/test_diagnostic_voix.py::test_preset_inconnu_est_DENONCE`.
 - **`.gitignore` disait « préfixer `reference_` », mais ne dé-ignorait que
   `.json`.** Un `reference_*.md` était donc silencieusement écarté par
   `git add` — `reference_2026-07-30_appels_outils_jumeaux.md` n'est dans le
