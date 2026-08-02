@@ -476,8 +476,46 @@ L'appel ne porte **aucun schéma d'outil** : ~150 tokens contre ~12,3 k.
    - Reste ouvert : le coût du garde « décisions jamais ouvertes » sur un
      vrai dépôt documenté (cf. point 4), que le banc ne peut pas voir.
 
+## État au 2026-08-02 — le connecteur sample cherche par le SON
+
+`klody_mcp/reaper_samples.py` ne cherchait que dans les NOMS de fichiers. Il
+interroge désormais l'index CLAP de **SampleBrain** (dépôt séparé
+`~/Projets/SampleBrain`, index par défaut `~/.samplebrain`) quand celui-ci
+répond, et se rabat sur les tokens sinon. Le champ `via` de chaque résultat
+nomme le moteur qui a répondu ; `semantic_status()` dit pourquoi l'autre s'est
+tu. Mesuré sur la bibliothèque réelle (654 fichiers, 569 contenus) : premier
+appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
+
+- **Dépendance strictement optionnelle et NON déclarée.** Elle tire `lancedb`
+  (+ `torch`/`transformers`, déjà là pour les embeddings). L'imposer au dépôt
+  ferait payer ce poids à tout le monde pour un connecteur REAPER. Activation :
+  `pip install -e ~/Projets/SampleBrain` puis `samplebrain-index index`.
+  `KLODY_SAMPLEBRAIN=0` coupe le moteur sans rien désinstaller.
+- ⚠️ **L'import est isolé, jamais groupé** — le piège « `numpy` dans le `try` de
+  `librosa` » plus bas, appliqué par avance.
+- ⚠️ **`score` n'a pas la même échelle selon `via`** : entier de tokens en
+  `filesystem`, cosinus [0,1] en `samplebrain`. Il classe à l'intérieur d'un
+  résultat, il ne se compare pas entre deux `via`. Un même appel ne mélange
+  jamais les deux moteurs, précisément pour que personne ne les additionne.
+- La conversion distance → similarité (`1 - d/2`) a été **vérifiée sur l'index
+  réel** (concordance à 1e-6 avec le cosinus recalculé), pas déduite de la doc.
+
 ## Pièges qui coûtent du temps
 
+- ⚠️ **CLAP est ANGLOPHONE — et ce dépôt est en français.** Une requête
+  française répond, mais moins bien, et pas seulement au score. Mesuré :
+
+  | requête | score | meilleur résultat |
+  |---|---|---|
+  | « grosse caisse qui claque » | 0,458 | un FX |
+  | « punchy kick drum » | **0,509** | `kickdrum2.wav` |
+  | « nappe sombre cinématique » | 0,393 | `05_Chant_80bpm.wav` |
+  | « dark cinematic pad » | **0,447** | `Deep Synth.wav` |
+
+  L'anglais gagne sur les trois paires testées. Le connecteur ne traduit rien :
+  traduire silencieusement la requête d'un utilisateur serait une
+  transformation invisible de son intention. C'est à l'appelant de le savoir,
+  d'où le rappel dans la docstring de l'outil MCP.
 - **zsh n'active pas les commentaires en interactif.** Coller un bloc avec des
   lignes `#` les exécute. `setopt interactive_comments` dans `~/.zshrc`.
   ⚠️ Vécu de nouveau le 2026-08-01, dans un bloc que j'avais moi-même écrit en

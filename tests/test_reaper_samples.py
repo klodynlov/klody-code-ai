@@ -3,10 +3,22 @@
 Pur filesystem : on monte une fausse bibliothèque de samples dans tmp (env
 KLODY_SAMPLES_DIR) et on vérifie le filtrage par extension, le classement par
 pertinence et les bornes. Tourne en CI.
+
+⚠️ Le moteur sémantique est coupé pour TOUT ce module (fixture ci-dessous).
+Ces tests décrivent le moteur filesystem ; les laisser exposés à SampleBrain
+les rendrait dépendants de l'existence d'un index dans le `$HOME` de la machine
+— verts en CI où il n'y en a pas, lents et imprévisibles en local où il y en a
+un. Le moteur sémantique a son propre fichier de tests.
 """
 from __future__ import annotations
 
+import pytest
 from klody_mcp import reaper_samples as rs
+
+
+@pytest.fixture(autouse=True)
+def _sans_samplebrain(monkeypatch):
+    monkeypatch.setenv("KLODY_SAMPLEBRAIN", "0")
 
 
 def _make_library(tmp_path):
