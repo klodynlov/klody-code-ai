@@ -25,12 +25,10 @@ AGENTS = REPO / "launchagents"
 # qu'on n'a pas eu le temps de faire : chaque entrée doit porter une raison, et
 # l'intention est qu'elle se vide.
 #
-#   gadget — même situation que reaper avant sa correction (déclaré dans
-#   KLODY_MCP_SERVERS sur :8093, lanceur présent, agent absent). Laissé en
-#   l'état faute d'avoir été demandé : créer son agent démarre un processus de
-#   plus à l'ouverture de session, ce qui n'est pas une décision à prendre au
-#   passage.
-SANS_AGENT = {"gadget"}
+# Elle est VIDE depuis le 2026-08-03 : `gadget` était la dernière exception —
+# même situation que reaper (déclaré dans KLODY_MCP_SERVERS sur :8093, lanceur
+# présent, agent absent), son agent a été créé.
+SANS_AGENT: set[str] = set()
 
 
 def _nom_du_service(lanceur: Path) -> str:
@@ -68,7 +66,7 @@ def test_chaque_lanceur_mcp_a_son_agent(lanceur):
 def test_la_liste_d_exceptions_ne_grossit_pas_en_douce():
     """Verrouille l'état connu : une exception de plus doit être un choix
     explicite, pas un effet de bord d'un ajout de serveur."""
-    assert {"gadget"} == SANS_AGENT
+    assert set() == SANS_AGENT
 
 
 def test_aucune_exception_ne_masque_un_agent_existant():

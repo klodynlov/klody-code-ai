@@ -524,10 +524,13 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
   signale. Corrigé le 2026-08-02 (`launchagents/com.klody.reaper-mcp.plist`),
   et la règle est désormais **testée** :
   `tests/test_launchagents_couvrent_les_mcp.py` exige un agent versionné pour
-  chaque `scripts/start-*-mcp.sh`. ⚠️ Il reste **une** exception assumée,
-  `gadget` (`:8093`, même situation, agent volontairement non créé) : elle est
-  inscrite avec sa raison dans `SANS_AGENT`, et un test verrouille le fait que
-  cette liste ne grossit pas en douce.
+  chaque `scripts/start-*-mcp.sh`. `gadget` (`:8093`) était la même panne, à un
+  jour d'écart : corrigé le 2026-08-03
+  (`launchagents/com.klody.gadget-mcp.plist`), **`SANS_AGENT` est désormais
+  vide** et un test verrouille le fait que cette liste ne se remplit pas en
+  douce. ⚠️ Le test compare des noms de fichiers, pas des services vivants : il
+  aurait dit vert sur un plist présent et jamais installé. Le contrôle qui voit
+  la machine est `scripts/install-launchagents.sh --check`.
 - ⚠️ **CLAP est ANGLOPHONE — et ce dépôt est en français.** Une requête
   française répond, mais moins bien, et pas seulement au score. Mesuré :
 
