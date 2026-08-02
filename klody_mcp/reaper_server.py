@@ -992,18 +992,34 @@ async def resolve_plugin(role: str) -> dict:
 
 
 @mcp.tool()
-async def search_samples(query: str, limit: int = 20, root: str = "") -> dict:
+async def search_samples(query: str, limit: int = 20, root: str = "", mode: str = "auto") -> dict:
     """Cherche des samples audio dans la bibliothèque LOCALE (racines via env
-    KLODY_SAMPLES_DIR ou `root`), classés par pertinence vs `query`. Lecture pure du
-    disque. Connecteur sample local (SampleBrain absent du repo).
+    KLODY_SAMPLES_DIR ou `root`), classés par pertinence vs `query`. Recherche
+    SÉMANTIQUE via l'index SampleBrain quand il est disponible (« nappe sombre
+    cinématique » trouve sans que ces mots soient dans le nom de fichier), sinon
+    repli sur les tokens du nom de fichier. `mode`: auto|samplebrain|filesystem.
+    ⚠️ CLAP est ANGLOPHONE : formuler `query` en anglais donne de meilleurs
+    résultats qu'en français (mesuré : 0,509 « punchy kick drum » -> kickdrum2.wav
+    contre 0,458 « grosse caisse qui claque » -> un FX).
 
-    Returns: {"count": <int>, "samples": [{"path","name","rel","root","score"}, ...]}.
+    Returns: {"count", "via", "semantic": {...}, "samples": [{"path","name","rel",
+    "root","score","via"}, ...]}. ⚠️ `score` n'a pas la même échelle selon `via`
+    (entier de tokens en filesystem, cosinus [0,1] en samplebrain) : il classe à
+    l'intérieur d'un résultat, il ne se compare pas entre deux `via`.
     """
     from klody_mcp import reaper_samples
     try:
         hits = await asyncio.to_thread(
-            reaper_samples.search_samples, query, root or None, limit)
-        return {"count": len(hits), "samples": hits}
+            reaper_samples.search_samples, query, root or None, limit, mode)
+        # `via` est remonté au niveau du résultat pour que l'appelant n'ait pas à
+        # le déduire d'une liste vide — un repli muet et un index vide se
+        # ressemblent trop.
+        return {
+            "count": len(hits),
+            "via": hits[0]["via"] if hits else None,
+            "semantic": reaper_samples.semantic_status(),
+            "samples": hits,
+        }
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
@@ -1029,7 +1045,8 @@ async def workflow_place_sample(
 ) -> dict:
     """Workflow : cherche un sample (bibliothèque locale), importe le MEILLEUR sur la
     piste ciblée à `position`, et renvoie la PROVENANCE (chemin source). Spec 8.8
-    (search→rank→import→place→provenance). SampleBrain absent → bibliothèque filesystem.
+    (search→rank→import→place→provenance). Recherche sémantique via SampleBrain si
+    l'index est là, sinon repli filesystem — `chosen.via` dit lequel a répondu.
 
     Returns: {"chosen","candidates","placed","provenance","undo_steps"} ou {"error"}.
     """

@@ -445,8 +445,12 @@ async def place_sample(
 ) -> dict:
     """Cherche un sample dans la bibliothèque LOCALE (search->rank), importe le MEILLEUR
     sur la piste ciblée à `position` (sec), et renvoie la PROVENANCE (chemin source).
-    Spec 8.8 (search->rank->import->place->provenance). SampleBrain absent du repo ->
-    bibliothèque filesystem (racines via env KLODY_SAMPLES_DIR ou `root`)."""
+    Spec 8.8 (search->rank->import->place->provenance). Recherche sémantique via
+    l'index SampleBrain quand il répond, sinon repli sur les tokens du nom de fichier
+    (racines via env KLODY_SAMPLES_DIR ou `root`).
+
+    ⚠️ `chosen.score` et `candidates[].score` ne sont comparables QU'ENTRE EUX :
+    l'échelle dépend du moteur qui a répondu, d'où `chosen.via` qui le nomme."""
     if not (query or "").strip():
         return {"error": "query requis (mot-clé de recherche du sample)"}
     if not guid and index < 0:
@@ -462,7 +466,8 @@ async def place_sample(
     if _is_err(r):
         return {"error": r.get("error"), "chosen": best}
     return {
-        "chosen": {"name": best["name"], "path": best["path"], "score": best["score"]},
+        "chosen": {"name": best["name"], "path": best["path"], "score": best["score"],
+                   "via": best.get("via", "filesystem")},
         "candidates": [{"name": h["name"], "score": h["score"]} for h in hits[:5]],
         "placed": {
             "track_index": r.get("track_index"), "guid": r.get("guid"),
