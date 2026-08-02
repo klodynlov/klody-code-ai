@@ -37,6 +37,138 @@ render() {
     sed -e "s|$ORIG_REPO|$REPO_ROOT|g" -e "s|$ORIG_HOME|$HOME|g" "$1"
 }
 
+# --- Le code réellement servi ---------------------------------------------
+#
+# Un plist conforme ne dit RIEN de ce que le service exécute. Les agents
+# lancent des scripts de CE dépôt, avec `WorkingDirectory` sur sa racine : le
+# code en production est celui de l'ARBRE DE TRAVAIL au moment du démarrage.
+# Deux conséquences que la comparaison de plists ne voit pas :
+#   1. la branche sortie décide du code servi — « relancer le service pour
+#      qu'il prenne main » est faux dès qu'un autre checkout est en cours ;
+#   2. un service démarré avant une modification continue de servir l'ancien
+#      code, sans que rien ne le signale.
+#
+# ⚠️ Ces contrôles n'influencent PAS le code de sortie. Diverger d'origin/main
+# est l'état NORMAL d'un poste de développement : faire rougir `--check`
+# là-dessus le rendrait inutilisable en CI comme en local. Ils ne parlent que
+# si des services tournent réellement — donc jamais sur un runner.
+
+pid_du_service() {
+    launchctl print "$DOMAIN/$1" 2>/dev/null |
+        awk '/^[[:space:]]*pid = /{print $3; exit}'
+}
+
+demarrage_epoch() {
+    # `ps -o etimes` n'existe pas sur ce macOS ; on convertit `lstart`.
+    l=$(ps -o lstart= -p "$1" 2>/dev/null | sed 's/[[:space:]]*$//')
+    [ -n "$l" ] || return 1
+    date -j -f "%a %b %d %T %Y" "$l" +%s 2>/dev/null
+}
+
+point_d_entree() {
+    # Les fichiers PROPRES à un service : son lanceur, et le module que
+    # celui-ci exécute. On n'attribue à un service que ce qui lui appartient —
+    # sinon une retouche de `reaper_samples.py` déclarerait `gmail-mcp`
+    # périmé, et un contrôle qui accuse tout le monde n'est plus lu.
+    prog=$(grep -A2 '<key>ProgramArguments</key>' "$1" 2>/dev/null |
+               grep -m1 '<string>' |
+               sed -e 's/.*<string>//' -e 's|</string>.*||' \
+                   -e "s|$ORIG_REPO|$REPO_ROOT|" -e "s|$ORIG_HOME|$HOME|")
+    case "$prog" in "$REPO_ROOT"/*) [ -f "$prog" ] && echo "$prog" ;; esac
+    mod=$(grep -oE 'python -m [A-Za-z0-9_.]+' "$prog" 2>/dev/null |
+              tail -1 | awk '{print $3}')
+    if [ -n "$mod" ]; then
+        f="$REPO_ROOT/$(echo "$mod" | tr '.' '/').py"
+        [ -f "$f" ] && echo "$f"
+    fi
+    return 0
+}
+
+sources_partagees() {
+    # Le tronc commun : tout service qui l'importe peut être périmé sans que
+    # son point d'entrée ait bougé. Impossible à attribuer sans résoudre le
+    # graphe d'imports — on le signale donc en bloc, comme une réserve, et
+    # jamais comme une accusation nominative.
+    find "$REPO_ROOT/klody_mcp" "$REPO_ROOT/tools" "$REPO_ROOT/agent" \
+         "$REPO_ROOT/api" -type f -name '*.py' 2>/dev/null || true
+    for f in "$REPO_ROOT/config.py" "$REPO_ROOT/services.py"; do
+        [ -f "$f" ] && echo "$f"
+    done
+    return 0
+}
+
+mtime_max() {
+    # lit une liste de chemins sur stdin
+    tr '\n' '\0' | xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1
+}
+
+verifier_code_servi() {
+    actifs=""
+    nb_actifs=0
+    for s in "$SRC_DIR"/*.plist; do
+        [ -e "$s" ] || continue
+        lab=$(basename "$s" .plist)
+        p=$(pid_du_service "$lab")
+        [ -n "$p" ] || continue
+        actifs="$actifs$lab $p
+"
+        nb_actifs=$((nb_actifs + 1))
+    done
+    [ "$nb_actifs" -gt 0 ] || return 0   # rien ne tourne : rien à dire
+
+    echo
+    if git -C "$REPO_ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
+        branche=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+        ecarts=$(git -C "$REPO_ROOT" diff --name-only origin/main -- \
+                     klody_mcp tools agent api config.py services.py scripts \
+                     2>/dev/null | wc -l | tr -d ' ')
+        if [ "${ecarts:-0}" -gt 0 ]; then
+            echo "ATTENTION  les services exécutent l'arbre de travail (« $branche »), qui"
+            echo "           diffère d'origin/main sur $ecarts fichier(s) servi(s) : un"
+            echo "           redémarrage mettrait CE code en production, pas celui de main."
+            echo "           git diff origin/main -- klody_mcp tools agent api scripts"
+        else
+            echo "arbre de travail (« $branche ») aligné sur origin/main pour le code servi."
+        fi
+    else
+        echo "note : origin/main introuvable, alignement du code servi non vérifié."
+    fi
+
+    # Passage par un fichier : en `sh`, un `while` alimenté par un tube tourne
+    # dans un sous-shell, et tout compteur incrémenté dedans est perdu à la
+    # sortie de la boucle.
+    liste=$(mktemp)
+    plus_ancien=""
+    echo "$actifs" | while read -r lab p; do
+        [ -n "$lab" ] || continue
+        deb=$(demarrage_epoch "$p" || true)
+        [ -n "$deb" ] || continue
+        echo "$deb" >> "$liste.debuts"
+        entree=$(point_d_entree "$SRC_DIR/$lab.plist" | mtime_max)
+        if [ -n "$entree" ] && [ "$deb" -lt "$entree" ]; then
+            echo "$lab $p" >> "$liste"
+        fi
+    done
+    while read -r lab p; do
+        echo "PÉRIMÉ  $lab (pid $p) — son lanceur ou son module ont changé depuis son"
+        echo "        démarrage. Recharger : launchctl bootout $DOMAIN/$lab puis"
+        echo "        bootstrap (jamais kickstart)."
+    done < "$liste" 2>/dev/null || true
+    perimes=$(wc -l < "$liste" 2>/dev/null | tr -d ' ' || echo 0)
+    plus_ancien=$(sort -n "$liste.debuts" 2>/dev/null | head -1 || echo "")
+    rm -f "$liste" "$liste.debuts"
+
+    partage=$(sources_partagees | mtime_max)
+    if [ -n "${plus_ancien:-}" ] && [ -n "${partage:-}" ] &&
+           [ "$plus_ancien" -lt "$partage" ]; then
+        echo "note : du code partagé (klody_mcp, tools, agent, api, config) a changé depuis"
+        echo "       le démarrage du plus ancien service — un service qui l'importe peut"
+        echo "       servir du code périmé sans que son point d'entrée ait bougé."
+    fi
+    echo "$nb_actifs service(s) en cours, ${perimes:-0} au point d'entrée périmé."
+    return 0
+}
+
 drift=0
 installed=0
 skipped=0
@@ -82,9 +214,11 @@ done
 if [ "$CHECK_ONLY" -eq 1 ]; then
     if [ "$drift" -gt 0 ]; then
         echo "$drift agent(s) en écart, $skipped à jour." >&2
+        verifier_code_servi
         exit 1
     fi
     echo "$skipped agent(s) à jour, aucun écart."
+    verifier_code_servi
     exit 0
 fi
 
