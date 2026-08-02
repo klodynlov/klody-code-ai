@@ -16,6 +16,22 @@ TRANSPORT="${REAPER_MCP_TRANSPORT:-stdio}"
 PORT="${REAPER_MCP_PORT:-8089}"
 HOST="${REAPER_MCP_HOST:-127.0.0.1}"
 
+# Racines de la bibliothèque de samples (search_samples, workflow_place_sample).
+# Posé ici et pas dans un plist : aucun agent launchd ne lance ce serveur, il
+# démarre par ce script — c'est donc le seul point qui couvre tous les modes de
+# démarrage. Une valeur déjà exportée gagne, le `:-` ne fait que fournir un
+# défaut.
+#
+# ⚠️ `local-suno/samples` contient les 537 segments de la VOIX de l'utilisateur
+# enregistrés pour l'entraînement RVC (local-suno/README.md), pas des samples
+# musicaux. Les exposer ici est un choix ASSUMÉ : l'agent peut donc placer un
+# de ces enregistrements dans un projet REAPER si une requête l'y amène
+# (« vocal », « speaking », « voix »). Les retirer de cette liste suffit à
+# revenir en arrière — ils resteront indexés et cherchables par
+# `samplebrain-index search`, qui lui n'est pas filtré par cette variable.
+KLODY_SAMPLES_DIR="${KLODY_SAMPLES_DIR:-$HOME/Desktop/SAMPLES:$HOME/local-suno/samples}"
+export KLODY_SAMPLES_DIR
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     --http)  TRANSPORT="http"; shift ;;
@@ -36,6 +52,7 @@ echo "  REAPER MCP Server (pilotage du DAW)"
 echo "  Transport : $TRANSPORT"
 [[ "$TRANSPORT" == "http" ]] && echo "  Adresse   : http://$HOST:$PORT"
 echo "  Pont      : ${REAPER_BRIDGE_HOST:-127.0.0.1}:${REAPER_BRIDGE_PORT:-9000} (script dans REAPER)"
+echo "  Samples   : $KLODY_SAMPLES_DIR"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 REAPER_MCP_TRANSPORT="$TRANSPORT" REAPER_MCP_PORT="$PORT" REAPER_MCP_HOST="$HOST" \

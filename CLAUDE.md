@@ -486,6 +486,18 @@ nomme le moteur qui a répondu ; `semantic_status()` dit pourquoi l'autre s'est
 tu. Mesuré sur la bibliothèque réelle (654 fichiers, 569 contenus) : premier
 appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
 
+- ⚠️ **Indexer et exposer sont deux décisions distinctes.** `SAMPLEBRAIN_ROOTS`
+  (côté agent d'indexation) dit ce qui entre dans l'index ; `KLODY_SAMPLES_DIR`
+  dit ce que le connecteur a le droit d'en ressortir, et les résultats
+  sémantiques sont filtrés sur ces racines-là. **Aucun agent launchd ne lance
+  le serveur MCP REAPER** — `scripts/start-reaper-mcp.sh` est le seul point de
+  passage, c'est donc là qu'est posé le défaut (`$HOME`-relatif, une valeur
+  déjà exportée gagne), verrouillé par `tests/test_start_reaper_mcp_env.py`.
+  Les racines couvrent `~/Desktop/SAMPLES` **et** `~/local-suno/samples` ; ce
+  second dossier contient les 537 segments de la VOIX de l'utilisateur
+  enregistrés pour l'entraînement RVC, pas des samples musicaux — les exposer
+  est un choix assumé, l'agent peut donc en placer un dans un projet si une
+  requête l'y amène.
 - **Dépendance strictement optionnelle et NON déclarée.** Elle tire `lancedb`
   (+ `torch`/`transformers`, déjà là pour les embeddings). L'imposer au dépôt
   ferait payer ce poids à tout le monde pour un connecteur REAPER. Activation :
