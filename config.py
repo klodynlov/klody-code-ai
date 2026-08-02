@@ -473,17 +473,33 @@ VOICE_PROJECT_ID: str = os.getenv("VOICE_PROJECT_ID", "58a252a5-1c07-4bd1-bf36-a
 VOICE_CHARACTER: str = os.getenv("VOICE_CHARACTER", "Klody")
 VOICE_AUDIO_DIR: Path = Path(os.getenv("VOICE_AUDIO_DIR", str(Path.home() / ".vocalbrain" / "audio")))
 VOICE_PLAY_CMD: str = os.getenv("VOICE_PLAY_CMD", "afplay")
-# Voix passée à `vocalbrain generate --voice`. VIDE = on ne passe pas l'option,
-# donc comportement inchangé — c'est la valeur sûre par défaut, tant qu'on ne
-# connaît pas les valeurs acceptées sur une installation donnée.
+# Preset de voix clonée passé à CHAQUE synthèse (`vocalbrain generate --preset`).
 #
 # ⚠️ Pourquoi ça existe : le modèle servi est un Qwen3-TTS 0.6B **Base**, sans
 # conditionnement de locuteur. Un texte de plusieurs phrases est scindé en
-# interne sur les `\n` (cf. tools/voice._segment_sentences, découpage OBLIGATOIRE
-# pour que l'EOS soit émis), et chaque morceau peut alors se voir attribuer un
-# timbre différent — constaté le 2026-08-01 : l'accueil parlé sortait « avec
-# différentes voix », le diagnostic mono-phrase n'ayant rien pu montrer.
-VOICE_PRESET: str = os.getenv("VOICE_PRESET", "")
+# interne sur les sauts de ligne (cf. tools/voice._segment_sentences, OBLIGATOIRE
+# pour que l'EOS soit émis), et chaque morceau se voit alors attribuer un timbre
+# différent — constaté le 2026-08-01 : l'accueil parlé sortait « avec différentes
+# voix », le diagnostic mono-phrase n'ayant rien pu montrer.
+#
+# Le nommer ici fige le timbre, et le fige DEPUIS L'APPELANT : le profil du
+# personnage côté VocalBrain peut porter le même réglage, mais c'est un JSON
+# modifiable que Klody ne lit jamais — s'y fier laisserait le timbre changer en
+# silence. Le preset `klody` (créé le 2026-08-02) convertit la prise au modèle RVC
+# klody_e250, l'epoch retenu au test d'écoute du 2026-07-28 : la voix PARLÉE de
+# Klody devient donc la même que sa voix CHANTÉE dans local-suno.
+#
+# ⚠️ Le clonage zero-shot TTS a été essayé et ÉCARTÉ le 2026-08-02 : Fish S2 Pro
+# 8bit, seul modèle de clonage en cache, rend du charabia phonétique — « La voix
+# clonée de Klody est maintenant active. » ressort en « La voix crueuse est le
+# clou de la peau de l'orpective. » (Whisper), anglais comme français, avec ou
+# sans référence. Il PARLE, donc rien ne rougit : c'est la transcription qui l'a
+# attrapé, pas un code de sortie.
+#
+# Vide = clonage désactivé, retour au timbre tiré au sort. Le diagnostic ne juge
+# JAMAIS cette variable : il lit ce que la CLI rapporte (`--dry-run`), parce
+# qu'une valeur inconnue de VocalBrain serait acceptée puis ignorée en silence.
+VOICE_PRESET: str = os.getenv("VOICE_PRESET", "klody")
 
 # --- Accueil de session généré (agent/greeting.py) ---
 # Une phrase produite par le modèle au lancement, EN TÂCHE DE FOND. Mesuré le
