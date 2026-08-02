@@ -9,6 +9,7 @@ coûte une enquête entière (vécu le 2026-07-30 sur le nightly à 1/5).
 from __future__ import annotations
 
 import io
+from typing import ClassVar
 
 import main
 import pytest
@@ -128,6 +129,21 @@ class TestAffichageAccueil:
         main._afficher_accueil(self._AccueilFactice(rendu=Accueil("Bonjour.")))
         assert "Tape un numéro" not in capture.getvalue()
 
+    def test_ecran_et_VOIX_disent_la_MEME_invitation(self, capture):
+        """Source unique — sinon l'une des deux dérive sans que rien ne rougisse.
+
+        Vécu le 2026-08-02 : la phrase n'existait QU'à l'écran, donc la voix
+        numérotait des propositions sans dire à quoi servaient les numéros. Un
+        écart entre les deux rendus ne se voit pas en lisant le code — il faut
+        transcrire une prise. D'où ce filet, qui compare les deux SORTIES.
+        """
+        from agent.greeting import INVITE_PROPOSITIONS
+
+        rendu = self._AccueilFactice().rendu
+        main._afficher_accueil(self._AccueilFactice())
+        assert INVITE_PROPOSITIONS in capture.getvalue()
+        assert INVITE_PROPOSITIONS in rendu.en_texte()
+
     def test_lance_avant_la_construction_de_l_orchestrator(self):
         """L'ordre EST la fonctionnalité : le thread se nourrit du temps déjà payé.
 
@@ -211,7 +227,7 @@ class TestVoixReponses:
 
     class _OrchestrateurFactice:
         class _Memoire:
-            messages = [
+            messages: ClassVar[list[dict[str, str]]] = [
                 {"role": "user", "content": "question"},
                 {"role": "assistant", "content": "Voici :\n```python\nprint(1)\n```\nC'est corrigé."},
             ]

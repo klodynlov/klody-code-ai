@@ -16,10 +16,12 @@ from __future__ import annotations
 import json
 import threading
 import time
+from typing import ClassVar
 
 import pytest
 from agent import greeting
 from agent.greeting import (
+    INVITE_PROPOSITIONS,
     Accueil,
     AccueilEnTacheDeFond,
     ContexteAccueil,
@@ -58,7 +60,7 @@ class _FauxClient:
             message = _Message()
 
         class _Reponse:
-            choices = [_Choix()]
+            choices: ClassVar = [_Choix()]
 
         return _Reponse()
 
@@ -153,6 +155,21 @@ class TestEnTexte:
 
     def test_sans_rappel_ni_propositions(self):
         assert Accueil("Bonjour.").en_texte() == "Bonjour."
+
+    def test_dit_QUOI_FAIRE_des_numeros_pas_seulement_les_numeros(self):
+        """Numéroter à l'oral sans dire que le numéro est une réponse ne sert à rien.
+
+        Vécu le 2026-08-02 : la phrase n'existait qu'à l'écran. La prise
+        transcrite disait « 1. …, 2. …, 3. … » puis s'arrêtait — l'affordance
+        manquait à la seule personne qui ne peut pas la lire.
+        """
+        texte = Accueil("Bonjour.", "", ("A", "B")).en_texte()
+        assert INVITE_PROPOSITIONS in texte
+        assert texte.endswith(INVITE_PROPOSITIONS), "elle vient APRÈS les numéros"
+
+    def test_sans_proposition_pas_d_invitation(self):
+        """« Tape un numéro » sans numéro n'est pas une invitation mais un piège."""
+        assert INVITE_PROPOSITIONS not in Accueil("Bonjour.", "Hier : X.").en_texte()
 
 
 class TestAnalyser:
@@ -325,7 +342,7 @@ class TestCollecterContexte:
 class TestNoteDeReprise:
     """La note écrite à la fermeture, citée par l'accueil suivant."""
 
-    _MESSAGES = [
+    _MESSAGES: ClassVar[list[dict[str, str]]] = [
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "première demande"},
         {"role": "assistant", "content": "réponse"},
