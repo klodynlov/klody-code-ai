@@ -489,10 +489,10 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
 - ⚠️ **Indexer et exposer sont deux décisions distinctes.** `SAMPLEBRAIN_ROOTS`
   (côté agent d'indexation) dit ce qui entre dans l'index ; `KLODY_SAMPLES_DIR`
   dit ce que le connecteur a le droit d'en ressortir, et les résultats
-  sémantiques sont filtrés sur ces racines-là. **Aucun agent launchd ne lance
-  le serveur MCP REAPER** — `scripts/start-reaper-mcp.sh` est le seul point de
-  passage, c'est donc là qu'est posé le défaut (`$HOME`-relatif, une valeur
-  déjà exportée gagne), verrouillé par `tests/test_start_reaper_mcp_env.py`.
+  sémantiques sont filtrés sur ces racines-là. Le défaut est posé dans
+  `scripts/start-reaper-mcp.sh` (`$HOME`-relatif, une valeur déjà exportée
+  gagne) et non dans le plist : le script est le point de passage commun à tous
+  les modes de démarrage. Verrouillé par `tests/test_start_reaper_mcp_env.py`.
   Les racines couvrent `~/Desktop/SAMPLES` **et** `~/local-suno/samples` ; ce
   second dossier contient les 537 segments de la VOIX de l'utilisateur
   enregistrés pour l'entraînement RVC, pas des samples musicaux — les exposer
@@ -514,6 +514,20 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
 
 ## Pièges qui coûtent du temps
 
+- ⚠️ **Un lanceur de service sans son agent launchd = un service qui ne démarre
+  JAMAIS, sans la moindre erreur.** `launchagents/README.md` nomme ce mode de
+  panne comme celui que le dossier ferme — et `reaper` y est quand même passé
+  au travers pendant des mois : `.env` le déclarait consommé sur `:8089`,
+  `scripts/start-reaper-mcp.sh` existait, aucun agent ne le lançait, et
+  `config.py` ignore silencieusement un serveur MCP injoignable au boot. Klody
+  perdait donc **50 outils REAPER** à chaque démarrage sans que rien ne le
+  signale. Corrigé le 2026-08-02 (`launchagents/com.klody.reaper-mcp.plist`),
+  et la règle est désormais **testée** :
+  `tests/test_launchagents_couvrent_les_mcp.py` exige un agent versionné pour
+  chaque `scripts/start-*-mcp.sh`. ⚠️ Il reste **une** exception assumée,
+  `gadget` (`:8093`, même situation, agent volontairement non créé) : elle est
+  inscrite avec sa raison dans `SANS_AGENT`, et un test verrouille le fait que
+  cette liste ne grossit pas en douce.
 - ⚠️ **CLAP est ANGLOPHONE — et ce dépôt est en français.** Une requête
   française répond, mais moins bien, et pas seulement au score. Mesuré :
 
