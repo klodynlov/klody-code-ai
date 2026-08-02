@@ -21,6 +21,29 @@ script redémarrerait l'API en pleine session de travail.
 `--check` sort en code 1 s'il trouve un écart — utilisable en CI ou en contrôle
 manuel pour détecter la dérive entre le plist vivant et sa version au dépôt.
 
+## Ce que `--check` signale sans le juger
+
+Un plist conforme ne dit **rien de ce que le service exécute**. Les agents
+lancent des scripts de ce dépôt, avec `WorkingDirectory` sur sa racine : le
+code en production est celui de l'**arbre de travail** au moment du démarrage.
+Deux conséquences invisibles à une comparaison de fichiers, que `--check`
+rapporte quand des services tournent réellement :
+
+- **la branche sortie décide du code servi.** « Relancer le service pour qu'il
+  prenne `main` » est faux dès qu'un autre checkout est en cours — un
+  redémarrage mettrait cette branche-là en production ;
+- **un service démarré avant une modification sert l'ancien code.** L'attribution
+  est nominative : un service n'est déclaré `PÉRIMÉ` que si **son** lanceur ou
+  **son** module a bougé. Le code partagé (`klody_mcp`, `tools`, `agent`, `api`,
+  `config.py`) ne peut pas être imputé sans résoudre le graphe d'imports : il
+  fait l'objet d'une réserve globale, jamais d'une accusation.
+
+⚠️ **Ces contrôles n'influencent pas le code de sortie.** Diverger d'`origin/main`
+est l'état normal d'un poste de développement ; faire rougir `--check` là-dessus
+le rendrait inutilisable. Ils se taisent complètement quand aucun service n'est
+chargé, donc jamais un mot sur un runner. `tests/test_install_launchagents_check.py`
+verrouille ces deux propriétés.
+
 ## Chemins
 
 Les plists sont versionnés tels qu'installés, avec des chemins absolus. Le script
