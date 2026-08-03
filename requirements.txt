@@ -2,7 +2,7 @@ openai>=2.41.1
 rich>=15.0.0
 python-dotenv>=1.2.2
 prompt_toolkit>=3.0.52
-pytest>=9.0.3
+pytest>=9.1.1
 fastmcp>=3.4.2
 httpx>=0.28.1
 fastapi>=0.137.0
@@ -35,7 +35,7 @@ beautifulsoup4>=4.15.0
 # Qualité & sécurité (Vague 1 — durcissement CI)
 pytest-cov>=7.1.0
 bandit>=1.9.4
-pip-audit>=2.10.0
+pip-audit>=2.10.1
 
 # Qualité (lint + typage — job CI `quality`)
 ruff>=0.6
