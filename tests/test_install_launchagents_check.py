@@ -108,19 +108,102 @@ class TestSectionCodeServi:
         assert "ATTENTION" not in p.stdout
         assert "PÉRIMÉ" not in p.stdout
 
-    @pytest.mark.skipif(
-        subprocess.run(["/bin/sh", "-c", "launchctl print gui/$(id -u) >/dev/null 2>&1"],
-                       check=False).returncode != 0,
-        reason="aucun domaine launchd (CI)",
-    )
     def test_compte_les_services_quand_il_y_en_a(self, home_synchronise):
+        """Sur une machine où des agents de ce dépôt sont chargés, le résumé
+        doit être là et cohérent.
+
+        ⚠️ La condition de saut est mesurée INDÉPENDAMMENT, en interrogeant
+        launchd. La version précédente se sautait quand sa propre regex ne
+        trouvait rien, en annonçant « aucun agent chargé » : après un
+        changement de libellé du résumé, elle a donc cessé de tester tout en
+        affichant une raison fausse — dix agents étaient chargés.
+        """
+        charges = [
+            plist.stem for plist in sorted(AGENTS.glob("*.plist"))
+            if subprocess.run(
+                ["/bin/sh", "-c",
+                 f'launchctl print "gui/$(id -u)/{plist.stem}" >/dev/null 2>&1'],
+                check=False).returncode == 0
+        ]
+        if not charges:
+            pytest.skip("aucun agent de ce dépôt chargé (CI)")
+
         p = _lancer(home_synchronise)
-        m = re.search(r"(\d+) service\(s\) en cours, (\d+) au point d'entrée périmé",
-                      p.stdout)
-        if m is None:
-            pytest.skip("aucun agent de ce dépôt chargé sur cette machine")
-        assert int(m.group(1)) >= 1
-        assert int(m.group(2)) <= int(m.group(1))
+        m = re.search(r"(\d+) agent\(s\) chargé\(s\) : (\d+) résident\(s\) dont "
+                      r"(\d+) au point d'entrée périmé, (\d+) périodique\(s\)", p.stdout)
+        assert m, f"résumé absent alors que {len(charges)} agent(s) sont chargés :\n{p.stdout}"
+        nb, residents, perimes, periodiques = (int(g) for g in m.groups())
+        assert nb == len(charges), f"{nb} annoncés, {len(charges)} mesurés : {charges}"
+        assert residents + periodiques == nb
+        assert perimes <= residents
+
+
+def _faux_launchctl(dossier: Path, absent: str = "", pid: str = "1") -> str:
+    """Un `launchctl` bouchonné, pour tester des états qu'on ne va pas
+    provoquer sur la machine : arrêter un vrai service pour voir si le contrôle
+    le remarque coûterait une coupure de l'API.
+
+    `pid = 1` (launchd) est choisi parce qu'il est TOUJOURS vivant : `ps` peut
+    donc en tirer une vraie date de démarrage, et le critère de péremption
+    s'évalue pour de bon au lieu d'être sauté faute de processus.
+    """
+    dossier.mkdir(parents=True, exist_ok=True)
+    script = dossier / "launchctl"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in print) ;; *) exit 0 ;; esac\n'
+        f'case "$2" in *{absent or "AUCUN_LABEL_ABSENT"}) exit 1 ;; esac\n'
+        'case "$2" in */com.klody.*) ;; *) exit 0 ;; esac\n'
+        f'printf "\\tstate = running\\n\\tpid = {pid}\\n"\n'
+    )
+    script.chmod(0o755)
+    return f"{dossier}:{os.environ['PATH']}"
+
+
+def _lancer_avec_path(home: Path, path: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["/bin/sh", str(SCRIPT), "--check"],
+        capture_output=True, text=True, timeout=180, cwd=str(REPO),
+        env=dict(os.environ, HOME=str(home), PATH=path),
+    )
+
+
+class TestChargeContrePid:
+    """« Pas de PID » ne veut pas dire « pas chargé ».
+
+    Un job `StartInterval` n'a de processus que pendant son tick. La première
+    version confondait les deux et déclarait `com.klody.api-watchdog` absent de
+    launchd — alors qu'il avait 669 exécutions au compteur et un journal
+    d'incidents réels. Ces tests verrouillent la distinction.
+    """
+
+    def test_un_service_absent_de_launchd_est_signale(self, home_synchronise, tmp_path):
+        path = _faux_launchctl(tmp_path / "bin", absent="com.klody.web-mcp")
+        p = _lancer_avec_path(home_synchronise, path)
+        assert "NON CHARGÉ  com.klody.web-mcp" in p.stdout, p.stdout
+        assert "launchctl bootstrap" in p.stdout
+
+    def test_les_periodiques_sont_comptes_a_part(self, home_synchronise, tmp_path):
+        """`api-watchdog` porte un `StartInterval` : il doit apparaître comme
+        chargé ET périodique, jamais comme périmé."""
+        path = _faux_launchctl(tmp_path / "bin")
+        p = _lancer_avec_path(home_synchronise, path)
+        m = re.search(r"(\d+) agent\(s\) chargé\(s\) : (\d+) résident\(s\) dont "
+                      r"(\d+) au point d'entrée périmé, (\d+) périodique\(s\)", p.stdout)
+        assert m, p.stdout
+        charges, residents, _perimes, periodiques = (int(g) for g in m.groups())
+        nb_plists = len(list(AGENTS.glob("*.plist")))
+        assert charges == nb_plists, "tous les agents bouchonnés sont chargés"
+        assert periodiques >= 1, "com.klody.api-watchdog a un StartInterval"
+        assert residents + periodiques == charges
+
+    def test_un_periodique_n_est_jamais_declare_perime(self, home_synchronise, tmp_path):
+        """Avec `pid = 1` (démarré au boot, donc antérieur à toute source), un
+        résident serait périmé — le périodique, lui, ne doit jamais l'être : il
+        ré-exécute son programme à chaque tick."""
+        path = _faux_launchctl(tmp_path / "bin")
+        p = _lancer_avec_path(home_synchronise, path)
+        assert "PÉRIMÉ  com.klody.api-watchdog" not in p.stdout, p.stdout
 
 
 class TestPointDEntree:

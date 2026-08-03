@@ -36,7 +36,18 @@ rapporte quand des services tournent réellement :
   est nominative : un service n'est déclaré `PÉRIMÉ` que si **son** lanceur ou
   **son** module a bougé. Le code partagé (`klody_mcp`, `tools`, `agent`, `api`,
   `config.py`) ne peut pas être imputé sans résoudre le graphe d'imports : il
-  fait l'objet d'une réserve globale, jamais d'une accusation.
+  fait l'objet d'une réserve globale, jamais d'une accusation ;
+- **un plist en place dont le service n'est pas chargé** ressort en `NON CHARGÉ`,
+  avec la commande de remède.
+
+⚠️ **« Chargé » et « a un processus » sont deux choses différentes.** Un job
+`StartInterval` (comme `api-watchdog`) n'a de processus que pendant son tick :
+entre deux, `launchctl print` n'affiche aucune ligne `pid =`. Le compte les
+sépare — *N résidents, M périodiques* — et les périodiques sont hors du critère
+de péremption **par construction** : ils ré-exécutent leur programme à chaque
+tick, donc ils servent toujours le code du disque. La première version
+confondait les deux et déclarait `api-watchdog` absent de launchd alors qu'il
+avait 669 exécutions au compteur.
 
 ⚠️ **Ces contrôles n'influencent pas le code de sortie.** Diverger d'`origin/main`
 est l'état normal d'un poste de développement ; faire rougir `--check` là-dessus

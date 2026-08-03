@@ -53,9 +53,27 @@ render() {
 # là-dessus le rendrait inutilisable en CI comme en local. Ils ne parlent que
 # si des services tournent réellement — donc jamais sur un runner.
 
+service_charge() {
+    # « Chargé dans launchd » — à ne pas confondre avec « a un processus ».
+    launchctl print "$DOMAIN/$1" >/dev/null 2>&1
+}
+
 pid_du_service() {
+    # ⚠️ Vide ne veut PAS dire « pas chargé ». Un job `StartInterval` n'a de
+    # processus que pendant son tick : entre deux, `launchctl print` n'affiche
+    # aucune ligne `pid =`. Avoir confondu les deux m'a fait annoncer que
+    # `com.klody.api-watchdog` ne tournait pas, alors qu'il avait 669 exécutions
+    # au compteur et un journal d'incidents réels (2026-08-03).
     launchctl print "$DOMAIN/$1" 2>/dev/null |
         awk '/^[[:space:]]*pid = /{print $3; exit}'
+}
+
+est_periodique() {
+    # $1 = plist. Un job périodique RÉ-EXÉCUTE son programme à chaque tick : il
+    # sert donc toujours le code du disque, et la notion de « démarré avant une
+    # modification » n'a aucun sens pour lui. Il est écarté du critère de
+    # péremption par cette raison-là, pas par accident d'absence de PID.
+    grep -q '<key>StartInterval</key>' "$1" 2>/dev/null
 }
 
 demarrage_epoch() {
@@ -103,20 +121,41 @@ mtime_max() {
 }
 
 verifier_code_servi() {
-    actifs=""
-    nb_actifs=0
+    residents=""          # démons avec un processus vivant : évaluables
+    nb_charges=0
+    nb_residents=0
+    nb_periodiques=0
+    non_charges=""
     for s in "$SRC_DIR"/*.plist; do
         [ -e "$s" ] || continue
         lab=$(basename "$s" .plist)
+        if ! service_charge "$lab"; then
+            non_charges="$non_charges$lab
+"
+            continue
+        fi
+        nb_charges=$((nb_charges + 1))
+        if est_periodique "$s"; then
+            nb_periodiques=$((nb_periodiques + 1))
+            continue
+        fi
         p=$(pid_du_service "$lab")
         [ -n "$p" ] || continue
-        actifs="$actifs$lab $p
+        residents="$residents$lab $p
 "
-        nb_actifs=$((nb_actifs + 1))
+        nb_residents=$((nb_residents + 1))
     done
-    [ "$nb_actifs" -gt 0 ] || return 0   # rien ne tourne : rien à dire
+    # Aucun agent chargé = runner de CI : la section entière se tait.
+    [ "$nb_charges" -gt 0 ] || return 0
 
     echo
+    if [ -n "$non_charges" ]; then
+        echo "$non_charges" | while read -r lab; do
+            [ -n "$lab" ] || continue
+            echo "NON CHARGÉ  $lab — plist en place mais absent de launchd."
+            echo "            launchctl bootstrap $DOMAIN ~/Library/LaunchAgents/$lab.plist"
+        done
+    fi
     if git -C "$REPO_ROOT" rev-parse --verify -q origin/main >/dev/null 2>&1; then
         branche=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
         ecarts=$(git -C "$REPO_ROOT" diff --name-only origin/main -- \
@@ -139,7 +178,7 @@ verifier_code_servi() {
     # sortie de la boucle.
     liste=$(mktemp)
     plus_ancien=""
-    echo "$actifs" | while read -r lab p; do
+    echo "$residents" | while read -r lab p; do
         [ -n "$lab" ] || continue
         deb=$(demarrage_epoch "$p" || true)
         [ -n "$deb" ] || continue
@@ -162,10 +201,12 @@ verifier_code_servi() {
     if [ -n "${plus_ancien:-}" ] && [ -n "${partage:-}" ] &&
            [ "$plus_ancien" -lt "$partage" ]; then
         echo "note : du code partagé (klody_mcp, tools, agent, api, config) a changé depuis"
-        echo "       le démarrage du plus ancien service — un service qui l'importe peut"
-        echo "       servir du code périmé sans que son point d'entrée ait bougé."
+        echo "       le démarrage du plus ancien démon résident — un service qui l'importe"
+        echo "       peut servir du code périmé sans que son point d'entrée ait bougé."
     fi
-    echo "$nb_actifs service(s) en cours, ${perimes:-0} au point d'entrée périmé."
+    echo "$nb_charges agent(s) chargé(s) : $nb_residents résident(s) dont" \
+         "${perimes:-0} au point d'entrée périmé, $nb_periodiques périodique(s)" \
+         "(ré-exécutés à chaque tick, jamais périmés)."
     return 0
 }
 
