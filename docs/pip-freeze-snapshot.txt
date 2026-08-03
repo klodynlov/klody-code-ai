@@ -1,5 +1,12 @@
 # Photo pip freeze de .venv (fait tourner klody.api) — roadmap H2-2026 P1 (2026-07-03, post-résorption CVE).
-# Régénérer : .venv/bin/python -m pip freeze > requirements-freeze.txt
+# Régénérer : .venv/bin/python -m pip freeze > docs/pip-freeze-snapshot.txt
+#
+# ⚠️ DÉPLACÉ hors de la racine et RENOMMÉ à dessein. Sous son ancien nom
+# (requirements-freeze.txt) il matchait le motif `requirements*.txt` que
+# Dependabot scanne, alors que RIEN ne l'installe : la CI travaille sur
+# requirements.lock et requirements-macos.lock. Résultat, des PR de bump
+# ouvertes chaque semaine contre un fichier purement documentaire —
+# 5 en attente au 2026-08-04. Le renommer coupe la source.
 absl-py==2.5.0
 aiofile==3.11.1
 aiohappyeyeballs==2.6.1
