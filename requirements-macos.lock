@@ -99,7 +99,7 @@ coverage==7.14.1
     # via
     #   -c requirements.lock
     #   pytest-cov
-cryptography==49.0.0
+cryptography==50.0.0
     # via
     #   -c requirements.lock
     #   -r requirements.txt
