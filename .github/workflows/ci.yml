@@ -110,7 +110,7 @@ jobs:
       #   1. pip install -U ruff mypy dans .venv local
       #   2. ruff check + mypy verts en local (corriger le code si besoin)
       #   3. reporter les versions exactes ici, dans le même commit que les fixes
-      - run: pip install "ruff==0.15.15" "mypy==2.1.0"
+      - run: pip install "ruff==0.16.1" "mypy==2.1.0"
       - name: Ruff (lint)
         run: ruff check agent/ tools/ api/ klody_mcp/ config.py main.py services.py bench/ scripts/
       - name: Mypy (cœur typé — voir [tool.mypy].files dans pyproject.toml)
