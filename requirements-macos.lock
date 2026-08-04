@@ -142,15 +142,15 @@ exceptiongroup==1.3.1
     # via
     #   -c requirements.lock
     #   fastmcp-slim
-fastapi==0.137.1
+fastapi==0.141.1
     # via
     #   -c requirements.lock
     #   -r requirements.txt
-fastmcp==3.4.2
+fastmcp==3.4.5
     # via
     #   -c requirements.lock
     #   -r requirements.txt
-fastmcp-slim==3.4.2
+fastmcp-slim==3.4.5
     # via
     #   -c requirements.lock
     #   fastmcp
@@ -335,7 +335,7 @@ ollama==0.6.2
     # via
     #   -c requirements.lock
     #   -r requirements.txt
-openai==2.41.1
+openai==2.53.0
     # via
     #   -c requirements.lock
     #   -r requirements.txt
@@ -612,7 +612,7 @@ transformers==5.12.0
     # via
     #   -c requirements.lock
     #   sentence-transformers
-tree-sitter==0.25.2
+tree-sitter==0.26.0
     # via
     #   -c requirements.lock
     #   -r requirements.txt
@@ -671,7 +671,7 @@ urllib3==2.7.0
     # via
     #   -c requirements.lock
     #   requests
-uvicorn==0.49.0
+uvicorn==0.52.1
     # via
     #   -c requirements.lock
     #   -r requirements.txt
