@@ -283,7 +283,7 @@ pathspec==1.1.1
     # via mypy
 pip-api==0.0.34
     # via pip-audit
-pip-audit==2.10.0
+pip-audit==2.10.1
     # via -r requirements.txt
 pip-requirements-parser==32.0.1
     # via pip-audit
@@ -331,7 +331,7 @@ pyparsing==3.3.2
     # via pip-requirements-parser
 pyperclip==1.11.0
     # via fastmcp-slim
-pytest==9.0.3
+pytest==9.1.1
     # via
     #   -r requirements.txt
     #   pytest-asyncio
@@ -384,7 +384,7 @@ rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.15
+ruff==0.16.1
     # via -r requirements.txt
 safetensors==0.8.0
     # via transformers
