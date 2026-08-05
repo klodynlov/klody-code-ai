@@ -34,7 +34,9 @@ def client(monkeypatch):
 
     monkeypatch.setattr(server, "_probe_url", _toujours_up)
     monkeypatch.setattr(config, "BACKEND", "ollama")
-    monkeypatch.setattr(server, "_peremption_signalee", False)
+    # Liste neuve à chaque test : le drapeau « déjà signalé » est un état de
+    # module, et le partager entre tests ferait passer le second pour muet.
+    monkeypatch.setattr(server, "_peremption_signalee", [False])
     return TestClient(app)
 
 

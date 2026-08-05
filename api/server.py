@@ -152,17 +152,22 @@ _LABEL_SERVICE = "com.klody.api"
 
 # Un WARNING de péremption, UNE fois. /health est sondé toutes les 60 s par
 # scripts/api-watchdog.sh : logger à chaque passage noierait la ligne qui compte
-# sous 1440 copies par jour, et un avertissement qu'on apprend à sauter ne
-# vaut pas mieux que pas d'avertissement du tout.
-_peremption_signalee = False
+# sous 1440 copies par jour, et un avertissement qu'on apprend à sauter ne vaut
+# pas mieux que pas d'avertissement du tout.
+#
+# Liste d'un élément plutôt que variable de module + `global` — même idiome que
+# `_stop_flag` quatre lignes plus haut. La première version passait par `global`
+# et CodeQL la signalait « unused global variable » (alerte 250 sur la PR #208) :
+# le drapeau était bel et bien lu, mais l'analyse ne le voyait pas. Un
+# avertissement d'outil qu'on apprend à ignorer coûte autant qu'un vrai.
+_peremption_signalee: list[bool] = [False]
 
 
 def _signaler_peremption(etat: dict) -> None:
     """Trace une seule fois des dépendances périmées dans klody-api.log."""
-    global _peremption_signalee
-    if _peremption_signalee:
+    if _peremption_signalee[0]:
         return
-    _peremption_signalee = True
+    _peremption_signalee[0] = True
     logger.warning(
         "DÉPENDANCES PÉRIMÉES — %s Remède : %s", etat["raison"], etat["remede"]
     )
