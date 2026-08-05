@@ -4,11 +4,25 @@ d'entrée (chemins ASI02 + anti-SSRF), et surtout le DIAGNOSTIC TRI-ÉTAT :
 Confondre les trois est le bug de sonde qui a déjà coûté cher ailleurs.
 """
 
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from klody_mcp import vlc_server as vs
+from klody_mcp import _pathguard as pg, vlc_server as vs
+
+
+def _cible_hors_racines(depuis: Path) -> str:
+    """Chemin de traversée qui SORT à coup sûr des racines autorisées.
+
+    Remonte jusqu'à la racine du système (`..` en excès sont sans effet une fois
+    sur `/`) puis vise `etc/passwd`, que `_pathguard` n'autorise nulle part.
+    Le nombre de `..` est CALCULÉ depuis `depuis` — jamais écrit en dur, c'est
+    précisément ce qui rendait le test dépendant du cwd.
+    """
+    return os.path.join(str(depuis), *([os.pardir] * len(depuis.resolve().parts)),
+                        "etc", "passwd")
 
 # ── Normalisation du status.json ──────────────────────────────────────────────
 
@@ -94,8 +108,32 @@ class TestResoudreMedia:
         assert uri.startswith("file:///")
         assert uri.endswith("morceau.mp3")
 
-    def test_traversal_refuse(self):
-        uri, err = vs._resoudre_media("../../../etc/passwd")
+    def test_traversal_absolue_refusee(self):
+        # Vécu le 2026-08-05 : ce test appelait « ../../../etc/passwd », chemin
+        # RELATIF au cwd. Il ne jugeait donc pas le garde-fou mais la PROFONDEUR
+        # du répertoire courant — depuis le checkout principal la remontée sortait
+        # des racines (vert), depuis un worktree (.claude/worktrees/*, deux crans
+        # plus bas) elle retombait sous ~/Projets, racine AUTORISÉE, et le garde
+        # répondait « Fichier non trouvé » (rouge). Vert pour la mauvaise raison
+        # d'un côté, rouge sans rapport de l'autre : le mode de défaillance décrit
+        # dans CLAUDE.md. La cible est désormais absolue et hors des racines.
+        cible = _cible_hors_racines(pg.AUDIO_ROOTS[0])
+        # Prémisse VÉRIFIÉE, pas supposée : si la cible retombait sous une racine,
+        # c'est le contrôle d'existence qui répondrait et le test ne testerait
+        # plus rien — il doit rougir ici plutôt que de verdir ailleurs.
+        assert pg._match_root(Path(cible).resolve(), pg.AUDIO_ROOTS) is None
+        uri, err = vs._resoudre_media(cible)
+        assert uri is None
+        assert "racines autorisées" in err
+
+    def test_traversal_relative_refusee(self, monkeypatch, tmp_path):
+        # Variante relative — celle que le LLM produit vraiment — mais avec un cwd
+        # FIXÉ et une remontée calculée depuis lui, donc indépendante de l'endroit
+        # d'où pytest est lancé.
+        monkeypatch.chdir(tmp_path)
+        cible = _cible_hors_racines(Path("."))
+        assert pg._match_root(Path(cible).resolve(), pg.AUDIO_ROOTS) is None
+        uri, err = vs._resoudre_media(cible)
         assert uri is None
         assert "racines autorisées" in err
 
