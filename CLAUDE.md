@@ -113,7 +113,11 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **84,3 %** (gate 80), **2313 tests** (`pytest tests/ --collect-only`).
+Couverture **84,3 %** (gate 80), **2614 tests** (`pytest tests/ --collect-only`,
+recompté le 2026-08-05 ; l'ancien **2313** datait du 2026-07-30 et personne ne le
+rejouait — exactement le mode de défaillance décrit en bas de ce fichier).
+⚠️ La couverture, elle, n'a PAS été recomptée à cette date : elle porte toujours
+la mesure du 2026-07-30. Un seul des deux chiffres de cette ligne est frais.
 Huit PR (#162→#169) ont remis l'instrumentation en service : gate de
 non-régression opérationnel, `bench.compare` écrit, `--repeat` + provenance,
 sentinelle runner, et couverture de `semantic_memory` (98 %), `embeddings`
