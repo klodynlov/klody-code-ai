@@ -512,7 +512,74 @@ appel ~6,7 s (chargement des poids), appels suivants **~0,02 s**.
 - La conversion distance → similarité (`1 - d/2`) a été **vérifiée sur l'index
   réel** (concordance à 1e-6 avec le cosinus recalculé), pas déduite de la doc.
 
+## État au 2026-08-05 — un service long peut servir des dépendances mortes
+
+> ### ⚠️ INCIDENT — `pip install` sous un process vivant, symptôme 23 h plus tard
+>
+> La PR #206 (`f962c1e`, mergée le 2026-08-04 à 05:40) bumpe `openai`
+> 2.41.1 → 2.53.0. `com.klody.api` tourne depuis le 2026-08-03 01:36 et n'est
+> jamais redémarré : pip réécrit `site-packages/openai/` **sous** le process.
+>
+> `openai._utils` reste figé en 2.41.1 dans `sys.modules` — donc sans
+> `path_template` — tandis que `openai/resources/*`, chargé **paresseusement**
+> par `openai/_utils/_resources_proxy.py`, est lu neuf sur le disque. Au premier
+> appel LLM suivant, l'app rend sur CHAQUE requête :
+>
+>     cannot import name 'path_template' from 'openai._utils'
+>
+> **~23 h après le merge**, sans corrélation visible avec la mise à jour, et
+> avec un venv parfaitement SAIN : l'import dans un interpréteur frais passe.
+> C'est ce dernier point qui a coûté le plus cher — il envoie le diagnostic
+> chercher du côté des versions et du venv, où il n'y a rien.
+>
+> Remède : `launchctl kickstart -k gui/$(id -u)/com.klody.api`. Rien — ni sonde,
+> ni log, ni statut — ne le disait.
+>
+> **Ce n'est pas propre à l'API** : tous les `com.klody.*` (gateway, 8 serveurs
+> MCP) tournent sur le même venv et ont le même mode de panne. Les serveurs MCP
+> n'ont même pas de `/health`.
+>
+> **Le garde, `agent/peremption.py`** — l'empreinte de `site-packages`
+> (mtime max des `*.dist-info` **+** leur nombre) prise au démarrage, comparée
+> au disque à la demande. Trois surfaces :
+>
+> | surface | ce qu'elle voit | ce qu'elle fait |
+> |---|---|---|
+> | `/health`, `/api/status` | ce process-ci | `degraded` + **503**, remède nommé |
+> | `scripts/diagnostic_peremption.py` | **tous** les `com.klody.*` | nomme les services, `--corriger` les relance |
+> | `install-launchagents.sh --check` | le plus ancien démon | bloc `DÉPENDANCES`, informatif |
+>
+> ⚠️ **Le 503 ne peut pas faire boucler le watchdog** : `api-watchdog.sh` ignore
+> délibérément le code HTTP et ne relance que sur ABSENCE de réponse. Vérifié
+> par un test — si ce contrat changeait, la péremption relancerait l'API toutes
+> les deux minutes.
+>
+> ⚠️ **On date les `*.dist-info`, JAMAIS le dossier `site-packages`.** La
+> première compilation d'un module de premier niveau y crée `__pycache__/` et
+> rajeunit le dossier sans qu'aucune dépendance n'ait bougé : le garde
+> rougirait sur un venv stable, quelques secondes après le démarrage. Le
+> NOMBRE de paquets est le second axe, seul témoin d'une désinstallation sèche
+> — qui n'écrit rien et ne rajeunit aucune mtime.
+>
+> ⚠️ **Trois verdicts, pas deux** : `a_jour`, `perimees`, `non_juge`. Un
+> `site-packages` introuvable ne doit pas se lire « tout va bien ».
+>
+> **Vérifié sur la machine, pas seulement sur des fixtures** : le diagnostic
+> reproduit l'incident à l'identique (`com.klody.api` démarrée le 2026-08-03,
+> pip passé le 2026-08-04 05:27:36), et rejoué avec une empreinte datée de
+> l'instant, il rougit sur les 9 démons résidents et reste vert sur
+> `api-watchdog` (périodique, ré-exécuté à chaque tick). Coût du scan : **0,46
+> ms** pour 278 `*.dist-info` — d'où l'appel synchrone dans `/health`, sans
+> cache.
+>
+> Procédure de mise à jour des dépendances : `docs/OPS.md` §5.
+
 ## Pièges qui coûtent du temps
+
+- ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
+  l'oubli ne se voit que des heures plus tard.** Incident du 2026-08-05
+  ci-dessus. Réflexe : après toute mise à jour de `requirements.lock`,
+  `python scripts/diagnostic_peremption.py`.
 
 - ⚠️ **Un lanceur de service sans son agent launchd = un service qui ne démarre
   JAMAIS, sans la moindre erreur.** `launchagents/README.md` nomme ce mode de

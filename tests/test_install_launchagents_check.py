@@ -13,12 +13,19 @@ propriétés faciles à casser sans le voir :
   là-dessus le rendrait inutilisable ;
 * elle **doit se taire** quand aucun service ne tourne, sinon elle bruite tous
   les runners de CI.
+
+S'y ajoute depuis le 2026-08-05 le contrôle des DÉPENDANCES (`mtime_dependances`),
+angle mort de tout ce qui précède : pip peut réécrire `site-packages` sous un
+service vivant sans qu'aucun fichier du dépôt ne bouge. Même contrat — il
+informe et nomme `scripts/diagnostic_peremption.py`, qui lui juge.
 """
 from __future__ import annotations
 
 import os
 import re
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -233,3 +240,128 @@ def _extraire_fonction(script: str, nom: str) -> str:
     m = re.search(rf"^{nom}\(\) \{{.*?^\}}", script, re.S | re.M)
     assert m, f"fonction {nom} introuvable"
     return m.group(0) + "\n"
+
+
+def _mtime_dependances(repo_root: Path) -> str:
+    """Exécute `mtime_dependances` seule, sur un `REPO_ROOT` de test."""
+    script = SCRIPT.read_text()
+    return subprocess.run(
+        ["/bin/sh", "-c",
+         f'REPO_ROOT="{repo_root}"\n'
+         + _extraire_fonction(script, "mtime_max")
+         + _extraire_fonction(script, "mtime_dependances")
+         + "mtime_dependances\n"],
+        capture_output=True, text=True, timeout=60,
+    ).stdout.strip()
+
+
+def _venv_factice(racine: Path, mtime: int, paquets=("openai-2.53.0",)) -> Path:
+    """Un `.venv` avec des `*.dist-info` datés, comme pip en laisse."""
+    sp = racine / ".venv" / "lib" / "python3.11" / "site-packages"
+    sp.mkdir(parents=True, exist_ok=True)
+    for nom in paquets:
+        d = sp / f"{nom}.dist-info"
+        d.mkdir(exist_ok=True)
+        os.utime(d, (mtime, mtime))
+    return sp
+
+
+# ⚠️ Raison MESURÉE sur le runner (job 92199425263, 2026-08-05), pas déduite :
+# `stat -f` ne veut pas dire la même chose des deux côtés. En BSD c'est un format
+# d'affichage (`%m` = mtime) ; en GNU c'est « display filesystem status », d'où
+#     AssertionError: assert 'Inodes: Total: 19529728   Free: 18430229' == '1700000000'
+# Et `demarrage_epoch` s'appuie sur `date -j -f`, qui n'existe pas non plus en GNU.
+# Le script pilote launchd : il n'a de sens que sur macOS. La moitié PORTABLE du
+# garde est `agent/peremption.py`, couverte à 100 % et bien exercée en CI — ce
+# saut ne laisse donc pas le mécanisme sans juge.
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="`stat -f` (BSD) et `date -j` n'existent pas en GNU — script macOS-only",
+)
+class TestPeremptionDesDependances:
+    """L'angle mort de tout ce qui précède : le code des DÉPENDANCES.
+
+    Vécu le 2026-08-05. La PR #206 bumpe `openai` 2.41.1 → 2.53.0, pip réécrit
+    `site-packages/openai/` sous `com.klody.api` qui tourne depuis 28 h, et
+    l'app rend « cannot import name 'path_template' from 'openai._utils' » sur
+    CHAQUE requête ~23 h plus tard. Aucun fichier du dépôt n'avait bougé : la
+    section « code servi » était verte, et elle avait raison de l'être.
+    """
+
+    def test_date_les_dist_info(self, tmp_path):
+        _venv_factice(tmp_path, 1_700_000_000)
+        assert _mtime_dependances(tmp_path) == "1700000000"
+
+    def test_prend_la_plus_recente(self, tmp_path):
+        sp = _venv_factice(tmp_path, 1_000_000_000, paquets=("httpx-0.28.1",))
+        d = sp / "openai-2.53.0.dist-info"
+        d.mkdir()
+        os.utime(d, (1_700_000_000, 1_700_000_000))
+        assert _mtime_dependances(tmp_path) == "1700000000"
+
+    def test_ignore_le_pycache_de_premier_niveau(self, tmp_path):
+        """Le faux positif que le choix « dater les `*.dist-info`, pas le
+        dossier » évite : la première compilation d'un module de premier niveau
+        crée `site-packages/__pycache__/` et rajeunit le DOSSIER, sans qu'aucune
+        dépendance n'ait bougé."""
+        sp = _venv_factice(tmp_path, 1_700_000_000)
+        (sp / "__pycache__").mkdir()
+        os.utime(sp, (1_900_000_000, 1_900_000_000))
+        assert _mtime_dependances(tmp_path) == "1700000000"
+
+    def test_muet_sans_venv(self, tmp_path):
+        """Sur un runner de CI il n'y a pas de `.venv` : la fonction doit
+        rendre du vide, pas un `0` qui daterait tout de 1970 et déclarerait
+        l'univers entier périmé."""
+        assert _mtime_dependances(tmp_path) == ""
+
+    def test_le_bloc_apparait_quand_un_demon_precede_le_pip_install(self, tmp_path):
+        """Bout en bout : un dépôt de test complet, des services bouchonnés
+        démarrés au boot (pid 1), et un `site-packages` écrit à l'instant."""
+        depot = tmp_path / "depot"
+        (depot / "scripts").mkdir(parents=True)
+        (depot / "launchagents").mkdir()
+        (depot / "scripts" / SCRIPT.name).write_text(SCRIPT.read_text())
+        for src in AGENTS.glob("*.plist"):
+            (depot / "launchagents" / src.name).write_text(src.read_text())
+        _venv_factice(depot, int(time.time()))
+
+        home = tmp_path / "home"
+        path = _faux_launchctl(tmp_path / "bin")
+        p = subprocess.run(
+            ["/bin/sh", str(depot / "scripts" / SCRIPT.name), "--check"],
+            capture_output=True, text=True, timeout=180, cwd=str(depot),
+            env=dict(os.environ, HOME=str(home), PATH=path),
+        )
+        assert "DÉPENDANCES" in p.stdout, p.stdout
+        assert "diagnostic_peremption.py" in p.stdout, (
+            "le contrôle doit nommer l'outil qui, lui, désigne les services"
+        )
+
+    def test_le_bloc_se_tait_quand_le_venv_precede_les_demons(self, tmp_path):
+        """La moitié qui prouve que le contrôle peut être VERT : mêmes services,
+        mêmes plists, `site-packages` daté d'avant le démarrage. Sans ce test,
+        un bloc affiché inconditionnellement passerait le précédent."""
+        depot = tmp_path / "depot"
+        (depot / "scripts").mkdir(parents=True)
+        (depot / "launchagents").mkdir()
+        (depot / "scripts" / SCRIPT.name).write_text(SCRIPT.read_text())
+        for src in AGENTS.glob("*.plist"):
+            (depot / "launchagents" / src.name).write_text(src.read_text())
+        _venv_factice(depot, 1_000_000)  # 1970 + 11 jours : avant tout démarrage
+
+        home = tmp_path / "home"
+        path = _faux_launchctl(tmp_path / "bin")
+        p = subprocess.run(
+            ["/bin/sh", str(depot / "scripts" / SCRIPT.name), "--check"],
+            capture_output=True, text=True, timeout=180, cwd=str(depot),
+            env=dict(os.environ, HOME=str(home), PATH=path),
+        )
+        assert "DÉPENDANCES" not in p.stdout, p.stdout
+
+    def test_n_influence_pas_le_code_de_sortie(self, home_synchronise):
+        """Même contrat que le reste de la section : elle informe, elle ne
+        juge pas. Le juge est `scripts/diagnostic_peremption.py`, qui nomme
+        les services et rend trois codes de sortie distincts."""
+        p = _lancer(home_synchronise)
+        assert p.returncode == 0, p.stdout + p.stderr

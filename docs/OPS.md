@@ -189,3 +189,67 @@ cd ~/Projets/klody-ui
 npm run test:e2e         # headless
 npm run test:e2e:ui      # mode interactif Playwright UI
 ```
+
+## 5. Mettre à jour les dépendances sans casser les services vivants
+
+⚠️ **`pip install` ne suffit PAS : il faut redémarrer les services.** C'est
+l'incident du 2026-08-05, et il coûte cher parce qu'il est silencieux et
+différé.
+
+Ce qui s'est passé : la PR #206 a bumpé `openai` 2.41.1 → 2.53.0 ; `pip install
+-r requirements.lock` a réécrit `site-packages/openai/` **sous** `com.klody.api`
+qui tournait depuis 28 h. `openai._utils` est resté figé en 2.41.1 dans
+`sys.modules` (donc sans `path_template`), alors que `openai/resources/*` —
+chargé PARESSEUSEMENT par `openai/_utils/_resources_proxy.py` — a été lu neuf
+sur le disque. Au premier appel LLM suivant, l'app a rendu sur **chaque** requête
+
+```
+cannot import name 'path_template' from 'openai._utils'
+```
+
+**~23 h après la mise à jour**, sans corrélation visible avec elle, et avec un
+venv parfaitement sain : l'import dans un interpréteur frais passait, ce qui a
+envoyé le diagnostic chercher du côté des versions.
+
+### La procédure
+
+```bash
+cd ~/Projets/klody-code-ai && source .venv/bin/activate
+pip install -r requirements.lock
+python scripts/diagnostic_peremption.py
+```
+
+Le diagnostic nomme les services qui tournent encore sur l'ancien
+`site-packages` et donne la commande de relance de chacun. Pour les relancer
+tous d'un coup :
+
+```bash
+python scripts/diagnostic_peremption.py --corriger
+```
+
+⚠️ `--corriger` fait un `launchctl kickstart -k`, et `-k` **tue** le process
+avant de le relancer : sur `com.klody.api`, cela coupe la session de travail en
+cours. C'est pour ça que rien ne le déclenche automatiquement.
+
+Codes de sortie — trois, parce que « je n'ai pas pu juger » n'est pas « tout va
+bien » :
+
+| code | sens |
+|---|---|
+| 0 | jugé, aucun service périmé |
+| 1 | jugé, au moins un service périmé |
+| 2 | rien n'a pu être jugé (aucun agent chargé, `site-packages` introuvable) |
+
+### Les autres surfaces où l'écart se voit
+
+- **`/health`** passe en `degraded` + **503**, avec `checks.dependances =
+  "perimees"`, le détail et la commande de remède. Le watchdog ne peut pas
+  boucler dessus : `scripts/api-watchdog.sh` ignore délibérément le code HTTP et
+  ne relance que sur *absence* de réponse.
+- **`/api/status`** porte le même verdict dans son champ `dependances`.
+- **`install-launchagents.sh --check`** affiche un bloc `DÉPENDANCES` quand
+  `site-packages` a été réécrit depuis le démarrage du plus ancien démon. Il
+  informe seulement — il ne nomme pas les services et n'influence pas son code
+  de sortie ; le juge est `diagnostic_peremption.py`.
+
+Le mécanisme est décrit en détail dans `agent/peremption.py`.
