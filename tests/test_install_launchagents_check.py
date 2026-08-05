@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -265,6 +266,18 @@ def _venv_factice(racine: Path, mtime: int, paquets=("openai-2.53.0",)) -> Path:
     return sp
 
 
+# ⚠️ Raison MESURÉE sur le runner (job 92199425263, 2026-08-05), pas déduite :
+# `stat -f` ne veut pas dire la même chose des deux côtés. En BSD c'est un format
+# d'affichage (`%m` = mtime) ; en GNU c'est « display filesystem status », d'où
+#     AssertionError: assert 'Inodes: Total: 19529728   Free: 18430229' == '1700000000'
+# Et `demarrage_epoch` s'appuie sur `date -j -f`, qui n'existe pas non plus en GNU.
+# Le script pilote launchd : il n'a de sens que sur macOS. La moitié PORTABLE du
+# garde est `agent/peremption.py`, couverte à 100 % et bien exercée en CI — ce
+# saut ne laisse donc pas le mécanisme sans juge.
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="`stat -f` (BSD) et `date -j` n'existent pas en GNU — script macOS-only",
+)
 class TestPeremptionDesDependances:
     """L'angle mort de tout ce qui précède : le code des DÉPENDANCES.
 

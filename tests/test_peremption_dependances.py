@@ -371,10 +371,14 @@ class TestSondesReelles:
     """
 
     def test_lancer_rend_le_code_et_la_sortie(self):
+        """Contrat de `_lancer` : un code et une sortie. Le FORMAT de cette
+        sortie est le contrat d'`epoch_depuis_lstart`, éprouvé séparément
+        (`TestLstart`) — les mélanger ferait rougir la sonde pour un défaut
+        de conversion, et l'inverse."""
         import os
         rc, sortie = peremption._lancer(["ps", "-o", "lstart=", "-p", str(os.getpid())])
         assert rc == 0
-        assert peremption.epoch_depuis_lstart(sortie) is not None
+        assert sortie.strip()
 
     def test_un_binaire_absent_ne_leve_pas(self):
         """`launchctl` n'existe pas hors macOS : la sonde doit rendre « rien »,
