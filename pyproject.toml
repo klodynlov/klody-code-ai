@@ -55,6 +55,7 @@ files = [
     "agent/approval.py",
     "agent/preview_errors.py",
     "agent/greeting.py",
+    "agent/peremption.py",
     "tools/file_manager.py",
     "tools/terminal.py",
     "tools/sandbox.py",

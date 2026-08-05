@@ -37,7 +37,7 @@ from starlette.concurrency import run_in_threadpool
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import config
-from agent import journal_client, preview_errors
+from agent import journal_client, peremption, preview_errors
 from agent.approval import requires_approval
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -146,6 +146,27 @@ _sessions: dict[str, ConversationMemory] = {}
 # Stop flag partagé — interrompt le streaming en cours
 _stop_flag: list[bool] = [False]
 
+# Le LaunchAgent qui sert CE process — sert à composer la commande de remède
+# exacte (`launchctl kickstart -k …`) plutôt qu'un conseil générique.
+_LABEL_SERVICE = "com.klody.api"
+
+# Un WARNING de péremption, UNE fois. /health est sondé toutes les 60 s par
+# scripts/api-watchdog.sh : logger à chaque passage noierait la ligne qui compte
+# sous 1440 copies par jour, et un avertissement qu'on apprend à sauter ne
+# vaut pas mieux que pas d'avertissement du tout.
+_peremption_signalee = False
+
+
+def _signaler_peremption(etat: dict) -> None:
+    """Trace une seule fois des dépendances périmées dans klody-api.log."""
+    global _peremption_signalee
+    if _peremption_signalee:
+        return
+    _peremption_signalee = True
+    logger.warning(
+        "DÉPENDANCES PÉRIMÉES — %s Remède : %s", etat["raison"], etat["remede"]
+    )
+
 
 class StopGeneration(Exception):
     pass
@@ -190,6 +211,14 @@ async def get_status():
     # (health, WS) → le watchdog conclut "hung" et SIGKILL → crash-loop.
     project_info = await run_in_threadpool(_load_project_info)
 
+    # Vécu le 2026-08-05 : pip a réécrit site-packages/openai/ sous cette API
+    # vivante, qui a rendu « cannot import name 'path_template' from
+    # openai._utils » sur chaque requête ~23 h plus tard. Le statut le dit
+    # désormais, au lieu de laisser l'écart latent. Coût mesuré : 0,46 ms.
+    dependances = peremption.etat_process(label_service=_LABEL_SERVICE)
+    if dependances["statut"] == peremption.PERIMEES:
+        _signaler_peremption(dependances)
+
     return {
         "ollama": ollama_ok,
         "model": config.LLM_MODEL,
@@ -201,6 +230,7 @@ async def get_status():
         "backend_active": mlx_ok if config.BACKEND == "mlx" else ollama_ok,
         "mcp_server_active": mcp_active,
         "project_info": project_info,
+        "dependances": dependances,
     }
 
 
@@ -1593,6 +1623,17 @@ async def _probe_url(url: str, timeout: float = 1.5, accept_status: tuple = (200
 async def health(response: Response):
     """Probe profonde : OK 200 si tous les backends critiques sont up,
     sinon 503 + détail. Utilisable par k8s liveness/readiness, cron probes, etc.
+
+    « Critique » couvre deux choses distinctes : les backends JOIGNABLES (LLM),
+    et le code de dépendances que ce process sert encore. Le second a été ajouté
+    après l'incident du 2026-08-05, où l'API a échoué sur CHAQUE requête pendant
+    ~23 h avec des backends parfaitement up — pip avait réécrit
+    `site-packages/openai/` sous elle. `agent/peremption.py` porte le récit.
+
+    ⚠️ Ce 503-là ne peut PAS faire boucler le watchdog : `api-watchdog.sh` ne
+    regarde délibérément pas le code HTTP, seule l'ABSENCE de réponse le fait
+    relancer. Le remède reste donc entre les mains d'un humain — ce qui est le
+    bon niveau : `kickstart -k` tue la session de travail en cours.
     """
     # Probes parallèles
     ollama_url = config.OLLAMA_BASE_URL.replace("/v1", "") + "/api/tags"
@@ -1628,18 +1669,30 @@ async def health(response: Response):
     # LLM principal selon BACKEND
     llm_ok = mlx_ok if config.BACKEND == "mlx" else ollama_ok
 
+    # Trois valeurs, jamais deux : « non_juge » (site-packages introuvable) ne
+    # doit pas se lire comme « a_jour ».
+    dependances = peremption.etat_process(label_service=_LABEL_SERVICE)
+    deps_perimees = dependances["statut"] == peremption.PERIMEES
+
     checks = {
         "llm_backend": "ok" if llm_ok else "down",
         "ollama": "ok" if ollama_ok else "down",
         "mcp": "off" if mcp_ok is None else ("ok" if mcp_ok else "down"),
+        "dependances": dependances["statut"],
     }
     if mcp_detail:
         checks["mcp_detail"] = mcp_detail
     if mlx_ok is not None:
         checks["mlx"] = "ok" if mlx_ok else "down"
+    if deps_perimees:
+        checks["dependances_detail"] = dependances["raison"]
+        checks["dependances_remede"] = dependances["remede"]
+        _signaler_peremption(dependances)
 
     # Critique = LLM backend principal. MCP/Ollama secondaire si BACKEND=mlx.
-    all_ok = bool(llm_ok)
+    # Des dépendances périmées sont critiques au même titre : tout appel LLM va
+    # échouer, backends up ou pas — c'est très exactement le 2026-08-05.
+    all_ok = bool(llm_ok) and not deps_perimees
     if not all_ok:
         response.status_code = 503
     return {

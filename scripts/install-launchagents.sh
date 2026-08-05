@@ -120,6 +120,24 @@ mtime_max() {
     tr '\n' '\0' | xargs -0 stat -f '%m' 2>/dev/null | sort -rn | head -1
 }
 
+mtime_dependances() {
+    # Le code des DÉPENDANCES, pas celui du dépôt — angle mort de tout ce qui
+    # précède. Vécu le 2026-08-05 : pip a réécrit `site-packages/openai/` sous
+    # l'API vivante (bump 2.41.1 → 2.53.0 de la PR #206), qui a rendu « cannot
+    # import name 'path_template' from 'openai._utils' » sur CHAQUE requête ~23 h
+    # plus tard. Aucun fichier du dépôt n'avait bougé : la section ci-dessus
+    # était verte, et elle avait raison de l'être.
+    #
+    # On ne date QUE les `*.dist-info` : pip en réécrit un à chaque
+    # (dés)installation, et ils sont insensibles aux `__pycache__` — dater le
+    # dossier `site-packages` lui-même le rendrait faux dès la première
+    # compilation d'un module de premier niveau après le démarrage.
+    for sp in "$REPO_ROOT"/.venv/lib/python*/site-packages; do
+        [ -d "$sp" ] || continue
+        ls -d "$sp"/*.dist-info 2>/dev/null || true
+    done | mtime_max
+}
+
 verifier_code_servi() {
     residents=""          # démons avec un processus vivant : évaluables
     nb_charges=0
@@ -203,6 +221,16 @@ verifier_code_servi() {
         echo "note : du code partagé (klody_mcp, tools, agent, api, config) a changé depuis"
         echo "       le démarrage du plus ancien démon résident — un service qui l'importe"
         echo "       peut servir du code périmé sans que son point d'entrée ait bougé."
+    fi
+
+    deps=$(mtime_dependances)
+    if [ -n "${plus_ancien:-}" ] && [ -n "${deps:-}" ] &&
+           [ "$plus_ancien" -lt "$deps" ]; then
+        echo "DÉPENDANCES  site-packages a été réécrit depuis le démarrage du plus ancien"
+        echo "             démon résident : un service peut tenir en mémoire un paquet à"
+        echo "             moitié périmé (incident du 2026-08-05). Ce contrôle-ci ne dit"
+        echo "             pas LESQUELS — celui qui les nomme, et qui les redémarre :"
+        echo "             python scripts/diagnostic_peremption.py"
     fi
     echo "$nb_charges agent(s) chargé(s) : $nb_residents résident(s) dont" \
          "${perimes:-0} au point d'entrée périmé, $nb_periodiques périodique(s)" \
