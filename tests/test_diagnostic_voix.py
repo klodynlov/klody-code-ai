@@ -1,9 +1,10 @@
 """Le diagnostic doit distinguer « pas de son » de « son instable ».
 
 Deux pannes différentes, deux remèdes différents, et l'une est SILENCIEUSE :
-`vocalbrain generate --voice <valeur-inconnue>` est accepté sans erreur puis
-ignoré. Une `VOICE_PRESET` mal orthographiée ne produit donc ni message ni
-changement — la panne muette est la plus coûteuse de ce dépôt.
+`--voice <valeur-inconnue>` était accepté sans erreur puis ignoré — une
+`VOICE_PRESET` mal orthographiée ne produisait ni message ni changement, la
+panne muette étant la plus coûteuse de ce dépôt. `--preset` refuse net, et ce
+refus est verrouillé ici : c'est ce qui a tué le mode muet.
 
 Le juge est la ligne `clonage :` rendue par la CLI, pas notre configuration :
 celle-ci ne prouverait que nos intentions.
@@ -23,6 +24,12 @@ dry-run — 1 prise(s) simulée(s) pour 'Klody'
   clonage  : {clonage}
 """
 
+# ⚠️ Ce que la CLI écrit VRAIMENT quand le clonage est actif : la SOURCE du
+# timbre, jamais le mot « oui ». Un faux qui répondrait « oui » validerait un
+# analyseur incapable de reconnaître la vraie sortie — le contrôle serait vert
+# en test et rouge sur la machine.
+_CLONAGE_REEL = "klody_e250 (preset « klody »)"
+
 _AIDE = """╭─ Commands ────────────────────────╮
 │ generate   Génère N prises audio  │
 │ clone      Entraîne une voix      │
@@ -35,7 +42,14 @@ def cli(monkeypatch):
     """Bouchonne la CLI VocalBrain et enregistre les commandes lancées."""
     lancees: list[list[str]] = []
 
-    def _poser(clonage: str = "non", aide: str = _AIDE, casse: bool = False):
+    def _poser(
+        clonage: str = "non",
+        aide: str = _AIDE,
+        casse: bool = False,
+        dry_run: str | None = None,
+    ):
+        """`dry_run` remplace la sortie entière — pour les cas où la CLI ne rend
+        PAS le format nominal (refus d'un preset inconnu, version différente)."""
         def _run(cmd, **_kwargs):
             lancees.append(cmd)
             if casse:
@@ -43,9 +57,12 @@ def cli(monkeypatch):
 
             class _Proc:
                 stderr = ""
-                stdout = _AIDE if "--help" in cmd else _DRY_RUN.format(clonage=clonage)
+                stdout = ""
 
-            _Proc.stdout = aide if "--help" in cmd else _DRY_RUN.format(clonage=clonage)
+            _Proc.stdout = (
+                aide if "--help" in cmd
+                else (dry_run if dry_run is not None else _DRY_RUN.format(clonage=clonage))
+            )
             return _Proc()
 
         monkeypatch.setattr(subprocess, "run", _run)
@@ -66,32 +83,54 @@ class TestControlerClonage:
         assert "n'est PAS figé" in sortie
         assert "PLUSIEURS VOIX" in sortie
 
-    def test_clonage_oui_valide_le_timbre(self, cli, monkeypatch, capsys):
-        cli(clonage="oui")
-        monkeypatch.setattr(config, "VOICE_PRESET", "klody-fr")
-        assert diag.controler_clonage() is True
-        assert "clonage actif" in capsys.readouterr().out
+    def test_clonage_actif_valide_le_timbre_ET_nomme_sa_source(self, cli, monkeypatch, capsys):
+        """La CLI n'écrit jamais « oui » : elle écrit la SOURCE du timbre.
 
-    def test_preset_renseignee_mais_ignoree_est_DENONCEE(self, cli, monkeypatch, capsys):
-        """LE cas piège : la CLI accepte une voix inconnue et l'ignore en silence."""
-        cli(clonage="non")
+        Un analyseur qui chercherait « oui » serait vert contre un faux complaisant
+        et rouge à jamais sur la machine. Il doit donc reconnaître la vraie sortie,
+        et la RENDRE — deux epochs RVC font deux voix, savoir que « ça clone » sans
+        savoir avec quoi ne suffit pas à trancher.
+        """
+        cli(clonage=_CLONAGE_REEL)
+        monkeypatch.setattr(config, "VOICE_PRESET", "klody")
+        assert diag.controler_clonage() is True
+        sortie = capsys.readouterr().out
+        assert "clonage actif" in sortie
+        assert "klody_e250" in sortie
+
+    def test_preset_inconnu_est_DENONCE(self, cli, monkeypatch, capsys):
+        """Le successeur du cas piège.
+
+        `--voice` acceptait une valeur inconnue et l'ignorait en silence ;
+        `--preset` sort en erreur — donc SANS ligne `clonage :`. Sans lecture
+        explicite du refus, cette absence se lirait « CLI d'une autre version »,
+        c'est-à-dire un non-problème : la panne muette reviendrait par la fenêtre.
+        """
+        refus = (
+            "Usage: vocalbrain generate [OPTIONS]\n"
+            "Invalid value: preset de voix introuvable : "
+            "/Users/x/.vocalbrain/voice_samples/faute-de-frappe.json\n"
+            "→ presets disponibles : klody\n"
+        )
+        cli(dry_run=refus)
         monkeypatch.setattr(config, "VOICE_PRESET", "faute-de-frappe")
         assert diag.controler_clonage() is False
         sortie = capsys.readouterr().out
-        assert "INCONNUE de VocalBrain" in sortie
+        assert "inconnu de VocalBrain" in sortie
         assert "faute-de-frappe" in sortie
+        assert "presets disponibles : klody" in sortie  # le remède nomme ce qui EXISTE
 
     def test_la_preset_est_bien_transmise_au_dry_run(self, cli, monkeypatch):
-        lancees = cli(clonage="oui")
+        lancees = cli(clonage=_CLONAGE_REEL)
         monkeypatch.setattr(config, "VOICE_PRESET", "klody-fr")
         diag.controler_clonage()
         cmd = lancees[0]
-        assert cmd[cmd.index("--voice") + 1] == "klody-fr"
+        assert cmd[cmd.index("--preset") + 1] == "klody-fr"
 
     def test_sans_preset_l_option_n_est_pas_passee(self, cli):
         lancees = cli(clonage="non")
         diag.controler_clonage()
-        assert "--voice" not in lancees[0]
+        assert "--preset" not in lancees[0]
 
     def test_le_dry_run_ne_synthetise_rien(self, cli):
         """Le contrôle doit rester quasi gratuit : jamais de vraie synthèse."""

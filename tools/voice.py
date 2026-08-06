@@ -2,9 +2,15 @@
 
 Pont LÉGER : n'importe ni mlx_audio ni torch. Il appelle la CLI `vocalbrain`
 (installée dans le venv local-suno) en subprocess pour générer un WAV avec la
-voix du personnage dédié « Klody » (projet VocalBrain `klody-voice`,
-Qwen3-TTS 0.6B multilingue), puis le joue en arrière-plan avec `afplay` —
-la boucle ReAct n'attend pas la fin de la lecture.
+voix du personnage dédié « Klody » (projet VocalBrain `klody-voice`), puis le
+joue en arrière-plan avec `afplay` — la boucle ReAct n'attend pas la fin de la
+lecture.
+
+Le timbre vient du preset de voix clonée nommé par `config.VOICE_PRESET`, passé
+à CHAQUE synthèse. Le preset `klody` convertit la prise au modèle RVC
+`klody_e250` — le même timbre que la voix CHANTÉE de local-suno. Le surcoût est
+mesuré : ~4,7 s de RVC pour 2,6 s de parole (2026-08-02), payés dans le même
+subprocess, sans que torch entre jamais ici.
 
 À ne pas confondre avec mcp__vocalbrain__generer_chanson (chant, pipeline
 local-suno complet, minutes) : ici c'est de la PAROLE courte, quelques secondes.
@@ -32,11 +38,15 @@ _TEXT_CAP = 600
 _SYNTH_TIMEOUT = 90.0
 
 # Modèle TTS provisionné À PART (jamais téléchargé en cours de synthèse, cf.
-# _synth_env). Repo du modèle préféré du personnage « Klody » — cité tel quel dans
-# l'indice de remédiation pour que l'échec soit ACTIONNABLE d'un copier-coller.
+# _synth_env). Cité tel quel dans l'indice de remédiation pour que l'échec soit
+# ACTIONNABLE d'un copier-coller. C'est bien le modèle de BASE même quand le
+# clonage est actif : le preset `klody` clone en RVC, APRÈS la synthèse — le
+# routeur VocalBrain ne bascule donc pas sur un modèle de clonage. (Leçon du
+# 2026-07-30 : un message qui nomme la mauvaise dépendance coûte une enquête
+# entière.) Un modèle RVC absent, lui, a son propre message côté VocalBrain.
 _MODEL_REPO = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
 _MODEL_REMEDY = (
-    f"Le modèle TTS est peut-être incomplet/absent. Provisionne-le UNE fois avec : "
+    "Le modèle TTS est peut-être incomplet/absent. Provisionne-le UNE fois avec : "
     f"hf download {_MODEL_REPO}"
 )
 
@@ -153,12 +163,15 @@ def speak(text: str, language: str = "fr") -> str:
         "--lang", lang,
         "--segment-id", seg,
     ]
-    # Ajoutée SEULEMENT si configurée : une option passée à vide serait un
+    # Le preset FIGE le timbre (cf. config.VOICE_PRESET) — le personnage (`-c`)
+    # ne suffit pas sur un modèle Base. Cité à chaque appel plutôt que laissé au
+    # profil du personnage : la CLI échoue net si le preset manque, là où un
+    # profil vidé ferait retomber la synthèse sur un timbre tiré au sort — même
+    # voix rendue, plus jamais la même, et rien pour le signaler.
+    # Ajouté SEULEMENT si configuré : une option passée à vide serait un
     # changement de comportement pour toute installation qui marche déjà.
-    # Le personnage (`-c`) ne suffit pas à figer le timbre sur un modèle Base —
-    # cf. le commentaire de config.VOICE_PRESET.
     if config.VOICE_PRESET:
-        cmd += ["--voice", config.VOICE_PRESET]
+        cmd += ["--preset", config.VOICE_PRESET]
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_SYNTH_TIMEOUT,

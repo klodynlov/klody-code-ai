@@ -8,7 +8,7 @@ import sys
 import threading
 from pathlib import Path
 
-from agent.greeting import AccueilEnTacheDeFond
+from agent.greeting import INVITE_PROPOSITIONS, AccueilEnTacheDeFond
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
@@ -700,9 +700,10 @@ def _afficher_accueil(accueil: AccueilEnTacheDeFond) -> tuple[str, ...]:
             console.print()
             for i, proposition in enumerate(rendu.propositions, 1):
                 console.print(f"    [bold cyan]{i}[/bold cyan]  {proposition}")
-            console.print(
-                "    [dim]Tape un numéro pour lancer, ou pose ta question.[/dim]"
-            )
+            # Même phrase que `en_texte()`, tirée de la même constante : la
+            # laisser en double a produit une voix qui numérotait sans jamais
+            # dire à quoi servaient les numéros (2026-08-02).
+            console.print(f"    [dim]{INVITE_PROPOSITIONS}[/dim]")
         _dire_accueil(rendu)
         return rendu.propositions
     except Exception as exc:  # pragma: no cover - défense du chemin de démarrage
