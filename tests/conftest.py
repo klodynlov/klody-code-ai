@@ -5,6 +5,17 @@ import config
 import pytest
 from agent import semantic_memory
 
+# Capturé AVANT toute redirection : le garde-fou de tests/test_hermeticite_voix.py
+# doit pouvoir vérifier que le vrai dossier reste intact, et il ne le peut plus si
+# la seule référence qui subsiste est celle qu'on vient de détourner.
+_VRAI_VOICE_AUDIO_DIR = config.VOICE_AUDIO_DIR
+
+
+@pytest.fixture
+def vrai_dossier_audio():
+    """Le dossier audio RÉEL de l'utilisateur, tel qu'avant `_voix_muette`."""
+    return _VRAI_VOICE_AUDIO_DIR
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _pas_de_pollution_du_log_prod():
@@ -45,3 +56,37 @@ def _semantic_memory_isolee(monkeypatch, tmp_path):
     yield
     semantic_memory._provider = None
     semantic_memory._configured_db = None
+
+
+@pytest.fixture(autouse=True)
+def _voix_muette(monkeypatch, tmp_path):
+    """La suite ne DOIT JAMAIS faire parler la VRAIE CLI VocalBrain.
+
+    Troisième instance du même défaut que les deux fixtures ci-dessus (le log de
+    prod, la base sémantique) : un test touchait la ressource réelle de l'atelier.
+    Ici, `tests/test_banner_backend.py` exerce les chemins voix de `main` sans
+    rien détourner — donc `speak` lançait la CLI, synthétisait pour de bon, JOUAIT
+    LE SON sur les haut-parleurs, et déposait le WAV dans `~/.vocalbrain/audio`
+    avec sa ligne dans `vocalbrain.db`. Mesuré le 2026-08-05 : **4 prises par
+    passe** de ce seul fichier, 61 prises de fixture accumulées depuis le 02-08.
+
+    Deux fuites distinctes, et c'est ce qui rend le garde nécessaire ICI plutôt
+    que test par test :
+
+    1. `main.GREETING_VOICE` est lu à l'IMPORT du module, donc les tests
+       héritaient du `.env` du développeur. Ils étaient muets tant qu'il valait
+       `false` — poser `GREETING_VOICE=true` a rendu la suite parlante sans
+       toucher une ligne de test. Un test dont le comportement dépend du `.env`
+       local n'est pas un test.
+    2. `handle_special_command("/voix")` sonde la voix à l'activation (un vrai
+       `speak`, délibéré côté prod) et ne consulte PAS `GREETING_VOICE` : cette
+       fuite-là survivait au flag coupé. Contrôle mesuré : 4 prises → 1.
+
+    On coupe donc à la racine plutôt qu'au cas par cas : `VOICE_CLI` pointe dans
+    le vide, d'où un `FileNotFoundError` que `speak` traduit déjà en « CLI
+    VocalBrain introuvable » — sans subprocess, sans son, sans fichier. Le
+    dossier audio est détourné en prime (ceinture + bretelles). `test_voice.py`,
+    lui, reste maître chez lui : sa propre fixture repose ces deux valeurs.
+    """
+    monkeypatch.setattr(config, "VOICE_CLI", str(tmp_path / "vocalbrain-absent"))
+    monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
