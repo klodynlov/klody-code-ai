@@ -113,9 +113,10 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **84,3 %** (gate 80), **2673 tests** (`pytest tests/ --collect-only`,
-recompté le 2026-08-07 ; 2614 le 2026-08-05, 2313 le 2026-07-30 — personne ne le
-rejouait alors, exactement le mode de défaillance décrit en bas de ce fichier).
+Couverture **84,3 %** (gate 80), **2779 tests** (`pytest tests/ --collect-only`,
+recompté le 2026-08-07 sur `main` à jour ; 2614 le 2026-08-05, 2313 le 2026-07-30
+— personne ne le rejouait alors, exactement le mode de défaillance décrit en bas
+de ce fichier).
 ⚠️ La couverture, elle, n'a PAS été recomptée à ces dates : elle porte toujours
 la mesure du 2026-07-30. Un seul des deux chiffres de cette ligne est frais.
 ⚠️ **Un rouge lu sur une branche N'EST PAS un rouge de `main`.** Le 2026-08-07,
@@ -671,8 +672,10 @@ déterministes, tous vérifiés sur le code réel de local-suno et sur les
   `[chorus 1]`, `[bridge 1]`. Un bloc sans en-tête reste `[verse]` (même repli que
   le daemon) mais est **compté et signalé** : deviner qu'un bloc est un refrain
   serait transformer les paroles sans le dire.
-- **La durée se déduit des paroles** quand elle n'est pas donnée (mots ÷ 2). Le
-  défaut fixe à 30 s était la cause n°1 ; il n'y a plus de défaut fixe.
+- **La durée se déduit des paroles** quand elle n'est pas donnée — pas par
+  `mots ÷ 2`, mais par la plus courte durée où **aucun segment** ne dépasse la
+  cible (`duree_sans_saturation`). Le défaut fixe à 30 s était la cause n°1 ; il
+  n'y a plus de défaut fixe.
 - **Refus AVANT le POST** quand le rendu serait tronqué ou répété — pas après.
   Un refus qui arrive une fois la génération en file ne sert à rien : elle dure
   des minutes. `forcer=True` reste l'échappatoire, et la note dit « FORCÉ malgré ».
@@ -688,10 +691,46 @@ déterministes, tous vérifiés sur le code réel de local-suno et sur les
 > Vérifié en rejouant le circuit réel : canonicalisation seule sur un texte sans
 > structure ⇒ toujours 3 segments identiques. Le garde, lui, refuse.
 
+> ### ✅ MESURÉ IN VIVO — le débit GLOBAL masquait le seul chiffre qui décide
+>
+> Deux générations réelles des mêmes paroles (358 mots, 9 sections), transcrites
+> à Whisper large-v3-turbo, appariement flou ligne à ligne (seuil 0,60) :
+>
+> | | 180 s | 228 s |
+> |---|---|---|
+> | débit **global** | 1,99 mots/s ✅ | 1,57 |
+> | débit du **pire segment** | **2,52** ❌ | 2,00 |
+> | **couverture du texte** | **65 %** (31/48 vers) | **94 %** (45/48) |
+>
+> **La cause, lue dans la répartition** : `split_arrangement_text` équilibre le
+> **NOMBRE de sections**, pas le nombre de mots, et `plan_segment_durations` rend
+> des durées **égales**. 9 sections en 2 segments ⇒ 5 + 4, soit **232 mots contre
+> 126** dans deux segments de 92 s. Le premier saturait à 2,52 mots/s.
+>
+> **Signature causale** : les gains sont exactement dans les sections du segment
+> saturé — 13/30 → **22/30** — pendant que celles du segment sain ne bougent pas
+> (18/18 → 17/18, le −1 étant du bruit d'appariement). Ce n'est pas « c'est mieux
+> plus long », c'est « c'est mieux là où ça saturait ».
+>
+> ⚠️ **Le contrôle initial ne voyait rien** : il ne regardait que le débit global,
+> conforme dans les deux cas. `debit_par_segment` + `duree_sans_saturation`
+> corrigent ça, et `TestPasDeDerive::test_la_repartition_des_mots_est_celle_du_daemon`
+> confronte la répartition prédite au vrai `split_arrangement_text`.
+>
+> ⚠️ **Ce que ça n'établit PAS** : Whisper sur un mix complet (voix + instru)
+> dérive phonétiquement (« ton nom » → « ton mot »), donc les pourcentages
+> absolus portent du bruit. Ce qui tient, c'est la **comparaison** — mêmes
+> paroles, même modèle, même seuil, et un écart concentré sur les sections
+> prédites. Un pourcentage isolé de cette paire ne veut rien dire.
+
 ⚠️ **Le débit de 2 mots/s n'est pas une estimation maison** : c'est la cible que
 le daemon écrit lui-même, et il avertit déjà sous 1 mot/s — mais dans un `print`
 de sous-processus worker que **ni l'utilisateur ni Klody ne voient jamais**. Le
 contrôle remonte ce que le daemon savait déjà, au seul endroit où ça peut servir.
+
+⚠️ **Un TTS/chant cassé CHANTE quand même** — piège déjà écrit plus bas pour la
+voix parlée, revécu ici : à 180 s le morceau sonnait complet, structure entière,
+aucune répétition audible. Il manquait **35 % du texte**. Seul l'ASR l'a vu.
 
 ⚠️ **`_idee_to_body` bornait la durée à 120 s** en citant « bornes daemon (ge=10
 le=120) » alors que le contrat était passé à **600**. Toute démo au-delà de 2 min

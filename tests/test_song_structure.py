@@ -122,6 +122,67 @@ class TestSegments:
         assert ss.nb_segments(240) == 3
 
 
+# Chanson RÉELLE générée le 2026-08-07 (session be133ea1) : 9 sections de
+# longueurs inégales, 358 mots. Débit global 1,99 mots/s — conforme — mais le
+# segment 1 a reçu 5 sections (232 mots) et a TRONQUÉ à l'écoute, transcription
+# Whisper à l'appui. C'est le contre-exemple qui a montré que le débit global ne
+# suffit pas ; il sert de témoin ici.
+_SECTIONS_INEGALES = "\n\n".join(
+    [
+        "[Couplet 1]\n" + " ".join(["mot"] * 66),
+        "[Pré-refrain]\n" + " ".join(["mot"] * 20),
+        "[Refrain]\n" + " ".join(["mot"] * 48),
+        "[Couplet 2]\n" + " ".join(["mot"] * 66),
+        "[Pré-refrain]\n" + " ".join(["mot"] * 22),
+        "[Refrain]\n" + " ".join(["mot"] * 48),
+        "[Pont]\n" + " ".join(["mot"] * 26),
+        "[Refrain]\n" + " ".join(["mot"] * 34),
+        "[Outro]\n" + " ".join(["mot"] * 8),
+    ]
+)
+
+
+class TestDebitParSegment:
+    def test_le_debit_global_peut_masquer_un_segment_sature(self):
+        r = ss.controler_couverture(_SECTIONS_INEGALES, 180)
+        assert r["segments"] == 2
+        assert r["debit_mots_s"] <= ss.DEBIT_CIBLE, "le global est conforme…"
+        assert r["debit_pire_segment"] > ss.DEBIT_CIBLE, "…et pourtant un segment sature"
+        assert r["mots_par_segment"][0] > r["mots_par_segment"][1]
+
+    def test_le_segment_sature_est_signale_et_explique(self):
+        r = ss.controler_couverture(_SECTIONS_INEGALES, 180)
+        (alerte,) = r["avertissements"]
+        assert "segment le plus dense" in alerte
+        # Le remède est dans le message : le déséquilibre vient du découpage par
+        # NOMBRE de sections, pas de la longueur du texte.
+        assert "NOMBRE de sections" in alerte
+        assert str(r["duree_conseillee_sec"]) in alerte
+
+    def test_la_duree_deduite_desature_le_pire_segment(self):
+        r = ss.controler_couverture(_SECTIONS_INEGALES, None)
+        assert r["debit_pire_segment"] <= ss.DEBIT_CIBLE
+        assert r["avertissements"] == []
+        # Plus long que le plancher global, précisément à cause du déséquilibre.
+        assert r["duree_sec"] > ss.duree_conseillee(r["mots"])
+
+    def test_un_seul_segment_na_quun_debit(self):
+        r = ss.controler_couverture(_paroles(3, 40), 60)
+        assert r["segments"] == 1
+        assert r["debit_pire_segment"] == r["debit_mots_s"]
+
+    def test_sections_egales_ne_paient_aucun_supplement(self):
+        # Sans déséquilibre, la durée déduite reste le plancher global : le
+        # nouveau critère ne doit pas rallonger tout le monde par précaution.
+        paroles = _paroles(6, 60)
+        r = ss.controler_couverture(paroles, None)
+        assert r["duree_sec"] == ss.duree_conseillee(r["mots"])
+
+    def test_arrangement_vide(self):
+        assert ss.debit_par_segment("", 180) == []
+        assert ss.duree_sans_saturation("") == ss.DUREE_MIN_SEC
+
+
 # --------------------------------------------------------------------------- #
 # Contrôle de couverture                                                       #
 # --------------------------------------------------------------------------- #
@@ -222,7 +283,18 @@ from main import _build_lyrics_from_custom
 from pipeline.acestep_generator import plan_segment_durations
 from pipeline.song_format import build_arrangement, split_arrangement_text
 
-arrangement = json.loads(sys.stdin.read())["arrangement"]
+entree = json.loads(sys.stdin.read())
+arrangement = entree["arrangement"]
+
+# Répartition réelle d'un arrangement à sections INÉGALES : c'est elle qui décide
+# du débit de chaque segment, et donc de ce qui sera tronqué.
+inegal = entree["inegal"]
+n_inegal = len(plan_segment_durations(180))
+mots_par_segment = [
+    sum(len(l.split()) for l in c.splitlines() if not l.strip().startswith("["))
+    for c in split_arrangement_text(inegal, n_inegal)
+]
+
 ly = _build_lyrics_from_custom(arrangement, "t", "pop", 90, "Am")
 reconstruit = build_arrangement(ly.structure, ly.lyrics)
 n = len(plan_segment_durations(180))
@@ -238,6 +310,7 @@ print(json.dumps({
     "sections_gardees": list(ly.lyrics),
     "reconstruit": reconstruit,
     "morceaux": morceaux,
+    "mots_par_segment_inegal": mots_par_segment,
 }))
 """
 
@@ -251,9 +324,10 @@ def daemon_reel() -> dict:
     if not python.exists():
         pytest.skip(f"venv local-suno absent ({python})")
     arrangement, _ = ss.canonicaliser_paroles(_PAROLES_TEMOIN)
+    inegal, _ = ss.canonicaliser_paroles(_SECTIONS_INEGALES)
     proc = subprocess.run(
         [str(python), "-c", _SONDE],
-        input=json.dumps({"arrangement": arrangement}),
+        input=json.dumps({"arrangement": arrangement, "inegal": inegal}),
         capture_output=True, text=True, cwd=str(_LOCALSUNO), timeout=120,
     )
     if proc.returncode != 0:
@@ -300,6 +374,18 @@ class TestPasDeDerive:
         assert len(daemon_reel["sections_gardees"]) == 5, (
             f"sections écrasées : {daemon_reel['sections_gardees']}"
         )
+
+    def test_la_repartition_des_mots_est_celle_du_daemon(self, daemon_reel):
+        """`debit_par_segment` doit prédire le VRAI découpage, pas une approximation.
+
+        C'est ce chiffre qui décide désormais de la durée déduite : s'il diverge
+        de ce que `split_arrangement_text` fait réellement, la durée choisie ne
+        désature rien et le garde-fou devient décoratif.
+        """
+        arrangement, _ = ss.canonicaliser_paroles(_SECTIONS_INEGALES)
+        predit = [m for m, _ in ss.debit_par_segment(arrangement, 180)]
+        assert predit == daemon_reel["mots_par_segment_inegal"]
+        assert predit[0] > predit[1], "le témoin doit rester déséquilibré"
 
     def test_circuit_complet_chaque_segment_chante_autre_chose(self, daemon_reel):
         """Le test qui porte la conclusion : > 120 s sans texte re-chanté."""
