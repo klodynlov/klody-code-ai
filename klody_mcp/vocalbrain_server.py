@@ -36,6 +36,8 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp import song_structure as ss
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -95,8 +97,10 @@ _UNREACHABLE = f"daemon local-suno injoignable ({LOCALSUNO_URL}) — démarre-le
 # Bornes du contrat /generate (storage.models.GenerationRequest côté local-suno).
 # Hors bornes, le daemon répond 422 avec une erreur pydantic illisible pour le
 # modèle : on borne ici et on DIT ce qui a été borné plutôt que de laisser passer.
-_DUREE_MIN, _DUREE_MAX = 10, 600
-_BPM_MIN, _BPM_MAX = 60, 180
+# Une seule source dans le dépôt (`song_structure`), qu'un test compare au vrai
+# contrat de local-suno : deux copies avaient déjà divergé (120 contre 600).
+_DUREE_MIN, _DUREE_MAX = ss.DUREE_MIN_SEC, ss.DUREE_MAX_SEC
+_BPM_MIN, _BPM_MAX = ss.BPM_MIN, ss.BPM_MAX
 
 # Arrangement d'un morceau sans chant. Double rôle :
 #   1. c'est la convention des données d'entraînement ACE-Step — le daemon écrit
@@ -167,10 +171,11 @@ def lister_voix() -> dict:
 async def generer_chanson(
     paroles: str,
     style: str = "emotional pop, piano, warm vocals",
-    duree_sec: int = 30,
+    duree_sec: int | None = None,
     modele_voix: str = "klody",
     transpose: int = 0,
     bpm: int | None = None,
+    forcer: bool = False,
 ) -> dict:
     """Lance la génération d'une chanson chantée (voix clonée) — NON bloquant.
 
@@ -178,40 +183,94 @@ async def generer_chanson(
     l'avancement avec statut_generation(session_id), puis le mix final avec
     resultat_generation(session_id) une fois le statut "done".
 
+    ⚠️ Les paroles sont CONTRÔLÉES avant l'envoi : le moteur ne chante pas plus
+    vite que ~2 mots/s, et au-delà de 120 s il génère la chanson en plusieurs
+    segments qui se partagent les sections. Un texte trop dense pour la durée est
+    tronqué ; un texte qui a moins de sections que de segments est re-chanté à
+    l'identique dans les segments de fin. Les deux cas sont REFUSÉS ici plutôt
+    que découverts à l'écoute d'une génération de plusieurs minutes.
+
+    Pour une chanson complète, écris les paroles avec des en-têtes de section —
+    [Couplet 1] / [Refrain] / [Couplet 2] / [Pont] / [Refrain] — ou au minimum une
+    ligne vide entre chaque bloc. Ces en-têtes sont convertis ici au format du
+    moteur ; ce sont eux qui portent la structure du morceau.
+
     Args:
-        paroles: Paroles complètes à chanter.
+        paroles: Paroles complètes à chanter, en sections (voir ci-dessus).
         style: Tags de style en anglais (genre, instruments, ambiance, bpm).
-        duree_sec: Durée cible en secondes.
+        duree_sec: Durée cible (10-600). NON FOURNIE = déduite des paroles à
+            ~2 mots/s, ce qui est presque toujours le bon choix : une durée
+            imposée trop courte fait couper du texte, trop longue fait étirer
+            les syllabes.
         modele_voix: Nom du modèle de voix clonée (voir lister_voix).
         transpose: Transposition en demi-tons.
-        bpm: BPM cible (optionnel).
+        bpm: BPM cible (60-180, optionnel).
+        forcer: True = lance malgré un contrôle de couverture négatif. À n'utiliser
+            que si la troncature est assumée (extrait, teaser).
 
     Returns:
-        {"session_id", "status", "note"} ou {"error": "..."}.
+        {"session_id", "status", "parametres", "couverture", "note"} ou
+        {"error": "...", "couverture": {...}}.
     """
     if not paroles or not paroles.strip():
         return {"error": "paroles requises"}
+
+    rapport = ss.controler_couverture(paroles, duree_sec)
+    # Le contrôle rend un compte rendu chiffré ; on n'en renvoie que la partie
+    # utile au modèle (l'arrangement complet ferait doubler la réponse).
+    couverture = {k: v for k, v in rapport.items() if k not in ("arrangement", "structure")}
+    if not rapport["couvrable"] and not forcer:
+        return {"error": ss.message_de_refus(rapport), "couverture": couverture}
+
+    duree = rapport["duree_sec"]
     body: dict = {
         "prompt": (style or paroles[:60] or "chanson"),
-        "duration_sec": int(duree_sec),
+        "duration_sec": duree,
         "rvc_transpose": int(transpose),
         "rvc_model": modele_voix or "klody",
-        "custom_lyrics": paroles,
+        # L'arrangement canonique, PAS le texte brut : c'est lui qui garantit que
+        # chaque segment reçoit une section différente et que le refrain est balisé
+        # comme un refrain.
+        "custom_lyrics": rapport["arrangement"],
         "style_prompt": style or None,
     }
+    bornes: list[str] = []
+    if duree_sec is not None and duree != int(duree_sec):
+        bornes.append(f"durée ramenée à {duree}s (bornes {_DUREE_MIN}-{_DUREE_MAX})")
     if bpm:
-        body["bpm"] = int(bpm)
+        borne_bpm = max(_BPM_MIN, min(int(bpm), _BPM_MAX))
+        body["bpm"] = borne_bpm
+        if borne_bpm != int(bpm):
+            bornes.append(f"bpm ramené à {borne_bpm} (bornes {_BPM_MIN}-{_BPM_MAX})")
+
     try:
         resp = await _post("/generate", body)
         if resp.status_code == 429:
             return {"error": "file d'attente pleine — réessaie dans un moment."}
+        if resp.status_code == 422:
+            return {"error": f"paramètres refusés par le daemon : {resp.text[:300]}"}
         resp.raise_for_status()
         d = resp.json()
+        alertes = list(rapport["avertissements"])
+        if not rapport["couvrable"]:
+            alertes.append("FORCÉ malgré : " + " ".join(rapport["problemes"]))
         return {
             "session_id": d.get("session_id"),
             "status": d.get("status", "queued"),
+            "parametres": {
+                "duree_sec": duree,
+                "duree_deduite": duree_sec is None,
+                "mots": rapport["mots"],
+                "sections": rapport["sections"],
+                "segments": rapport["segments"],
+                "debit_mots_s": rapport["debit_mots_s"],
+                "voix": body["rvc_model"],
+            },
+            "couverture": couverture,
             "note": "Suis l'avancement avec statut_generation(session_id), "
-            "puis resultat_generation(session_id) quand status=done.",
+            "puis resultat_generation(session_id) quand status=done."
+            + ("" if not bornes else " ⚠ " + " ; ".join(bornes))
+            + ("" if not alertes else " ⚠ " + " ; ".join(alertes)),
         }
     except httpx.ConnectError:
         return {"error": _UNREACHABLE}

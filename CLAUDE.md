@@ -113,11 +113,18 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **84,3 %** (gate 80), **2614 tests** (`pytest tests/ --collect-only`,
-recompté le 2026-08-05 ; l'ancien **2313** datait du 2026-07-30 et personne ne le
-rejouait — exactement le mode de défaillance décrit en bas de ce fichier).
-⚠️ La couverture, elle, n'a PAS été recomptée à cette date : elle porte toujours
+Couverture **84,3 %** (gate 80), **2673 tests** (`pytest tests/ --collect-only`,
+recompté le 2026-08-07 ; 2614 le 2026-08-05, 2313 le 2026-07-30 — personne ne le
+rejouait alors, exactement le mode de défaillance décrit en bas de ce fichier).
+⚠️ La couverture, elle, n'a PAS été recomptée à ces dates : elle porte toujours
 la mesure du 2026-07-30. Un seul des deux chiffres de cette ligne est frais.
+⚠️ **Un rouge lu sur une branche N'EST PAS un rouge de `main`.** Le 2026-08-07,
+`tests/test_vlc_server.py::TestResoudreMedia::test_traversal_refuse` échouait
+dans un worktree, et je l'ai signalé « échoue sur `main` » après l'avoir rejoué…
+sur ce même worktree, dont la branche était en retard de 8 commits. `main` avait
+déjà le correctif (#209, `7801cb2`) : 12/12 au vert. Le vrai contrôle est
+`git log HEAD..origin/main` AVANT d'attribuer un échec à la base — sinon on
+ouvre un chantier pour un bug déjà réparé, ce qui a bien failli arriver.
 Huit PR (#162→#169) ont remis l'instrumentation en service : gate de
 non-régression opérationnel, `bench.compare` écrit, `--repeat` + provenance,
 sentinelle runner, et couverture de `semantic_memory` (98 %), `embeddings`
@@ -626,6 +633,85 @@ complet passe de ~3 s à **~8 s**.
 >
 > Procédure de mise à jour des dépendances : `docs/OPS.md` §5.
 
+## État au 2026-08-07 — la chanson était tronquée par ce que Klody ENVOYAIT
+
+Klody avait diagnostiqué « les générateurs IA sautent des sections ou répètent le
+refrain », et proposait de générer par segments puis d'assembler dans REAPER. Le
+diagnostic était juste, le remède non : **le daemon fait déjà le long-format**
+(`generate_song_long`, segments chevauchants recollés en cross-fade). Assembler à
+la main aurait re-fabriqué le bug à l'identique.
+
+La cause n'est pas dans le moteur, elle est dans la **requête**. Trois mécanismes
+déterministes, tous vérifiés sur le code réel de local-suno et sur les
+**78 chansons chantées de `library.db`** :
+
+| # | mécanisme | mesure |
+|---|---|---|
+| 1 | **Trop de mots pour la durée.** Le daemon vise ~2 mots/s (`main.py::_warn_if_lyrics_too_short`, qui l'écrit) ; `generer_chanson` avait `duree_sec=30` **en dur** quelles que soient les paroles | demandes réelles à **15,3** · 6,0 · 5,7 · 5,6 · 5,3 mots/s — jusqu'à **7× la cible**. Le moteur ne peut que couper |
+| 2 | **Moins de sections que de segments.** Au-delà de 120 s, `generate_song_long` fait `chunks.append(chunks[-1])` : les segments de fin **re-chantent le texte précédent** | **17/78** chansons n'avaient qu'**une** section (texte sans ligne vide ni en-tête). À 240 s = 3 segments, les 3 chantent la même chose — reproduit |
+| 3 | **Rôles de section perdus.** Un bloc séparé par une simple ligne vide devient `section_2`, `section_3`… et `section_marker` rend `[verse]` pour ces noms inconnus | **10/78** avaient au moins une clé `section_N` : leur refrain n'était plus balisé comme un refrain |
+
+> ### ⚠️ Trouvé en route : deux `[Refrain]` et le premier DISPARAÎT
+>
+> `_build_lyrics_from_custom` range les sections dans un **dict indexé par le nom
+> d'en-tête**. Un texte qui reprend `[Refrain]` en fin de morceau écrase donc le
+> premier : mesuré sur le vrai parseur, un texte à 5 blocs ressort à **4
+> sections**, refrain final avalé. Ce n'est pas un risque théorique — c'est la
+> forme la plus naturelle d'écrire une chanson.
+>
+> D'où la **numérotation** des marqueurs émis (`[chorus 1]`, `[chorus 2]`) :
+> `_base_section_name` retire le suffixe côté daemon avant le mapping, la balise
+> qui atteint le moteur reste canonique, et aucune section ne s'écrase.
+> ⚠️ Canoniser SANS numéroter aurait donc *aggravé* le bug.
+
+**Le correctif** — `klody_mcp/song_structure.py`, branché sur les deux chemins
+(`vocalbrain_server.generer_chanson`, `klody_music_server.composer_demo`) :
+
+- **Les paroles partent balisées.** `[Couplet 1]`, `Refrain :`, `Pont` → `[verse 1]`,
+  `[chorus 1]`, `[bridge 1]`. Un bloc sans en-tête reste `[verse]` (même repli que
+  le daemon) mais est **compté et signalé** : deviner qu'un bloc est un refrain
+  serait transformer les paroles sans le dire.
+- **La durée se déduit des paroles** quand elle n'est pas donnée (mots ÷ 2). Le
+  défaut fixe à 30 s était la cause n°1 ; il n'y a plus de défaut fixe.
+- **Refus AVANT le POST** quand le rendu serait tronqué ou répété — pas après.
+  Un refus qui arrive une fois la génération en file ne sert à rien : elle dure
+  des minutes. `forcer=True` reste l'échappatoire, et la note dit « FORCÉ malgré ».
+
+> ### ✅ Ce que le correctif ne fait PAS, et c'est délibéré
+>
+> Un texte d'un seul bloc reste **incorrigible** : à 240 s il donnera 3 segments
+> identiques quoi qu'on fasse. Le module ne fabrique pas les sections manquantes,
+> il **refuse** et nomme le remède (« découpe en au moins 3 sections »).
+> Inventer une structure que l'utilisateur n'a pas écrite serait exactement le
+> travers déjà refusé pour la traduction des requêtes CLAP.
+>
+> Vérifié en rejouant le circuit réel : canonicalisation seule sur un texte sans
+> structure ⇒ toujours 3 segments identiques. Le garde, lui, refuse.
+
+⚠️ **Le débit de 2 mots/s n'est pas une estimation maison** : c'est la cible que
+le daemon écrit lui-même, et il avertit déjà sous 1 mot/s — mais dans un `print`
+de sous-processus worker que **ni l'utilisateur ni Klody ne voient jamais**. Le
+contrôle remonte ce que le daemon savait déjà, au seul endroit où ça peut servir.
+
+⚠️ **`_idee_to_body` bornait la durée à 120 s** en citant « bornes daemon (ge=10
+le=120) » alors que le contrat était passé à **600**. Toute démo au-delà de 2 min
+était donc silencieusement coupée de moitié. Corrigé — et les constantes
+recopiées de local-suno sont désormais **relues dans le vrai dépôt** par
+`tests/test_song_structure.py::TestPasDeDerive`.
+
+⚠️ **Ce garde anti-dérive s'est d'abord sauté en silence**, écrit en import
+direct : les deux dépôts ont un module `config` (et un `main`), et celui de
+klody-code-ai est déjà dans `sys.modules` quand la suite tourne — `pytest -rs`
+disait « local-suno présent mais non importable ». Il tourne maintenant dans un
+**sous-processus** avec l'interpréteur et le cwd de local-suno, et sa capacité à
+rougir a été vérifiée en cassant une constante exprès. Un test sauté est
+indiscernable d'un test vert : c'est le mode de défaillance du dépôt, reproduit
+ici en écrivant le garde-fou censé le prévenir.
+
+⚠️ **Non fait, et pas par oubli** : aucune consigne ajoutée au prompt système. Le
+levier « mieux le lui dire » est déjà mesuré épuisé sur trois canaux (encadré ❌
+plus haut). La docstring de l'outil porte la règle — c'est ce que le modèle lit
+au moment de choisir ses arguments — et le **refus de l'outil** est le garde-fou.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :
