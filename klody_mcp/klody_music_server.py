@@ -27,6 +27,7 @@ import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp import song_structure as ss
 from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
 
 load_dotenv()
@@ -1230,18 +1231,29 @@ def _as_list(v) -> list:
 
 def _idee_to_body(
     idee: dict,
-    duree_sec: int,
+    duree_sec: int | None,
     modele_voix: str,
     transpose: int,
     bpm,
     instrumental: bool = False,
-) -> dict:
+) -> tuple[dict, dict | None]:
     """Mappe une idée de chanson -> corps /generate du daemon local-suno.
 
     ``instrumental`` rend le morceau SANS voix : l'amorce de paroles n'est pas
     transmise (le moteur reçoit le marqueur ``[Instrumental]``, convention des
     données d'entraînement ACE-Step), et le daemon saute démux + RVC + contrôle
     qualité paroles. La tonalité et le bpm de l'idée valent toujours.
+
+    Sur le chemin CHANTÉ, l'amorce passe par ``song_structure.controler_couverture``
+    (arrangement balisé + durée cohérente). Une amorce fait 2 à 4 vers : imposer
+    30 s par défaut la faisait étirer à ~0,5 mot/s — le daemon avertit lui-même
+    de ce cas (« chant étiré et peu intelligible »), mais dans un log que personne
+    ne lit. La durée déduite règle la démo sur ce que l'amorce peut réellement
+    remplir.
+
+    Returns:
+        ``(body, rapport_de_couverture | None)`` — rapport None en instrumental
+        (aucune parole, donc rien à couvrir).
     """
     # Tolère qu'on passe la sortie complète d'idees_chanson : prend la 1ʳᵉ idée.
     if isinstance(idee.get("idees"), list) and idee["idees"]:
@@ -1252,9 +1264,22 @@ def _idee_to_body(
     ton = str(idee.get("tonalite_suggeree", "")).strip()
     style = ", ".join(t for t in (genre, ambiance, instr, ton) if t) or "emotional song, warm vocals"
     paroles = "\n".join(_as_list(idee.get("amorce_paroles"))).strip()
+
+    rapport: dict | None = None
+    if instrumental or not paroles:
+        # Bornes du daemon (storage.models.GenerationRequest : ge=10, le=600).
+        # ⚠️ Cette ligne bornait à 120 en citant « le=120 » : le contrat était passé
+        # à 600 sans que la copie suive, donc toute démo au-delà de 2 min était
+        # silencieusement raccourcie de moitié. Les bornes viennent désormais d'un
+        # seul endroit, qu'un test confronte au vrai contrat.
+        duree = max(ss.DUREE_MIN_SEC, min(int(duree_sec or 30), ss.DUREE_MAX_SEC))
+    else:
+        rapport = ss.controler_couverture(paroles, duree_sec)
+        duree = rapport["duree_sec"]
+
     body: dict = {
         "prompt": style,
-        "duration_sec": max(10, min(int(duree_sec), 120)),  # bornes daemon (ge=10 le=120)
+        "duration_sec": duree,
         "rvc_transpose": int(transpose),
         "rvc_model": modele_voix or "klody",
         "style_prompt": style,
@@ -1264,21 +1289,22 @@ def _idee_to_body(
         # aussi le LLM de paroles du daemon : rien à écrire pour un instrumental.
         body["custom_lyrics"] = "[Instrumental]"
         body["instrumental"] = True
-    elif paroles:
-        body["custom_lyrics"] = paroles
+    elif rapport is not None:
+        body["custom_lyrics"] = rapport["arrangement"]
     if bpm:
-        body["bpm"] = max(60, min(int(bpm), 180))  # bornes daemon (ge=60 le=180)
-    return body
+        body["bpm"] = max(ss.BPM_MIN, min(int(bpm), ss.BPM_MAX))
+    return body, rapport
 
 
 @mcp.tool()
 async def composer_demo(
     idee: dict,
-    duree_sec: int = 30,
+    duree_sec: int | None = None,
     modele_voix: str = "klody",
     transpose: int = 0,
     bpm: int | None = None,
     instrumental: bool = False,
+    forcer: bool = False,
 ) -> dict:
     """Génère une démo audio à partir d'une idée de chanson — NON bloquant.
 
@@ -1290,26 +1316,40 @@ async def composer_demo(
     Args:
         idee: Idée de chanson (clés genre/ambiance/tonalite_suggeree/instrumentation/
             amorce_paroles). Accepte aussi la sortie complète d'idees_chanson.
-        duree_sec: Durée cible (s).
+        duree_sec: Durée cible (10-600). NON FOURNIE = déduite de l'amorce de
+            paroles (~2 mots/s), ce qui évite d'étirer 3 vers sur 30 s.
         modele_voix: Voix clonée RVC (voir l'arm vocalbrain : lister_voix).
         transpose: Transposition en demi-tons (cale la démo sur ta tessiture).
-        bpm: BPM cible (optionnel).
+        bpm: BPM cible (60-180, optionnel).
         instrumental: True = démo SANS voix (l'amorce de paroles est ignorée,
             RVC et modele_voix/transpose ne servent pas). Pour une instru seule.
+        forcer: True = lance malgré un contrôle de couverture négatif (texte qui
+            serait tronqué ou re-chanté à l'identique d'un segment à l'autre).
 
     Returns:
-        {"session_id", "status", "demo": {style, paroles, instrumental}, "note"}
-        ou {"error": "..."}.
+        {"session_id", "status", "demo": {style, paroles, instrumental},
+         "couverture", "note"} ou {"error": "..."}.
     """
     if not isinstance(idee, dict) or not idee:
         return {"error": "idee requise (un objet renvoyé par idees_chanson)."}
-    body = _idee_to_body(idee, duree_sec, modele_voix, transpose, bpm, instrumental)
+    body, rapport = _idee_to_body(idee, duree_sec, modele_voix, transpose, bpm, instrumental)
+    couverture = (
+        None if rapport is None
+        else {k: v for k, v in rapport.items() if k not in ("arrangement", "structure")}
+    )
+    if rapport is not None and not rapport["couvrable"] and not forcer:
+        return {"error": ss.message_de_refus(rapport), "couverture": couverture}
     try:
         resp = await _ls_post("/generate", body)
         if resp.status_code == 429:
             return {"error": "file d'attente pleine — réessaie dans un moment."}
+        if resp.status_code == 422:
+            return {"error": f"paramètres refusés par le daemon : {resp.text[:300]}"}
         resp.raise_for_status()
         d = resp.json()
+        alertes = list(rapport["avertissements"]) if rapport else []
+        if rapport is not None and not rapport["couvrable"]:
+            alertes.append("FORCÉ malgré : " + " ".join(rapport["problemes"]))
         return {
             "session_id": d.get("session_id"),
             "status": d.get("status", "queued"),
@@ -1319,11 +1359,14 @@ async def composer_demo(
                 # le rendre comme des « paroles » ferait croire à une démo chantée.
                 "paroles": None if instrumental else body.get("custom_lyrics"),
                 "instrumental": instrumental,
+                "duree_sec": body["duration_sec"],
             },
+            "couverture": couverture,
             "note": ("Démo instrumentale (aucune voix) en génération. "
                      if instrumental else "Démo en génération. ")
             + "Suis avec statut_demo(session_id), "
-            "puis resultat_demo(session_id) quand status=done.",
+            "puis resultat_demo(session_id) quand status=done."
+            + ("" if not alertes else " ⚠ " + " ; ".join(alertes)),
         }
     except httpx.ConnectError:
         return {"error": _UNREACHABLE_SUNO}

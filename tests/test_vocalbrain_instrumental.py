@@ -155,7 +155,10 @@ async def test_generer_chanson_ne_pose_pas_le_drapeau(monkeypatch):
     await vb.generer_chanson("je marche sous la pluie", style="pop")
 
     assert vu["body"].get("instrumental") in (None, False)
-    assert vu["body"]["custom_lyrics"] == "je marche sous la pluie"
+    # Les paroles partent BALISÉES depuis le contrôle de couverture (cf.
+    # tests/test_generation_chanson.py) : le texte brut ne portait aucune
+    # structure, donc le moteur en inventait une.
+    assert vu["body"]["custom_lyrics"] == "[verse 1]\nje marche sous la pluie"
     assert vu["body"]["rvc_model"] == "klody"
 
 
@@ -174,8 +177,11 @@ _IDEE = {
 
 
 def test_idee_to_body_instrumental_jette_lamorce_de_paroles():
-    body = km._idee_to_body(_IDEE, 30, "klody", 0, None, instrumental=True)
+    # `_idee_to_body` rend désormais (body, rapport_de_couverture) — le rapport est
+    # None sans chant : aucune parole, donc rien à couvrir.
+    body, rapport = km._idee_to_body(_IDEE, 30, "klody", 0, None, instrumental=True)
 
+    assert rapport is None
     assert body["instrumental"] is True
     assert body["custom_lyrics"] == "[Instrumental]"
     assert "je te cherche encore" not in str(body)
@@ -184,10 +190,11 @@ def test_idee_to_body_instrumental_jette_lamorce_de_paroles():
 
 
 def test_idee_to_body_chante_par_defaut():
-    body = km._idee_to_body(_IDEE, 30, "klody", 0, None)
+    body, rapport = km._idee_to_body(_IDEE, 30, "klody", 0, None)
 
     assert "instrumental" not in body
-    assert body["custom_lyrics"] == "je te cherche encore"
+    assert rapport is not None
+    assert body["custom_lyrics"] == "[verse 1]\nje te cherche encore"
 
 
 async def test_composer_demo_instrumental_ne_rend_pas_de_paroles(monkeypatch):
@@ -206,5 +213,5 @@ async def test_composer_demo_chante_reste_annonce_comme_chante(monkeypatch):
     r = await km.composer_demo(_IDEE)
 
     assert vu["body"].get("instrumental") in (None, False)
-    assert r["demo"]["paroles"] == "je te cherche encore"
+    assert r["demo"]["paroles"] == "[verse 1]\nje te cherche encore"
     assert r["demo"]["instrumental"] is False
