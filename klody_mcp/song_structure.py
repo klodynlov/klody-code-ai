@@ -264,10 +264,80 @@ def nb_segments(duree_sec: float) -> int:
 
 
 def duree_conseillee(mots: int) -> int:
-    """Durée qui fait tomber le débit sur la cible du daemon (~2 mots/s)."""
+    """Durée qui fait tomber le débit GLOBAL sur la cible du daemon (~2 mots/s).
+
+    ⚠️ Plancher, pas verdict : au-delà d'un segment, c'est le débit du segment le
+    plus dense qui décide (cf. ``debit_par_segment``). Utiliser ce seul chiffre
+    laisserait passer une chanson dont un segment est saturé — mesuré in vivo.
+    """
     if mots <= 0:
         return DUREE_MIN_SEC
     return max(DUREE_MIN_SEC, min(round(mots / DEBIT_CIBLE), DUREE_MAX_SEC))
+
+
+def _groupes_equilibres(n_items: int, k: int) -> list[tuple[int, int]]:
+    """Réplique de ``_balanced_groups`` : k groupes CONTIGUS de tailles ~égales.
+
+    Renvoie les bornes ``(début, fin)`` de chaque groupe. ⚠️ L'équilibrage porte
+    sur le NOMBRE de sections, pas sur leur longueur — c'est précisément ce qui
+    crée des segments de densités très différentes.
+    """
+    k = max(1, min(k, n_items))
+    base, extra = divmod(n_items, k)
+    bornes: list[tuple[int, int]] = []
+    debut = 0
+    for i in range(k):
+        taille = base + (1 if i < extra else 0)
+        bornes.append((debut, debut + taille))
+        debut += taille
+    return bornes
+
+
+def debit_par_segment(arrangement: str, duree_sec: float) -> list[tuple[int, float]]:
+    """``(mots, mots/s)`` de chaque segment, tels que le daemon les répartira.
+
+    Le daemon découpe l'arrangement en groupes de sections contigus de tailles
+    égales EN NOMBRE (``split_arrangement_text`` → ``_balanced_groups``), puis
+    donne à chacun un segment de durée identique (``plan_segment_durations``
+    renvoie des durées égales). Deux sections courtes et deux longues dans le même
+    morceau produisent donc deux segments de débits très différents.
+
+    Mesuré in vivo le 2026-08-07 (session ``be133ea1``, 358 mots sur 180 s) :
+    débit global 1,99 mots/s — conforme — mais **2,52** sur le segment 1 (5
+    sections, 232 mots) contre 1,37 sur le segment 2. Le segment 1 a tronqué (un
+    couplet amputé de 5 vers sur 8, un pré-refrain réduit à des onomatopées), le
+    segment 2 est sorti intégral. Le débit global masquait exactement le seul
+    chiffre qui décidait.
+    """
+    blocs = [b for b in arrangement.split("\n\n") if b.strip()]
+    if not blocs:
+        return []
+    n = nb_segments(duree_sec)
+    # Durée d'un segment : le daemon les fait égales, chevauchement compris.
+    duree_segment = duree_sec if n == 1 else (duree_sec + (n - 1) * SEGMENT_OVERLAP_SEC) / n
+    sortie: list[tuple[int, float]] = []
+    for debut, fin in _groupes_equilibres(len(blocs), n):
+        mots = mots_chantes("\n".join(blocs[debut:fin]))
+        sortie.append((mots, mots / duree_segment if duree_segment else 0.0))
+    return sortie
+
+
+def duree_sans_saturation(arrangement: str) -> int:
+    """Plus courte durée où AUCUN segment ne dépasse la cible de débit.
+
+    Part du plancher global (mots ÷ cible) et allonge tant qu'un segment sature.
+    Le balayage est nécessaire parce que la relation n'est pas monotone : allonger
+    la durée peut ajouter un segment, donc redécouper les sections autrement.
+    """
+    mots = mots_chantes(arrangement)
+    if mots <= 0:
+        return DUREE_MIN_SEC
+    depart = duree_conseillee(mots)
+    for duree in range(depart, DUREE_MAX_SEC + 1):
+        debits = debit_par_segment(arrangement, duree)
+        if not debits or max(d for _, d in debits) <= DEBIT_CIBLE:
+            return duree
+    return DUREE_MAX_SEC
 
 
 def sections_minimum(duree_sec: float) -> int:
@@ -293,7 +363,7 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
     """
     arrangement, structure = canonicaliser_paroles(paroles)
     mots = mots_chantes(arrangement)
-    conseillee = duree_conseillee(mots)
+    conseillee = duree_sans_saturation(arrangement)
 
     duree_demandee = duree_sec
     duree = conseillee if duree_sec is None else int(duree_sec)
@@ -302,6 +372,10 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
     segments = nb_segments(duree)
     besoin = sections_minimum(duree)
     debit = (mots / duree) if duree else 0.0
+    par_segment = debit_par_segment(arrangement, duree)
+    # Le chiffre qui décide vraiment : le segment le plus dense. Le débit GLOBAL
+    # peut être conforme pendant qu'un segment sature et tronque (mesuré in vivo).
+    debit_pire = max((d for _, d in par_segment), default=debit)
 
     problemes: list[str] = []
     avertissements: list[str] = []
@@ -310,17 +384,27 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         problemes.append("aucune parole à chanter.")
 
     # (1) Trop de mots pour la durée → le moteur coupe.
-    elif debit > DEBIT_MAX:
+    elif debit_pire > DEBIT_MAX:
+        ou = "" if segments == 1 else " sur le segment le plus dense"
         problemes.append(
-            f"{mots} mots sur {duree} s = {debit:.1f} mots/s, soit "
-            f"{debit / DEBIT_CIBLE:.1f}× la cible de {DEBIT_CIBLE:g} mots/s du "
+            f"{mots} mots sur {duree} s = {debit_pire:.1f} mots/s{ou}, soit "
+            f"{debit_pire / DEBIT_CIBLE:.1f}× la cible de {DEBIT_CIBLE:g} mots/s du "
             f"moteur : il ne pourra pas tout chanter et coupera des sections. "
             f"Durée cohérente pour ce texte : {conseillee} s."
         )
-    elif debit > DEBIT_CIBLE * 1.25:
+    elif debit_pire > DEBIT_CIBLE:
+        # ⚠️ Seuil à la CIBLE, pas au-dessus : mesuré, un segment à 2,52 mots/s a
+        # tronqué (session be133ea1). C'était sous l'ancien seuil d'alerte à 2,5.
+        detail = (
+            "" if segments == 1
+            else f" — les segments sont équilibrés en NOMBRE de sections, pas en mots"
+            f" ({' / '.join(f'{m} mots' for m, _ in par_segment)})"
+        )
         avertissements.append(
-            f"débit serré ({debit:.1f} mots/s pour une cible de "
-            f"{DEBIT_CIBLE:g}) — {conseillee} s laisserait respirer le texte."
+            f"débit serré : {debit_pire:.1f} mots/s"
+            + ("" if segments == 1 else " sur le segment le plus dense")
+            + f" pour une cible de {DEBIT_CIBLE:g}{detail}. "
+            f"{conseillee} s laisserait respirer le texte."
         )
     elif mots and debit < DEBIT_MIN:
         avertissements.append(
@@ -357,6 +441,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         "segments": segments,
         "sections_min": besoin,
         "debit_mots_s": round(debit, 2),
+        "debit_pire_segment": round(debit_pire, 2),
+        "mots_par_segment": [m for m, _ in par_segment],
         "couvrable": not problemes,
         "problemes": problemes,
         "avertissements": avertissements,
