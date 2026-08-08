@@ -424,3 +424,31 @@ class TestApprovalInterrupt:
             assert any("refusée" in c for c in tools)
             # Le texte libre n'a pas été détourné en « réponse » (pas de fuite ask_user).
             assert not any("attends pourquoi" in c for c in tools)
+
+
+class TestCycleDeVieOrchestrateur:
+    """Non-régression de la fuite mémoire (audit 2026-08-09) : l'API crée UN
+    orchestrateur PAR message WebSocket ; ses clients OpenAI (pools httpx)
+    doivent mourir avec le message. C'est le try/finally de run_agent qui
+    appelle Orchestrator.close() — ce test verrouille le câblage serveur, les
+    contrats de fermeture eux-mêmes vivent dans tests/test_cycle_de_vie_clients_llm.py."""
+
+    def test_l_orchestrateur_du_message_est_ferme(self, chat_client, monkeypatch):
+        from agent.orchestrator import Orchestrator
+
+        fermes: list = []
+        fermeture_reelle = Orchestrator.close
+
+        def espion(self):
+            fermes.append(self)
+            fermeture_reelle(self)
+
+        monkeypatch.setattr(Orchestrator, "close", espion)
+        FakeOpenAI._turns = [_text_turn("Bonjour")]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "dis bonjour"})
+            _drain_until(ws, "done")
+        # L'event `done` n'est mis en queue qu'APRÈS le finally de run_agent :
+        # l'avoir reçu prouve que la fermeture a eu lieu, sans course.
+        assert len(fermes) == 1, "l'orchestrateur du message n'a pas été fermé"

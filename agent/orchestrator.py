@@ -797,6 +797,31 @@ class Orchestrator:
         if not any(m["role"] == "system" for m in memory.messages):
             self._inject_system_prompt()
 
+    def close(self) -> None:
+        """Libère les ressources réseau de cet orchestrateur. Idempotent.
+
+        L'API en crée UN PAR MESSAGE WebSocket (api/server.py) : sans fermeture
+        explicite, chaque message laissait un à deux pools httpx orphelins
+        (LLMClient, plus le Router lazy) à la merci du GC — fuite mesurée
+        ~5-6 Gio/jour de phys_footprint sur com.klody.api (audit 2026-08-09).
+        Appelée en try/finally par l'API en fin de traitement du message ; la
+        CLI n'en a pas besoin (un seul orchestrateur, qui meurt avec le
+        process). Défensif de bout en bout (getattr + suppress) : les tests
+        construisent des orchestrateurs partiels via __new__, et un close() qui
+        lève transformerait un nettoyage en panne du chemin nominal.
+        """
+        for detenteur in (getattr(self, "llm", None), getattr(self, "_router", None)):
+            fermeture = getattr(detenteur, "close", None)
+            if callable(fermeture):
+                with contextlib.suppress(Exception):
+                    fermeture()
+        # Les SandboxRunner ne tiennent aucune ressource vivante (subprocess
+        # synchrones, venv sur disque réutilisé par hash de chemin) : vider le
+        # cache suffit à couper les références.
+        cache = getattr(self, "_sandbox_cache", None)
+        if cache:
+            cache.clear()
+
     def _sandbox_for(self, root):
         """SandboxRunner (venv jetable) pour une racine donnée, mis en cache.
 

@@ -40,6 +40,7 @@ l'appel ; le socle local, propositions comprises, reste.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -496,8 +497,14 @@ class AccueilEnTacheDeFond:
         )
 
     def _travailler(self) -> None:
+        # Ne fermer que le client construit ICI : un client injecté (tests,
+        # réutilisation) appartient à l'appelant. Sans fermeture, le pool httpx
+        # de chaque accueil restait orphelin (site listé par l'audit 2026-08-09).
+        construit: Any = None
         try:
-            client = self._client or self._construire_client()
+            client = self._client
+            if client is None:
+                client = construit = self._construire_client()
             reponse = client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=[
@@ -515,6 +522,9 @@ class AccueilEnTacheDeFond:
             logger.debug("accueil généré indisponible (%s)", exc)
             self._accueil = None
         finally:
+            if construit is not None:
+                with contextlib.suppress(Exception):
+                    construit.close()
             self._pret.set()
 
     # -- API -------------------------------------------------------------- #
