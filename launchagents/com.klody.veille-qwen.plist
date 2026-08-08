@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klody.veille-qwen</string>
+
+    <!-- Veille sur la publication des poids Qwen3.8 (annoncés le 2026-08-03,
+         absents de l'org Qwen/ au 2026-08-07). Notifie quand un dépôt Qwen3.8
+         apparaît chez Qwen, mlx-community ou unsloth ET que son config.json
+         confirme qu'il contient bien des poids. Détail dans le script. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/veille_qwen.py</string>
+    </array>
+
+    <!-- StartInterval, PAS StartCalendarInterval : `est_periodique()` de
+         scripts/install-launchagents.sh ne reconnaît que StartInterval pour
+         classer un job en « périodique ». Avec un calendrier, l'agent serait
+         compté comme chargé sans être ni résident ni périodique, et la ligne de
+         comptage de `--check` ne tomberait plus juste. 86400 s = 24 h. -->
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <!-- Tire au chargement : sans ça, installer l'agent ne prouve rien avant
+         24 h, et une veille qu'on n'a pas vue tourner est une veille supposée. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-veille-qwen.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-veille-qwen.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>
