@@ -222,7 +222,6 @@ class TestExtracteurClientPartage:
     def _isoler(self, monkeypatch):
         """Repart d'un cache module vierge (restauré en sortie par monkeypatch)."""
         monkeypatch.setattr(memory_extractor, "_client_partage", None)
-        monkeypatch.setattr(memory_extractor, "_classe_du_client", None)
 
     def test_deux_appels_reutilisent_le_meme_client(self, monkeypatch):
         self._isoler(monkeypatch)

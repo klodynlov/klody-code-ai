@@ -56,28 +56,31 @@ _last_mid_extraction_count: int = 0
 # or l'extraction tourne après CHAQUE message WebSocket, un des sites de la
 # fuite ~5-6 Gio/jour de com.klody.api (audit 2026-08-09). Les clients OpenAI
 # sont thread-safe : le partage entre threads d'extraction est sûr.
-_client_partage: OpenAI | None = None
-# Classe qui a fabriqué le client caché. Reconstruit si elle a changé : cela
+#
+# La paire (classe, client) vit dans UNE variable : la classe qui a fabriqué le
+# client voyage avec lui, et le client est reconstruit si elle a changé. Cela
 # n'arrive QUE sous les tests (`@patch("agent.memory_extractor.OpenAI")` pose
 # une classe fraîche par test) — sans cette garde, le client d'un test fuirait
 # dans le suivant. En production la classe ne change jamais ⇒ un seul client.
-_classe_du_client: type | None = None
+_client_partage: tuple[type, OpenAI] | None = None
 _verrou_client = threading.Lock()
 
 
 def _client_llm() -> OpenAI:
     """Client OpenAI du module, RÉUTILISÉ entre les appels d'extraction."""
-    global _client_partage, _classe_du_client
+    global _client_partage
     with _verrou_client:
-        if _client_partage is None or _classe_du_client is not OpenAI:
-            _client_partage = OpenAI(
-                base_url=OLLAMA_BASE_URL,
-                api_key=OLLAMA_API_KEY,
-                timeout=LLM_HTTP_TIMEOUT,
-                max_retries=LLM_MAX_RETRIES,
+        if _client_partage is None or _client_partage[0] is not OpenAI:
+            _client_partage = (
+                OpenAI,
+                OpenAI(
+                    base_url=OLLAMA_BASE_URL,
+                    api_key=OLLAMA_API_KEY,
+                    timeout=LLM_HTTP_TIMEOUT,
+                    max_retries=LLM_MAX_RETRIES,
+                ),
             )
-            _classe_du_client = OpenAI
-        return _client_partage
+        return _client_partage[1]
 
 _VALID_CATEGORIES = ("user", "project", "preference", "context")
 
