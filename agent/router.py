@@ -13,6 +13,7 @@ retry borné (réinjection d'un message de correction) AVANT le fallback safe �
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -238,6 +239,20 @@ class Router:
             timeout=LLM_HTTP_TIMEOUT,
             max_retries=LLM_MAX_RETRIES,
         )
+
+    def close(self) -> None:
+        """Ferme le client (pool httpx) — le Router en possède un EN PROPRE.
+
+        L'API crée un Orchestrator par message WebSocket, donc potentiellement
+        un Router par message (init lazy) : sans fermeture, chaque pool restait
+        à la merci du GC — un des sites de la fuite ~5-6 Gio/jour de
+        com.klody.api (audit 2026-08-09). Idempotent, jamais d'exception ;
+        défensif car les tests posent parfois un faux client sans close().
+        """
+        fermeture = getattr(self.client, "close", None)
+        if callable(fermeture):
+            with contextlib.suppress(Exception):
+                fermeture()
 
     def classify(self, user_prompt: str) -> RoutingDecision:
         """Classifie un prompt en RoutingDecision.

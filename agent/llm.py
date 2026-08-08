@@ -38,6 +38,23 @@ from agent.tokens import count_tokens
 logger = logging.getLogger(__name__)
 console = Console()
 
+
+def _fermer_client(client: Any) -> None:
+    """Ferme le pool httpx d'un client OpenAI sans jamais lever.
+
+    Chaque `OpenAI(...)` porte un pool de connexions httpx que le GC ne rend
+    pas de façon déterministe : l'API créait un Orchestrator (donc des clients)
+    par message WebSocket sans jamais fermer → fuite ~5-6 Gio/jour de
+    phys_footprint sur com.klody.api (audit 2026-08-09).
+
+    Défensif (getattr) : les tests injectent des faux clients sans close()
+    (contrat existant — FakeOpenAI de tests/integration/test_websocket_chat.py).
+    """
+    fermeture = getattr(client, "close", None)
+    if callable(fermeture):
+        with contextlib.suppress(Exception):
+            fermeture()
+
 SYSTEM_PROMPT = """\
 Tu es Klody, un agent de coding expert. Réponds en français.
 
@@ -235,11 +252,15 @@ class LLMClient:
         """Attache l'id de session aux en-têtes du client (journal d'usage).
 
         Mutation EN PLACE comme switch_to. No-op si l'id est déjà celui posé.
+        Le client remplacé est FERMÉ : avant, son pool httpx devenait orphelin
+        à chaque pose de session (donc à chaque Orchestrator côté API).
         """
         if session_id == self.session_id:
             return
         self.session_id = session_id
+        ancien = getattr(self, "client", None)
         self.client = self._make_client()
+        _fermer_client(ancien)
 
     def switch_to(self, model: str, base_url: str, api_key: str) -> None:
         """Bascule le client sur un autre modèle/endpoint (ex: modèle code dédié).
@@ -247,14 +268,26 @@ class LLMClient:
         Mutation EN PLACE (on ne remplace pas l'objet LLMClient) pour que les
         détenteurs d'une référence — notamment Best-of-N — voient le changement.
         No-op si le modèle est déjà actif (évite de recréer le client OpenAI).
+        Le client remplacé est FERMÉ (même fuite que set_session) ; sûr, car la
+        bascule arrive entre deux tours, jamais pendant un stream en vol.
         """
         if model == self.model:
             return
         self.model = model
         self._base_url = base_url
         self._api_key = api_key
+        ancien = getattr(self, "client", None)
         self.client = self._make_client()
+        _fermer_client(ancien)
         logger.info("LLM basculé sur le modèle '%s' (%s)", model, base_url)
+
+    def close(self) -> None:
+        """Ferme le client courant (pool httpx). Idempotent, jamais d'exception.
+
+        Appelée par Orchestrator.close() en fin de traitement d'un message API.
+        Tolère un LLMClient partiel construit via __new__ (contrat des tests).
+        """
+        _fermer_client(getattr(self, "client", None))
 
     def stream_chat(
         self,

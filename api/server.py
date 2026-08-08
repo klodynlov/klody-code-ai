@@ -751,6 +751,12 @@ async def websocket_endpoint(ws: WebSocket):
                             loop,
                         )
                         return
+                    finally:
+                        # Un orchestrateur par message ⇒ ses clients OpenAI (pools
+                        # httpx) doivent mourir AVEC le message. Sans ce finally,
+                        # chaque message fuyait ses pools — ~5-6 Gio/jour de
+                        # phys_footprint sur com.klody.api (audit 2026-08-09).
+                        orch.close()
 
                     asyncio.run_coroutine_threadsafe(
                         queue.put({"type": "done", "session_id": memory.session_id}),
@@ -1495,6 +1501,10 @@ def _run_siri_query(query: str) -> str:
         except Exception as e:
             logger.error("[Siri] Erreur agent: %s", e, exc_info=True)
             return "Une erreur s'est produite côté serveur. Réessaie dans un instant."
+        finally:
+            # Même cycle de vie que le chat WS : un orchestrateur par requête
+            # Siri, ses pools httpx fermés avec elle (fuite audit 2026-08-09).
+            orch.close()
 
         last = next(
             (m["content"] for m in reversed(memory.messages)

@@ -29,7 +29,11 @@ _CALL_TIMEOUT = 60.0
 # Cache de découverte au niveau processus : l'API recrée un Orchestrator à
 # chaque message, on évite ainsi de re-scanner les serveurs (round-trip réseau)
 # à chaque requête. Clé = signature de la config serveurs.
+# Borné (audit fuite 2026-08-09) : la config est statique en pratique (1 entrée),
+# mais rien ne l'imposait — une config mouvante (tests, rechargement) aurait fait
+# croître le dict sans limite. Éviction du plus ancien au-delà de la borne.
 _DISCOVERY_CACHE: dict = {}
+_DISCOVERY_CACHE_MAX = 8
 
 
 def _signature(servers: dict) -> tuple | None:
@@ -153,6 +157,10 @@ class MCPManager:
         self._discovered = True
         if sig is not None:
             _DISCOVERY_CACHE[sig] = (tools, index)
+            while len(_DISCOVERY_CACHE) > _DISCOVERY_CACHE_MAX:
+                # Les dicts préservent l'ordre d'insertion → le premier est le
+                # plus ancien.
+                _DISCOVERY_CACHE.pop(next(iter(_DISCOVERY_CACHE)))
         return tools
 
     async def _list_tools(self, target: Any) -> list:
