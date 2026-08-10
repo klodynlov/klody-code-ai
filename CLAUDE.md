@@ -626,6 +626,86 @@ complet passe de ~3 s à **~8 s**.
 >
 > Procédure de mise à jour des dépendances : `docs/OPS.md` §5.
 
+## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
+
+Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :
+
+- **`Qwen3.8-Max`** : MoE **2,4 T params TOTAUX / 95 B actifs**, contexte 1 M,
+  multimodal. **Hors de cette machine par construction** — règle RAM-MoE (on
+  compte les params totaux, pas actifs) : ~1 200 Go en 4bit contre 80 Go de
+  budget gateway, **facteur 15**. Aucune quantification ne le ferme ; ce n'est
+  pas « attendre une conversion MLX ».
+- **`Qwen3.8-27B`** dense : ~29 Go en 8bit, tient. **Seul chemin.** Non publié
+  au 2026-08-10 — l'org officielle `Qwen/` en est encore à `Qwen/Qwen3.6-27B`
+  (2026-04-21).
+
+⚠️ **Les 11 dépôts « Qwen3.8 » de HuggingFace sont des faux.** Vérifié, pas
+supposé : `Ma7ee7/Qwen3.8_4B_Distilled` a été créé **4 jours AVANT l'annonce**,
+`config.json` = arch Qwen3-4B ; `huginnfork/Qwen3.8-27B-FP8` et `neroued/*` =
+aucun `config.json`, 0 téléchargement. **Un nom de dépôt est une sonde qui ment
+— le juge est `config.json`, jamais le nom.**
+
+**La veille, `scripts/veille_qwen.py` + `launchagents/com.klody.veille-qwen.plist`**
+(PR #214, mergée). Tick 24 h, interroge `Qwen`, `mlx-community`, `unsloth`,
+confirme par `config.json`, notifie (osascript). État :
+`~/Library/Caches/klody/veille-qwen.json` ; journal :
+`~/Library/Logs/klody-veille-qwen.log`. Contrôle :
+`/usr/bin/python3 scripts/veille_qwen.py --check`.
+
+Trois propriétés la rendent **capable de rougir** — l'enjeu d'une veille dont
+l'état nominal EST le silence, cas extrême du mode de défaillance dominant du
+dépôt (bas de ce fichier) :
+
+- « rien trouvé » et « rien regardé » rendent des **codes de sortie distincts**
+  (0 / 1) ; l'échec total ne peut pas passer pour un run vert ;
+- au-delà de **3 jours** sans une seule interrogation réussie, le silence se
+  **DÉNONCE** par notification au lieu de se lire « rien de neuf » ;
+- un `config.json` absent **nomme sa vraie cause** (GGUF — pas de config par
+  nature ; placeholder ; dépôt incomplet), jamais « dépôt vide » indifférencié.
+
+> ### ⚠️ MUTATION ÉCHAPPÉE — un test qui dérive avec la valeur qu'il surveille
+>
+> Trois mutations injectées à la mise au point ; deux attrapées d'emblée. La
+> troisième, `MUETTE_JOURS = 3 → 99999` (donc alerte de mutisme DÉSARMÉE),
+> **laissait la suite verte** : le test calculait l'âge du silence depuis la
+> constante `MUETTE_JOURS` elle-même, il suivait donc le seuil au lieu de le
+> juger. Corrigé — seuil **verrouillé sur un littéral** (`== 3`), âge de test en
+> dur (30 j), mutation rejouée ⇒ rouge. Jumeau exact du reste du dépôt :
+> **un test qui se recalcule à partir du réglage qu'il protège ne peut pas
+> rougir.**
+
+⚠️ **Ce que la veille ne peut PAS voir** : que launchd a cessé de la lancer —
+elle ne parle que quand elle tourne. Ce trou reste couvert par
+`scripts/install-launchagents.sh --check` (ligne `NON CHARGÉ`). Ce qu'elle
+couvre, elle, c'est l'autre moitié : « elle tourne mais l'interrogation
+échoue ».
+
+**Le jour où le 27B dense sort** — chemin déjà écrit (A/B cerveau, point 5 plus
+haut) : **entrée DÉDIÉE** du registre `~/klody-core/gateway/config.py`
+(`pinned=False`), **jamais** une surcharge de `brain` (`pinned=True`, partagé
+Library Brain + KlodyAI). Deux objections à **mesurer avant** l'A/B, pas après :
+*dense ≠ MoE sur la vitesse* — le brain lit 3 B actifs/token, un 27B dense en
+lit 27, prédiction ~8× plus lent au décodage contre une baseline déjà à
+83 s/tour ; et *multimodal ⇒ mlx-vlm*, **absent du venv** (`mlx_lm` seul), alors
+que le worker brain démarre via `mlx_lm.server`.
+
+> ### ⚠️ SONDE QUI MENT (encore) — une PR mergée lue « en conflit »
+>
+> Après le merge de #214, un moniteur CI a signalé « PR #214 has merge
+> conflicts ». Faux : `gh pr view` rendait `state: MERGED`, le commit sur
+> `origin/main`. Cause : **sur une PR fermée, GitHub cesse de calculer la
+> mergeabilité et rend `mergeable: UNKNOWN`** ; un moniteur qui lit `UNKNOWN`
+> comme « conflit » crie sur CHAQUE PR mergée. **Le champ qui tranche est
+> `state`, pas `mergeable`.** Même famille que les sondes menteuses de la
+> mémoire projet — vérifier l'état réel avant d'agir sur une alerte.
+>
+> ⚠️ **Le vrai conflit, lui, avait existé** — mais AVANT : la branche re-portait
+> 5 commits déjà squash-mergés (#210/#211/#212), d'où un conflit `CLAUDE.md`
+> avec elle-même. `git rebase --onto origin/main` l'a ramenée à 1 commit /
+> 3 fichiers. **Une branche coupée d'une branche locale squash-mergée re-porte
+> son contenu et entre en conflit** ; le diff de contenu (`git diff A origin/main`)
+> le dit — vide ⇒ redondant, nettoyable sans perte par rebase ou `reset --hard`.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
