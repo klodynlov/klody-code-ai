@@ -1,0 +1,66 @@
+{
+  "skill": "hit-songwriting-method",
+  "domain": "music",
+  "description": "Méthode pour écrire une chanson pop à succès : forme + refrain d'abord, hook et son placement, melodic outline et contour, object writing et prosodie, puis réécriture par checklist.",
+  "source": {"book": "The Craft of Lyric Writing", "author": "Sheila Davis", "year": 1985},
+  "principles": [
+    "Décider la forme, le titre et l'idée du refrain AVANT d'écrire — écrire le refrain en premier.",
+    "Le hook ne vaut que par son placement et la montée vers lui, pas isolé.",
+    "Une mélodie a besoin d'un melodic outline (tons structurels) et d'un contour qui contraste couplet vs refrain.",
+    "Montrer, ne pas dire : langage sensoriel concret (object writing) et une seule métaphore tenue avec setup figuratif.",
+    "Bonne prosodie : syllabes accentuées sur les temps forts, note/rythme épousant le sens.",
+    "Universalité : émotion vraie mais formulée pour que chacun s'y projette.",
+    "Une idée, une émotion, un temps de verbe ; réécrire ligne à ligne."
+  ],
+  "workflow": [
+    {"step": "Idée + titre", "purpose": "Ancrer la chanson sur une émotion vraie et un titre accrocheur", "guidelines": ["Titre intrigant/frais/inhabituel", "1 phrase focalisée + 1 émotion cible"], "pitfalls": ["Idée trop privée → perte d'universalité"]},
+    {"step": "Forme", "purpose": "Choisir l'architecture avant d'écrire", "guidelines": ["VCVCBC (défaut pop) | AABA | AAA", "Song Map : 1 fonction par section (V1 pose le décor, refrain = payoff, V2 info neuve, pont = twist)"], "pitfalls": ["AABA sans pont contrastant"]},
+    {"step": "Refrain d'abord", "purpose": "Verrouiller le message central et le hook", "guidelines": ["Titre présent dans le refrain", "Hook = titre + mélodie mémorable (contour + rythme distincts)"], "pitfalls": ["Hook isolé sans montée ni placement"]},
+    {"step": "Mélodie", "purpose": "Donner direction et contraste", "guidelines": ["Poser le melodic outline (temps forts, notes longues, débuts-fins de phrase)", "Contour contrastant couplet/refrain", "Phrases question→réponse, résoudre sur le degré 1 à la phrase-titre", "Pré-refrain montant finissant sur l'accord le plus instable"], "pitfalls": ["Mélodie sans outline qui 'ne va nulle part'", "Phrases toutes au même contour = monotonie"]},
+    {"step": "Paroles", "purpose": "Rendre le texte concret, imagé et propulsif", "guidelines": ["Object writing sur les 7 sens", "Une métaphore tenue + setup figuratif au couplet", "Longueur de ligne pour la poussée ; rime placée sur le sens (parfaite=ferme, famille/assonance=tension)", "2 lignes d'ouverture qui saisissent + posent l'émotion dès la ligne 2"], "pitfalls": ["Refrain métaphorique sans setup → 'sort de nulle part'", "Changer de métaphore centrale en cours de route"]},
+    {"step": "Prosodie", "purpose": "Fusionner mots et musique", "guidelines": ["Syllabes accentuées sur temps forts", "Magic moment / money note sur le mot-clé émotionnel"], "pitfalls": ["Word warping : mot déformé au chant"]},
+    {"step": "Réécriture", "purpose": "Élever chaque ligne au niveau hit", "guidelines": ["Passer la Song Structure Checklist (Blume)", "Ligne à ligne : mène au titre ? cliché ? plus frais que la concurrence ? émotion montrée pas dite ?"], "pitfalls": ["Prêcher", "Clichés, redondances, sur-usage des mots-clés"]}
+  ],
+  "checklist": [
+    "Forme éprouvée choisie et respectée (couplets alignés en syllabes/lignes)",
+    "Titre présent dans le refrain et 'paie' (payoff)",
+    "Hook mémorable dont la montée est soignée",
+    "Melodic outline posé ; contour couplet ≠ contour refrain",
+    "Phrases question/réponse résolvant à la phrase-titre",
+    "Object writing → détail sensoriel concret, émotion montrée pas dite",
+    "Une seule métaphore tenue avec setup figuratif",
+    "Prosodie : accents sur temps forts, magic moment sur le mot-clé",
+    "1 idée / 1 émotion / 1 temps de verbe / pronoms cohérents",
+    "Couplet 2 apporte une info neuve",
+    "Passe de réécriture ligne à ligne effectuée (clichés éliminés)"
+  ],
+  "vocabulary": [
+    {"term": "hook", "definition": "phrase mélodie+paroles ultra-mémorable, souvent le titre"},
+    {"term": "central statement", "definition": "zone-but de la chanson (titre/hook) vers laquelle la forme converge"},
+    {"term": "melodic outline", "definition": "tons structurels (temps forts, notes longues, début/fin de phrase) formant le squelette mélodique"},
+    {"term": "prosodie", "definition": "adéquation entre accents des mots et accents de la musique"},
+    {"term": "object writing", "definition": "exercice d'écriture sensorielle (7 sens) générant un vocabulaire concret"},
+    {"term": "money note", "definition": "note haute puissante à fort impact émotionnel"},
+    {"term": "turnaround", "definition": "court interlude instrumental post-refrain servant de hook de transition"}
+  ],
+  "heuristics": [
+    "Si le refrain 'sort de nulle part', c'est qu'il manque un setup au couplet.",
+    "Si l'auditeur s'ennuie avant le refrain, réécrire le couplet 1 (ne pas juste démarrer par le refrain).",
+    "Trop de phrases identiques de contour ou de longueur → injecter un contraste.",
+    "Placer le mot porteur de sens sur la position de rime et sur le temps fort.",
+    "Retour terrain : une modulation qui compte va vers une tonalité voisine (dominante/sous-dominante) puis revient à la tonique ; un pré-refrain IV–V se lit comme une fausse modulation, l'ancrer sur I–V garde la poussée sans casser l'ancrage.",
+    "Retour terrain : la dynamique gagnante est un contraste contrôlé (≈ p–f), pas un p–ff extrême ; l'arc émotionnel est une arche culminant aux ~2/3, portée par la densité autant que la nuance — ne pas creuser le pont, garder le dernier refrain sous la crête."
+  ],
+  "antipatterns": [
+    "Empiler des hooks sans construire la montée vers eux",
+    "Écrire les paroles en 'disant' l'émotion ('je suis triste') au lieu de la faire ressentir",
+    "Couplets tous en 16 mesures indifférenciés",
+    "Démo bâclée qui masque le potentiel de la chanson",
+    "Sur-moduler : sauts de tonalité lointains et dispersés qui ne reviennent jamais au bercail (rupture, pas modulation)"
+  ],
+  "examples": [
+    {"context": "'The Climb' — mélodie do-ré-mi qui peine à monter", "outcome": "melodic step progression = prosodie de l'effort, la musique mime le sens du texte (Perricone)"},
+    {"context": "'Paparazzi' (Lady Gaga) — même montée do-ré-mi", "outcome": "sans la lutte : pure joie ; le même outil mélodique sert une émotion opposée"},
+    {"context": "'Friends in Low Places' — mot 'low' à placer", "outcome": "note grave sur 'low' = magic moment dicté par la prosodie"}
+  ]
+}
