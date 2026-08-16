@@ -831,6 +831,42 @@ que le worker brain démarre via `mlx_lm.server`.
 > son contenu et entre en conflit** ; le diff de contenu (`git diff A origin/main`)
 > le dit — vide ⇒ redondant, nettoyable sans perte par rebase ou `reset --hard`.
 
+## État au 2026-08-16 — la mémoire de Klody parle enfin MCP
+
+Analyse d'un post r/LocalLLaMA (mémoire pour LLM via MCP, deux étages
+embedding + reranker). Le post décrit à ~85 % ce que Klody faisait déjà :
+embeddings locaux `bge-m3` en process, retrieval **hybride** vecteur + FTS5
+fusionné RRF (`agent/semantic_memory.py`), extraction de faits
+(`agent/memory_extractor.py`). **Deux écarts réels** confrontés au dépôt :
+
+1. **Reranker cross-encoder (Qwen3-Reranker-4B), le titre du post — NON fait,
+   délibérément.** Le « rerank » de la mémoire est cosinus, pas cross-encoder
+   (`semantic_memory.py:69,82-84`), et c'est un choix : le moteur (`klody_memory`)
+   est hors dépôt, et surtout la preuve mesurée du dépôt dit que **la précision
+   de retrieval n'est pas le goulot** (encadré ✅ « l'ouverture de docs/ décide
+   de tout » : l'agent reçoit le bon fichier nommé à 0,59 et ne l'ouvre pas). Un
+   reranker améliorerait un étage qui n'est pas le problème — et la règle d'or
+   interdit toute amélioration non chiffrée au bench. ⚠️ **Ne pas rejouer** cette
+   piste sans mesurer d'abord que la précision est devenue le goulot.
+
+2. **Mémoire exposée en MCP (le « GBrain » du post) — FAIT.** Toute la
+   machinerie existait mais n'était offerte qu'en process (outil ReAct
+   `rappeler_memoire`). Aucun client externe (Codex, ChatGPT Web, Claude Desktop)
+   ne partageait cette mémoire. `klody_mcp/memory_server.py` (:8095) l'expose :
+   `memoriser` / `rappeler` / `oublier` / `etat_memoire`, en **déléguant** à
+   `agent.semantic_memory` (seule source de vérité — une seconde copie
+   divergerait en silence). 100 % local, aucun modèle ni dépendance de plus.
+   - Frontière MCP **ne lève JAMAIS** : indisponibilité ou crash moteur → dict
+     lisible (même philosophie que `recall_for_llm`). Barrière ASI06 conservée :
+     `rappeler` rend le texte déjà sanitisé par `recall_for_llm`, jamais de brut.
+   - `etat_memoire` a **trois verdicts** (disponible / désactivée / moteur absent)
+     et **nomme la cause** de l'indispo — jamais « rien » indifférencié.
+   - Lanceur `scripts/start-memory-mcp.sh` + agent
+     `launchagents/com.klody.memory-mcp.plist` (la règle « un agent par
+     `start-*-mcp.sh` » est testée). Tests : `tests/test_memory_server.py`
+     (délégation, refus nommés, contrat « ne lève jamais » ; le chemin dégradé
+     est testé en réel — `klody-memory` est absent du conteneur de dev).
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
