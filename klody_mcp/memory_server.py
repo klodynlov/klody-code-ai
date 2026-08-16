@@ -41,11 +41,10 @@ from __future__ import annotations
 import logging
 import os
 
-from dotenv import load_dotenv
-from fastmcp import FastMCP
-
 import config
 from agent import semantic_memory as sm
+from dotenv import load_dotenv
+from fastmcp import FastMCP
 
 load_dotenv()
 
@@ -89,7 +88,7 @@ def memoriser_impl(texte: str, titre: str, kind: str = "context",
         book_id = sm.remember(texte, title=titre, kind=kind, replace=bool(remplacer))
     except ValueError as e:  # texte/titre vide — erreur d'appel, message direct
         return {"ok": False, "erreur": str(e)}
-    except Exception as e:  # noqa: BLE001 — frontière MCP : jamais de propagation
+    except Exception as e:  # frontière MCP : jamais de propagation vers le client
         logger.warning("[memory_mcp] memoriser en échec : %s", e)
         return {"ok": False, "erreur": f"{e.__class__.__name__}: {e}"}
     return {"ok": True, "id": book_id, "titre": titre.strip(), "kind": kind,
@@ -119,7 +118,7 @@ def oublier_impl(titre: str, kind: str = "") -> dict:
         return {"ok": False, "erreur": "oublier(): titre requis."}
     try:
         n = sm.forget(titre, kind=_kind_or_none(kind))
-    except Exception as e:  # noqa: BLE001 — frontière MCP
+    except Exception as e:  # frontière MCP : jamais de propagation vers le client
         logger.warning("[memory_mcp] oublier en échec : %s", e)
         return {"ok": False, "erreur": f"{e.__class__.__name__}: {e}"}
     return {"ok": True, "titre": titre, "kind": _kind_or_none(kind) or "tous",
