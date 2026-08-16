@@ -197,8 +197,17 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality
-      - run: pip install "pip-tools==7.5.3"
+      # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality.
+      # ⚠️ pip est épinglé AUSSI, pas seulement pip-tools : vécu le 2026-08-16, le
+      # pip fourni par setup-python (non épinglé) a retiré
+      # `pip._internal.utils.compat.stdlib_pkgs`, que pip-tools 7.5.3 importe encore
+      # dans son `sync.py` → ImportError AVANT toute recompilation, sur chaque PR ET
+      # sur main (dernier vert le 2026-08-10, avant la bascule du pip du runner). Un
+      # pip-tools figé sous un pip mobile n'est pas figé : les deux versions doivent
+      # rester couplées. pip 24.3.1 conserve le symbole (vérifié : 24.0 l'a encore).
+      - run: |
+          python -m pip install "pip==24.3.1"
+          pip install "pip-tools==7.5.3"
       - name: Re-compile lockfile and diff
         run: |
           cp requirements.lock requirements.lock.bak

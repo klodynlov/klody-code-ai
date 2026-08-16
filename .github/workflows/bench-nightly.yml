@@ -157,6 +157,10 @@ jobs:
           python3.11 -m venv /tmp/lockcheck-venv
           # Même version que le gate Linux : deux versions de pip-tools ne
           # rendent pas le même fichier, et le diff accuserait le lock.
+          # ⚠️ pip épinglé aussi (même cause que le gate Linux, 2026-08-16) : le pip
+          # que `python -m venv` amorce peut avoir retiré `stdlib_pkgs`, que
+          # pip-tools 7.5.3 importe encore → ImportError. Coupler les deux versions.
+          /tmp/lockcheck-venv/bin/python -m pip install --quiet "pip==24.3.1"
           /tmp/lockcheck-venv/bin/pip install --quiet "pip-tools==7.5.3"
           cp requirements-macos.lock /tmp/macos.lock.bak
           # -c requirements.lock : la contrainte EST le correctif. Sans elle la
