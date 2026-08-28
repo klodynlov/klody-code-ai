@@ -29,7 +29,8 @@ aussi les requêtes LLM (cf. `agent/journal_client.py`).
                                  worker mlx_lm  mlx_lm    mlx_vlm
                                   (cerveau)     (code)   (Qwen2.5-VL)
 
-   Ollama (:11434) ─ fallback LLM + embeddings bge-m3 (RAG)
+   Embeddings bge-m3 ─ sentence-transformers, in-process (SEMANTIC_MEMORY_PROVIDER=st, défaut)
+   Ollama (:11434) ─ backend LLM alternatif OPTIONNEL (BACKEND=ollama) ; non requis en mode MLX
    LibraryBrain    ─ RAG livres (service externe, lecture seule dans `status`)
 ```
 

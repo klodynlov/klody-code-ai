@@ -86,8 +86,9 @@ curl -sf http://127.0.0.1:8090/v1/chat/completions \
   -d '{"model":"brain","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
   >/dev/null && echo "alias brain ok"
 
-# Ollama (embeddings bge-m3)
-ollama serve &
+# Embeddings bge-m3 : in-process (sentence-transformers, SEMANTIC_MEMORY_PROVIDER=st) — rien à lancer.
+# Ollama n'est nécessaire QUE si SEMANTIC_MEMORY_PROVIDER=ollama ou BACKEND=ollama :
+# ollama serve &
 ```
 
 En mode autonome (sans gateway), c'est `./start-local-ai.sh both` qui lève les deux

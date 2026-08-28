@@ -50,12 +50,13 @@ mais dans la **plomberie** (limites, troncatures, parsing). Le harnais doit êtr
 **Problème** : un modèle local sur-raisonne ou cale si on lui donne un méga-prompt « fais
 tout bien ». Et toutes les tâches ne méritent pas le même budget.
 
-**Décision** : un **routeur** classe chaque requête en **3 difficultés × 6 types de tâche**
-(`edit / refactor / bug_fix / feature / explain / self_dev`) et en déduit le budget
-d'itérations, le system prompt et l'activation du Best-of-N.
+**Décision** : un **routeur** classe chaque requête en **3 difficultés × 14 types de tâche**
+(`edit / refactor / bug_fix / feature / explain / self_dev / review / test_gen / security /
+docs / perf / migrate / creative / music`) et en déduit le budget d'itérations, le system
+prompt et l'activation du Best-of-N.
 
 - Mesuré : **F1 macro ≈ 0,85** sur un jeu étiqueté (`bench.router_eval`).
-- **Hot-swap de prompts** : 6 prompts focalisés (~300-600 tokens) au lieu d'un seul de 1600+.
+- **Hot-swap de prompts** : 12 prompts focalisés (~300-600 tokens) au lieu d'un seul de 1600+.
 - **Contre-intuitif et clé** : simplifier `feature.md` de **1637 → 289 tokens** a *amélioré*
   les résultats. Les « RÈGLE ABSOLUE : … » paralysaient Qwen3 (il sur-raisonnait sur les
   règles au lieu d'agir). *Moins de prompt = plus d'action* sur un modèle local.
