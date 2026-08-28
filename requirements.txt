@@ -64,9 +64,12 @@ ollama>=0.4.0
 #   python-multipart CVE-2026-53538/53539/53540 -> 0.0.31
 #   starlette        CVE-2026-54282/54283       -> 1.3.1
 #   setuptools       PYSEC-2026-3447            -> 83.0.0
+#   pip              PYSEC-2026-3721            -> 26.2
 #   mcp              CVE-2026-52869/52870/59950 -> 1.28.1
-# setuptools est « unsafe » pour pip-tools : il n'apparaît dans le lock qu'avec
-# --allow-unsafe (sinon pip-audit audite le setuptools seedé du venv éphémère).
+# setuptools ET pip sont « unsafe » pour pip-tools : ils n'apparaissent dans le
+# lock qu'avec --allow-unsafe (sinon pip-audit audite le setuptools/pip seedé du
+# venv éphémère). Sans le plancher pip, pip-compile ressort le dernier pip connu
+# au moment du compile (26.1.2, vulnérable PYSEC-2026-3721) et le lock reste rouge.
 # ⚠️ setuptools>=83 exige torch>=2.13 : torch 2.12.x déclare setuptools<82
 # (résolution impossible si torch est re-pinné en 2.12 — bumper torch d'abord).
 # mcp arrive par fastmcp -> fastmcp-slim[client,server] (qui autorise <2.0,>=1.24.0) :
@@ -76,6 +79,7 @@ cryptography>=50.0.0
 python-multipart>=0.0.32
 starlette>=1.3.1
 setuptools>=83.0.0
+pip>=26.2
 mcp>=1.28.1
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
