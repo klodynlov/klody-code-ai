@@ -7,7 +7,7 @@
 Pas d'API cloud. Aucune donnée ne quitte la machine. Le cerveau (MLX/Apple Silicon),
 les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tournent en local.
 
-![Tests](https://img.shields.io/badge/tests-2146%20passing-success)
+![Tests](https://img.shields.io/badge/tests-2779%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-84.3%25-success)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
@@ -19,7 +19,7 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 
 </div>
 
-> **Status** : v2.1+ stable · **2146 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
+> **Status** : v2.1+ stable · **2779 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
 <!-- 📸 À AJOUTER : une capture (thème sombre conseillé) + un GIF de démo 20-30s dans docs/assets/,
      puis DÉ-COMMENTER la ligne ci-dessous (laissée commentée pour ne pas afficher d'image cassée) :
@@ -46,7 +46,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🖥️ **Pilote ton environnement** | macOS (AppleScript, Spotlight, Raccourcis→HomeKit/Automator, Finder), maison connectée (MQTT : ESP32, Raspberry Pi), automatisation fichiers (renommage, organisation, sauvegarde, synchro). |
 | 🔨 **Toolsmithing** | Klody ne se contente pas d'utiliser des outils, il les **fabrique** : scripts, CLI, APIs FastAPI, serveurs MCP, workflows, pipelines, plugins Klody, interfaces web — chacun livré avec son test. |
 | ⚙️ **Ops \& génération** | Introspection Docker/Kubernetes/Git (lecture seule, mutations gated), SQL SQLite sandboxé, diagrammes UML, scaffolding d'API REST/GraphQL, SDK et repository NoSQL. |
-| ✅ **Production-grade** | 2146 tests, coverage 84,3 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
+| ✅ **Production-grade** | 2779 tests, coverage 84,3 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
 
@@ -81,9 +81,10 @@ flowchart TD
         direction LR
         B["MLX cerveau<br/>Qwen3.6-35B · :8080"]
         C["MLX code<br/>Qwen3-Coder-30B · :8081"]
-        O["Ollama fallback · :11434"]
+        O["Ollama · backend alt.<br/>(option) · :11434"]
     end
 
+    TOOLS --> EMB["🔤 Embeddings bge-m3<br/>sentence-transformers · in-process"]
     TOOLS --> RAG["📚 LibraryBrain RAG · :8765"]
     API -.expose.-> MCPS["📡 Serveur MCP Klody · :8083<br/>(Cline · Zed · Continue le consomment)"]
 ```
@@ -109,12 +110,12 @@ flowchart TD
 | Runtime | Python 3.11+ · FastAPI · WebSocket |
 | LLM cerveau | **MLX-LM** — `unsloth/Qwen3.6-35B-A3B-MLX-8bit` (`:8080`, `enable_thinking=false`) |
 | LLM code | **MLX-LM** — `mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit` (`:8081`) |
-| LLM fallback | **Ollama** — `qwen2.5-coder:32b` (`:11434`) |
-| Embeddings | **Ollama** — `bge-m3` |
+| LLM (backend alt.) | **Ollama** — `qwen2.5-coder:32b` (`:11434`, `BACKEND=ollama`) — optionnel, non requis en mode MLX |
+| Embeddings | **sentence-transformers** (in-process) — `bge-m3` (`SEMANTIC_MEMORY_PROVIDER=st`, défaut) ; Ollama en option |
 | RAG livres | **LibraryBrain** — sqlite-vec + FTS5 (`:8765`) |
 | MCP | **FastMCP** — Klody client *et* serveur ; connecteurs Gmail/Web |
 | UI graphique | `klody-ui` — Tauri 2 + React 19 + Tailwind 4 ([repo](https://github.com/klodynlov/klody-ui)) |
-| Tests | `pytest` — **2146 tests** (+20 skipped) · coverage 84,3 % |
+| Tests | `pytest` — **2779 tests** · coverage 84,3 % |
 
 ## Installation
 
@@ -122,8 +123,10 @@ flowchart TD
 
 ```bash
 pip install mlx-lm              # MLX-LM (Apple Silicon recommandé)
-brew install ollama ripgrep     # Ollama (embeddings + fallback), ripgrep (recherche)
+brew install ripgrep            # ripgrep (recherche) — requis
 pip install sqlite-vec          # optionnel (LibraryBrain)
+# Embeddings bge-m3 : in-process via sentence-transformers (installé par requirements.txt).
+# Ollama est OPTIONNEL — seulement si BACKEND=ollama (backend LLM alternatif) : brew install ollama
 ```
 
 ### 2. Modèles
@@ -133,8 +136,8 @@ pip install sqlite-vec          # optionnel (LibraryBrain)
 huggingface-cli download unsloth/Qwen3.6-35B-A3B-MLX-8bit
 # Spécialiste code (optionnel, port 8081)
 huggingface-cli download mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit
-# Embeddings (requis pour le retrieval)
-ollama serve && ollama pull bge-m3
+# Embeddings (bge-m3) : chargés automatiquement in-process par sentence-transformers
+# au premier retrieval — rien à lancer. (Ollama uniquement si SEMANTIC_MEMORY_PROVIDER=ollama.)
 ```
 
 ### 3. Cloner et installer
@@ -177,10 +180,9 @@ MAX_ITERATIONS=25                                     # plafond boucle ReAct
 
 ```bash
 ./scripts/start-mlx.sh                 # 1. cerveau MLX (~30-60s de chargement)
-ollama serve                           # 2. embeddings
-python main.py                         # 3. CLI Rich  (--resume / --session <id>)
-python api/server.py                   # 4. (option) API WebSocket pour l'UI Tauri
-./scripts/start-klody-mcp.sh --http    # 5. (option) exposer Klody en serveur MCP (:8083)
+python main.py                         # 2. CLI Rich  (--resume / --session <id>)  — embeddings in-process, rien d'autre à lancer
+python api/server.py                   # 3. (option) API WebSocket pour l'UI Tauri
+./scripts/start-klody-mcp.sh --http    # 4. (option) exposer Klody en serveur MCP (:8083)
 
 # Connecteurs MCP (option) :
 ./scripts/start-gmail-mcp.sh --http    # Gmail  (:8084) — voir .env.example
@@ -250,7 +252,7 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 ## Tests & bench
 
 ```bash
-python -m pytest tests/ -q                         # 2146 passing
+python -m pytest tests/ -q                         # 2779 passing
 BACKEND=mlx python -m bench.run --category easy    # bench reproductible (20 tâches)
 BACKEND=mlx python -m bench.router_eval            # précision du routeur (F1 macro)
 ```
@@ -291,7 +293,7 @@ python main.py --session <id-court>   # reprend une session précise
 | Symptôme | Cause / solution |
 |---|---|
 | `APIConnectionError` (MLX) | Lancer `./scripts/start-mlx.sh` |
-| `Connection refused` (Ollama) | `ollama serve` (requis pour les embeddings bge-m3) |
+| `Connection refused` (Ollama) | Concerne uniquement `BACKEND=ollama` (backend alternatif) → `ollama serve`. Les embeddings tournent in-process (sentence-transformers), Ollama n'est **pas** requis en mode MLX. |
 | `model not found` (MLX) | `huggingface-cli download unsloth/Qwen3.6-35B-A3B-MLX-8bit` |
 | Le modèle « réfléchit » sans répondre | Qwen3.6 est *thinking* → `MLX_CHAT_TEMPLATE_ARGS='{"enable_thinking": false}'` dans `.env` |
 | `SandboxViolation` | Le chemin doit être sous `PROJECT_ROOT`/`ALLOWED_ROOTS` (chemins absolus existants) |

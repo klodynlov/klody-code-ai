@@ -13,7 +13,7 @@
 
 ### Je construis des **agents IA privés / local-first** — orchestration, sécurité, et code qui tient en production.
 
-*Ingénieur logiciel · IA locale (MLX/Ollama) · MCP · Python · Rust/Tauri · React*
+*Ingénieur logiciel · IA locale (MLX / Apple Silicon) · MCP · Python · Rust/Tauri · React*
 
 </div>
 
@@ -25,13 +25,13 @@ Un agent de code **100 % local** (aucune donnée ne quitte la machine) qui rival
 agent cloud sur une machine perso. Orchestration adaptative, client **et** serveur MCP,
 sécurité de niveau production.
 
-![Tests](https://img.shields.io/badge/tests-699%20passing-success)
+![Tests](https://img.shields.io/badge/tests-2779%20passing-success)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
 ![MCP](https://img.shields.io/badge/MCP-client%20%2B%20serveur-blueviolet)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 - 🔒 100 % privé (MLX / Apple Silicon) · sandbox multi-racines · anti-SSRF · commits signés
-- 🧭 Routeur adaptatif (easy/medium/hard × 6 types), boucle ReAct qui va au bout, Best-of-N
+- 🧭 Routeur adaptatif (easy/medium/hard × 14 types), boucle ReAct qui va au bout, Best-of-N
 - 🔌 Extensible via MCP — connecteurs Gmail & web, et Klody s'expose aux autres agents
 - 📐 [**Étude de cas technique**](https://github.com/klodynlov/klody-code-ai/blob/main/docs/CASE-STUDY.md) — les décisions d'ingénierie
 
@@ -42,7 +42,7 @@ sécurité de niveau production.
 ## 🛠️ Stack
 
 **Langages** — Python · TypeScript · Rust
-**IA / Agents** — MLX-LM · Ollama · ReAct · routage adaptatif · retrieval (tree-sitter + embeddings) · **MCP** (client & serveur)
+**IA / Agents** — MLX-LM (Apple Silicon) · ReAct · routage adaptatif · retrieval (tree-sitter + embeddings bge-m3 in-process) · **MCP** (client & serveur)
 **Backend** — FastAPI · WebSocket · SQLite (FTS5 + sqlite-vec)
 **Front / Desktop** — React 19 · Tailwind 4 · Tauri 2
 **Qualité** — pytest · CI durcie (bandit / gitleaks / pip-audit / CodeQL) · commits signés
