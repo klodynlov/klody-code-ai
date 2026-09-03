@@ -453,21 +453,21 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 
 | lot | état | PR | chiffre de sortie |
 |---|---|---|---|
-| 0.1 | à faire | | |
-| 0.2 | à faire | | |
-| 0.3 | à faire | | |
-| 1.1 | à faire | | |
-| 1.2 | à faire | | |
-| 1.3 | à faire | | |
-| 1.4 | à faire | | |
-| 1.5 | à faire | | |
-| 2.1 | à faire | | |
-| 2.2 | à faire | | |
-| 2.3 | à faire | | |
-| 3.1 | à faire | | |
-| 3.2 | à faire | | |
-| 3.3 | à faire | | |
-| 4.1 | à faire | | |
-| 4.2 | à faire | | |
-| 4.3 | à faire | | |
-| 5.1 | option | | |
+| 0.1 | **fait** | #231 | nightly lock macOS + sentinelle planifiée |
+| 0.2 | **fait** | #232 | veille Qwen relancée (Connection refused → OK) |
+| 0.3 | **fait** | #233 | scripts/recount.sh — couverture + tests recomptés |
+| 1.1 | **fait** | #234 | 8 prompts ALWAYS → ON_DEMAND, skills lazy |
+| 1.2 | **fait** | #235 | long_term_memory conditionnel |
+| 1.3 | **fait** | #236 | retrieval section conditionnelle |
+| 1.4 | **fait** | #237 | schémas MCP lazy dans _tools_for_run |
+| 1.5 | **fait** | #238 | résumé mémoire compact (≤2 k tokens) |
+| 2.1 | **fait** | #239 | SELF_CRITIQUE_ENABLED mesuré au banc |
+| 2.2 | **fait** | #240 | SKILLS_ROUTER_ENABLED mesuré au banc |
+| 2.3 | **fait** | #241 | PREVIEW_FEEDBACK_TIMEOUT_S mesuré au banc |
+| 3.1 | **fait** | #242 | search_books batché (1 appel vs N) |
+| 3.2 | **fait** | #243 | tool_result tronqué > 4 k chars |
+| 3.3 | **fait** | #244 | historique sliding window ≤ CONTEXT_WINDOW/2 |
+| 4.1 | **fait** | #245–#249 | orchestrateur/ — 5 sous-modules (gardes/routage/prompt/outils/critique) |
+| 4.2 | **fait** | #251 | stream_api extrait dans api/streaming.py, test parité signature |
+| 4.3 | **fait** | #252 | mypy vert sur 42 fichiers (était 29), 0 type: ignore |
+| 5.1 | **bloqué** | — | mlx_lm 0.31.3 (latest) ne supporte pas `qwen4_exp`, arrêt Q1 |
