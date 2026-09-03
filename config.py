@@ -243,7 +243,11 @@ SELF_CRITIQUE_ENABLED: bool = os.getenv("SELF_CRITIQUE_ENABLED", "false").lower(
 # --- Best-of-N (Roadmap v2 #7) ---
 # Génère N candidats + reranker LLM-as-judge sur la 1ère itération des tâches hard.
 # Cost : (N+1) appels LLM au lieu de 1, déclenché UNIQUEMENT si router.use_best_of_n=True.
-BEST_OF_N_ENABLED: bool = os.getenv("BEST_OF_N_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+# OFF par défaut (lot 1.5, 2026-09-03) : BoN est sauté sur le coder (toutes les
+# tâches de code), et le bench n'a aucune tâche non-code en hard → verdicts
+# identiques entre BoN=3/2/off, on garde le moins cher. Réactiver quand le bench
+# couvrira hard/explain ou hard/review (lot 2.1 real_repo).
+BEST_OF_N_ENABLED: bool = os.getenv("BEST_OF_N_ENABLED", "false").lower() in ("1", "true", "yes", "on")
 BEST_OF_N_COUNT: int = int(os.getenv("BEST_OF_N_COUNT", 3))
 # Override : force Best-of-N quelle que soit la décision du router. Utile pour
 # l'évaluation A/B (mesurer le gain réel sur des tâches que le router n'aurait
