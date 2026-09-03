@@ -12,7 +12,6 @@ voit — un garde-fou incapable de rougir. Trois propriétés se verrouillent :
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
