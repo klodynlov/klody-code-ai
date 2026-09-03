@@ -262,6 +262,12 @@ RETRIEVAL_INJECT_K: int = int(os.getenv("RETRIEVAL_INJECT_K", 5))
 # Seuil de similarité cosinus sous lequel un hit est jugé hors-sujet (filtre le
 # bruit : sur une requête de pure conversation, aucun fichier n'est injecté).
 RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", 0.35))
+# Échéance GLOBALE (secondes) pour la recherche sémantique proactive. Couvre
+# refresh de l'index + embedding de la query + cosinus. Un index froid sur un
+# vrai projet (~/Projets) peut dépasser 10 s ; l'échéance rend le repli muet
+# au lieu de bloquer le tour 1. 2 s = suffisant pour un refresh incrémental
+# (mesuré ~0,02 s à chaud), assez serré pour couper un build froid.
+RETRIEVAL_BUILD_DEADLINE_S: float = float(os.getenv("RETRIEVAL_BUILD_DEADLINE_S", 2.0))
 
 # --- Routeur de skills sémantique (OPTIONNEL, cf. tools/skill_router.py) ---
 # OFF par défaut : Klody reste offline-first (select_skills, IDF déterministe,
