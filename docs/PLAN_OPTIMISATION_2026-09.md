@@ -465,7 +465,7 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 | 2.2 | à faire | | |
 | 2.3 | à faire | | |
 | 3.1 | à faire | | |
-| 3.2 | à faire | | |
+| 3.2 | **PR** | #243 | |
 | 3.3 | à faire | | |
 | 4.1 | à faire | | |
 | 4.2 | à faire | | |
