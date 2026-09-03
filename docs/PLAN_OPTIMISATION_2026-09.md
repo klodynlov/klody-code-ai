@@ -453,7 +453,7 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 
 | lot | état | PR | chiffre de sortie |
 |---|---|---|---|
-| 0.1 | à faire | | |
+| 0.1 | **livré** | #231 | lock macOS régénéré (0 pkg modifié), pmset+caffeinate, veille nightly 12 tests. Gate : attendre 5 nuits |
 | 0.2 | à faire | | |
 | 0.3 | à faire | | |
 | 1.1 | à faire | | |
