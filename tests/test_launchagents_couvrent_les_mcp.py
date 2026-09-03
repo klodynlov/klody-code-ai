@@ -85,3 +85,25 @@ def test_aucun_agent_orphelin():
         if a.endswith("-mcp") and a.removesuffix("-mcp") not in services
     }
     assert not orphelins, f"agents MCP sans lanceur : {orphelins}"
+
+
+# --- Veilles : chaque scripts/veille_*.py a son agent launchd ----------------
+
+def _veilles() -> list[Path]:
+    trouves = sorted(LANCEURS.glob("veille_*.py"))
+    assert trouves, "aucun script de veille trouvé — le motif de nommage a changé"
+    return trouves
+
+
+def _nom_veille(script: Path) -> str:
+    return script.stem.replace("_", "-")
+
+
+@pytest.mark.parametrize("script", _veilles(), ids=lambda p: p.stem)
+def test_chaque_veille_a_son_agent(script):
+    """Même mode de panne que les MCP : un script sans agent ne tourne jamais."""
+    nom = _nom_veille(script)
+    assert nom in _agents(), (
+        f"{script.name} n'a pas d'agent launchd versionné.\n"
+        f"Créer launchagents/com.klody.{nom}.plist."
+    )

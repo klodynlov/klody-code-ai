@@ -113,12 +113,13 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **84,3 %** (gate 80), **2779 tests** (`pytest tests/ --collect-only`,
-recompté le 2026-08-07 sur `main` à jour ; 2614 le 2026-08-05, 2313 le 2026-07-30
-— personne ne le rejouait alors, exactement le mode de défaillance décrit en bas
-de ce fichier).
-⚠️ La couverture, elle, n'a PAS été recomptée à ces dates : elle porte toujours
-la mesure du 2026-07-30. Un seul des deux chiffres de cette ligne est frais.
+Couverture **84,8 %** (run CI 33796514465 du 2026-09-03, gate 80), **2829 tests**
+(`pytest tests/ --collect-only`, recompté le 2026-09-03 sur `main` à jour ; 2779 le
+2026-08-07, 2614 le 2026-08-05, 2313 le 2026-07-30 — personne ne le rejouait
+alors, exactement le mode de défaillance décrit en bas de ce fichier).
+⚠️ Le 2026-09-03, la PR #250 (docs publics, CONSULTING/CASE-STUDY) a RECOPIÉ le
+2779 de ce paragraphe alors que `main` en collectait déjà 2829 : un chiffre lu
+ici est périmé dès qu'on le recopie. Le recompter, jamais le recopier.
 ⚠️ **Un rouge lu sur une branche N'EST PAS un rouge de `main`.** Le 2026-08-07,
 `tests/test_vlc_server.py::TestResoudreMedia::test_traversal_refuse` échouait
 dans un worktree, et je l'ai signalé « échoue sur `main` » après l'avoir rejoué…
@@ -866,6 +867,39 @@ fusionné RRF (`agent/semantic_memory.py`), extraction de faits
      `start-*-mcp.sh` » est testée). Tests : `tests/test_memory_server.py`
      (délégation, refus nommés, contrat « ne lève jamais » ; le chemin dégradé
      est testé en réel — `klody-memory` est absent du conteneur de dev).
+
+## État au 2026-09-03 — le nightly tournait 4 nuits sur 5 dans le vide
+
+Plan d'optimisation : `docs/PLAN_OPTIMISATION_2026-09.md`, lot 0.1 (instrument,
+BLOQUANT). Le nightly bench — seul juge du projet — a été muet **4 jours sur
+5 en août** (8/40 runs verts). Personne ne l'a vu. Deux causes, deux correctifs.
+
+**Cause 1 : `cancelled` (11/20)** — le Mac dort à 03:00 UTC (cron du nightly).
+`sleep 1`, pas de `pmset repeat wakeorpoweron`. Les 4 succès coïncidaient avec
+un Mac déjà réveillé pour d'autres raisons (DarkWake, activité utilisateur).
+Correctif : `pmset repeat wakeorpoweron MTWRFSU 03:50:00` (réveil matériel) +
+`scripts/bench-wake.sh` (`caffeinate -u -t 5400`, LaunchAgent à 03:52 local).
+Couvre les deux changements d'heure : le cron tombe à 04:00 (hiver) ou 05:00
+(été), les deux après 03:50.
+
+**Cause 2 : `failure` (5/20)** — le job `macos-lockfile` rouge. Diff : le header
+du lock macOS ne correspondait pas à ce que `pip-compile 7.5.3` produit (flag
+`--no-index` ajouté automatiquement). **Zéro changement de paquet**, uniquement
+des commentaires. Lock régénéré.
+
+**Veille auto-dénonçante** : `scripts/veille_nightly.py` (jumeau de
+`veille_qwen.py`), piloté par `com.klody.veille-nightly` (24 h). Notifie si
+aucun nightly vert depuis **3 jours**. Codes de sortie distincts « rien à
+signaler » (0) / « pas pu interroger » (1) — la mutation `MUETTE_JOURS → 99999`
+est verrouillée par `test_seuil_muette_est_3` sur un littéral (la même mutation
+a déjà échappé une fois sur la veille Qwen).
+
+Test de couverture LaunchAgent étendu aux scripts de veille (`veille_*.py →
+com.klody.veille-*.plist`). 14 tests.
+
+⚠️ **Gate de sortie** : 5 nightly consécutifs `success`. Le `pmset repeat`
+requiert `sudo` et n'a pas pu être posé dans cette session — l'utilisateur doit
+le faire une fois. Sans lui, la cause 1 reste ouverte.
 
 ## Pièges qui coûtent du temps
 
