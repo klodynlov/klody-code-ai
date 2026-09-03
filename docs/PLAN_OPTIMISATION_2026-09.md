@@ -462,7 +462,7 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 | 1.4 | à faire | | |
 | 1.5 | à faire | | |
 | 2.1 | à faire | | |
-| 2.2 | à faire | | |
+| 2.2 | **PR** | #xxx | instrumentation garde + script analyse coût B |
 | 2.3 | à faire | | |
 | 3.1 | à faire | | |
 | 3.2 | à faire | | |
