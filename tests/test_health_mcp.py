@@ -63,12 +63,9 @@ class TestHealthException:
         from klody_mcp.health import register_health_route
         from starlette.testclient import TestClient
 
-        try:
-            from fastmcp import FastMCP
-        except ImportError:
-            pytest.skip("fastmcp non installé")
+        fastmcp = pytest.importorskip("fastmcp")
 
-        app = FastMCP("test-health")
+        app = fastmcp.FastMCP("test-health")
         register_health_route(app, _LABEL)
 
         with patch(
