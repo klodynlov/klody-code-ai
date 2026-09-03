@@ -113,6 +113,10 @@ from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_mid_session
+from agent.orchestrateur.critique import (
+    _SELF_CRITIQUE_MIN_CHARS,
+    _SELF_CRITIQUE_PROMPT,
+)
 from agent.orchestrateur.gardes import (
     _CMD_EXEC_TOOLS,
     _CMD_FAIL_STREAK_BREAK,
@@ -357,19 +361,6 @@ _CODE_TASK_TYPES = frozenset({
     "edit", "refactor", "bug_fix", "feature", "self_dev",
     "test_gen", "perf", "migrate",
 })
-
-# Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
-# « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
-_SELF_CRITIQUE_MIN_CHARS = 200
-_SELF_CRITIQUE_PROMPT = (
-    "Relis ta dernière réponse à l'utilisateur d'un œil critique. Cherche : erreur "
-    "factuelle, oubli important, hypothèse non vérifiée, ou affirmation trop "
-    "catégorique.\n"
-    "- Si la réponse est DÉJÀ correcte et complète, réponds EXACTEMENT par le seul "
-    "mot : INCHANGÉ\n"
-    "- Sinon, réécris DIRECTEMENT la réponse finale corrigée pour l'utilisateur "
-    "(sans méta-commentaire sur ta relecture)."
-)
 
 # Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
 # l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
