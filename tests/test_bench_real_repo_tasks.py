@@ -10,9 +10,6 @@ et la longueur du prompt.
 
 from __future__ import annotations
 
-import copy
-import re
-import shutil
 import subprocess
 import sys
 import tempfile
