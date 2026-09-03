@@ -109,14 +109,13 @@ def mesurer(task_type: str | None = None) -> dict:
     tools = get_tools()
     n_mcp = 0
     try:
-        from config import MCP_SERVERS
-        if MCP_SERVERS:
+        if config.MCP_SERVERS:
             from tools.mcp_bridge import MCPManager
-            mgr = MCPManager(MCP_SERVERS)
+            mgr = MCPManager(config.MCP_SERVERS)
             mcp_tools = mgr.discover()
             tools = [*tools, *mcp_tools]
             n_mcp = len(mcp_tools)
-    except Exception:
+    except Exception:  # MCP optionnel — serveurs éteints ou non configurés
         pass
     tool_json = json.dumps(tools, ensure_ascii=False)
     postes["schemas_outils"] = {
