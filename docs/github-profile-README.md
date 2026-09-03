@@ -25,7 +25,7 @@ Un agent de code **100 % local** (aucune donnée ne quitte la machine) qui rival
 agent cloud sur une machine perso. Orchestration adaptative, client **et** serveur MCP,
 sécurité de niveau production.
 
-![Tests](https://img.shields.io/badge/tests-2779%20passing-success)
+![Tests](https://img.shields.io/badge/tests-2829%20passing-success)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
 ![MCP](https://img.shields.io/badge/MCP-client%20%2B%20serveur-blueviolet)
 ![License](https://img.shields.io/badge/license-MIT-blue)

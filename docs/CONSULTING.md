@@ -30,14 +30,14 @@ Un **agent IA privé**, déployé chez vous, taillé à votre métier :
 | 🔒 **100 % sur votre infra** | Modèle local (Apple Silicon / serveur GPU). Aucune donnée ne quitte la machine. |
 | 🧰 **Outillé pour votre métier** | Lecture/écriture de fichiers, exécution sandboxée, connecteurs (mail, web, vos outils internes via **MCP**). |
 | 🛡️ **Sécurisé par conception** | Sandbox, blocage des fichiers sensibles, anti-SSRF, secrets cloisonnés, commits signés, CI durcie. |
-| ✅ **Testé & maintenable** | 2 779 cas de test collectés sur Klody, documentation et transfert de compétences. |
+| ✅ **Testé & maintenable** | 2 829 cas de test collectés sur Klody, documentation et transfert de compétences. |
 | 🔌 **Extensible** | Architecture MCP : on branche vos systèmes internes sans réécrire le cœur. |
 
 ## Pourquoi moi
 
 **Klody Code AI** — un agent de code **100 % local** — n'est pas un slide, c'est un produit
 livré : orchestration adaptative, client *et* serveur MCP, sécurité de niveau production,
-**2 779 cas de test collectés**, le tout construit **seul et vite**.
+**2 829 cas de test collectés**, le tout construit **seul et vite**.
 
 - 📂 Code : [github.com/klodynlov/klody-code-ai](https://github.com/klodynlov/klody-code-ai)
 - 📐 Décisions d'ingénierie : [Étude de cas technique](CASE-STUDY.md)
