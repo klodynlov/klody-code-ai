@@ -868,6 +868,39 @@ fusionné RRF (`agent/semantic_memory.py`), extraction de faits
      (délégation, refus nommés, contrat « ne lève jamais » ; le chemin dégradé
      est testé en réel — `klody-memory` est absent du conteneur de dev).
 
+## État au 2026-09-03 — le nightly tournait 4 nuits sur 5 dans le vide
+
+Plan d'optimisation : `docs/PLAN_OPTIMISATION_2026-09.md`, lot 0.1 (instrument,
+BLOQUANT). Le nightly bench — seul juge du projet — a été muet **4 jours sur
+5 en août** (8/40 runs verts). Personne ne l'a vu. Deux causes, deux correctifs.
+
+**Cause 1 : `cancelled` (11/20)** — le Mac dort à 03:00 UTC (cron du nightly).
+`sleep 1`, pas de `pmset repeat wakeorpoweron`. Les 4 succès coïncidaient avec
+un Mac déjà réveillé pour d'autres raisons (DarkWake, activité utilisateur).
+Correctif : `pmset repeat wakeorpoweron MTWRFSU 03:50:00` (réveil matériel) +
+`scripts/bench-wake.sh` (`caffeinate -u -t 5400`, LaunchAgent à 03:52 local).
+Couvre les deux changements d'heure : le cron tombe à 04:00 (hiver) ou 05:00
+(été), les deux après 03:50.
+
+**Cause 2 : `failure` (5/20)** — le job `macos-lockfile` rouge. Diff : le header
+du lock macOS ne correspondait pas à ce que `pip-compile 7.5.3` produit (flag
+`--no-index` ajouté automatiquement). **Zéro changement de paquet**, uniquement
+des commentaires. Lock régénéré.
+
+**Veille auto-dénonçante** : `scripts/veille_nightly.py` (jumeau de
+`veille_qwen.py`), piloté par `com.klody.veille-nightly` (24 h). Notifie si
+aucun nightly vert depuis **3 jours**. Codes de sortie distincts « rien à
+signaler » (0) / « pas pu interroger » (1) — la mutation `MUETTE_JOURS → 99999`
+est verrouillée par `test_seuil_muette_est_3` sur un littéral (la même mutation
+a déjà échappé une fois sur la veille Qwen).
+
+Test de couverture LaunchAgent étendu aux scripts de veille (`veille_*.py →
+com.klody.veille-*.plist`). 14 tests.
+
+⚠️ **Gate de sortie** : 5 nightly consécutifs `success`. Le `pmset repeat`
+requiert `sudo` et n'a pas pu être posé dans cette session — l'utilisateur doit
+le faire une fois. Sans lui, la cause 1 reste ouverte.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
