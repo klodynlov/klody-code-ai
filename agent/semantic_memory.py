@@ -55,7 +55,7 @@ except Exception as exc:  # ImportError, ou sqlite-vec/ollama/tqdm absents
     MEMORY_AVAILABLE = False
     _IMPORT_ERROR = exc
 
-    def _sanitize(text: str, strict: bool = False):  # repli identité, jamais
+    def _sanitize(text: str, strict: bool = False) -> tuple[str, list[str]]:  # repli identité, jamais
         return text, []                              # atteint : recall_for_llm
                                                      # sort avant si indisponible
 
@@ -243,7 +243,7 @@ def _delete_sources(conn: sqlite3.Connection, title: str, kind: str | None) -> i
                 for table in ("vec_chunks", "vec_chunks_bit"):
                     # OperationalError = table pas encore créée (aucun embedding stocké)
                     with contextlib.suppress(sqlite3.OperationalError):
-                        conn.execute(f"DELETE FROM {table} WHERE chunk_id = ?", (chunk_id,))
+                        conn.execute(f"DELETE FROM {table} WHERE chunk_id = ?", (chunk_id,))  # nosec B608 — table vient d'un tuple littéral interne
         conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
     return len(rows)
 

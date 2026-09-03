@@ -23,7 +23,7 @@ MAX_CHARS = 12_000
 
 # ── Détection de format ────────────────────────────────────────────────────────
 
-def _detect_format(data) -> str:
+def _detect_format(data: list | dict) -> str:
     """Détecte le format de l'export."""
     if isinstance(data, list) and data:
         first = data[0]
@@ -86,7 +86,7 @@ def _parse_claude(data: list) -> list[dict]:
     return conversations
 
 
-def _parse_generic(data) -> list[dict]:
+def _parse_generic(data: list | dict) -> list[dict]:
     """Tente de parser tout JSON avec une clé 'messages'."""
     if isinstance(data, dict):
         data = [data]
