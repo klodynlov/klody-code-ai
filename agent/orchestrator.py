@@ -18,6 +18,8 @@ from config import (
     LLM_BASE_URL,
     LLM_MODEL,
     MAX_ITERATIONS,
+    MAX_TOKENS_DEFAULT,
+    MAX_TOKENS_PAR_TYPE,
     PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
     RETRIEVAL_INJECT_ENABLED,
@@ -1704,6 +1706,7 @@ class Orchestrator:
             messages,
             tools=self.tools,
             user_prompt=self._current_user_prompt,
+            max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
         )
 
         # Récap des candidats + choix
@@ -2602,6 +2605,9 @@ class Orchestrator:
                     decision.task_type,
                     force_generalist=self._interactive_skill_active,
                 )
+                self._max_tokens = MAX_TOKENS_PAR_TYPE.get(
+                    decision.task_type, MAX_TOKENS_DEFAULT,
+                )
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
@@ -2729,6 +2735,7 @@ class Orchestrator:
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                     enable_thinking=thinking_enabled,
                     thinking_budget=budget or None,
+                    max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
                 )
 
             # Empty-after-reasoning : le CoT a tout consommé sans répondre NI agir
@@ -2766,6 +2773,7 @@ class Orchestrator:
                     self.memory.get_messages_for_api(),
                     tools=self._tools_for_run(), tool_choice="auto",
                     enable_thinking=False,
+                    max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
                 )
                 # Garantie anti-écran-blanc : si la relance ne produit toujours rien,
                 # on force une synthèse finale plutôt que laisser un tour muet.

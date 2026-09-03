@@ -179,6 +179,29 @@ THINKING_BUDGET_FORWARD: bool = os.getenv(
     "THINKING_BUDGET_FORWARD", "true"
 ).lower() in ("1", "true", "yes", "on")
 
+# --- max_tokens PAR TYPE DE TÂCHE (lot 1.3, plan d'optimisation 2026-09) --------
+# stream_chat default = 8192. À ~30 tok/s = jusqu'à 273 s par génération.
+# feature/self_dev gardent 8192 (régression du 27-05 : max_tokens trop bas
+# tronquait createCar(), scénario de rejeu 05_max_tokens_truncated_regression).
+# Les tâches courtes (explain, edit, docs…) prennent 4096 — encore 137 s max.
+MAX_TOKENS_PAR_TYPE: dict[str, int] = {
+    "edit": 4096,
+    "refactor": 4096,
+    "bug_fix": 4096,
+    "feature": 8192,
+    "explain": 4096,
+    "self_dev": 8192,
+    "review": 4096,
+    "test_gen": 4096,
+    "security": 4096,
+    "docs": 4096,
+    "perf": 4096,
+    "migrate": 8192,
+    "creative": 4096,
+    "music": 4096,
+}
+MAX_TOKENS_DEFAULT: int = 8192
+
 # Pénalité de répétition transmise au serveur MLX (extra_body, hors spec OpenAI —
 # le gateway :8090 forwarde le body intégral au worker mlx_lm qui la supporte).
 # Filet SOUPLE anti-boucle (sampling). À température basse, une longue liste quasi
