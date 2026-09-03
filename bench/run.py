@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Bench Klody")
     p.add_argument(
         "--category",
-        choices=["easy", "medium", "hard", "expert", "discovery"],
+        choices=["easy", "medium", "hard", "expert", "discovery", "real_repo"],
         default=None,
     )
     p.add_argument("--task", default=None, help="ID exact, ex: easy/rename_var")
