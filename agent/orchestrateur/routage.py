@@ -7,6 +7,12 @@ continue de les atteindre.
 """
 from __future__ import annotations
 
+__all__ = [
+    "_CODE_TASK_TYPES",
+    "_INTERACTIVE_SKILL_MARKERS",
+    "_skill_is_interactive",
+]
+
 # ------------------------------------------------------------------ #
 # Constantes de routage                                               #
 # ------------------------------------------------------------------ #

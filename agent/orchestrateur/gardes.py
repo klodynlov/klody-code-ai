@@ -13,6 +13,30 @@ from pathlib import Path, PurePosixPath
 
 from rich.console import Console
 
+__all__ = [
+    "_CMD_EXEC_TOOLS",
+    "_CMD_FAIL_STREAK_BREAK",
+    "_DOC_NUDGE_MAX",
+    "_DOC_SCAN_DEPTH",
+    "_DOC_SCAN_MAX",
+    "_DOC_SUFFIXES",
+    "_DOC_WRITE_TOOLS",
+    "_ECHO_REPEAT_BREAK",
+    "_ECHO_REPEAT_WARN",
+    "_FILE_SCAN_TOOLS",
+    "_LOOP_REPEAT_BREAK",
+    "_LOOP_REPEAT_WARN",
+    "_NO_SOURCE_CLAIM_RE",
+    "_SCAN_REPEAT_BREAK",
+    "_SCAN_REPEAT_WARN",
+    "GardesMixin",
+    "_claims_no_library_source",
+    "_cmd_result_failed",
+    "_est_documentation",
+    "_is_empty_after_reasoning",
+    "_looks_like_unfinished_plan",
+]
+
 logger = logging.getLogger(__name__)
 console = Console()
 
