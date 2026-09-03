@@ -463,7 +463,7 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 | 1.5 | à faire | | |
 | 2.1 | à faire | | |
 | 2.2 | à faire | | |
-| 2.3 | à faire | | |
+| 2.3 | **PR** | #xxx | script A/B flags dormants + gate 2 tâches + 15 tests |
 | 3.1 | à faire | | |
 | 3.2 | à faire | | |
 | 3.3 | à faire | | |
