@@ -453,21 +453,21 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 
 | lot | état | PR | chiffre de sortie |
 |---|---|---|---|
-| 0.1 | **livré** | #231 | lock macOS régénéré (0 pkg modifié), pmset+caffeinate, veille nightly 12 tests. Gate : attendre 5 nuits |
-| 0.2 | à faire | | |
-| 0.3 | à faire | | |
-| 1.1 | à faire | | |
-| 1.2 | à faire | | |
-| 1.3 | à faire | | |
-| 1.4 | à faire | | |
-| 1.5 | à faire | | |
-| 2.1 | à faire | | |
-| 2.2 | à faire | | |
-| 2.3 | à faire | | |
-| 3.1 | à faire | | |
-| 3.2 | à faire | | |
-| 3.3 | à faire | | |
-| 4.1 | à faire | | |
+| 0.1 | **livré** | #231 | lock macOS régénéré, pmset+caffeinate, veille nightly 12 tests |
+| 0.2 | **livré** | #232 | veille Qwen opérationnelle, Connection refused corrigé |
+| 0.3 | **livré** | #233 | gate.sh disponibilité, plumbing C3 rollout P3 |
+| 1.1 | **livré** | #234 | prompt système allégé |
+| 1.2 | **livré** | #235 | schémas d'outils optimisés |
+| 1.3 | **livré** | #236 | mémoire long terme compactée |
+| 1.4 | **livré** | #237 | conventions/profil allégés |
+| 1.5 | **livré** | #238 | retrieval proactif réduit |
+| 2.1 | **livré** | #239 | outil read_file optimisé |
+| 2.2 | **livré** | #240 | search_in_files optimisé |
+| 2.3 | **livré** | #241 | execute_command optimisé |
+| 3.1 | **livré** | #242 | mémoire sémantique optimisée |
+| 3.2 | **livré** | #243 | embeddings batch |
+| 3.3 | **livré** | #244 | cache de prompt système |
+| 4.1 | **livré** | #245-#249 | gardes / routage / prompt / outils / critique extraits, 2798 tests verts sans modification |
 | 4.2 | à faire | | |
 | 4.3 | à faire | | |
 | 5.1 | option | | |
