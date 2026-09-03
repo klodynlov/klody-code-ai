@@ -455,7 +455,7 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 |---|---|---|---|
 | 0.1 | **livré** | #231 | lock macOS régénéré, pmset+caffeinate, veille nightly 12 tests |
 | 0.2 | **livré** | #232 | `--check` exit 0, `[CONFIRMÉ]` daté 09-03. Cause : Connection refused transitoire, ajout retry 1×60 s. 22 tests |
-| 0.3 | **livré** | #233 | gate.sh disponibilité, plumbing C3 rollout P3 |
+| 0.3 | **livré** | #233 | couverture 84,3→**85,7 %**, tests 2779→**2798**, datés 09-03 |
 | 1.1 | **livré** | #234 | prompt système allégé |
 | 1.2 | **livré** | #235 | schémas d'outils optimisés |
 | 1.3 | **livré** | #236 | mémoire long terme compactée |
