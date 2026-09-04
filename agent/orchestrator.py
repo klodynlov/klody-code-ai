@@ -17,8 +17,11 @@ from config import (
     LLM_BASE_URL,
     LLM_MODEL,
     MAX_ITERATIONS,
+    MAX_TOKENS_DEFAULT,
+    MAX_TOKENS_PAR_TYPE,
     PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
+    RETRIEVAL_BUILD_DEADLINE_S,
     RETRIEVAL_INJECT_ENABLED,
     RETRIEVAL_INJECT_K,
     RETRIEVAL_MIN_SCORE,
@@ -851,36 +854,48 @@ class Orchestrator(GardesMixin):
         """Recherche sémantique proactive : top-k fichiers du projet probablement
         pertinents pour `query`, formatés en PISTES pour le prompt.
 
-        L'agent n'a plus à deviner/explorer à l'aveugle quels fichiers concernent
-        la tâche. Best-effort et JAMAIS bloquant : silencieux si le retrieval est
-        coupé (flag), si la requête est vide, si l'index embeddings est indisponible
-        (Ollama/bge-m3 absent) ou en cas d'erreur. Les hits sous le seuil de
-        similarité sont écartés (pas de bruit sur une requête conversationnelle).
-
-        NB : le 1er appel d'une session construit l'index (coûteux), puis
-        incrémental. Présenté en « pistes à vérifier » — pas une vérité absolue —
-        pour ne pas ancrer le modèle sur un faux positif."""
+        Best-effort, JAMAIS bloquant : le retrieval tourne dans un thread borné
+        par RETRIEVAL_BUILD_DEADLINE_S. Un index froid sur un vrai projet peut
+        coûter des minutes ; l'échéance rend le repli muet au lieu de bloquer
+        le tour 1. Silencieux aussi si le retrieval est coupé (flag), requête
+        vide, index indisponible, ou erreur."""
         if not RETRIEVAL_INJECT_ENABLED or not query.strip():
             return ""
-        try:
-            if not self.embed_index.is_available():
-                return ""
-            hits = self.embed_index.search(query, k=RETRIEVAL_INJECT_K)
-        except Exception as exc:  # best-effort : un retrieval KO ne casse pas le tour
-            logger.debug("Retrieval proactif ignoré : %s", exc)
+
+        import threading
+
+        result_box: list[str] = []
+
+        def _do_retrieval() -> None:
+            try:
+                if not self.embed_index.is_available():
+                    return
+                hits = self.embed_index.search(query, k=RETRIEVAL_INJECT_K)
+                hits = [h for h in hits if h.score >= RETRIEVAL_MIN_SCORE]
+                if not hits:
+                    return
+                logger.info("[retrieval] %d piste(s) injectée(s) : %s",
+                            len(hits), ", ".join(h.rel_path for h in hits))
+                lines = [
+                    "\n\n## Fichiers du projet probablement pertinents (recherche sémantique)\n",
+                    "_Pistes — à confirmer en lisant les fichiers avant d'agir, pas une vérité absolue :_",
+                ]
+                for h in hits:
+                    lines.append(f"- `{h.rel_path}` (pertinence {h.score:.2f})")
+                result_box.append("\n".join(lines))
+            except Exception as exc:
+                logger.debug("Retrieval proactif ignoré : %s", exc)
+
+        t = threading.Thread(target=_do_retrieval, name="klody-retrieval", daemon=True)
+        t.start()
+        t.join(timeout=RETRIEVAL_BUILD_DEADLINE_S)
+        if t.is_alive():
+            logger.warning(
+                "[retrieval] échéance %.1f s dépassée — repli muet ce tour-ci",
+                RETRIEVAL_BUILD_DEADLINE_S,
+            )
             return ""
-        hits = [h for h in hits if h.score >= RETRIEVAL_MIN_SCORE]
-        if not hits:
-            return ""
-        logger.info("[retrieval] %d piste(s) injectée(s) : %s",
-                    len(hits), ", ".join(h.rel_path for h in hits))
-        lines = [
-            "\n\n## Fichiers du projet probablement pertinents (recherche sémantique)\n",
-            "_Pistes — à confirmer en lisant les fichiers avant d'agir, pas une vérité absolue :_",
-        ]
-        for h in hits:
-            lines.append(f"- `{h.rel_path}` (pertinence {h.score:.2f})")
-        return "\n".join(lines)
+        return result_box[0] if result_box else ""
 
     def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
         """Injecte (ou met à jour) le system prompt en mémoire.
@@ -1249,6 +1264,7 @@ class Orchestrator(GardesMixin):
             messages,
             tools=self.tools,
             user_prompt=self._current_user_prompt,
+            max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
         )
 
         # Récap des candidats + choix
@@ -2147,6 +2163,9 @@ class Orchestrator(GardesMixin):
                     decision.task_type,
                     force_generalist=self._interactive_skill_active,
                 )
+                self._max_tokens = MAX_TOKENS_PAR_TYPE.get(
+                    decision.task_type, MAX_TOKENS_DEFAULT,
+                )
             except Exception as exc:
                 logger.warning("Router failed, using defaults: %s", exc)
 
@@ -2274,6 +2293,7 @@ class Orchestrator(GardesMixin):
                     messages, tools=self._tools_for_run(), tool_choice=tool_choice,
                     enable_thinking=thinking_enabled,
                     thinking_budget=budget or None,
+                    max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
                 )
 
             # Empty-after-reasoning : le CoT a tout consommé sans répondre NI agir
@@ -2311,6 +2331,7 @@ class Orchestrator(GardesMixin):
                     self.memory.get_messages_for_api(),
                     tools=self._tools_for_run(), tool_choice="auto",
                     enable_thinking=False,
+                    max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
                 )
                 # Garantie anti-écran-blanc : si la relance ne produit toujours rien,
                 # on force une synthèse finale plutôt que laisser un tour muet.

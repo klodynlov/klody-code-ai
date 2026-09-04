@@ -108,7 +108,7 @@ class BestOfN:
         while len(self.temperatures) < n:
             self.temperatures.append(0.7)
 
-    def generate_candidates(self, messages: list[dict], tools: list[dict] | None = None) -> list[Candidate]:
+    def generate_candidates(self, messages: list[dict], tools: list[dict] | None = None, max_tokens: int = 8192) -> list[Candidate]:
         """Lance N appels LLM silencieux, retourne les candidats."""
         import time
         cands: list[Candidate] = []
@@ -120,6 +120,7 @@ class BestOfN:
                     tools=tools,
                     temperature=self.temperatures[i],
                     silent=True,
+                    max_tokens=max_tokens,
                 )
             except Exception as exc:
                 logger.warning("Candidate %d failed: %s", i, exc)
@@ -211,12 +212,12 @@ class BestOfN:
 
         return 0, "fallback: unable to parse rerank response"
 
-    def best(self, messages: list[dict], tools: list[dict] | None, user_prompt: str) -> tuple[Candidate, list[Candidate], str]:
+    def best(self, messages: list[dict], tools: list[dict] | None, user_prompt: str, max_tokens: int = 8192) -> tuple[Candidate, list[Candidate], str]:
         """Pipeline complet : generate → rerank → retourne le gagnant.
 
         Returns:
             (winner, all_candidates, reasoning)
         """
-        cands = self.generate_candidates(messages, tools)
+        cands = self.generate_candidates(messages, tools, max_tokens=max_tokens)
         winner_idx, reasoning = self.rerank(cands, user_prompt)
         return cands[winner_idx], cands, reasoning
