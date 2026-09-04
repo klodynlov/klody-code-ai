@@ -207,3 +207,34 @@ class TestCodeDeSortieDuBanc:
         r = jouer_bench(tmp_path, code)
         assert r.returncode == code
         assert "le harnais est en panne" in r.stdout
+
+
+# ── État des LaunchAgents ───────────────────────────────────────────────────
+
+ETAPE_LAUNCHAGENTS = "État des LaunchAgents"
+
+
+class TestEtapeLaunchAgents:
+    """L'étape « État des LaunchAgents » est présente et JAMAIS bloquante."""
+
+    def test_etape_presente(self):
+        donnees = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        noms = [
+            etape.get("name")
+            for job in donnees["jobs"].values()
+            for etape in job.get("steps", [])
+        ]
+        assert ETAPE_LAUNCHAGENTS in noms
+
+    def test_non_bloquante(self):
+        """Le `|| true` est le contrat : un écart d'agent ne doit pas casser le nightly."""
+        bloc = extraire_run(ETAPE_LAUNCHAGENTS)
+        assert "|| true" in bloc
+
+    def test_ecrit_dans_step_summary(self):
+        bloc = extraire_run(ETAPE_LAUNCHAGENTS)
+        assert "GITHUB_STEP_SUMMARY" in bloc
+
+    def test_appelle_check(self):
+        bloc = extraire_run(ETAPE_LAUNCHAGENTS)
+        assert "install-launchagents.sh --check" in bloc
