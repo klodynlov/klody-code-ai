@@ -2,7 +2,7 @@
 
 > Comment transformer un modèle local (sous la frontière) en agent de code fiable —
 > par l'**orchestration, la sécurité et la discipline de tests**, pas par la force brute.
-> Projet solo, 2 779 cas de test collectés, couverture 84,3 %, gate CI à 80 %.
+> Projet solo, 2 829 cas de test collectés, couverture 84,8 %, gate CI à 80 %.
 
 Ce document détaille les **décisions d'ingénierie** derrière Klody Code AI. Il s'adresse
 aux personnes qui veulent juger la qualité du raisonnement, pas seulement le résultat.
@@ -123,7 +123,7 @@ d'attaque est réel et traité comme tel :
 
 ## 7. Discipline d'ingénierie
 
-- **2 779 cas de test collectés** (couverture 84,3 %, gate CI à 80 %) : unitaires, sécurité (path traversal,
+- **2 829 cas de test collectés** (couverture 84,8 %, gate CI à 80 %) : unitaires, sécurité (path traversal,
   symlinks, null bytes, blocage `.env`), **non-régression comportementale** (replay LLM avec
   fakes + fixtures golden), **contrat** (snapshots MCP/OpenAPI), monitoring (`/health`, `/metrics`).
 - **CI** : 5 jobs parallèles (cancel-in-progress), `requirements.lock` + drift check, CodeQL,

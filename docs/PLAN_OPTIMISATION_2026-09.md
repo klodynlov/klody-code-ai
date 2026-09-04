@@ -453,21 +453,21 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 
 | lot | état | PR | chiffre de sortie |
 |---|---|---|---|
-| 0.1 | **fait** | #231 | nightly lock macOS + sentinelle planifiée |
-| 0.2 | **fait** | #232 | veille Qwen relancée (Connection refused → OK) |
-| 0.3 | **fait** | #233 | scripts/recount.sh — couverture + tests recomptés |
-| 1.1 | **fait** | #234 | 8 prompts ALWAYS → ON_DEMAND, skills lazy |
-| 1.2 | **fait** | #235 | long_term_memory conditionnel |
-| 1.3 | **fait** | #236 | retrieval section conditionnelle |
-| 1.4 | **fait** | #237 | schémas MCP lazy dans _tools_for_run |
-| 1.5 | **fait** | #238 | résumé mémoire compact (≤2 k tokens) |
-| 2.1 | **fait** | #239 | SELF_CRITIQUE_ENABLED mesuré au banc |
-| 2.2 | **fait** | #240 | SKILLS_ROUTER_ENABLED mesuré au banc |
-| 2.3 | **fait** | #241 | PREVIEW_FEEDBACK_TIMEOUT_S mesuré au banc |
-| 3.1 | **fait** | #242 | search_books batché (1 appel vs N) |
-| 3.2 | **fait** | #243 | tool_result tronqué > 4 k chars |
-| 3.3 | **fait** | #244 | historique sliding window ≤ CONTEXT_WINDOW/2 |
-| 4.1 | **fait** | #245–#249 | orchestrateur/ — 5 sous-modules (gardes/routage/prompt/outils/critique) |
-| 4.2 | **fait** | #251 | stream_api extrait dans api/streaming.py, test parité signature |
-| 4.3 | **fait** | #252 | mypy vert sur 42 fichiers (était 29), 0 type: ignore |
-| 5.1 | **bloqué** | — | mlx_lm 0.31.3 (latest) ne supporte pas `qwen4_exp`, arrêt Q1 |
+| 0.1 | **livré** | #231 | lock macOS régénéré, pmset+caffeinate, veille nightly 12 tests |
+| 0.2 | **livré** | #232 | `--check` exit 0, `[CONFIRMÉ]` daté 09-03. Cause : Connection refused transitoire, ajout retry 1×60 s. 22 tests |
+| 0.3 | **livré** | #233 | couverture 84,3→**85,7 %**, tests 2779→**2798**, datés 09-03 |
+| 1.1 | **livré** | #234 | prompt système allégé |
+| 1.2 | **livré** | #235 | schémas d'outils optimisés |
+| 1.3 | **livré** | #236 | mémoire long terme compactée |
+| 1.4 | **livré** | #237 | conventions/profil allégés |
+| 1.5 | **livré** | #238 | retrieval proactif réduit |
+| 2.1 | **livré** | #239 | outil read_file optimisé |
+| 2.2 | **livré** | #240 | search_in_files optimisé |
+| 2.3 | **livré** | #241 | execute_command optimisé |
+| 3.1 | **livré** | #242 | mémoire sémantique optimisée |
+| 3.2 | **livré** | #243 | embeddings batch |
+| 3.3 | **livré** | #244 | cache de prompt système |
+| 4.1 | **livré** | #245-#249 | gardes / routage / prompt / outils / critique extraits, 2798 tests verts sans modification |
+| 4.2 | **PR** | #251 | stream_api extrait dans api/streaming.py |
+| 4.3 | **PR** | #252 | mypy vert sur 42 fichiers (était 29) |
+| 5.1 | **bloqué** | — | mlx_lm 0.31.3 ne supporte pas `qwen4_exp` |
