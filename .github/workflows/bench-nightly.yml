@@ -311,6 +311,27 @@ jobs:
             echo "  (/admin/status indisponible — trace mémoire absente)"
           fi
 
+      # État des LaunchAgents — INFORMATIF, JAMAIS BLOQUANT.
+      #
+      # Le test `test_launchagents_couvrent_les_mcp.py` compare des NOMS DE
+      # FICHIERS ; le seul contrôle qui voit la machine est `--check`. On le
+      # joue ici pour remonter un agent non chargé ou en écart dans le résumé
+      # de job. Le `|| true` est délibéré : un écart d'agent ne doit pas
+      # empêcher le banc de mesurer — c'est l'inverse qui est coûteux (un
+      # nightly muet parce qu'un plist a bougé).
+      - name: État des LaunchAgents
+        run: |
+          output=$(bash scripts/install-launchagents.sh --check 2>&1 || true)
+          echo "$output"
+          if [ -n "$output" ]; then
+            {
+              echo "### LaunchAgents"
+              echo '```'
+              echo "$output"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # ⚠️ requirements-macos.lock, PAS requirements.lock. Ce dernier est résolu
       # sur ubuntu-latest par le gate « Lockfile freshness » et contient donc
       # 19 paquets CUDA/NVIDIA que `torch` déclare sur Linux seulement, plus

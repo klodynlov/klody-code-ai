@@ -144,6 +144,10 @@ from agent.orchestrateur.prompt import (
     _has_markdown_safe,
     _shield,
 )
+from agent.orchestrateur.routage import (
+    _CODE_TASK_TYPES,
+    _skill_is_interactive,
+)
 from agent.profiler import get_profiler
 from agent.prompts import compose_system_prompt
 
@@ -333,15 +337,6 @@ _PRODUCING_TOOLS = frozenset({
     "mcp__reaper__insert_midi_note", "mcp__reaper__insert_midi_notes",
 })
 
-# Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
-# Orchestrator._route_model). Ceux qui PRODUISENT/MODIFIENT du code y vont ;
-# ceux qui produisent surtout de la PROSE ou un RAPPORT (`explain`, `review`,
-# `security`, `docs`) restent sur le généraliste, meilleur en analyse/rédaction.
-_CODE_TASK_TYPES = frozenset({
-    "edit", "refactor", "bug_fix", "feature", "self_dev",
-    "test_gen", "perf", "migrate",
-})
-
 # Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
 # « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
 _SELF_CRITIQUE_MIN_CHARS = 200
@@ -355,17 +350,6 @@ _SELF_CRITIQUE_PROMPT = (
     "(sans méta-commentaire sur ta relecture)."
 )
 
-# Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
-# l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
-# skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
-# skill) ni avec l'anti-stall (qui force un tool alors que le skill doit poser
-# ses questions en texte et attendre). Cf. session 419676b5 : skill QCM
-# `concevoir_un_algorithme_pas_a_pas` routé #1 mais jamais déclenché.
-_INTERACTIVE_SKILL_MARKERS = (
-    "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
-)
-
-
 def _as_bool(v: object) -> bool:
     """Coerce un argument d'outil en booléen, robuste aux modèles locaux qui
     sérialisent les bools en CHAÎNE ('true'/'false') — `bool('false')` vaut True,
@@ -373,18 +357,6 @@ def _as_bool(v: object) -> bool:
     if isinstance(v, str):
         return v.strip().lower() in ("1", "true", "yes", "on")
     return bool(v)
-
-
-def _skill_is_interactive(skill: dict) -> bool:
-    """Le skill est-il un guide INTERACTIF (QCM) plutôt qu'une fiche statique ?
-
-    Vrai si le drapeau explicite `interactive: true` est présent, ou si ≥2
-    marqueurs apparaissent dans le contenu (un how-to classique n'en contient
-    pas plusieurs à la fois)."""
-    if skill.get("interactive") is True:
-        return True
-    blob = (skill.get("content") or "").lower()
-    return sum(marker in blob for marker in _INTERACTIVE_SKILL_MARKERS) >= 2
 
 
 def _normalize_ask_user_options(raw) -> list[str]:
