@@ -347,6 +347,28 @@ pas encore de test verrouillant **sur l'URL ou la valeur réellement lue** (pas
 sur le texte affiché). Pour chacune : un test, ou une ligne qui dit pourquoi
 il n'y en a pas. Pas de nouveau code produit ; c'est un lot de verrouillage.
 
+**Audit réalisé le 2026-09-03** — 11 sondes, 5 verrouillées, 6 non testables :
+
+| # | sonde | statut | test(s) / justification |
+|---|---|---|---|
+| 1 | `gh_auth_status_ment_503` | NON TESTABLE | Bug du compte GitHub, pas du code. Ticket Support. |
+| 2 | `lb_401_masque_404` | VERROUILLÉ | `test_services_watchdog.py` (`test_sonde_401_nest_pas_up`, `test_sonde_verdict_par_code` paramétré 200/401/403/404/500/503), `test_librarybrain_auth.py` (header `X-API-Token` épinglé), `test_mcp_client.py` (URL réelle épinglée) |
+| 3 | `librarybrain_morts` | VERROUILLÉ | `test_services_watchdog.py` (`test_externe_jamais_de_spawn`, `test_watchdog_401_ne_redemarre_pas`) |
+| 4 | `api_double_manager_8000` | NON TESTABLE | Fix dans `klody-ui` (Tauri/Rust), hors périmètre. |
+| 5 | `nightly_eval_vec_down` | NON TESTABLE | Fix dans `library-brain` et `klody-core`, hors périmètre. |
+| 6 | `codeql_check_not_config_conflict` | NON TESTABLE | Malentendu sur GitHub Advanced Security, pas un bug du code. |
+| 7 | `vlc_mcp_async` | VERROUILLÉ | `test_vlc_server.py` (`TestCommandeConfirmee` 4 tests sur status post-commande réel, `TestDiagnosticTriEtat` 7 tests) |
+| 8 | `sandbox_interactive_false_fail` | VERROUILLÉ | `test_sandbox.py` (`test_main_avec_input_lance_quand_meme_python`, `test_eoferror_input_recoit_note_non_interactif` — vérifie sur la valeur) |
+| 9 | `fs_view_perimee_sandbox` | NON TESTABLE | Vue FS transitoire sous panne classifieur, pas un bug du code. Procédure diagnostique (vérifier `ctime`), pas un correctif. |
+| 10 | `venv_interpreteur_sondes` | NON TESTABLE | Erreur de processus humain (mauvais `python`). Réflexe `.venv/bin/python`, pas un changement de code. |
+| 11 | `import_error_openai` | VERROUILLÉ | `test_peremption_dependances.py` (`test_le_bump_sous_le_process_rougit` rejoue l'incident exact), `test_health_peremption.py` (HTTP 503 réel), `test_diagnostic_peremption.py` (~45 tests, empreintes mtime réelles) |
+
+**Verdict** : aucun test manquant dans le périmètre du dépôt. Les 5 sondes
+testables sont toutes verrouillées sur la valeur réellement lue (codes HTTP,
+headers, URLs, empreintes de fichiers), jamais sur du texte affiché. Les 6
+non testables le sont par nature : fix hors dépôt (4, 5), bug externe (1, 6),
+ou problème de processus humain (9, 10).
+
 ---
 
 ## 6. Phase 4 — structure et dette
