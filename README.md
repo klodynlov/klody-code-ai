@@ -7,8 +7,8 @@
 Pas d'API cloud. Aucune donnée ne quitte la machine. Le cerveau (MLX/Apple Silicon),
 les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tournent en local.
 
-![Tests](https://img.shields.io/badge/tests-2779%20passing-success)
-![Coverage](https://img.shields.io/badge/coverage-84.3%25-success)
+![Tests](https://img.shields.io/badge/tests-2829%20passing-success)
+![Coverage](https://img.shields.io/badge/coverage-84.8%25-success)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
 ![MCP](https://img.shields.io/badge/MCP-client%20%2B%20serveur-blueviolet)
@@ -19,7 +19,7 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 
 </div>
 
-> **Status** : v2.1+ stable · **2779 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
+> **Status** : v2.1+ stable · **2829 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
 <!-- 📸 À AJOUTER : une capture (thème sombre conseillé) + un GIF de démo 20-30s dans docs/assets/,
      puis DÉ-COMMENTER la ligne ci-dessous (laissée commentée pour ne pas afficher d'image cassée) :
@@ -46,7 +46,7 @@ une discipline de tests/sécurité de niveau production. Le tout extensible via 
 | 🖥️ **Pilote ton environnement** | macOS (AppleScript, Spotlight, Raccourcis→HomeKit/Automator, Finder), maison connectée (MQTT : ESP32, Raspberry Pi), automatisation fichiers (renommage, organisation, sauvegarde, synchro). |
 | 🔨 **Toolsmithing** | Klody ne se contente pas d'utiliser des outils, il les **fabrique** : scripts, CLI, APIs FastAPI, serveurs MCP, workflows, pipelines, plugins Klody, interfaces web — chacun livré avec son test. |
 | ⚙️ **Ops \& génération** | Introspection Docker/Kubernetes/Git (lecture seule, mutations gated), SQL SQLite sandboxé, diagrammes UML, scaffolding d'API REST/GraphQL, SDK et repository NoSQL. |
-| ✅ **Production-grade** | 2779 tests, coverage 84,3 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
+| ✅ **Production-grade** | 2829 tests, coverage 84,8 %, CI 5 jobs (sécurité + régression + contrat), branch protection + signed commits. |
 
 ## Architecture
 
@@ -115,7 +115,7 @@ flowchart TD
 | RAG livres | **LibraryBrain** — sqlite-vec + FTS5 (`:8765`) |
 | MCP | **FastMCP** — Klody client *et* serveur ; connecteurs Gmail/Web |
 | UI graphique | `klody-ui` — Tauri 2 + React 19 + Tailwind 4 ([repo](https://github.com/klodynlov/klody-ui)) |
-| Tests | `pytest` — **2779 tests** · coverage 84,3 % |
+| Tests | `pytest` — **2829 tests** · coverage 84,8 % |
 
 ## Installation
 
@@ -252,7 +252,7 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 ## Tests & bench
 
 ```bash
-python -m pytest tests/ -q                         # 2779 passing
+python -m pytest tests/ -q                         # 2829 passing
 BACKEND=mlx python -m bench.run --category easy    # bench reproductible (20 tâches)
 BACKEND=mlx python -m bench.router_eval            # précision du routeur (F1 macro)
 ```

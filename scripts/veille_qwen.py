@@ -78,6 +78,13 @@ LIMITE_PAR_ORG = 200
 # Au-delà, le silence est suspect et devient lui-même une alerte.
 MUETTE_JOURS = 3
 
+# Quand TOUTES les orgs échouent (vraisemblablement réseau local, pas HF), on
+# retente une fois après ce délai. Couvre le cas « Mac vient de se réveiller,
+# réseau pas encore prêt » — vécu les 2026-09-01 et 09-02 (Errno 61 sur les
+# trois orgs, ok quelques heures plus tard).
+RETRY_DELAI_S = 60
+RETRY_MAX = 1
+
 ETAT_DIR = Path.home() / "Library" / "Caches" / "klody"
 ETAT_FICHIER = ETAT_DIR / "veille-qwen.json"
 
@@ -232,10 +239,8 @@ def alerter_si_muette(etat: dict[str, Any]) -> None:
         )
 
 
-def executer(check_seulement: bool) -> int:
-    etat = charger_etat()
-    vus: set[str] = set(etat["vus"])
-
+def _interroger_orgs() -> tuple[list[dict[str, Any]], list[str]]:
+    """Interroge chaque org et rend (trouvés, échecs)."""
     trouves: list[dict[str, Any]] = []
     echecs: list[str] = []
     for org in ORGS:
@@ -243,9 +248,24 @@ def executer(check_seulement: bool) -> int:
             trouves.extend(depots_de_lorg(org))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
             echecs.append(f"{org}: {exc}")
+    return trouves, echecs
+
+
+def executer(check_seulement: bool) -> int:
+    etat = charger_etat()
+    vus: set[str] = set(etat["vus"])
+
+    trouves, echecs = _interroger_orgs()
 
     if echecs and len(echecs) == len(ORGS):
-        # Aucune org interrogée : on n'a RIEN regardé. Ne surtout pas rendre 0.
+        for tentative in range(1, RETRY_MAX + 1):
+            log(f"échec total — tentative {tentative}/{RETRY_MAX} dans {RETRY_DELAI_S} s")
+            time.sleep(RETRY_DELAI_S)
+            trouves, echecs = _interroger_orgs()
+            if len(echecs) < len(ORGS):
+                break
+
+    if echecs and len(echecs) == len(ORGS):
         message = " | ".join(echecs)
         log(f"ÉCHEC total de l'interrogation — {message}")
         if not check_seulement:

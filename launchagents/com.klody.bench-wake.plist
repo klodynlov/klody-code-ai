@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klody.bench-wake</string>
+
+    <!-- Empêche le Mac de se rendormir après le réveil planifié (pmset repeat
+         wakeorpoweron 03:50).  Le nightly bench (cron 03:00 UTC) a besoin de la
+         machine éveillée : en été c'est 05:00 local, en hiver 04:00 local.
+         caffeinate -u tient 90 min → couvre les deux cas DST.
+
+         Prérequis : sudo pmset repeat wakeorpoweron MTWRFSU 03:50:00 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/bench-wake.sh</string>
+    </array>
+
+    <!-- 03:52 local — 2 min après le réveil pmset pour laisser le réseau monter. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>52</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-bench-wake.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-bench-wake.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

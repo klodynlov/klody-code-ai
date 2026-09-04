@@ -51,6 +51,8 @@ class Result:
     tool_calls_broken: int
     iterations: int
     error: str | None = None
+    doc_guard_fired: bool | None = None
+    doc_consulte: bool | None = None
 
 
 def discover_tasks() -> dict[str, type[Task]]:
