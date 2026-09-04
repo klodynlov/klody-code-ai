@@ -98,6 +98,48 @@ serveurs — et le workflow doit alors pointer `MLX_BASE_URL` sur `:8080`.
 > `verify-runner` annule le run après 15 min avec un message explicite. Un historique
 > de runs « annulés » sans autre trace, c'est ça.
 
+### Réveil planifié pour le nightly bench
+
+Le cron GitHub tire à **03:00 UTC** — soit 05:00 heure locale en été (CEST) et
+04:00 en hiver (CET). Le Mac dort la nuit (`sleep 1`) et le runner self-hosted ne
+peut pas prendre le job quand la machine est endormie. En août 2026, ça a causé
+**11 annulations sur 20 runs**.
+
+Deux pièces, toutes deux nécessaires :
+
+1. **`pmset repeat wakeorpoweron`** (matériel, une fois, requiert `sudo`) :
+
+   ```bash
+   sudo pmset repeat wakeorpoweron MTWRFSU 03:50:00
+   ```
+
+   Réveille le Mac à **03:50 local** chaque nuit. C'est assez tôt pour les deux
+   changements d'heure : le cron tombe à 04:00 (hiver) ou 05:00 (été), les deux
+   sont après 03:50. Vérification : `pmset -g sched | grep wakeorpoweron`.
+
+2. **`com.klody.bench-wake`** (anti-re-sommeil, `launchagents/`) : le Mac se
+   rendort après 1 min d'inactivité. Le LaunchAgent lance `caffeinate -u -t 5400`
+   à 03:52 local — 90 min de maintien éveillé, ce qui couvre l'écart été (70 min)
+   et hiver (10 min). Installer :
+
+   ```bash
+   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.bench-wake.plist
+   ```
+
+### Veille de santé du nightly
+
+`scripts/veille_nightly.py`, piloté par `com.klody.veille-nightly` (24 h). Notifie
+(osascript) si **aucun nightly vert depuis 3 jours**. Codes de sortie distincts
+« rien à signaler » / « pas pu interroger » — la mutation `MUETTE_JOURS → 99999`
+est verrouillée par un test sur un littéral.
+
+```bash
+# Contrôle à la main
+/usr/bin/python3 scripts/veille_nightly.py --check
+# Installer l'agent
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.veille-nightly.plist
+```
+
 ### Démarrage automatique de MLX (LaunchAgent)
 
 Le runner self-hosted bench + l'app desktop dépendent tous deux de MLX joignable
