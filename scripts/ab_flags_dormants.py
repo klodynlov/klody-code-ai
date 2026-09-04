@@ -80,7 +80,7 @@ def _categories_disponibles() -> list[str]:
         if "real_repo" in proc.stdout:
             return [*CATEGORIES, "real_repo"]
     except (subprocess.SubprocessError, FileNotFoundError):
-        pass
+        pass  # bench.run absent ou non exécutable — catégories par défaut
     return list(CATEGORIES)
 
 

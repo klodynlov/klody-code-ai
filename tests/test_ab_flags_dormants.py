@@ -10,7 +10,6 @@ from scripts.ab_flags_dormants import (
     FLAGS,
     SEUIL_TACHES,
     _analyser,
-    _categories_disponibles,
 )
 
 
