@@ -179,6 +179,29 @@ THINKING_BUDGET_FORWARD: bool = os.getenv(
     "THINKING_BUDGET_FORWARD", "true"
 ).lower() in ("1", "true", "yes", "on")
 
+# --- max_tokens PAR TYPE DE TÂCHE (lot 1.3, plan d'optimisation 2026-09) --------
+# stream_chat default = 8192. À ~30 tok/s = jusqu'à 273 s par génération.
+# feature/self_dev gardent 8192 (régression du 27-05 : max_tokens trop bas
+# tronquait createCar(), scénario de rejeu 05_max_tokens_truncated_regression).
+# Les tâches courtes (explain, edit, docs…) prennent 4096 — encore 137 s max.
+MAX_TOKENS_PAR_TYPE: dict[str, int] = {
+    "edit": 4096,
+    "refactor": 4096,
+    "bug_fix": 4096,
+    "feature": 8192,
+    "explain": 4096,
+    "self_dev": 8192,
+    "review": 4096,
+    "test_gen": 4096,
+    "security": 4096,
+    "docs": 4096,
+    "perf": 4096,
+    "migrate": 8192,
+    "creative": 4096,
+    "music": 4096,
+}
+MAX_TOKENS_DEFAULT: int = 8192
+
 # Pénalité de répétition transmise au serveur MLX (extra_body, hors spec OpenAI —
 # le gateway :8090 forwarde le body intégral au worker mlx_lm qui la supporte).
 # Filet SOUPLE anti-boucle (sampling). À température basse, une longue liste quasi
@@ -220,7 +243,11 @@ SELF_CRITIQUE_ENABLED: bool = os.getenv("SELF_CRITIQUE_ENABLED", "false").lower(
 # --- Best-of-N (Roadmap v2 #7) ---
 # Génère N candidats + reranker LLM-as-judge sur la 1ère itération des tâches hard.
 # Cost : (N+1) appels LLM au lieu de 1, déclenché UNIQUEMENT si router.use_best_of_n=True.
-BEST_OF_N_ENABLED: bool = os.getenv("BEST_OF_N_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+# OFF par défaut (lot 1.5, 2026-09-03) : BoN est sauté sur le coder (toutes les
+# tâches de code), et le bench n'a aucune tâche non-code en hard → verdicts
+# identiques entre BoN=3/2/off, on garde le moins cher. Réactiver quand le bench
+# couvrira hard/explain ou hard/review (lot 2.1 real_repo).
+BEST_OF_N_ENABLED: bool = os.getenv("BEST_OF_N_ENABLED", "false").lower() in ("1", "true", "yes", "on")
 BEST_OF_N_COUNT: int = int(os.getenv("BEST_OF_N_COUNT", 3))
 # Override : force Best-of-N quelle que soit la décision du router. Utile pour
 # l'évaluation A/B (mesurer le gain réel sur des tâches que le router n'aurait
@@ -239,6 +266,12 @@ RETRIEVAL_INJECT_K: int = int(os.getenv("RETRIEVAL_INJECT_K", 5))
 # Seuil de similarité cosinus sous lequel un hit est jugé hors-sujet (filtre le
 # bruit : sur une requête de pure conversation, aucun fichier n'est injecté).
 RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", 0.35))
+# Échéance GLOBALE (secondes) pour la recherche sémantique proactive. Couvre
+# refresh de l'index + embedding de la query + cosinus. Un index froid sur un
+# vrai projet (~/Projets) peut dépasser 10 s ; l'échéance rend le repli muet
+# au lieu de bloquer le tour 1. 2 s = suffisant pour un refresh incrémental
+# (mesuré ~0,02 s à chaud), assez serré pour couper un build froid.
+RETRIEVAL_BUILD_DEADLINE_S: float = float(os.getenv("RETRIEVAL_BUILD_DEADLINE_S", 2.0))
 
 # --- Routeur de skills sémantique (OPTIONNEL, cf. tools/skill_router.py) ---
 # OFF par défaut : Klody reste offline-first (select_skills, IDF déterministe,
