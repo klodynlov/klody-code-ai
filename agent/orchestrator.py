@@ -139,7 +139,6 @@ from agent.orchestrateur.gardes import (
 )
 from agent.orchestrateur.outils import (
     _AUTO_EXTENSION_SIZE,
-    _CODER_SLIM_PROMPT,
     _MAX_AUTO_EXTENSIONS,
     _MAX_PREVIEW_FIX,
     _PREVIEW_POLL_S,
@@ -156,49 +155,22 @@ from agent.orchestrateur.outils import (
     _normalize_ask_user_options,
     _preview_fix_nudge,
 )
+from agent.orchestrateur.prompt import (
+    _CODER_SLIM_PROMPT,
+    _has_markdown_safe,
+    _shield,
+)
+from agent.orchestrateur.routage import (
+    _CODE_TASK_TYPES,
+    _skill_is_interactive,
+)
 from agent.profiler import get_profiler
 from agent.prompts import compose_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# ASI06 : bouclier anti-poisoning des sections mémoire auto-apprises injectées au
-# system prompt. Import souple — même dégradation douce que agent/semantic_memory.
-try:
-    from klody_memory.sanitizer import sanitize as _mem_sanitize
-except Exception:  # paquet klody-memory absent : le cœur de Klody survit
-    _mem_sanitize = None
-
-
-def _shield(section: str, label: str) -> str:
-    """Sanitize strict d'une section de prompt auto-apprise. Ne strippe que les
-    spans d'attaque (marqueur de rédaction), le contenu légitime passe intact."""
-    if not section or _mem_sanitize is None:
-        return section
-    text, flags = _mem_sanitize(section, strict=True)
-    if flags:
-        logger.warning("[prompt-shield] injection suspecte strippée (section %s, "
-                       "flags=%s)", label, flags)
-    return text
 console = Console()
 
-
-def _has_markdown_safe(text: str) -> bool:
-    """Détection minimale de markdown (évite l'import circulaire avec llm._has_markdown)."""
-    markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
-    return any(m in text for m in markers)
-
-
-
-
-
-# Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
-# Orchestrator._route_model). Ceux qui PRODUISENT/MODIFIENT du code y vont ;
-# ceux qui produisent surtout de la PROSE ou un RAPPORT (`explain`, `review`,
-# `security`, `docs`) restent sur le généraliste, meilleur en analyse/rédaction.
-_CODE_TASK_TYPES = frozenset({
-    "edit", "refactor", "bug_fix", "feature", "self_dev",
-    "test_gen", "perf", "migrate",
-})
 
 # Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
 # « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
@@ -212,28 +184,6 @@ _SELF_CRITIQUE_PROMPT = (
     "- Sinon, réécris DIRECTEMENT la réponse finale corrigée pour l'utilisateur "
     "(sans méta-commentaire sur ta relecture)."
 )
-
-# Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
-# l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
-# skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
-# skill) ni avec l'anti-stall (qui force un tool alors que le skill doit poser
-# ses questions en texte et attendre). Cf. session 419676b5 : skill QCM
-# `concevoir_un_algorithme_pas_a_pas` routé #1 mais jamais déclenché.
-_INTERACTIVE_SKILL_MARKERS = (
-    "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
-)
-
-
-def _skill_is_interactive(skill: dict) -> bool:
-    """Le skill est-il un guide INTERACTIF (QCM) plutôt qu'une fiche statique ?
-
-    Vrai si le drapeau explicite `interactive: true` est présent, ou si ≥2
-    marqueurs apparaissent dans le contenu (un how-to classique n'en contient
-    pas plusieurs à la fois)."""
-    if skill.get("interactive") is True:
-        return True
-    blob = (skill.get("content") or "").lower()
-    return sum(marker in blob for marker in _INTERACTIVE_SKILL_MARKERS) >= 2
 
 
 class Orchestrator(GardesMixin):

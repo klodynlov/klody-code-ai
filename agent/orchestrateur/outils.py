@@ -238,22 +238,6 @@ def _normalize_ask_user_options(raw) -> list[str]:
 
 
 # ------------------------------------------------------------------ #
-# Prompt SLIM pour le modèle coder                                     #
-# ------------------------------------------------------------------ #
-
-_CODER_SLIM_PROMPT = (
-    "Tu es un générateur de code expert. Réponds en français, très concis.\n\n"
-    "Quand on te demande une page web, une visualisation ou une animation : "
-    "génère le code COMPLET et AUTONOME dans UN SEUL bloc ```html (DOCTYPE + "
-    "HTML + <style> + <script> inclus, directement ouvrable au navigateur). "
-    "TOUT le JavaScript doit être écrit — jamais de coquille vide, jamais de "
-    "placeholder « // à compléter ». Si tu utilises une lib externe (Three.js, "
-    "Chart.js, d3…), ajoute son <script src=…CDN…>.\n\n"
-    "Pour du code non-web : réponds avec le code complet dans un bloc "
-    "```<langage>. Le code d'abord, explication minimale."
-)
-
-# ------------------------------------------------------------------ #
 # Formatage Rich                                                       #
 # ------------------------------------------------------------------ #
 
