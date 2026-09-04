@@ -1,0 +1,39 @@
+{
+  "postes": {
+    "prompt_base_type": {
+      "tokens": 998,
+      "type_utilise": "default"
+    },
+    "skills": {
+      "tokens": 3413,
+      "nombre": 7
+    },
+    "memoire_lt": {
+      "tokens": 767,
+      "entrees": 69
+    },
+    "retrieval": {
+      "tokens": 0,
+      "note": "query vide → section vide (coût variable, pas fixe)"
+    },
+    "profil": {
+      "tokens": 127,
+      "requetes_vues": 2424
+    },
+    "conventions": {
+      "tokens": 81
+    },
+    "erreurs": {
+      "tokens": 0,
+      "entrees": 0
+    },
+    "schemas_outils": {
+      "tokens": 35628,
+      "nombre_registry": 69,
+      "nombre_mcp": 144
+    }
+  },
+  "total_tokens": 41014,
+  "tokenizer_exact": false,
+  "horodatage": "2026-09-03T15:31:45"
+}

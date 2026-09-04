@@ -35,8 +35,8 @@ from bench.framework import (  # noqa: E402
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
 
-def _run_klody(prompt: str, workdir: Path) -> None:
-    """Lance Klody sur prompt avec PROJECT_ROOT=workdir.
+def _run_klody(prompt: str, workdir: Path) -> object:
+    """Lance Klody sur prompt avec PROJECT_ROOT=workdir, renvoie l'orchestrator.
 
     Stratégie de patching (3 niveaux) :
     1. os.environ   → pris en compte si un module relit l'env au runtime
@@ -96,6 +96,7 @@ def _run_klody(prompt: str, workdir: Path) -> None:
         f"{prompt}"
     )
     orch.run(full_prompt)
+    return orch
 
 
 # Le workdir du bench est annoncé au modèle en toutes lettres (voir _run_klody).
@@ -140,14 +141,21 @@ def _run_one_inprocess(task_cls: type[Task]) -> Result:
 
         _, elapsed = stopwatch()
         err: str | None = None
+        orch = None
         with metrics.capture() as m:
             try:
-                _run_klody(task.prompt, workdir)
+                orch = _run_klody(task.prompt, workdir)
             except Exception as exc:
                 err = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
 
         latency = elapsed()
         tps = (m.tokens_generated / latency) if latency > 0 else 0.0
+
+        doc_guard_fired: bool | None = None
+        doc_consulte: bool | None = None
+        if orch is not None:
+            doc_guard_fired = getattr(orch, "_doc_guard_fired", None)
+            doc_consulte = getattr(orch, "_doc_consulte", None)
 
         try:
             success, detail = task.validate(workdir)
@@ -166,6 +174,8 @@ def _run_one_inprocess(task_cls: type[Task]) -> Result:
             tool_calls_broken=m.tool_calls_broken,
             iterations=m.iterations,
             error=err,
+            doc_guard_fired=doc_guard_fired,
+            doc_consulte=doc_consulte,
         )
 
 
@@ -300,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Bench Klody")
     p.add_argument(
         "--category",
-        choices=["easy", "medium", "hard", "expert", "discovery"],
+        choices=["easy", "medium", "hard", "expert", "discovery", "real_repo"],
         default=None,
     )
     p.add_argument("--task", default=None, help="ID exact, ex: easy/rename_var")

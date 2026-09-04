@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klody.veille-nightly</string>
+
+    <!-- Surveille que le nightly bench (seul juge du projet) tourne.
+         Notifie si aucun run vert depuis 3 jours. Détail dans le script.
+
+         En août 2026 le nightly a été muet 4 jours sur 5, et personne ne
+         l'a vu. Ce script ferme la boucle. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/veille_nightly.py</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>86400</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-veille-nightly.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-veille-nightly.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>
