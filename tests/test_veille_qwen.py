@@ -71,11 +71,44 @@ def test_echec_total_rend_1_pas_0(etat, notifications, monkeypatch):
     monkeypatch.setattr(
         mod, "_get_json", _bouchon({"api/models?": urllib.error.URLError("réseau mort")})
     )
+    monkeypatch.setattr(mod, "RETRY_DELAI_S", 0)
     code = mod.executer(check_seulement=False)
 
     assert code == 1, "une interrogation qui n'a RIEN pu regarder doit rendre 1"
     assert notifications, "l'échec total doit se dire, pas se taire"
     assert "MUETTE" in notifications[0][0]
+
+
+def test_retry_recupere_apres_echec_transitoire(etat, notifications, monkeypatch):
+    """Vécu le 2026-09-01 : Connection refused sur les 3 orgs (réseau pas prêt
+    après réveil du Mac). Le retry doit rattraper un échec transitoire."""
+    appels = {"n": 0}
+
+    def faux(url: str):
+        if "api/models?" not in url:
+            raise AssertionError(url)
+        appels["n"] += 1
+        if appels["n"] <= len(mod.ORGS):
+            raise urllib.error.URLError("[Errno 61] Connection refused")
+        return []
+
+    monkeypatch.setattr(mod, "_get_json", faux)
+    monkeypatch.setattr(mod, "RETRY_DELAI_S", 0)
+    code = mod.executer(check_seulement=False)
+
+    assert code == 0, "le retry doit rattraper un échec transitoire"
+    assert appels["n"] == 2 * len(mod.ORGS), "doit avoir interrogé deux fois"
+
+
+def test_retry_ne_masque_pas_un_echec_persistant(etat, notifications, monkeypatch):
+    """Si le réseau reste mort après le retry, le code reste 1."""
+    monkeypatch.setattr(
+        mod, "_get_json", _bouchon({"api/models?": urllib.error.URLError("réseau mort")})
+    )
+    monkeypatch.setattr(mod, "RETRY_DELAI_S", 0)
+    code = mod.executer(check_seulement=False)
+
+    assert code == 1
 
 
 def test_rien_de_neuf_rend_0_et_rafraichit_letat(etat, notifications, monkeypatch):
@@ -226,6 +259,7 @@ def test_silence_prolonge_declenche_lalerte_muette(etat, notifications, monkeypa
     monkeypatch.setattr(
         mod, "_get_json", _bouchon({"api/models?": urllib.error.URLError("toujours mort")})
     )
+    monkeypatch.setattr(mod, "RETRY_DELAI_S", 0)
     assert mod.executer(check_seulement=False) == 1
     assert notifications and "MUETTE" in notifications[0][0]
     assert "30.0" in notifications[0][1], "le corps doit chiffrer l'âge du silence"

@@ -73,9 +73,8 @@ TOOLS: list[dict] = [
         "function": {
             "name": "execute_command",
             "description": (
-                "Exécute une commande shell dans le répertoire projet. "
-                "Requiert une confirmation humaine explicite avant exécution. "
-                "Toujours renseigner 'reason' pour expliquer le besoin."
+                "Exécute une commande shell dans le répertoire projet. Requiert "
+                "confirmation humaine. Renseigner 'reason'."
             ),
             "parameters": {
                 "type": "object",
@@ -98,12 +97,8 @@ TOOLS: list[dict] = [
         "function": {
             "name": "await_distillation",
             "description": (
-                "Attend la fin d'une distillation lancée en arrière-plan via "
-                "klody-distill.sh start, et renvoie son verdict final en UN seul "
-                "appel : 'done <chemin.json>', 'refused <raison>' ou 'error "
-                "<message>'. À utiliser À LA PLACE du polling répété de 'status' "
-                "dans la boucle : l'attente se fait côté serveur, sans consommer "
-                "d'itérations. Appel bloquant (jusqu'à ~30 min)."
+                "Attend la fin d'une distillation en arrière-plan et renvoie son verdict "
+                "(done/refused/error). Appel bloquant côté serveur (jusqu'à ~30 min)."
             ),
             "parameters": {
                 "type": "object",
@@ -129,10 +124,8 @@ TOOLS: list[dict] = [
         "function": {
             "name": "find_symbol",
             "description": (
-                "Cherche où un symbole (fonction, classe, méthode) est défini dans "
-                "le projet. Utilise cet outil avant de refactorer ou pour comprendre "
-                "où vit une entité. Plus précis que search_in_files car il utilise "
-                "tree-sitter et ne retourne que les définitions (pas les utilisations)."
+                "Cherche les définitions d'un symbole (fonction, classe, méthode) dans le "
+                "projet via tree-sitter."
             ),
             "parameters": {
                 "type": "object",
@@ -172,10 +165,8 @@ TOOLS: list[dict] = [
         "function": {
             "name": "find_relevant_files",
             "description": (
-                "Recherche sémantique : trouve les fichiers du projet les plus "
-                "pertinents pour une question en langage naturel. Utilise cet outil "
-                "quand tu ne sais pas dans quel(s) fichier(s) chercher. "
-                "Ex: 'où est gérée l'authentification' → top fichiers triés par score."
+                "Recherche sémantique : fichiers du projet les plus pertinents pour une "
+                "question en langage naturel."
             ),
             "parameters": {
                 "type": "object",
@@ -199,12 +190,8 @@ TOOLS: list[dict] = [
         "function": {
             "name": "run_in_sandbox",
             "description": (
-                "Exécute une commande Python (pytest, python <fichier>, etc.) dans un "
-                "venv jetable, en récupérant stdout/stderr/exit code. "
-                "Utilise cet outil pour valider du code écrit : lancer les tests, "
-                "vérifier qu'un script s'exécute, reproduire un bug. "
-                "Après chaque write_file sur un .py, un check sandbox est lancé "
-                "automatiquement — appelle cet outil uniquement pour des commandes spécifiques."
+                "Exécute une commande Python (pytest, python, pip) dans un venv jetable. "
+                "Récupère stdout/stderr/exit code."
             ),
             "parameters": {
                 "type": "object",
@@ -277,11 +264,7 @@ LIST_SKILLS_TOOL = {
     "type": "function",
     "function": {
         "name": "list_skills",
-        "description": (
-            "Liste toutes les compétences mémorisées (user skills). "
-            "Appelle cet outil pour savoir ce qui a déjà été appris avant de sauvegarder un doublon, "
-            "ou pour répondre à 'quelles compétences as-tu ?'."
-        ),
+        "description": "Liste toutes les compétences mémorisées (user skills).",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -316,10 +299,8 @@ SKILL_TOOL = {
     "function": {
         "name": "save_skill",
         "description": (
-            "Sauvegarde une compétence, un pattern ou un snippet utile pour les "
-            "prochaines sessions. Utilise cet outil quand tu produis quelque chose "
-            "de réutilisable : un pattern de code, une solution à un problème récurrent, "
-            "une configuration type, une bonne pratique identifiée."
+            "Sauvegarde une compétence, un pattern ou un snippet réutilisable pour les "
+            "prochaines sessions."
         ),
         "parameters": {
             "type": "object",
@@ -357,11 +338,8 @@ IMPORT_TOOLS = [
         "function": {
             "name": "import_llm_export",
             "description": (
-                "Lit et analyse un export JSON d'un autre LLM (ChatGPT, Claude, Gemini…). "
-                "Détecte automatiquement le format, extrait les messages utilisateur, "
-                "identifie les technologies et pratiques récurrentes. "
-                "Utilise cet outil pour enrichir ta connaissance des habitudes de l'utilisateur. "
-                "Les fichiers doivent être déposés dans le dossier imports/ du projet."
+                "Lit un export JSON d'un autre LLM (ChatGPT, Claude, Gemini…). Détecte le "
+                "format, extrait les messages, identifie technologies récurrentes."
             ),
             "parameters": {
                 "type": "object",
@@ -382,10 +360,7 @@ IMPORT_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_imports",
-            "description": (
-                "Liste les fichiers d'export LLM disponibles dans le dossier imports/. "
-                "Appelle cet outil avant import_llm_export pour voir ce qui est disponible."
-            ),
+            "description": "Liste les fichiers d'export LLM disponibles dans imports/.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -401,14 +376,9 @@ MCP_TOOLS = [
         "function": {
             "name": "search_books",
             "description": (
-                "Interroge la bibliothèque locale LibraryBrain (RAG génératif multi-livres) : "
-                "compose une RÉPONSE COMPLÈTE et sourcée (citations livre + page) à partir "
-                "du CONTENU des livres indexés. SEUL outil qui voit l'intérieur des livres. "
-                "Utilise-le dès que la question porte sur un SUJET où un livre peut aider "
-                "(architecture, patterns, algorithmes, sciences, santé, droit, parentalité…) "
-                "et TOUJOURS avant d'affirmer que la bibliothèque n'a pas de source : un "
-                "`library_catalog` à vide ne cherche que les titres, pas le contenu. "
-                "Peut prendre 1 à 3 minutes (génération locale) — c'est normal, attends."
+                "Interroge LibraryBrain (RAG multi-livres) : réponse sourcée (citations "
+                "livre + page) à partir du contenu des livres indexés. Peut prendre 1-3 "
+                "min."
             ),
             "parameters": {
                 "type": "object",
@@ -432,20 +402,8 @@ MCP_TOOLS = [
         "function": {
             "name": "library_catalog",
             "description": (
-                "Cherche un livre AU CATALOGUE LibraryBrain par TITRE ou AUTEUR "
-                "(métadonnée, instantané). Réponds avec ça pour savoir si un livre "
-                "est INDEXÉ : « as-tu le livre X ? », « est-ce que X est indexé ? », "
-                "« quels livres de tel auteur / sur tel titre ? ». Retourne titre, "
-                "auteur, année, pages, date d'indexation. "
-                "NE PASSE PAS par le RAG gaté — à l'inverse de search_books qui "
-                "interroge le CONTENU et peut répondre « aucun résultat » pour une "
-                "question par titre alors que le livre est bien au catalogue. "
-                "N'UTILISE PAS cet outil pour un THÈME (« livres sur le bébé », "
-                "« sur la fiscalité ») : l'index ne couvre que titre+auteur, il rate "
-                "tout livre qui traite du sujet sans le mot dans son titre — un "
-                "résultat vide ne prouve donc RIEN sur ce que contient la "
-                "bibliothèque. Pour un sujet, et avant toute conclusion d'absence, "
-                "utilise search_books."
+                "Cherche un livre au catalogue LibraryBrain par titre ou auteur "
+                "(métadonnée, instantané). Ne cherche pas dans le contenu."
             ),
             "parameters": {
                 "type": "object",
@@ -469,13 +427,9 @@ MCP_TOOLS = [
         "function": {
             "name": "get_skills",
             "description": (
-                "Récupère les conventions et patterns techniques d'un domaine spécifique. "
-                "Utilise cet outil avant de générer du code pour respecter les conventions "
-                "du projet dans ce domaine. "
-                "Domaines disponibles : symfony, nextjs, python, mlx, claude_code "
-                "(claude_code = principes d'ingénierie, méthodes de debug/revue/test et workflow d'agent), "
-                "graphql, docker, kubernetes, cicd (CI/CD), sdk (conception de SDK), uml (diagrammes), "
-                "sql (requêtes, indexation, transactions)."
+                "Récupère les conventions et patterns techniques d'un domaine (symfony, "
+                "nextjs, python, mlx, claude_code, graphql, docker, kubernetes, cicd, sdk, "
+                "uml, sql)."
             ),
             "parameters": {
                 "type": "object",
@@ -497,14 +451,7 @@ MCP_TOOLS = [
         "type": "function",
         "function": {
             "name": "learn_from_books",
-            "description": (
-                "Apprend un sujet et le mémorise comme compétence permanente. "
-                "Utilise cet outil quand l'utilisateur veut enrichir tes connaissances sur un sujet, "
-                "ou quand tu identifies un domaine où tu pourrais être plus compétent. "
-                "Combine la recherche dans les livres (LibraryBrain) + les principes d'ingénierie "
-                "pertinents du domaine claude_code + sauvegarde en skill réutilisable. "
-                "Reste utile même si LibraryBrain est hors-ligne."
-            ),
+            "description": "Apprend un sujet depuis LibraryBrain et le mémorise comme compétence permanente.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -527,14 +474,9 @@ MCP_TOOLS = [
         "function": {
             "name": "distill_theme",
             "description": (
-                "Distille un THÈME entier depuis la bibliothèque locale (DB Library "
-                "Brain, multi-livres) en une compétence digest structurée et durable. "
-                "Plus profond que learn_from_books : classe les livres du corpus par "
-                "pertinence, moissonne les meilleurs extraits page par page, puis "
-                "synthétise méthodes, pièges et boilerplate REFORMULÉS (jamais la prose "
-                "des auteurs) dans skills/digest_<slug>.json. Utilise cet outil quand "
-                "l'utilisateur demande de « distiller », « monter en compétences sur » "
-                "ou « apprendre en profondeur » un domaine."
+                "Distille un thème entier depuis LibraryBrain (multi-livres) en une "
+                "compétence digest structurée. Classe les livres par pertinence, moissonne "
+                "les extraits."
             ),
             "parameters": {
                 "type": "object",
@@ -566,10 +508,8 @@ MEMORY_TOOLS = [
         "function": {
             "name": "remember_fact",
             "description": (
-                "Mémorise un fait important entre les sessions. "
-                "Utilise cet outil pour retenir une préférence, un projet en cours, "
-                "ou une information sur l'utilisateur qui sera utile dans les futures sessions. "
-                "Si la clé existe déjà, elle est mise à jour."
+                "Mémorise un fait important entre les sessions (préférence, projet, info "
+                "utilisateur). Met à jour si la clé existe."
             ),
             "parameters": {
                 "type": "object",
@@ -621,12 +561,8 @@ MEMORY_TOOLS = [
         "function": {
             "name": "rappeler_memoire",
             "description": (
-                "Recherche SÉMANTIQUE dans la mémoire archivée : tous les faits jamais "
-                "mémorisés (même anciens, au-delà de ceux affichés dans le prompt) et les "
-                "sessions passées. Utilise cet outil quand l'utilisateur fait référence à "
-                "quelque chose de passé absent du contexte : « tu te souviens de… », "
-                "« qu'avait-on décidé pour… », « sur quoi avait-on travaillé… ». "
-                "Recherche en langage naturel, pas par clé exacte."
+                "Recherche sémantique dans la mémoire archivée : faits mémorisés et "
+                "sessions passées. Recherche en langage naturel."
             ),
             "parameters": {
                 "type": "object",
@@ -661,9 +597,8 @@ GITHUB_TOOLS = [
         "function": {
             "name": "browse_repo",
             "description": (
-                "Parcourt l'arbre de fichiers d'un dépôt GitHub. "
-                "Utilise cet outil pour voir la structure d'un projet avant de lire des fichiers. "
-                "Accepte 'owner/repo' ou une URL GitHub complète."
+                "Parcourt l'arbre de fichiers d'un dépôt GitHub. Accepte 'owner/repo' ou "
+                "une URL complète."
             ),
             "parameters": {
                 "type": "object",
@@ -691,11 +626,7 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_github_file",
-            "description": (
-                "Lit le contenu d'un fichier source depuis un dépôt GitHub. "
-                "Utilise cet outil pour lire du code, des configs, ou de la documentation "
-                "d'un dépôt distant. Utilise browse_repo d'abord pour trouver le bon chemin."
-            ),
+            "description": "Lit le contenu d'un fichier source depuis un dépôt GitHub distant.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -716,10 +647,7 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_indexed_repos",
-            "description": (
-                "Liste les dépôts GitHub déjà indexés dans LibraryBrain. "
-                "Appelle cet outil pour savoir quels dépôts sont disponibles dans la base de connaissances."
-            ),
+            "description": "Liste les dépôts GitHub indexés dans LibraryBrain.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -732,9 +660,8 @@ GITHUB_TOOLS = [
         "function": {
             "name": "index_github_repo",
             "description": (
-                "Indexe un dépôt GitHub dans LibraryBrain (README + docs) pour pouvoir "
-                "l'interroger ensuite avec search_books. Utilise cet outil quand l'utilisateur "
-                "veut ajouter un nouveau dépôt à sa base de connaissances."
+                "Indexe un dépôt GitHub dans LibraryBrain (README + docs) pour "
+                "l'interroger avec search_books."
             ),
             "parameters": {
                 "type": "object",
@@ -753,11 +680,8 @@ GITHUB_TOOLS = [
         "function": {
             "name": "extract_best_practices",
             "description": (
-                "Analyse un dépôt GitHub pour en extraire les bonnes pratiques : "
-                "structure, outils, CI/CD, linting, dépendances. "
-                "Retourne un rapport structuré que tu peux utiliser avec save_skill "
-                "pour mémoriser les patterns utiles. "
-                "Combine cet outil avec save_skill pour apprendre d'un dépôt."
+                "Analyse un dépôt GitHub et en extrait les bonnes pratiques : structure, "
+                "outils, CI/CD, linting, dépendances."
             ),
             "parameters": {
                 "type": "object",
@@ -778,10 +702,7 @@ PROJECT_TOOLS = [
         "type": "function",
         "function": {
             "name": "clone_github_repo",
-            "description": (
-                "Clone un dépôt GitHub dans le dossier projets et l'ouvre dans PyCharm. "
-                "Utilise cet outil quand l'utilisateur veut récupérer un dépôt pour le travailler localement."
-            ),
+            "description": "Clone un dépôt GitHub dans le dossier projets et l'ouvre dans PyCharm.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -804,12 +725,8 @@ PROJECT_TOOLS = [
         "function": {
             "name": "create_project",
             "description": (
-                "Crée un nouveau projet local à partir d'un template (python, fastapi, cli, empty) "
-                "et l'ouvre dans PyCharm. Si 'inspired_by' est fourni, le LLM utilisera "
-                "les bonnes pratiques de ce dépôt pour structurer le projet. "
-                "Utilise extract_best_practices d'abord pour analyser le dépôt source, "
-                "puis create_project pour créer la structure, puis adapte les fichiers "
-                "avec write_file en s'inspirant du code source lu avec read_github_file."
+                "Crée un projet local depuis un template (python, fastapi, cli, empty) et "
+                "l'ouvre dans PyCharm."
             ),
             "parameters": {
                 "type": "object",
@@ -867,12 +784,8 @@ PREVIEW_TOOLS = [
         "function": {
             "name": "preview_code",
             "description": (
-                "Génère un aperçu local d'un code HTML/CSS/JS, démarre un serveur HTTP "
-                "local et ouvre automatiquement le navigateur. "
-                "Utilise cet outil après avoir généré du code web pour le prévisualiser. "
-                "IMPORTANT : si ton code utilise une librairie externe (Three.js, Chart.js, "
-                "d3, p5, etc.), déclare son URL CDN dans 'scripts' — sinon la page sera vide. "
-                "La valeur de retour peut contenir des avertissements : lis-les et corrige."
+                "Génère un aperçu local de code HTML/CSS/JS via un serveur HTTP. "
+                "Librairies externes : déclarer l'URL CDN dans 'scripts'."
             ),
             "parameters": {
                 "type": "object",
@@ -926,8 +839,8 @@ PREVIEW_TOOLS = [
         "function": {
             "name": "preview_file",
             "description": (
-                "Ouvre un fichier HTML existant du projet dans le navigateur via le serveur de prévisualisation. "
-                "Le fichier est copié dans le dossier de prévisualisation."
+                "Ouvre un fichier HTML existant du projet dans le navigateur via le "
+                "serveur de prévisualisation."
             ),
             "parameters": {
                 "type": "object",
@@ -1102,13 +1015,8 @@ DOCUMENT_TOOLS: list[dict] = [
         "function": {
             "name": "generate_excel",
             "description": (
-                "Génère un classeur Excel (.xlsx) téléchargeable par l'utilisateur. "
-                "Utilise cet outil dès qu'on te demande un fichier Excel, un tableur, "
-                "un export en .xlsx ou « télécharge-moi un Excel ». Fournis les données "
-                "structurées en feuilles (onglets) : chaque feuille a des en-têtes de "
-                "colonnes et des lignes. NE produis PAS le binaire toi-même et n'écris "
-                "pas de code Python — passe les données, l'outil construit le fichier et "
-                "renvoie une URL de téléchargement (un bouton apparaît dans l'UI)."
+                "Génère un classeur Excel (.xlsx) téléchargeable. Passe les données en "
+                "feuilles (en-têtes + lignes)."
             ),
             "parameters": {
                 "type": "object",
@@ -1154,14 +1062,8 @@ DOCUMENT_TOOLS: list[dict] = [
         "function": {
             "name": "generate_text_file",
             "description": (
-                "Génère un fichier TEXTE ou CODE téléchargeable par l'utilisateur "
-                "(.txt, .md, .csv, .json, .xml, .html, .css, .js, .ts, .tsx, .jsx, "
-                ".py, .php, .sql, .yaml, .rtf…). Utilise cet outil dès qu'on te demande "
-                "de « générer » ou « télécharger » un fichier de ce type. Passe le "
-                "CONTENU complet en texte — n'écris pas de code pour le construire. "
-                "L'extension est déduite du nom (ramenée à .txt si inconnue). Renvoie une "
-                "URL de téléchargement (un bouton apparaît dans l'UI). Pour PLUSIEURS "
-                "fichiers d'un coup (mini-projet, dossier), utilise plutôt bundle_zip."
+                "Génère un fichier texte ou code téléchargeable (.txt, .md, .csv, .json, "
+                ".html, .py…). Passe le contenu complet."
             ),
             "parameters": {
                 "type": "object",
@@ -1184,12 +1086,8 @@ DOCUMENT_TOOLS: list[dict] = [
         "function": {
             "name": "bundle_zip",
             "description": (
-                "Regroupe plusieurs fichiers texte/code dans une archive .zip "
-                "téléchargeable. Idéal pour livrer un mini-projet ou un dossier complet "
-                "(ex: une app React / Next.js / Symfony) en un seul téléchargement. "
-                "Fournis la liste des fichiers avec leur chemin relatif et leur contenu ; "
-                "les sous-dossiers sont conservés (ex: 'src/App.tsx'). Renvoie une URL de "
-                "téléchargement (un bouton apparaît dans l'UI)."
+                "Regroupe plusieurs fichiers texte/code dans un .zip téléchargeable. "
+                "Fournis chemin relatif + contenu par fichier ; sous-dossiers conservés."
             ),
             "parameters": {
                 "type": "object",
@@ -1228,15 +1126,7 @@ VOICE_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "speak",
-            "description": (
-                "Dit un court texte À VOIX HAUTE sur les haut-parleurs du Mac avec la "
-                "voix de Klody (TTS local VocalBrain, quelques secondes). Utilise cet "
-                "outil quand l'utilisateur demande de parler, dire, lire ou annoncer "
-                "quelque chose à voix haute, ou pour signaler oralement la fin d'une "
-                "longue tâche. Texte court (≤ 600 caractères). Ce n'est PAS pour "
-                "générer des chansons (→ mcp__vocalbrain__generer_chanson) ni des "
-                "instrumentales (→ mcp__vocalbrain__generer_instrumental)."
-            ),
+            "description": "Dit un court texte à voix haute (TTS local, voix de Klody). ≤ 600 caractères.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1262,12 +1152,8 @@ IMAGE_TOOLS: list[dict] = [
         "function": {
             "name": "analyser_image",
             "description": (
-                "Regarde une IMAGE locale et répond à une question dessus avec le "
-                "modèle vision de Klody (VL local). Utilise cet outil DÈS qu'il faut "
-                "VOIR le contenu d'une image : capture d'écran, photo, schéma, "
-                "diagramme, graphique, maquette UI, document scanné, OCR. Le cerveau "
-                "ne voit PAS les images lui-même — passe TOUJOURS par cet outil pour "
-                "tout ce qui est visuel. Formats : png, jpg, jpeg, webp, gif, bmp."
+                "Analyse une image locale avec le modèle vision (VL local). Répond à une "
+                "question sur le contenu visuel. Formats : png, jpg, jpeg, webp, gif, bmp."
             ),
             "parameters": {
                 "type": "object",
@@ -1299,17 +1185,8 @@ CODE_GRAPH_TOOLS: list[dict] = [
         "function": {
             "name": "code_graph",
             "description": (
-                "Interroge le GRAPHE de connaissance du code (relations entre "
-                "symboles). À utiliser pour comprendre la STRUCTURE, pas pour "
-                "localiser un symbole (→ find_symbol) ni lister ses occurrences "
-                "brutes (→ find_references). Quatre modes : "
-                "`overview` (carte du projet : god nodes les plus connectés + "
-                "communautés — idéal pour découvrir un repo) ; "
-                "`explain` (un symbole + ses voisins TYPÉS, avec le NOM des "
-                "appelants/appelés) ; "
-                "`callers` (qui appelle ce symbole, nœuds nommés) ; "
-                "`path` (plus court chemin entre deux symboles : comment X est "
-                "relié à Y). Lecture seule, instantané, zéro coût LLM."
+                "Interroge le graphe de connaissance du code (relations entre symboles). "
+                "Modes : overview, explain, callers, path. Lecture seule."
             ),
             "parameters": {
                 "type": "object",
@@ -1349,10 +1226,8 @@ MAC_TOOLS: list[dict] = [
         "function": {
             "name": "run_applescript",
             "description": (
-                "macOS uniquement. Exécute un AppleScript (`osascript`) pour piloter "
-                "n'importe quelle app scriptable (Music, Notes, Mail, Finder…). "
-                "Les verbes destructeurs (suppression, vidage corbeille, extinction, "
-                "`do shell script`, contrôle UI synthétique) sont refusés."
+                "macOS. Exécute un AppleScript pour piloter une app scriptable. Les verbes "
+                "destructeurs sont refusés."
             ),
             "parameters": {
                 "type": "object",
@@ -1415,10 +1290,8 @@ MAC_TOOLS: list[dict] = [
         "function": {
             "name": "run_shortcut",
             "description": (
-                "macOS uniquement. Exécute un Raccourci Apple par son nom "
-                "(`shortcuts run`). Passerelle universelle : HomeKit (scènes, "
-                "accessoires), Automator/Quick Actions, et toute automatisation créée "
-                "par l'utilisateur."
+                "macOS. Exécute un Raccourci Apple par son nom. Passerelle HomeKit, "
+                "Automator et automatisations."
             ),
             "parameters": {
                 "type": "object",
@@ -1465,9 +1338,8 @@ HOME_TOOLS: list[dict] = [
         "function": {
             "name": "mqtt_publish",
             "description": (
-                "Publie un message MQTT (commande un appareil domotique : lampe, "
-                "relais ESP32, capteur Raspberry Pi, pont HomeKit…). Broker local "
-                "par défaut. Nécessite paho-mqtt."
+                "Publie un message MQTT (commande un appareil domotique). Broker local par "
+                "défaut."
             ),
             "parameters": {
                 "type": "object",
@@ -1487,11 +1359,7 @@ HOME_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "mqtt_subscribe",
-            "description": (
-                "Écoute un topic MQTT pendant un temps BORNÉ et renvoie les messages "
-                "reçus (lit l'état d'un capteur, vérifie qu'un appareil répond). "
-                "S'arrête au timeout ou à max_messages. Nécessite paho-mqtt."
-            ),
+            "description": "Écoute un topic MQTT pendant un temps borné et renvoie les messages reçus.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1577,9 +1445,8 @@ AUTOMATION_TOOLS: list[dict] = [
         "function": {
             "name": "sync_directories",
             "description": (
-                "Synchronise (copie incrémentale) un dossier source vers une "
-                "destination. delete=True fait un vrai miroir (supprime les extras). "
-                "dry_run=True par défaut."
+                "Copie incrémentale d'un dossier vers une destination. delete=True pour "
+                "miroir. dry_run=True par défaut."
             ),
             "parameters": {
                 "type": "object",
@@ -1604,10 +1471,8 @@ TOOLSMITH_TOOLS: list[dict] = [
         "function": {
             "name": "scaffold_tool",
             "description": (
-                "Fabrique un outil neuf et écrit ses fichiers (au lieu de seulement "
-                "utiliser des outils, Klody en construit). kind ∈ python_script, cli, "
-                "api, mcp_server, workflow, pipeline, klody_plugin, web_interface. "
-                "Chaque artefact Python généré est valide et livré avec son test."
+                "Fabrique un outil neuf et écrit ses fichiers. Kinds : python_script, cli, "
+                "api, mcp_server, workflow, pipeline, klody_plugin, web_interface."
             ),
             "parameters": {
                 "type": "object",
@@ -1644,13 +1509,9 @@ DEPS_TOOLS: list[dict] = [
         "function": {
             "name": "analyze_dependencies",
             "description": (
-                "Inventorie les dépendances DÉCLARÉES d'un projet à partir de ses "
-                "manifestes (lecture seule, aucun réseau, aucune installation). "
-                "Reconnaît requirements*.txt, pyproject.toml (PEP 621 + Poetry), "
-                "package.json, Cargo.toml, go.mod et composer.json. Utilise cet "
-                "outil avant une MIGRATION, un AUDIT ou une REVUE pour savoir quelles "
-                "librairies et quelles versions sont en jeu, et combien. Passe un "
-                "répertoire (scan des manifestes à sa racine) ou un fichier manifeste précis."
+                "Inventorie les dépendances déclarées dans les manifestes d'un projet "
+                "(lecture seule, aucun réseau). Reconnaît requirements*.txt, "
+                "pyproject.toml, package.json, Cargo.toml, go.mod, composer.json."
             ),
             "parameters": {
                 "type": "object",
@@ -1676,14 +1537,8 @@ SQL_TOOLS: list[dict] = [
         "function": {
             "name": "run_sql",
             "description": (
-                "Exécute UNE requête SQL sur un fichier de base SQLite LOCAL, dans le "
-                "sandbox de Klody (base confinée aux racines autorisées, aucune évasion "
-                "possible). Par défaut en LECTURE SEULE (mode='read') : idéal pour "
-                "explorer un schéma (`SELECT * FROM sqlite_master`), inspecter des "
-                "données, valider une requête. Le mode 'write' (INSERT/UPDATE/CREATE…) "
-                "n'est possible que si l'écriture est activée côté serveur. Utilise des "
-                "placeholders `?` + 'params' plutôt que de concaténer des valeurs. "
-                "Une seule instruction par appel. Le résultat est plafonné (lignes/octets)."
+                "Exécute une requête SQL sur un fichier SQLite local (sandbox). Lecture "
+                "seule par défaut ; mode 'write' si activé. Une instruction par appel."
             ),
             "parameters": {
                 "type": "object",
@@ -1729,14 +1584,9 @@ DOCKER_TOOLS: list[dict] = [
         "function": {
             "name": "docker_control",
             "description": (
-                "Inspecte l'état Docker LOCAL (lecture seule) et, si activé côté "
-                "serveur, lance un conteneur ULTRA-CONTRAINT (`run`). Lecture : ps, "
-                "images, inspect, logs, stats, version, df ('inspect'/'logs' exigent "
-                "'target'). Mutation 'run' : exécute 'image' (obligatoirement dans "
-                "l'allowlist serveur) avec 'command' optionnelle ; l'outil impose "
-                "--rm, --network none, --cap-drop ALL, no-new-privileges et des "
-                "limites ressources — aucun montage, aucun flag utilisateur, aucun "
-                "réseau. Jamais build/exec/rm/stop."
+                "Inspecte Docker local (lecture seule : ps, images, inspect, logs, stats, "
+                "version, df). Mutation 'run' ultra-contraint si activé. Jamais "
+                "build/exec/rm/stop."
             ),
             "parameters": {
                 "type": "object",
@@ -1784,14 +1634,8 @@ K8S_TOOLS: list[dict] = [
         "function": {
             "name": "kubectl_control",
             "description": (
-                "Inspecte un cluster Kubernetes en LECTURE SEULE via kubectl (aucune "
-                "mutation : ni apply, ni create, ni delete, ni scale, ni exec, ni "
-                "rollout). Utilise cet outil pour lister/décrire des ressources, lire "
-                "les logs d'un pod, voir la consommation (top), ou l'état du cluster. "
-                "Actions : get, describe, logs, top, version, cluster-info, "
-                "api-resources. 'get'/'describe'/'top' exigent 'resource' (ex: pods, "
-                "deployments) ; 'describe'/'logs' exigent 'name'. 'namespace' optionnel "
-                "('all' pour tous les namespaces)."
+                "Inspecte un cluster Kubernetes en lecture seule via kubectl. Actions : "
+                "get, describe, logs, top, version, cluster-info, api-resources."
             ),
             "parameters": {
                 "type": "object",
@@ -1840,13 +1684,9 @@ GIT_TOOLS: list[dict] = [
         "function": {
             "name": "git_control",
             "description": (
-                "Inspecte un dépôt Git local (LECTURE SEULE) et, si activé côté "
-                "serveur, effectue des mutations LOCALES (add/commit ; jamais "
-                "push/pull ni reset/checkout/merge/rebase/clean). Préfère cet outil "
-                "à execute_command pour l'état du repo. Lecture : status, log, diff, "
-                "show, blame, branch, tag, remote, shortlog. Mutation : 'add' (indexe "
-                "'file', '.' pour tout), 'commit' (exige 'message'). 'ref' cible un "
-                "commit/branche/tag (ou plage a..b)."
+                "Inspecte un dépôt Git local (lecture seule : status, log, diff, show, "
+                "blame, branch, tag, remote, shortlog). Mutations locales si activées : "
+                "add, commit. Jamais push/pull/reset."
             ),
             "parameters": {
                 "type": "object",
@@ -1895,12 +1735,8 @@ DIAGRAM_TOOLS: list[dict] = [
         "function": {
             "name": "generate_uml",
             "description": (
-                "Génère un diagramme de CLASSES UML au format Mermaid à partir de la "
-                "STRUCTURE RÉELLE du code (classes + méthodes), via l'index tree-sitter "
-                "— fidèle au code, pas à une intention supposée. Sortie 100 % texte "
-                "(bloc ```mermaid) rendue par l'UI / GitHub. Utilise cet outil quand on "
-                "demande un diagramme de classes, une vue d'ensemble structurelle ou un "
-                "schéma UML d'un module/projet. Langages indexés : Python, JS, TS."
+                "Génère un diagramme de classes UML (Mermaid) depuis la structure réelle "
+                "du code via tree-sitter. Python, JS, TS."
             ),
             "parameters": {
                 "type": "object",
@@ -1928,13 +1764,8 @@ SCAFFOLD_TOOLS: list[dict] = [
         "function": {
             "name": "scaffold_api",
             "description": (
-                "Génère un squelette d'API CRUD complet et idiomatique à partir d'un "
-                "nom de ressource et de champs typés. framework='fastapi' (REST : "
-                "Pydantic v2, router, endpoints list/get/create/update/delete) ou "
-                "'graphql' (schéma Strawberry : type, input, Query, Mutation). Le code "
-                "produit est déterministe et compile. Utilise cet outil quand on "
-                "demande de générer une API REST/GraphQL ou un endpoint CRUD. Ensuite "
-                "écris le résultat avec write_file ou empaquette-le avec bundle_zip."
+                "Génère un squelette d'API CRUD (FastAPI REST ou GraphQL Strawberry) à "
+                "partir d'un nom de ressource et de champs typés."
             ),
             "parameters": {
                 "type": "object",
@@ -1978,14 +1809,7 @@ SDK_TOOLS: list[dict] = [
         "type": "function",
         "function": {
             "name": "scaffold_sdk",
-            "description": (
-                "Génère un CLIENT SDK typé pour consommer une API REST CRUD (le pendant "
-                "client de scaffold_api). En Python : une dataclass de la ressource + une "
-                "classe Client (httpx) avec list/get/create/update/delete typés. Code "
-                "déterministe qui compile. Utilise cet outil quand on demande de générer "
-                "un SDK ou un client d'API. Écris ensuite le résultat avec write_file ou "
-                "empaquette-le avec bundle_zip."
-            ),
+            "description": "Génère un client SDK typé pour une API REST CRUD (dataclass + Client httpx).",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2029,12 +1853,8 @@ NOSQL_TOOLS: list[dict] = [
         "function": {
             "name": "scaffold_nosql",
             "description": (
-                "Génère un repository NoSQL typé pour une ressource. En MongoDB : une "
-                "dataclass + une classe Repository (pymongo) avec list/get/create/update/"
-                "delete/find_by et gestion d'ObjectId. Code déterministe qui compile. "
-                "Utilise cet outil quand on demande de générer un accès MongoDB / une "
-                "couche de données NoSQL. Écris ensuite le code avec write_file ou "
-                "empaquette-le avec bundle_zip."
+                "Génère un repository MongoDB typé pour une ressource (dataclass + "
+                "Repository pymongo CRUD)."
             ),
             "parameters": {
                 "type": "object",
@@ -2074,6 +1894,7 @@ NOSQL_TOOLS: list[dict] = [
 ]
 
 TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS, *NOSQL_TOOLS]
+TOOLS.sort(key=lambda t: t["function"]["name"])
 
 
 # Outil de question interactive — VOLONTAIREMENT hors de TOOLS/get_tools().

@@ -11,7 +11,7 @@
 
 # Claude Volny  ·  `klodynlov`
 
-### Je construis des **agents IA privés / local-first** — orchestration, sécurité, et code qui tient en production.
+### J'aide les équipes qui manipulent des données sensibles à utiliser l'IA sans les envoyer dans le cloud.
 
 *Ingénieur logiciel · IA locale (MLX / Apple Silicon) · MCP · Python · Rust/Tauri · React*
 
@@ -25,7 +25,7 @@ Un agent de code **100 % local** (aucune donnée ne quitte la machine) qui rival
 agent cloud sur une machine perso. Orchestration adaptative, client **et** serveur MCP,
 sécurité de niveau production.
 
-![Tests](https://img.shields.io/badge/tests-2779%20passing-success)
+![Tests](https://img.shields.io/badge/tests-2829%20passing-success)
 ![AI](https://img.shields.io/badge/IA-100%25%20local-orange)
 ![MCP](https://img.shields.io/badge/MCP-client%20%2B%20serveur-blueviolet)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -56,6 +56,6 @@ sécurité de niveau production.
 ## 📬 Me contacter
 
 💼 [LinkedIn](https://www.linkedin.com/in/claude-volny-94129894/) · 📧 **volnyclaude@protonmail.com**
-<!-- À COMPLÉTER quand dispo : 🌐 site/portfolio -->
+🌐 [karaibart.fr](https://karaibart.fr) · 🎬 [Présentation vidéo — 31 s](https://karaibart.fr/#demo-video)
 
-> Vous avez un cas d'usage IA dont les données **ne peuvent pas aller dans le cloud** ? C'est mon terrain — voir [Pour les entreprises](https://github.com/klodynlov/klody-code-ai/blob/main/docs/CONSULTING.md).
+> Vos données **ne peuvent pas aller dans le cloud** ? [Cadrez votre projet](https://karaibart.fr/contact/) — réponse personnelle sous 48 h ouvrées.
