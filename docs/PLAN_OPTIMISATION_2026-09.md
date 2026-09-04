@@ -490,6 +490,6 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 | 3.2 | **livré** | #243 | embeddings batch |
 | 3.3 | **livré** | #244 | cache de prompt système |
 | 4.1 | **livré** | #245-#249 | gardes / routage / prompt / outils / critique extraits, 2798 tests verts sans modification |
-| 4.2 | **PR** | #251 | stream_api extrait dans api/streaming.py |
-| 4.3 | **PR** | #252 | mypy vert sur 42 fichiers (était 29) |
+| 4.2 | **livré** | #251 | stream_api extrait dans api/streaming.py |
+| 4.3 | **livré** | #252 | mypy vert sur 42 fichiers (était 29) |
 | 5.1 | **bloqué** | — | mlx_lm 0.31.3 ne supporte pas `qwen4_exp` |
