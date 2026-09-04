@@ -43,12 +43,12 @@ from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
-from agent.stream_guard import LoopGuard
 from services import ensure_librarybrain, get_librarybrain_status
 from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
 from api import metrics as _metrics
+from api.streaming import StopGeneration, make_stream_api
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +172,6 @@ def _signaler_peremption(etat: dict) -> None:
         "DÉPENDANCES PÉRIMÉES — %s Remède : %s", etat["raison"], etat["remede"]
     )
 
-
-class StopGeneration(Exception):
-    pass
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
@@ -996,228 +993,7 @@ def _build_streaming_orchestrator(
     # (ex. preview_feedback — boucle de correction des previews qui plantent).
     orch._emit = _put
 
-    def stream_api(
-        messages: list[dict],
-        tools=None,
-        token_callback=None,
-        temperature: float = 0.1,
-        silent: bool = False,
-        tool_choice: str = "auto",
-        max_tokens: int = 8192,
-        enable_thinking: bool = False,
-        thinking_budget: int | None = None,
-        _recovering: bool = False,
-    ) -> tuple[str, Any]:
-        """Streaming direct sans Rich — pour l'API server (pas de TTY).
-
-        Signature alignée avec LLMClient.stream_chat.
-        max_tokens=8192 par défaut : permet de générer des gros fichiers
-        (Three.js avec scène complète peut faire 3-5KB, donc ~1500-2000 tokens
-        rien que pour le content de write_file). Avant : MLX coupait à ~500 tokens.
-        """
-        import time as _t
-        t0 = _t.perf_counter()
-        if not silent:
-            _put({"type": "thinking"})
-
-        if enable_thinking:
-            # CoT (Qwen3 brain) précède la réponse et consomme beaucoup de tokens :
-            # sans marge élargie, il mange tout le budget et `content` reste vide.
-            # Miroir exact de LLMClient.stream_chat (cf. config.THINKING_*).
-            max_tokens = max(max_tokens, config.THINKING_MAX_TOKENS)
-        params: dict = {
-            "model": orch.llm.model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},  # tokens réels dans le chunk final
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        extra_body: dict = {}
-        if config.LLM_REPETITION_PENALTY > 1.0:
-            # Filet SOUPLE : avant ce câblage, repetition_penalty n'était posée que
-            # dans LLMClient.stream_chat (CLI) — JAMAIS sur le chemin WS de l'UI.
-            extra_body["repetition_penalty"] = config.LLM_REPETITION_PENALTY
-        if enable_thinking:
-            # Miroir LLMClient.stream_chat : forward thinking_budget (forward-compat,
-            # no-op sur le template Qwen3.6) quand fourni et le forward activé.
-            # On l'ajoute À extra_body (qui peut déjà porter repetition_penalty),
-            # sans écraser params["extra_body"].
-            ctk: dict = {"enable_thinking": True}
-            if thinking_budget is not None and config.THINKING_BUDGET_FORWARD:
-                ctk["thinking_budget"] = thinking_budget
-            extra_body["chat_template_kwargs"] = ctk
-        if extra_body:
-            params["extra_body"] = extra_body
-        if tools:
-            params["tools"] = tools
-            params["tool_choice"] = tool_choice
-
-        full_content = ""
-        reasoning_buf = ""  # CoT accumulé — surveillé par reasoning_guard, jamais renvoyé
-        raw_tool_calls: dict = {}
-        usage = None  # rempli par le chunk final (stream_options.include_usage)
-
-        # Filet DUR anti-boucle : actif sur la génération visible (non-silent), où
-        # une répétition dégénérée part en boucle infinie jusqu'au budget tokens.
-        # Les appels silencieux (router/Best-of-N) gardent le comportement
-        # historique et s'appuient sur repetition_penalty.
-        loop_guard = (
-            LoopGuard(
-                reps=config.LLM_LOOP_REPS,
-                min_unit=config.LLM_LOOP_MIN_UNIT,
-                window=config.LLM_LOOP_WINDOW,
-            )
-            if config.LLM_LOOP_GUARD and not silent
-            else None
-        )
-        # Même filet DUR sur le canal RAISONNEMENT (CoT) : le garde content ci-dessus
-        # ne voit jamais `delta.reasoning`, or le modèle peut boucler verbatim dans le
-        # CoT sans jamais émettre de content ni de tool_call (4e variante « Klody
-        # boucle »). Seuil de reps plus élevé — le raisonnement re-dérive des pas
-        # voisins, on n'agit que sur une boucle franche. Inactif hors thinking, en
-        # silencieux, ou pendant une passe de récupération (pas de CoT à surveiller).
-        reasoning_guard = (
-            LoopGuard(
-                reps=config.LLM_REASONING_LOOP_REPS,
-                min_unit=config.LLM_LOOP_MIN_UNIT,
-                window=config.LLM_LOOP_WINDOW,
-            )
-            if config.LLM_LOOP_GUARD and enable_thinking and not silent and not _recovering
-            else None
-        )
-
-        # Vérification précoce : si l'utilisateur a déjà demandé l'arrêt (WS disconnect,
-        # bouton stop, etc.), on évite même de lancer le LLM call (coûteux côté MLX).
-        if stop_flag and stop_flag[0]:
-            raise StopGeneration()
-
-        try:
-            stream = orch.llm.client.chat.completions.create(**params)
-            for chunk in stream:
-                # Check stop_flag sur CHAQUE chunk, même en mode silent (BoN/router).
-                # Le mode silent ne pousse rien à l'UI mais doit pouvoir s'arrêter.
-                if stop_flag and stop_flag[0]:
-                    if not silent:
-                        _put({"type": "stream_end"})
-                    raise StopGeneration()
-                if getattr(chunk, "usage", None):
-                    usage = chunk.usage
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                # CoT (mode thinking) : le brain Qwen3 émet le raisonnement via
-                # `delta.reasoning` AVANT le `content`. On le DIFFUSE à l'UI (panneau
-                # « Raisonnement… ») au lieu de laisser un placeholder figé ~33 s
-                # sans le moindre signe de vie (A/B 08/06 : TTFT jusqu'à 66 s). Le
-                # helper renvoie '' hors mode thinking → aucun coût quand off.
-                if enable_thinking and not silent:
-                    reasoning_delta = orch.llm._delta_reasoning(delta)
-                    if reasoning_delta:
-                        _put({"type": "reasoning", "content": reasoning_delta})
-                        # Boucle dégénérée DANS le raisonnement → on coupe le stream
-                        # (sinon il crame tout le budget sans jamais produire de
-                        # réponse) et on relance UNE passe SANS thinking : le CoT est
-                        # bloqué, on force une réponse directe avec ce que le modèle a
-                        # déjà. `_recovering` borne la récursion à un seul niveau.
-                        if reasoning_guard is not None:
-                            reasoning_buf += reasoning_delta
-                            if reasoning_guard.cut(reasoning_buf) is not None:
-                                logger.warning(
-                                    "[loop-guard] boucle dégénérée dans le RAISONNEMENT "
-                                    "(CoT) coupée après %d chars → réponse directe sans "
-                                    "thinking", len(reasoning_buf),
-                                )
-                                with contextlib.suppress(Exception):
-                                    stream.close()  # stoppe la génération MLX en amont
-                                _put({"type": "reasoning", "content":
-                                      "\n⚠ boucle de raisonnement coupée — réponse directe."})
-                                return stream_api(
-                                    messages, tools=tools,
-                                    token_callback=token_callback,
-                                    temperature=temperature, silent=silent,
-                                    tool_choice=tool_choice, max_tokens=max_tokens,
-                                    enable_thinking=False, thinking_budget=None,
-                                    _recovering=True,
-                                )
-                if delta.content:
-                    full_content += delta.content
-                    if not silent:
-                        _put({"type": "token", "content": delta.content})
-                    if token_callback:
-                        token_callback(delta.content)
-                    # Boucle dégénérée détectée → coupe le stream, ne garde qu'une
-                    # copie du motif et nettoie la bulle (stream_trim remplace le
-                    # contenu déjà streamé côté UI). Évite la génération infinie.
-                    if loop_guard is not None:
-                        cut = loop_guard.cut(full_content)
-                        if cut is not None and cut < len(full_content):
-                            trimmed = full_content[:cut].rstrip()
-                            logger.warning(
-                                "[loop-guard] répétition dégénérée coupée : %d → %d chars",
-                                len(full_content), len(trimmed),
-                            )
-                            with contextlib.suppress(Exception):
-                                stream.close()  # stoppe la génération MLX en amont
-                            full_content = trimmed
-                            if not silent:
-                                _put({"type": "stream_trim", "content": trimmed})
-                            return full_content, (
-                                list(raw_tool_calls.values()) if raw_tool_calls else None
-                            )
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        orch.llm._accumulate_tool_call(raw_tool_calls, tc)
-        except StopGeneration:
-            raise
-        except Exception as e:
-            if not silent:
-                _put({"type": "error", "content": str(e)})
-            raise
-
-        tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
-
-        # Fallback : tool call émis en JSON texte (pur ou mélangé avec du texte)
-        if not tool_calls and full_content and tools:
-            valid_names = {t["function"]["name"] for t in tools}
-            text_part, parsed = orch.llm.extract_mixed_tool_call(full_content, valid_names)
-            if parsed:
-                tool_calls = parsed
-                if not silent:
-                    if text_part:
-                        _put({"type": "stream_trim", "content": text_part})
-                    else:
-                        _put({"type": "discard_stream"})
-                full_content = text_part
-                return full_content, tool_calls
-
-        if full_content and not silent:
-            _put({"type": "stream_end"})
-            # Stats par message — tokens RÉELS si le backend renvoie `usage`
-            # (mlx_lm le fait via stream_options.include_usage), sinon estimation.
-            elapsed = round(_t.perf_counter() - t0, 2)
-            if usage is not None:
-                completion_toks = getattr(usage, "completion_tokens", 0) or 0
-                prompt_toks = getattr(usage, "prompt_tokens", 0) or 0
-                total_toks = getattr(usage, "total_tokens", 0) or (prompt_toks + completion_toks)
-            else:
-                completion_toks = max(1, len(full_content) // 4)
-                prompt_toks = 0
-                total_toks = completion_toks
-            _put({"type": "message_stats", "latency_s": elapsed,
-                  "tokens": completion_toks, "prompt_tokens": prompt_toks,
-                  "total_tokens": total_toks, "context_window": config.CONTEXT_WINDOW,
-                  "model": orch.llm.model})
-
-        # Mise à jour compteur tokens (réel si dispo)
-        orch.llm.total_tokens += (
-            (getattr(usage, "completion_tokens", 0) or 0) if usage is not None
-            else len(full_content) // 4
-        )
-
-        return full_content, tool_calls
-
-    orch.llm.stream_chat = stream_api
+    orch.llm.stream_chat = make_stream_api(orch, _put, stop_flag)
 
     original_execute = orch._execute_tool
 

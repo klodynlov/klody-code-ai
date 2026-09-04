@@ -1,11 +1,9 @@
 import contextlib
 import json
 import logging
-import os
-import re
 import time
 from collections.abc import Callable
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from config import (
     BEST_OF_N_COUNT,
@@ -47,7 +45,6 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.text import Text
 from rich.tree import Tree
 from tools.automation import (
     backup_directory as auto_backup,
@@ -117,597 +114,69 @@ from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_mid_session
+from agent.orchestrateur.critique import (
+    _SELF_CRITIQUE_MIN_CHARS,
+    _SELF_CRITIQUE_PROMPT,
+)
+from agent.orchestrateur.gardes import (
+    _CMD_EXEC_TOOLS,
+    _CMD_FAIL_STREAK_BREAK,
+    _DOC_NUDGE_MAX,  # noqa: F401 — ré-export pour scripts/tests
+    _DOC_SCAN_DEPTH,  # noqa: F401 — ré-export pour scripts
+    _DOC_SCAN_MAX,  # noqa: F401 — ré-export pour scripts/tests
+    _DOC_SUFFIXES,  # noqa: F401 — ré-export pour scripts
+    _DOC_WRITE_TOOLS,  # noqa: F401 — ré-export pour tests
+    _ECHO_REPEAT_BREAK,
+    _ECHO_REPEAT_WARN,
+    _FILE_SCAN_TOOLS,
+    _LOOP_REPEAT_BREAK,
+    _LOOP_REPEAT_WARN,
+    _NO_SOURCE_CLAIM_RE,  # noqa: F401 — ré-export pour tests
+    _SCAN_REPEAT_BREAK,
+    _SCAN_REPEAT_WARN,
+    GardesMixin,
+    _claims_no_library_source,  # noqa: F401 — ré-export pour tests
+    _cmd_result_failed,
+    _est_documentation,  # noqa: F401 — ré-export pour tests
+    _is_empty_after_reasoning,
+    _looks_like_unfinished_plan,
+)
+from agent.orchestrateur.outils import (
+    _AUTO_EXTENSION_SIZE,
+    _MAX_AUTO_EXTENSIONS,
+    _MAX_PREVIEW_FIX,
+    _PREVIEW_POLL_S,
+    _PRODUCING_TOOLS,
+    _as_bool,
+    _coerce_bool_arg,
+    _extract_code_blocks,  # noqa: F401 — ré-export (test_text_to_action)
+    _extract_preview_url,
+    _format_file_tree,
+    _format_search_results,
+    _infer_action_from_text,
+    _is_continuation,
+    _lexer_for,
+    _normalize_ask_user_options,
+    _preview_fix_nudge,
+)
+from agent.orchestrateur.prompt import (
+    _CODER_SLIM_PROMPT,
+    _has_markdown_safe,
+    _shield,
+)
+from agent.orchestrateur.routage import (
+    _CODE_TASK_TYPES,
+    _skill_is_interactive,
+)
 from agent.profiler import get_profiler
 from agent.prompts import compose_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# ASI06 : bouclier anti-poisoning des sections mémoire auto-apprises injectées au
-# system prompt. Import souple — même dégradation douce que agent/semantic_memory.
-try:
-    from klody_memory.sanitizer import sanitize as _mem_sanitize
-except Exception:  # paquet klody-memory absent : le cœur de Klody survit
-    _mem_sanitize = None
-
-
-def _shield(section: str, label: str) -> str:
-    """Sanitize strict d'une section de prompt auto-apprise. Ne strippe que les
-    spans d'attaque (marqueur de rédaction), le contenu légitime passe intact."""
-    if not section or _mem_sanitize is None:
-        return section
-    text, flags = _mem_sanitize(section, strict=True)
-    if flags:
-        logger.warning("[prompt-shield] injection suspecte strippée (section %s, "
-                       "flags=%s)", label, flags)
-    return text
 console = Console()
 
 
-def _has_markdown_safe(text: str) -> bool:
-    """Détection minimale de markdown (évite l'import circulaire avec llm._has_markdown)."""
-    markers = ("```", "**", "##", "# ", "- ", "* ", "> ", "| ")
-    return any(m in text for m in markers)
-
-
-# Extension → lexer Pygments
-_EXT_LEXER: dict[str, str] = {
-    ".py": "python", ".js": "javascript", ".ts": "typescript",
-    ".jsx": "jsx", ".tsx": "tsx", ".html": "html", ".css": "css",
-    ".scss": "scss", ".json": "json", ".yaml": "yaml", ".yml": "yaml",
-    ".toml": "toml", ".md": "markdown", ".sh": "bash", ".bash": "bash",
-    ".zsh": "bash", ".sql": "sql", ".rs": "rust", ".go": "go",
-    ".java": "java", ".c": "c", ".cpp": "cpp", ".h": "c",
-    ".rb": "ruby", ".php": "php", ".swift": "swift", ".kt": "kotlin",
-    ".xml": "xml", ".dockerfile": "docker", ".tf": "hcl",
-    ".env.example": "bash",
-}
-
-
-def _lexer_for(path: str) -> str:
-    ext = Path(path).suffix.lower()
-    name = Path(path).name.lower()
-    if name == "dockerfile":
-        return "docker"
-    return _EXT_LEXER.get(ext, "text")
-
-
-def _extract_code_blocks(content: str) -> dict[str, list[str]]:
-    """Extrait les blocs markdown ```lang ... ``` du content.
-
-    Retourne {lang: [code1, code2, ...]} pour les langs reconnus.
-    """
-    import re as _re
-    blocks: dict[str, list[str]] = {}
-    # ```lang\n...\n``` (lang optionnel, défaut text)
-    for m in _re.finditer(r"```(\w+)?\n(.*?)\n```", content, _re.DOTALL):
-        lang = (m.group(1) or "text").lower()
-        code = m.group(2).strip()
-        if not code:
-            continue
-        # Normalise quelques alias
-        lang = {"htm": "html", "javascript": "js", "py": "python"}.get(lang, lang)
-        blocks.setdefault(lang, []).append(code)
-    return blocks
-
-
-def _infer_action_from_text(content: str, user_input: str) -> dict | None:
-    """Si le LLM a répondu en texte avec du code dans des blocs markdown,
-    devine quel tool_call appeler avec les paramètres extraits.
-
-    Retourne un dict {"name": str, "args": dict} prêt à être exécuté,
-    ou None si rien d'exploitable.
-    """
-    blocks = _extract_code_blocks(content)
-    if not blocks:
-        return None
-
-    # 1) Web (HTML/JS/CSS) → preview_code
-    has_html = "html" in blocks
-    has_js = "js" in blocks
-    if has_html or has_js:
-        html = blocks.get("html", [""])[0]
-        js = blocks.get("js", [""])[0]
-        css = blocks.get("css", [""])[0]
-        # Si HTML complet (avec <!DOCTYPE/<html), garde tel quel
-        # Détecte les CDN nécessaires (Three.js, Chart.js, p5…)
-        scripts: list[str] = []
-        combined = html + " " + js
-        if "THREE" in combined or "three.js" in combined.lower():
-            scripts.append("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js")
-        if "Chart(" in combined or "chart.js" in combined.lower():
-            scripts.append("https://cdn.jsdelivr.net/npm/chart.js")
-        if "d3." in combined or "d3.v7" in combined:
-            scripts.append("https://d3js.org/d3.v7.min.js")
-        return {
-            "name": "preview_code",
-            "args": {
-                "html": html or "<canvas id='c' width='800' height='600'></canvas>",
-                "css": css, "js": js,
-                "title": (user_input or "Klody Preview")[:40],
-                **({"scripts": scripts} if scripts else {}),
-            },
-        }
-
-    # 2) Python → write_file en script.py
-    if "python" in blocks:
-        code = blocks["python"][0]
-        return {
-            "name": "write_file",
-            "args": {"path": "script.py", "content": code},
-        }
-
-    # 3) Bash/shell → execute_command
-    if "bash" in blocks or "shell" in blocks or "sh" in blocks:
-        cmd = blocks.get("bash", blocks.get("shell", blocks.get("sh", [""])))[0]
-        return {
-            "name": "execute_command",
-            "args": {"command": cmd, "reason": "extrait depuis bloc markdown"},
-        }
-
-    return None
-
-
-def _cmd_result_failed(result: str) -> bool:
-    """Vrai si le résultat d'une commande shell dénote un ÉCHEC.
-
-    `[Code de retour: N]` n'est ajouté par le terminal QUE si returncode≠0 ;
-    `ERREUR…` / `ERREUR SÉCURITÉ…` couvrent exception, timeout et blocage
-    sécurité. Sert à ne compter que les échecs cross-run (une commande qui
-    réussit — ou dont la sortie évolue — ne doit jamais faire monter le compteur).
-    """
-    low = (result or "").lower()
-    return "[code de retour:" in low or low.startswith("erreur")
-
-
-# ── Boucle de feedback preview : erreurs JS runtime → correction ──────────────
-_MAX_PREVIEW_FIX = 2       # passes de correction auto max par requête
-_PREVIEW_POLL_S = 0.2      # granularité du polling du tampon d'erreurs
-
-
-def _extract_preview_url(result: str) -> str | None:
-    """Extrait l'URL d'un retour preview_code/preview_file (ligne « URL : … »)."""
-    m = re.search(r"URL\s*:\s*(\S+)", result or "")
-    return m.group(1) if m else None
-
-
-def _preview_fix_nudge(url: str, errors: list, attempt: int) -> str:
-    """Message correctif injecté quand la preview lève des erreurs JS au runtime."""
-    filename = url.rsplit("/", 1)[-1]
-    lines = []
-    for e in errors[:8]:
-        loc = f"  → {e.src}" if getattr(e, "src", "") else ""
-        lines.append(f"  • [{e.label}] {e.msg}{loc}")
-    listing = "\n".join(lines)
-    return (
-        f"⚠ La preview que tu viens de générer (`{filename}`) lève "
-        f"{len(errors)} erreur(s) JS À L'EXÉCUTION dans le navigateur "
-        f"(tentative {attempt}/{_MAX_PREVIEW_FIX}) :\n{listing}\n\n"
-        "Ces erreurs ne sont PAS visibles dans le source mais cassent la page. "
-        "Corrige la cause (souvent un type de nœud/structure non géré, une variable "
-        "undefined, un mauvais sélecteur) et régénère la page COMPLÈTE via preview_code. "
-        "Ne réponds pas en texte : appelle preview_code avec le code corrigé."
-    )
-
-
-def _looks_like_unfinished_plan(content: str | None) -> bool:
-    """Détecte un message qui annonce un plan ou des intentions sans agir.
-
-    Patterns courants observés sur Qwen3-Coder en mode hard/feature avec T basse :
-    - "Voici mon plan : 1. … 2. … Commençons par X :"
-    - "Je vais créer Y. Tout d'abord :"
-    - "Je vais X. Je vais Y. Je vais d'abord Z." (≥2 intentions sans action)
-    - Finir par ":" / "…" / "..." après une énumération
-    """
-    if not content:
-        return False
-    stripped = content.strip()
-    if len(stripped) < 30:
-        return False
-    lower = stripped.lower()
-
-    # 1) Finit par marqueur d'incomplétude
-    ends_open = stripped[-1:] in (":", "…") or stripped.endswith("...")
-
-    # 2) Phrases d'intention future (le LLM annonce ce qu'il VA faire)
-    intent_patterns = (
-        "je vais", "i will", "i'll ", "let's", "commençons par",
-        "tout d'abord", "first,", "step 1", "étape 1",
-        "je commence", "je vais d'abord", "je vais ensuite",
-        "je vais maintenant", "voici mon plan", "let me start",
-    )
-    intent_count = sum(lower.count(p) for p in intent_patterns)
-
-    # 3) Énumération markdown ou liste indentée
-    has_enumeration = (
-        "\n1." in content or "\n1)" in content or
-        content.lstrip().startswith("1.") or
-        content.count("\n    ") >= 2 or       # liste indentée 4 espaces
-        content.count("\n- ") >= 2            # liste à tirets
-    )
-
-    # Triggers (en OR — il suffit qu'un seul soit vrai pour déclencher) :
-    # - Finit ouvert avec ≥1 intention OU énumération
-    # - OU ≥2 intentions futures distinctes (pattern "Je vais X. Je vais Y.")
-    # - OU énumération + ≥1 intention
-    if ends_open and (intent_count >= 1 or has_enumeration):
-        return True
-    if intent_count >= 2:
-        return True
-    return bool(has_enumeration and intent_count >= 1)
-
-
-# Garde-fou « absence de source affirmée sans avoir cherché le CONTENU ».
-# `library_catalog` n'indexe que titre+auteur : un miss sur une requête THÉMATIQUE
-# (« bébé », « puériculture ») ne prouve rien sur ce que contiennent les livres.
-# Incident 27/07 : 5 `library_catalog` à vide, ZÉRO `search_books`, puis « il n'y a
-# pas de sources dans LibraryBrain » — faux. `prompts/explain.md` l'interdit déjà,
-# mais une consigne de prompt perd contre une sortie d'outil concrète : d'où ce
-# filet en dur. Miroir côté agent de `_augment_no_hit`/`_catalog_miss` (tools).
-_NO_SOURCE_CLAIM_RE = re.compile(
-    r"aucun\w*\s+(?:\w+\s+){0,2}?(?:source|livre|ouvrage|r[ée]sultat|info\w*|"
-    r"document|r[ée]f[ée]rence)"
-    r"|(?:pas|plus)\s+(?:de\s+|d')(?:source|livre|ouvrage|info\w*|r[ée]f[ée]rence|"
-    r"document|trace)"
-    r"|(?:rien|pas)\s+(?:de\s+(?:pertinent|dispo\w*)\s+)?(?:dans|sur|parmi)\s+"
-    r"(?:la|ta|ma|votre|notre|les|tes|mes)?\s*(?:biblioth[eè]que|livres|"
-    r"librarybrain|catalogue|base)"
-    r"|(?:biblioth[eè]que|librarybrain|catalogue)\s+(?:\w+\s+){0,2}?"
-    r"(?:est\s+vide|ne\s+(?:contient|comporte|couvre)|n'a\s+rien)"
-    r"|(?:pas|non)\s+index[ée]"
-    r"|n'ai\s+(?:rien|pas)\s+trouv[ée]"
-)
-
-
-def _claims_no_library_source(content: str | None) -> bool:
-    """Vrai si la réponse affirme qu'il n'y a ni source ni livre sur le sujet.
-
-    Pur → testable sans LLM. Normalise l'apostrophe typographique (le modèle
-    alterne « n'ai » et « n’ai ») avant de matcher `_NO_SOURCE_CLAIM_RE`.
-    """
-    if not content:
-        return False
-    return bool(_NO_SOURCE_CLAIM_RE.search(content.lower().replace("’", "'")))
-
-
-def _is_empty_after_reasoning(
-    content: str | None,
-    has_tool_calls: bool,
-    *,
-    thinking_enabled: bool,
-    use_bon: bool,
-    already_recovered: bool,
-) -> bool:
-    """Vrai si le tour n'a produit NI réponse NI action alors que le CoT était actif.
-
-    Sous-cas DISTINCT de la boucle-verbatim (que `LoopGuard`/`degenerate_cut` coupe
-    déjà dans le stream) : ici le raisonnement a consommé tout le budget de tokens
-    SANS jamais répéter à l'identique (analysis-paralysis — « vérifions X, puis Y,
-    puis Z »), donc `degenerate_cut` ne matche pas, et pourtant `content` ressort
-    VIDE. Sur une tâche `explain`/`chat`, l'anti-stall (qui ne couvre que
-    feature/refactor/self_dev/bug_fix) laisse alors un écran blanc.
-
-    Pur → testable sans LLM. Exclut Best-of-N (candidats vides = filet propre) et se
-    limite à un seul déclenchement par run (`already_recovered`).
-    """
-    return (
-        thinking_enabled
-        and not use_bon
-        and not already_recovered
-        and not has_tool_calls
-        and not (content or "").strip()
-    )
-
-
-# Messages courts qui poursuivent la tâche en cours plutôt que d'en lancer une
-# nouvelle ("ok", "vas-y", "c'est bon ?", "continue"…). Le `.?` tolère les
-# variantes d'apostrophe/accent (c'est / cest / c est).
-_CONTINUATION_RE = re.compile(
-    r"^(ok(ay)?|oki|d.?accord|ouais?|oui|yep|yes|go|allez|allons?[- ]?y|"
-    r"vas[- ]?y|c.?est bon|c.?est fait|c.?est ok|ca marche|ça marche|"
-    r"continue[rz]?|poursui[ts]|termine|finis|fais[- ]?(le|ça|ca)|"
-    r"envoie|parfait|nickel|super|impec(cable)?|go go|on y va)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_continuation(text: str) -> bool:
-    """Vrai si `text` est une relance courte de la tâche en cours (pas une
-    nouvelle demande). Sert au routeur à ne pas rétrograder en `easy`."""
-    t = text.strip()
-    if not t or len(t) > 40:
-        return False
-    return bool(_CONTINUATION_RE.match(t))
-
-
-# ── Garde « les décisions du projet n'ont jamais été ouvertes » ───────────────
-# Mesuré le 2026-07-30 sur le palier `discovery` du banc (cf.
-# bench/results/reference_2026-07-30_lot_trace_ouverture_docs.json) : quand
-# l'agent ouvre un document du projet, il tient la contrainte non écrite **8 fois
-# sur 8** ; quand il ne l'ouvre pas, **0 fois sur 10**. Séparation parfaite,
-# n=18, Fisher p = 2,3e-05.
-#
-# Ce qui l'arrête n'est PAS le budget : c'est un VERT. Il écrit le fichier, lance
-# la suite de tests déjà présente, la voit passer, et conclut. Or ces tests ont
-# été écrits AVANT sa modification : ils ne peuvent pas couvrir une contrainte
-# qu'il n'a jamais lue. Le signal qui le fait s'arrêter ne porte pas la
-# conclusion qu'il en tire — même sophisme que le garde LibraryBrain, où un
-# catalogue qui n'indexe que les titres ne prouve rien sur le contenu.
-#
-# On attaque donc le CRITÈRE D'ARRÊT, pas la lecture : l'instruction (« explore
-# avant d'écrire ») est déjà dans l'énoncé du banc, et une consigne de plus avait
-# échoué (0/3, annulée). Une instruction ne peut pas concurrencer un test vert.
-_DOC_SUFFIXES = frozenset({".md", ".rst", ".adoc"})
-# Dossiers où un projet range ses décisions. `docs` est une convention répandue,
-# pas une particularité du banc — la même règle attrape doc/, adr/, rfcs/.
-_DOC_DIRS = frozenset({"docs", "doc", "adr", "decisions", "rfc", "rfcs"})
-# Balayage borné : un README à la racine et docs/**/*.md sont couverts sans
-# descendre un arbre entier. Le garde tourne au moment de conclure, pas à chaque
-# tour, mais un `rglob` sur un gros dépôt se paierait quand même.
-_DOC_SCAN_DEPTH = 3
-_DOC_SCAN_MAX = 40
-# Cités dans le nudge. Nommer les documents ne donne pas la réponse — elle est
-# DANS le document, qu'il faut encore lire et appliquer. C'est l'exact pendant du
-# garde LibraryBrain, qui nomme `search_books` sans répondre à la question.
-_DOC_NUDGE_MAX = 6
-# Outils qui modifient le dépôt. Volontairement plus étroit que _PRODUCING_TOOLS :
-# un `preview_code` ou un `run_in_sandbox` fabrique un artefact jetable, il
-# n'engage pas le projet et ne justifie pas d'exiger la lecture de ses décisions.
-_DOC_WRITE_TOOLS = frozenset({"write_file", "create_project", "scaffold_tool"})
-
-
-def _est_documentation(path: str) -> bool:
-    """Vrai si `path` désigne un document de projet (décisions, conventions).
-
-    Deux formes : une extension de documentation à la racine (README.md,
-    CONTRIBUTING.md), ou n'importe quel fichier sous un dossier de documentation.
-    Un `.md` quelque part dans du code compte aussi — le garde préfère se
-    désarmer à tort que forcer une lecture inutile.
-    """
-    p = PurePosixPath(str(path).replace("\\", "/"))
-    if p.suffix.lower() in _DOC_SUFFIXES:
-        return True
-    return any(part.lower() in _DOC_DIRS for part in p.parts[:-1])
-
-
-# Auto-continue : quand le budget d'itérations est épuisé alors que l'agent
-# travaille encore (des tools ont été appelés dans la passe), on prolonge le
-# budget au lieu d'arrêter et de forcer l'utilisateur à relancer. Borné pour
-# éviter l'emballement sur une mauvaise piste.
-_MAX_AUTO_EXTENSIONS = 3
-_AUTO_EXTENSION_SIZE = 8
-
-# Anti-boucle : le LLM peut rappeler le MÊME outil avec les MÊMES arguments en
-# rafale quand le résultat ne le satisfait pas (typiquement un `run_in_sandbox`
-# qui plante à l'identique — proxy mort, script cassé). Sans garde-fou il tourne
-# jusqu'à épuiser max_iter (avec auto-continue, jusqu'à 30 passes) sans rien
-# produire : c'est la « boucle » visible côté utilisateur. On compte les appels
-# (nom + args) identiques sur le run ; au 3e on injecte un avertissement (change
-# d'approche), au 4e on coupe et on force la synthèse finale.
-_LOOP_REPEAT_WARN = 3
-_LOOP_REPEAT_BREAK = 4
-
-# Anti-scan : variante « lecture errante ». L'anti-boucle ci-dessus clé sur
-# nom+args+résultat — elle ne voit PAS un modèle qui balaie 40 fichiers DIFFÉRENTS
-# au hasard (40 read_file = 40 clés = compteur jamais > 1) en cherchant une info
-# qu'il ne localise pas. Symptôme observé : storm de read_file à la racine, cap
-# d'itérations atteint, réponse vide. On compte ici le MÊME OUTIL (quels que
-# soient args/résultat), restreint aux outils d'exploration (non producteurs) :
-# au seuil WARN on pousse à utiliser list_files/find_relevant_files ; au BREAK on
-# coupe et on synthétise. Seuils plus hauts que l'anti-boucle : explorer un repo
-# légitimement peut demander plusieurs lectures.
-_SCAN_REPEAT_WARN = 8
-_SCAN_REPEAT_BREAK = 14
-# Outils d'exploration de FICHIERS : quand l'anti-scan se déclenche sur l'un d'eux,
-# la remédiation « cadre le dossier avec list_files / localise par contenu » a un
-# sens. Pour tout AUTRE outil pris en rafale (ex. un outil MCP), ce message oriente
-# à tort vers la lecture de fichiers — on bascule alors sur une consigne générique.
-_FILE_SCAN_TOOLS = frozenset({
-    "read_file", "search_in_files", "find_relevant_files", "find_references",
-    "find_symbol", "list_files", "preview_file",
-})
-
-# Anti-écho : un outil PRODUCTEUR réémis avec EXACTEMENT les mêmes arguments
-# refabrique le même artefact — jamais un progrès — mais son résultat peut
-# différer en surface (preview_code écrit preview-24, -25, -26… → URL neuve →
-# hash(résultat) différent → l'anti-boucle nom+args+résultat ne monte jamais).
-# Vécu 03/07 (« canard 3D ») : 11 preview_code identiques avec js vide (émission
-# XML du tool call cassée), chaque appel « réussissait », 25 itérations brûlées
-# puis dérive totale de l'agent. On compte la série CONSÉCUTIVE du même appel
-# producteur (nom+args, résultat IGNORÉ) : la série casse dès qu'un AUTRE appel
-# producteur passe (write_file puis re-preview du même fichier = workflow
-# légitime) ; les lectures/sondages intercalés ne la cassent pas (ils ne
-# changent pas l'appel réémis). Au WARN on signale l'écho au modèle (un argument
-# est probablement vide/tronqué) ; au BREAK on coupe et on force la synthèse.
-_ECHO_REPEAT_WARN = 3
-_ECHO_REPEAT_BREAK = 5
-
-# Anti-boucle COMPORTEMENTALE cross-run : une commande shell qui échoue à
-# l'identique d'un run() à l'autre. Angle mort réel (08/07) : `call_repeat_counts`
-# est reset à CHAQUE message (l'orchestrator est reconstruit par message WS) ET le
-# text-to-action fallback exécute SANS l'alimenter → une commande qui rate pareil
-# à chaque tour (ex. `python main.py` lancé depuis la mauvaise racine → « No such
-# file ») passait sous tous les radars et rebouclait sans fin. On porte le
-# compteur sur la MÉMOIRE de session (persistante entre messages) et on coupe dès
-# le 2e échec identique consécutif (+ nudge correctif persistant). Seuil bas : un
-# échec qui se répète à l'identique n'a AUCUNE raison de converger tout seul.
-_CMD_FAIL_STREAK_BREAK = 2
-# Outils dont l'exécution lance une commande shell (les seuls suivis cross-run).
-_CMD_EXEC_TOOLS = frozenset({"execute_command"})
-
-# Outils « producteurs » : ils fabriquent/modifient un artefact (fichier, aperçu,
-# projet) ou exécutent du code. Si la dernière passe en a appelé un, l'agent
-# travaille vraiment — un échec en cours (ex: preview_file sur un HTML pas encore
-# écrit) ne doit pas dead-locker sur un label `explain`/`edit` et forcer une
-# relance. Les outils en lecture seule (read_file, search_*, find_*) en sont
-# exclus : une boucle de lecture sans fin reste un stall, pas du travail.
-_PRODUCING_TOOLS = frozenset({
-    "write_file", "preview_code", "preview_file", "run_in_sandbox",
-    "create_project", "clone_github_repo",
-    # Générateurs d'artefacts téléchargeables (même piège : produire un .xlsx
-    # puis « tu as fini ? » routé `explain` ne doit pas dead-locker).
-    "generate_excel", "generate_text_file", "bundle_zip", "import_llm_export",
-    # Toolsmithing + automatisation de fichiers : produisent des artefacts sur
-    # disque (même piège anti-boucle que write_file — ne pas dead-locker après).
-    "scaffold_tool", "backup_directory", "batch_rename", "organize_directory",
-    "sync_directories",
-    # Écriture MIDI (REAPER) : poser une note EST du travail réel. Poser une
-    # mélodie de N notes = N appels `insert_midi_note` aux args tous DIFFÉRENTS —
-    # l'anti-scan (clé sur le nom seul) les prenait pour un balayage errant et
-    # coupait la mélodie à mi-course (session 4034ccc7, 32 notes coupées à 14).
-    # Un vrai blocage (même note réémise) reste attrapé par l'anti-écho (args
-    # identiques consécutifs). Noms MCP complets (préfixe serveur).
-    "mcp__reaper__insert_midi_note", "mcp__reaper__insert_midi_notes",
-})
-
-# Types de tâches routés vers le modèle code dédié (cf. config.CODE_MODEL et
-# Orchestrator._route_model). Ceux qui PRODUISENT/MODIFIENT du code y vont ;
-# ceux qui produisent surtout de la PROSE ou un RAPPORT (`explain`, `review`,
-# `security`, `docs`) restent sur le généraliste, meilleur en analyse/rédaction.
-_CODE_TASK_TYPES = frozenset({
-    "edit", "refactor", "bug_fix", "feature", "self_dev",
-    "test_gen", "perf", "migrate",
-})
-
-# Auto-critique (Levier 3) : on ne critique pas une réponse triviale (salutation,
-# « oui », confirmation courte) — pas assez de matière, le coût ne vaut pas le gain.
-_SELF_CRITIQUE_MIN_CHARS = 200
-_SELF_CRITIQUE_PROMPT = (
-    "Relis ta dernière réponse à l'utilisateur d'un œil critique. Cherche : erreur "
-    "factuelle, oubli important, hypothèse non vérifiée, ou affirmation trop "
-    "catégorique.\n"
-    "- Si la réponse est DÉJÀ correcte et complète, réponds EXACTEMENT par le seul "
-    "mot : INCHANGÉ\n"
-    "- Sinon, réécris DIRECTEMENT la réponse finale corrigée pour l'utilisateur "
-    "(sans méta-commentaire sur ta relecture)."
-)
-
-# Marqueurs d'un skill INTERACTIF (guide déroulé en posant des questions à
-# l'utilisateur, façon QCM) par opposition à une fiche how-to statique. Un tel
-# skill ne peut PAS fonctionner sous le modèle coder-slim (qui n'injecte aucun
-# skill) ni avec l'anti-stall (qui force un tool alors que le skill doit poser
-# ses questions en texte et attendre). Cf. session 419676b5 : skill QCM
-# `concevoir_un_algorithme_pas_a_pas` routé #1 mais jamais déclenché.
-_INTERACTIVE_SKILL_MARKERS = (
-    "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",
-)
-
-
-def _as_bool(v: object) -> bool:
-    """Coerce un argument d'outil en booléen, robuste aux modèles locaux qui
-    sérialisent les bools en CHAÎNE ('true'/'false') — `bool('false')` vaut True,
-    d'où ce garde-fou (cf. _normalize_ask_user_options, même classe de bug)."""
-    if isinstance(v, str):
-        return v.strip().lower() in ("1", "true", "yes", "on")
-    return bool(v)
-
-
-def _skill_is_interactive(skill: dict) -> bool:
-    """Le skill est-il un guide INTERACTIF (QCM) plutôt qu'une fiche statique ?
-
-    Vrai si le drapeau explicite `interactive: true` est présent, ou si ≥2
-    marqueurs apparaissent dans le contenu (un how-to classique n'en contient
-    pas plusieurs à la fois)."""
-    if skill.get("interactive") is True:
-        return True
-    blob = (skill.get("content") or "").lower()
-    return sum(marker in blob for marker in _INTERACTIVE_SKILL_MARKERS) >= 2
-
-
-def _normalize_ask_user_options(raw) -> list[str]:
-    """Normalise le paramètre `options` d'ask_user en vraie liste de chaînes.
-
-    Certains modèles (Qwen-Coder notamment) sérialisent le tableau en CHAÎNE
-    JSON — `'["a","b"]'` — au lieu d'une vraie liste. Itérer cette chaîne
-    donnerait des caractères isolés → carte aux boutons illisibles (« ça
-    bloque », cf. sessions 04:46/04:50). On récupère donc la liste réelle :
-    JSON d'abord, sinon découpe par lignes, sinon option unique."""
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return []
-        try:
-            parsed = json.loads(s)
-        except (ValueError, TypeError):
-            parsed = s.splitlines() if "\n" in s else [s]
-        raw = parsed if isinstance(parsed, list) else [str(parsed)]
-    if not isinstance(raw, (list, tuple)):
-        return []
-    return [str(o).strip() for o in raw if str(o).strip()]
-
-
-def _coerce_bool_arg(value, default: bool = True) -> bool:
-    """Convertit un argument d'outil en booléen, en tolérant les chaînes.
-
-    `bool("false")` vaut True en Python : un modèle qui passe `"false"` (chaîne)
-    plutôt que le booléen JSON inverserait silencieusement l'intention."""
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value.strip().lower() not in ("false", "0", "no", "non", "")
-    return bool(value)
-
-# Prompt SLIM pour le modèle coder. Qwen3-Coder est un modèle de COMPLÉTION :
-# sous le gros prompt agentique de Klody (~12k tok) il dégénère (sortie « ``` »).
-# Avec ce prompt court, il sort le code complet en markdown ```html, que le
-# text-to-action fallback (_infer_action_from_text) transforme en preview_code.
-_CODER_SLIM_PROMPT = (
-    "Tu es un générateur de code expert. Réponds en français, très concis.\n\n"
-    "Quand on te demande une page web, une visualisation ou une animation : "
-    "génère le code COMPLET et AUTONOME dans UN SEUL bloc ```html (DOCTYPE + "
-    "HTML + <style> + <script> inclus, directement ouvrable au navigateur). "
-    "TOUT le JavaScript doit être écrit — jamais de coquille vide, jamais de "
-    "placeholder « // à compléter ». Si tu utilises une lib externe (Three.js, "
-    "Chart.js, d3…), ajoute son <script src=…CDN…>.\n\n"
-    "Pour du code non-web : réponds avec le code complet dans un bloc "
-    "```<langage>. Le code d'abord, explication minimale."
-)
-
-
-def _format_file_tree(listing: str, root: str) -> Tree:
-    """Convertit la sortie texte de list_files en Rich Tree."""
-    tree = Tree(f"[bold blue]📁 {root}[/bold blue]")
-    for line in listing.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith("📁"):
-            name = line.replace("📁", "").strip().rstrip("/")
-            tree.add(f"[blue]📁 {name}/[/blue]")
-        elif line.startswith("📄"):
-            parts = line.replace("📄", "").strip().rsplit("  ", 1)
-            name = parts[0].strip()
-            size = parts[1].strip() if len(parts) > 1 else ""
-            tree.add(f"[white]📄 {name}[/white] [dim]{size}[/dim]")
-    return tree
-
-
-def _format_search_results(result: str, pattern: str) -> Panel:
-    """Affiche les résultats de recherche avec le pattern surligné."""
-    if result.startswith("ERREUR") or result.startswith("Aucun"):
-        return Panel(
-            f"[yellow]{result}[/yellow]",
-            title="[yellow]search_in_files[/yellow]",
-            border_style="yellow",
-        )
-    # Colorer les numéros de ligne
-    lines = []
-    for line in result.splitlines()[:50]:
-        # format : fichier:ligne:contenu
-        parts = line.split(":", 2)
-        if len(parts) >= 3:
-            file_part = f"[dim]{parts[0]}[/dim]"
-            line_part = f"[cyan]{parts[1]}[/cyan]"
-            content = parts[2].replace(pattern, f"[bold yellow]{pattern}[/bold yellow]")
-            lines.append(f"{file_part}:[dim]{line_part}[/dim]: {content}")
-        else:
-            lines.append(line)
-    text = Text.from_markup("\n".join(lines))
-    return Panel(text, title=f"[green]🔍 Résultats: {pattern}[/green]", border_style="green")
-
-
-class Orchestrator:
+class Orchestrator(GardesMixin):
     # État du garde « décisions du projet jamais ouvertes », remis à neuf par
     # run() (cf. _should_force_doc_read). Annoté ici plutôt qu'au premier
     # assignement : l'inventaire vaut `None` tant qu'il n'a pas été balayé, ce que
@@ -1301,220 +770,8 @@ class Orchestrator:
             streak_map[sig] = n
         return n
 
-    def _note_library_probe(self, tool_name: str, result: str) -> None:
-        """Suit l'usage des deux ponts LibraryBrain sur le run courant.
-
-        Seul un hit EXACT (« N livre(s) au catalogue pour … ») compte comme une
-        trouvaille catalogue. Un miss ET une correspondance PARTIELLE laissent la
-        question du CONTENU entière → ils arment le garde-fou. `search_books`
-        compte dès qu'il est APPELÉ, même en erreur : le garde vise « jamais
-        essayé », pas « essayé sans succès » (sinon il relancerait sans fin sur un
-        LibraryBrain hors-ligne).
-        """
-        if tool_name == "library_catalog":
-            if not re.match(r"\d+ livre\(s\) au catalogue pour ", result):
-                self._catalog_missed = True
-        elif tool_name == "search_books":
-            self._content_searched = True
-
-    def _should_force_content_search(
-        self, content: str | None, iteration: int, max_iter: int
-    ) -> bool:
-        """Vrai si la réponse conclut à l'absence sans avoir interrogé le CONTENU.
-
-        Incident 27/07 : 5 `library_catalog` sur « bébé / puériculture / parenting »,
-        ZÉRO `search_books`, puis « il n'y a pas de sources dans LibraryBrain » —
-        faux, la bibliothèque avait la matière. Le catalogue n'indexe que
-        titre+auteur : il ne peut RIEN conclure sur le contenu.
-
-        Une seule relance par run (`_library_guard_fired`) : si `search_books` ne
-        rend rien non plus, la 2e conclusion d'absence passe. Il faut aussi une
-        itération de marge, sinon la relance meurt sur le cap sans réponse.
-        """
-        return (
-            self._catalog_missed
-            and not self._content_searched
-            and not self._library_guard_fired
-            and iteration < max_iter - 1
-            and _claims_no_library_source(content)
-        )
-
-    def _note_doc_probe(self, tool_name: str, tool_args: dict, result: str) -> None:
-        """Suit, sur le run courant, ce que l'agent a lu et ce qu'il a écrit.
-
-        Une lecture compte quand elle porte sur un document (`read_file`), et
-        aussi quand une recherche RAMÈNE du contenu de document : `search_in_files`
-        affiche les chemins trouvés, donc l'agent a bien vu les décisions passer.
-        Ne compter que `read_file` armerait le garde après une découverte par grep
-        parfaitement valable.
-
-        `list_files` ne compte PAS : voir un nom de fichier n'est pas lire ce qu'il
-        contient. C'est exactement l'erreur du garde LibraryBrain — un catalogue de
-        titres ne dit rien du contenu.
-        """
-        if tool_name in _DOC_WRITE_TOOLS:
-            self._code_ecrit = True
-            # Un document que l'agent vient d'ÉCRIRE n'est pas une décision du
-            # projet — lui demander de le relire est absurde. Faux positif RÉEL,
-            # attrapé par deux scénarios de rejeu (04, 12) dont la tâche était
-            # « crée un README.md » : le garde exigeait la lecture du fichier
-            # produit à l'instant, et brûlait un tour à chaque fois.
-            rel = self._chemin_relatif(str((tool_args or {}).get("path", "")))
-            if rel:
-                self._doc_ecrits.add(rel)
-            return
-        if self._doc_consulte:
-            return
-        if tool_name == "read_file":
-            chemin = (tool_args or {}).get("path", "")
-            if chemin and _est_documentation(str(chemin)):
-                self._doc_consulte = True
-        elif tool_name == "search_in_files":
-            if any(_est_documentation(ligne) for ligne in str(result).splitlines()[:200]):
-                self._doc_consulte = True
-
-    def _chemin_relatif(self, brut: str) -> str | None:
-        """Chemin d'outil → chemin relatif POSIX à la racine, ou None hors racine.
-
-        Les arguments d'outils arrivent tantôt relatifs (`README.md`), tantôt
-        absolus ; l'inventaire, lui, ne rend que du relatif. Sans normalisation
-        commune, l'exclusion des documents écrits par l'agent ne mordrait que sur
-        l'une des deux formes.
-        """
-        if not brut:
-            return None
-        try:
-            racine = Path(self.file_manager.root).resolve()
-            chemin = Path(brut)
-            chemin = chemin if chemin.is_absolute() else racine / chemin
-            return chemin.resolve().relative_to(racine).as_posix()
-        except (OSError, ValueError):
-            return None
-
     def _documentation_du_projet(self) -> list[str]:
-        """Documents du projet dans la racine courante, en chemins relatifs.
-
-        Calculé au plus une fois par run et SEULEMENT quand le reste du garde est
-        déjà vrai : un balayage systématique se paierait à chaque tour pour un
-        garde qui ne sert qu'au moment de conclure. Un dépôt sans documentation
-        rend une liste vide et le garde ne se déclenche jamais — c'est le cas des
-        25 tâches non-`discovery` du banc, qui ne peuvent donc pas régresser.
-
-        Les documents écrits par l'agent pendant ce run sont exclus (cf.
-        `_note_doc_probe`). Le cache est donc posé au moment de conclure, quand
-        cette liste d'exclusion est complète.
-        """
-        cache = getattr(self, "_doc_inventaire", None)
-        if cache is not None:
-            return cache
-        trouves: list[str] = []
-        try:
-            racine = Path(self.file_manager.root).resolve()
-            # ⚠️ Parcours ÉLAGUÉ, pas un `rglob("*")`. Mesuré sur ce dépôt :
-            # `sorted(rglob("*"))` énumère 88 706 entrées en 0,79 s, parce qu'il
-            # DESCEND dans `.venv`, `_downloads`, `graphify-out`… avant que le
-            # filtre de profondeur ne les écarte. On coupe les branches à
-            # l'entrée : le coût devient celui des dossiers réellement utiles.
-            for dossier, sous_dossiers, fichiers in os.walk(racine):
-                rel_dir = Path(dossier).relative_to(racine)
-                profondeur = 0 if rel_dir == Path(".") else len(rel_dir.parts)
-                if profondeur + 1 >= _DOC_SCAN_DEPTH:
-                    sous_dossiers[:] = []
-                else:
-                    sous_dossiers[:] = [
-                        d for d in sous_dossiers if not d.startswith((".", "_"))
-                    ]
-                for nom in fichiers:
-                    if nom.startswith((".", "_")):
-                        continue
-                    if Path(nom).suffix.lower() not in _DOC_SUFFIXES:
-                        continue
-                    rel = (rel_dir / nom).as_posix().removeprefix("./")
-                    if rel not in self._doc_ecrits:
-                        trouves.append(rel)
-                if len(trouves) >= _DOC_SCAN_MAX:
-                    break
-        except OSError as exc:  # racine illisible → garde silencieux, jamais fatal
-            logger.debug("[doc-guard] inventaire impossible : %s", exc)
-            trouves = []
-        self._doc_inventaire = sorted(trouves)[:_DOC_SCAN_MAX]
-        return self._doc_inventaire
-
-    def _should_force_doc_read(
-        self, content: str | None, iteration: int, max_iter: int
-    ) -> bool:
-        """Vrai si l'agent conclut une modification du dépôt sans avoir ouvert un
-        seul document du projet.
-
-        ⚠️ Aucune analyse de `content`, à la différence du garde LibraryBrain — et
-        c'est délibéré. Là-bas, la faute est dans ce que le modèle AFFIRME (une
-        absence) ; une réponse sourcée est irréprochable avec les mêmes outils
-        appelés. Ici la faute est dans ce qu'il n'a PAS fait : quelle que soit la
-        formulation, une modification livrée sans avoir lu les décisions du projet
-        repose sur un vert qui ne les couvre pas. Le paramètre est conservé pour
-        garder la signature des gardes homogène et rester gréable plus tard.
-
-        Une seule relance par run (`_doc_guard_fired`) : si l'agent lit le document
-        et conclut quand même de travers, la 2e conclusion passe — le garde force
-        une consultation, il ne juge pas le code. Marge d'une itération, sinon la
-        relance meurt sur le cap sans réponse.
-        """
-        return (
-            self._code_ecrit
-            and not self._doc_consulte
-            and not self._doc_guard_fired
-            and iteration < max_iter - 1
-            and bool(self._documentation_du_projet())
-        )
-
-    def _doc_guard_nudge(self, documents: list[str]) -> str:
-        """Message injecté quand le garde se déclenche. Nomme les documents, comme
-        le garde LibraryBrain nomme `search_books` : trouver le fichier n'est pas
-        la difficulté mesurée — l'ouvrir l'est."""
-        liste = ", ".join(f"`{d}`" for d in documents[:_DOC_NUDGE_MAX])
-        reste = len(documents) - _DOC_NUDGE_MAX
-        if reste > 0:
-            liste += f" (+{reste} autre(s))"
-        return (
-            "STOP — ne conclus pas encore. Tu as modifié le projet sans avoir "
-            "ouvert un seul de ses documents. Si tu t'appuies sur des tests qui "
-            "passent : ils ont été écrits AVANT ta modification, donc ils ne "
-            "testent pas ce que tu viens d'ajouter. Un vert obtenu sur eux ne "
-            "prouve rien sur les règles du projet — il prouve seulement que tu "
-            "n'as rien cassé de ce qui existait déjà.\n"
-            f"Ce projet documente ses décisions ici : {liste}.\n"
-            "Lis-les MAINTENANT avec `read_file`. Puis, une par une, confronte-les "
-            "à ton code : si l'une impose quelque chose que tu n'as pas fait, "
-            "corrige le code et relance les tests. Si après lecture tout est déjà "
-            "conforme, dis-le en citant la règle vérifiée — et conclus."
-        )
-
-    def _cmd_loop_nudge(self, tool_args: dict, streak: int) -> None:
-        """Signale la boucle de commande à l'utilisateur et injecte un nudge
-        correctif PERSISTANT (vu au prochain run via la mémoire de session)."""
-        cmd = str(tool_args.get("command", ""))[:200] if isinstance(tool_args, dict) else ""
-        cwd = getattr(self.terminal, "cwd", "?")
-        logger.warning(
-            "[cmd-loop] commande échouée %d× à l'identique (cross-run) → nudge + stop",
-            streak)
-        console.print(
-            f"\n[yellow]  ⚠  Commande en échec répété ({streak}×) — arrêt, "
-            f"correction demandée au modèle.[/yellow]"
-        )
-        self.memory.messages.append({
-            "role": "user",
-            "content": (
-                f"STOP. La commande `{cmd}` a ÉCHOUÉ {streak} fois DE SUITE à "
-                f"l'identique (lancée depuis « {cwd} »). NE la relance PAS telle "
-                "quelle — ce serait une boucle. Diagnostique d'ABORD la cause : le "
-                "fichier/chemin existe-t-il à cet endroit ? une dépendance manque-"
-                "t-elle ? Puis corrige : chemin ABSOLU, `cd <bon_dossier> && …`, ou "
-                "crée le fichier avec write_file avant de l'exécuter. Si tu ne peux "
-                "pas corriger, explique le blocage à l'utilisateur en clair. Rédige "
-                "maintenant ta réponse — n'appelle plus cette commande à l'identique."
-            ),
-            "timestamp": None,
-        })
+        return super()._documentation_du_projet()
 
     # ------------------------------------------------------------------ #
     # Routing + affichage intelligent des outils                          #
