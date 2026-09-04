@@ -42,6 +42,7 @@ from fastmcp import FastMCP
 from pydantic import BeforeValidator
 
 from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
+from klody_mcp.health import register_health_route
 
 load_dotenv()
 
@@ -1067,6 +1068,7 @@ def main() -> None:
     port = int(os.getenv("REAPER_MCP_PORT", "8089"))
     host = os.getenv("REAPER_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.reaper-mcp")
     if transport == "http":
         logger.info("REAPER MCP HTTP : http://%s:%d", host, port)
         mcp.run(transport="http", host=host, port=port)

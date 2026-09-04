@@ -37,6 +37,7 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 
 from klody_mcp import song_structure as ss
+from klody_mcp.health import register_health_route
 
 load_dotenv()
 
@@ -569,6 +570,7 @@ def main() -> None:
     port = int(os.getenv("VOCALBRAIN_MCP_PORT", "8086"))
     host = os.getenv("VOCALBRAIN_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.vocalbrain-mcp")
     if transport == "http":
         logger.info("VocalBrain MCP HTTP : http://%s:%d", host, port)
         mcp.run(transport="http", host=host, port=port)

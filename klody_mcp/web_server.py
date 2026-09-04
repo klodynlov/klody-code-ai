@@ -33,6 +33,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp.health import register_health_route
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -326,6 +328,7 @@ def main() -> None:
     port = int(os.getenv("WEB_MCP_PORT", "8085"))
     host = os.getenv("WEB_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.web-mcp")
     if transport == "http":
         logger.info("Web MCP HTTP : http://%s:%d", host, port)
         mcp.run(transport="http", host=host, port=port)

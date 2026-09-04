@@ -29,6 +29,7 @@ from fastmcp import FastMCP
 
 from klody_mcp import song_structure as ss
 from klody_mcp._pathguard import PathGuardViolation, safe_path  # ASI02
+from klody_mcp.health import register_health_route
 
 load_dotenv()
 
@@ -1452,6 +1453,7 @@ def main() -> None:
     port = int(os.getenv("KLODYMUSIC_MCP_PORT", "8088"))
     host = os.getenv("KLODYMUSIC_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.klodymusic-mcp")
     if transport == "http":
         logger.info("KlodyMusic MCP HTTP : http://%s:%d", host, port)
         mcp.run(transport="http", host=host, port=port)
