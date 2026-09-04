@@ -37,8 +37,8 @@ python_version = "3.11"
 # vert un noyau de modules critiques (sécurité, sandbox, mémoire, RAG, routing,
 # LLM, MCP) et on l'élargit fichier par fichier. Les modules encore non typés
 # (orchestrator, api/server, conventions, klody_server, github_reader, preview,
-# skills, llm_import, audio, gmail_server, klody_mcp/server) constituent le
-# backlog de typage — à intégrer ici au fur et à mesure.
+# skills, audio, gmail_server, klody_mcp/server) constituent le backlog de
+# typage — à intégrer ici au fur et à mesure.
 files = [
     "config.py",
     "services.py",
@@ -56,6 +56,10 @@ files = [
     "agent/preview_errors.py",
     "agent/greeting.py",
     "agent/peremption.py",
+    "agent/stream_guard.py",
+    "agent/tokens.py",
+    "agent/journal_client.py",
+    "agent/semantic_memory.py",
     "tools/file_manager.py",
     "tools/terminal.py",
     "tools/sandbox.py",
@@ -66,7 +70,17 @@ files = [
     "tools/mcp_client.py",
     "tools/project_creator.py",
     "tools/registry.py",
+    "tools/embeddings.py",
+    "tools/excel.py",
+    "tools/git_tools.py",
+    "tools/documents.py",
+    "tools/voice.py",
+    "tools/skill_router.py",
+    "tools/llm_import.py",
     "klody_mcp/web_server.py",
+    "klody_mcp/_pathguard.py",
+    "klody_mcp/song_structure.py",
+    "klody_mcp/memory_server.py",
     "api/metrics.py",
 ]
 # Adoption incrémentale : on ne reporte que les erreurs des modules listés
