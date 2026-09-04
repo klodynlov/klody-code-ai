@@ -32,6 +32,8 @@ from fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from klody_mcp.health import register_health_route
+
 logger = logging.getLogger(__name__)
 
 # Racine du projet à exposer (peut être overridée par env)
@@ -287,6 +289,7 @@ def main() -> None:
     port = int(os.getenv("KLODY_MCP_PORT", "8087"))  # 8083 = collision avec MLX_CODE_PORT
     host = os.getenv("KLODY_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.klody-mcp")
     if transport == "http":
         # HTTP/SSE transport (FastMCP gère)
         logger.info("Klody MCP HTTP : http://%s:%d  | root=%s", host, port, _ROOT)

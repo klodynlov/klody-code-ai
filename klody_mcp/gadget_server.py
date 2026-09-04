@@ -46,6 +46,7 @@ from fastmcp import FastMCP
 
 from klody_mcp import libretto_forge
 from klody_mcp._pathguard import PathGuardViolation, safe_path
+from klody_mcp.health import register_health_route
 from klody_mcp.reaper_server import _bridge_call
 
 load_dotenv()
@@ -792,6 +793,7 @@ def main() -> None:
     port = int(os.getenv("GADGET_MCP_PORT", "8093"))
     host = os.getenv("GADGET_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.gadget-mcp")
     if transport == "http":
         logger.info("Gadget MCP HTTP : http://%s:%d", host, port)
         mcp.run(transport="http", host=host, port=port)

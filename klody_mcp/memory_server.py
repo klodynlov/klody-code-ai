@@ -46,6 +46,8 @@ from agent import semantic_memory as sm
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
+from klody_mcp.health import register_health_route
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -200,6 +202,7 @@ def main() -> None:
     port = int(os.getenv("MEMORY_MCP_PORT", "8095"))
     host = os.getenv("MEMORY_MCP_HOST", "127.0.0.1")
 
+    register_health_route(mcp, "com.klody.memory-mcp")
     if transport == "http":
         logger.info("Memory MCP HTTP : http://%s:%d (base %s)", host, port,
                     config.SEMANTIC_MEMORY_DB)
