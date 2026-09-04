@@ -113,12 +113,13 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **84,8 %** (run CI 33796514465 du 2026-09-03, gate 80), **2829 tests**
-(`pytest tests/ --collect-only`, recompté le 2026-09-03 sur `main` à jour ; 2779 le
-2026-08-07, 2614 le 2026-08-05, 2313 le 2026-07-30 — personne ne le rejouait
-alors, exactement le mode de défaillance décrit en bas de ce fichier).
+Couverture **85,1 %** (run CI 33828140106 du 2026-09-04, gate 80), **2904 tests**
+(`pytest tests/ --collect-only`, recompté le 2026-09-04 sur `main` à jour ; 2829 le
+2026-09-03, 2779 le 2026-08-07, 2614 le 2026-08-05, 2313 le 2026-07-30 — personne
+ne le rejouait alors, exactement le mode de défaillance décrit en bas de ce fichier).
 ⚠️ Le 2026-09-03, la PR #250 (docs publics, CONSULTING/CASE-STUDY) a RECOPIÉ le
-2779 de ce paragraphe alors que `main` en collectait déjà 2829 : un chiffre lu
+2779 de ce paragraphe alors que `main` en collectait déjà 2829 ; le 2026-09-04
+(22 PR du plan d'optimisation mergées) `main` en collecte 2904 : un chiffre lu
 ici est périmé dès qu'on le recopie. Le recompter, jamais le recopier.
 ⚠️ **Un rouge lu sur une branche N'EST PAS un rouge de `main`.** Le 2026-08-07,
 `tests/test_vlc_server.py::TestResoudreMedia::test_traversal_refuse` échouait
