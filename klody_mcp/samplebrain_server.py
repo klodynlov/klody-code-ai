@@ -275,6 +275,20 @@ def _lire_audio(chemin: str) -> bytes:
     return p.read_bytes()
 
 
+def _lire_tranche(chemin: str, job_dir: Path) -> bytes:
+    """Octets d'une tranche de kick : DOIT vivre sous le dossier du job (écrit par
+    notre hub) — un `kicks.json` altéré ne fait pas lire autre chose."""
+    base = os.path.realpath(job_dir)
+    p = os.path.realpath(str(chemin or ""))
+    if not p.startswith(base + os.sep) or not os.path.isfile(p):
+        raise PathGuardViolation(f"tranche hors du dossier du job : {chemin}")
+    taille = os.path.getsize(p)
+    if taille == 0 or taille > MAX_AUDIO_OCTETS:
+        raise RuntimeError(f"tranche vide ou trop grosse : {os.path.basename(p)}")
+    with open(p, "rb") as fh:
+        return fh.read()
+
+
 def _chercher_par_octets(octets: bytes, k: int, classe: str, duree_max_sec: float,
                          cibles: list[tuple[str, str]]) -> dict:
     params: dict = {"k": k}
@@ -378,8 +392,8 @@ def chercher_kicks_pour_morceau(job_id: str, k: int = 3, bibliotheque: str = TOU
     muettes: list[dict] = []
     for i, tr in enumerate(tranches, 1):
         try:
-            octets = _lire_audio(str(tr.get("path") or ""))
-        except (PathGuardViolation, FileNotFoundError, RuntimeError, OSError) as exc:
+            octets = _lire_tranche(str(tr.get("path") or ""), ATELIER_CACHE_DIR / job_id)
+        except (PathGuardViolation, RuntimeError, OSError) as exc:
             muettes.append({"tranche": i, "raison": f"{type(exc).__name__}: {exc}"})
             continue
         rep = _chercher_par_octets(octets, 10, "kick", 1.0, cibles)
