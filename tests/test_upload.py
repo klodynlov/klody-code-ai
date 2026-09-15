@@ -270,10 +270,22 @@ class TestSniffAudio:
 
 class TestSafeAudioPaths:
     def test_garde_audio_sous_uploads(self, monkeypatch, tmp_path):
+        """Nom tel que /api/upload le pose (uuid4.hex + ext) : accepté, même passé avec un
+        chemin client fantaisiste — seul le nom de base compte."""
+        import uuid
+        monkeypatch.setattr("config.UPLOADS_DIR", tmp_path)
+        name = uuid.uuid4().hex + ".wav"
+        p = tmp_path / name
+        p.write_bytes(_WAV)
+        assert _safe_audio_paths([str(p)]) == [str(p.resolve())]
+        assert _safe_audio_paths([f"/etc/../{name}"]) == [str(p.resolve())]
+
+    def test_rejette_nom_hors_contrat_meme_sous_uploads(self, monkeypatch, tmp_path):
+        """Un fichier `a.wav` déposé à la main dans _uploads n'est pas un upload : refusé."""
         monkeypatch.setattr("config.UPLOADS_DIR", tmp_path)
         p = tmp_path / "a.wav"
         p.write_bytes(_WAV)
-        assert _safe_audio_paths([str(p)]) == [str(p.resolve())]
+        assert _safe_audio_paths([str(p)]) == []
 
     def test_rejette_image_et_hors_uploads(self, monkeypatch, tmp_path):
         monkeypatch.setattr("config.UPLOADS_DIR", tmp_path / "up")

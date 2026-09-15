@@ -443,6 +443,8 @@ def _sniff_image(data: bytes) -> bool:
 # nom uuid serveur, dossier _uploads, cap dédié (AUDIO_MAX_MB). Le morceau est ensuite
 # analysé par l'outil MCP `analyser_morceau` (serveur atelier → suite-musicale).
 _AUDIO_EXTS: frozenset[str] = frozenset({".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".ogg"})
+# Nom tel que /api/upload le pose (uuid4.hex + ext) — la SEULE forme acceptée en retour.
+_UPLOAD_AUDIO_NAME = re.compile(r"[0-9a-f]{32}\.(?:wav|aif|aiff|flac|mp3|m4a|ogg)")
 
 
 def _sniff_audio(data: bytes) -> bool:
@@ -472,18 +474,20 @@ def _safe_audio_paths(raw: Any) -> list[str]:
     """
     if not isinstance(raw, list):
         return []
-    base = config.UPLOADS_DIR.resolve()
+    base = str(config.UPLOADS_DIR.resolve())
     out: list[str] = []
     for item in raw:
         if not isinstance(item, str) or not item.strip():
             continue
         name = Path(item).name                      # basename seul, jamais le chemin client
-        if not name or name in (".", "..") or Path(name).suffix.lower() not in _AUDIO_EXTS:
+        # Les seuls noms que /api/upload écrit : uuid4 hex + extension audio whitelistée.
+        # Tout autre nom (traversée, espace, unicode) est refusé AVANT de toucher au disque.
+        if not _UPLOAD_AUDIO_NAME.fullmatch(name):
             continue
-        p = base / name
-        if p.parent != base or not p.is_file():
+        candidate = os.path.normpath(os.path.join(base, name))
+        if not candidate.startswith(base + os.sep) or not os.path.isfile(candidate):
             continue
-        out.append(str(p))
+        out.append(candidate)
     return out
 
 
