@@ -59,6 +59,9 @@ VL_BASE_URL: str = os.getenv("VL_BASE_URL", MLX_BASE_URL)
 VL_API_KEY: str  = os.getenv("VL_API_KEY", MLX_API_KEY)
 VL_MAX_TOKENS: int   = int(os.getenv("VL_MAX_TOKENS", "1024"))
 VL_MAX_IMAGE_MB: float = float(os.getenv("VL_MAX_IMAGE_MB", "12"))
+# Taille max d'un fichier AUDIO joint via /api/upload (MISSION-D 6.1). 60 Mo ≈ un wav
+# stéréo 16 bits de 6 min ; au-delà, l'utilisateur passe par un chemin sous une racine audio.
+AUDIO_MAX_MB: float = float(os.getenv("AUDIO_MAX_MB", "60"))
 
 # --- Timeouts client LLM ---
 # Le défaut du SDK OpenAI (timeout=600 s, max_retries=2) ferait attendre jusqu'à
