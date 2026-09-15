@@ -31,6 +31,7 @@ _DEFAULT_ROOTS = [
     _HOME / "Documents",
     _HOME / "Movies",
     _HOME / "Projets",
+    _HOME / ".klody",   # cache atelier (stems, tranches de kick) produit par nos propres organes
     Path(tempfile.gettempdir()),
 ]
 

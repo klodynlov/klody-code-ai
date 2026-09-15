@@ -1,10 +1,10 @@
-"""Tests du pont sémantique SampleBrain (klody_mcp.reaper_samples).
+"""Tests du pont sémantique SampleBrain (klody_mcp.reaper_samples), voie HTTP.
 
 Aucun modèle, aucun index, aucun réseau : ces tests visent la LOGIQUE DE PONT
-— détection d'indisponibilité, choix du moteur, filtrage des résultats — qui
-est justement la partie que la vraie recherche ne met pas à l'épreuve. Le
-chemin de bout en bout (index réel + CLAP réel) est prouvé hors CI, ses
-chiffres sont dans le message de commit et dans la docstring du module.
+— détection d'indisponibilité, choix du moteur, fusion des bibliothèques,
+filtrage des résultats — qui est justement la partie que la vraie recherche ne
+met pas à l'épreuve. `_get_json` est le seul point qui touche le réseau : il
+est bouchonné. Le bout en bout (2 serveurs réels + CLAP) est prouvé hors CI.
 
 Ce qu'on refuse de tester ici : la pertinence sémantique. Elle appartient au
 dépôt SampleBrain, qui la mesure sur un jeu de requêtes gelé.
@@ -14,19 +14,14 @@ from __future__ import annotations
 import pytest
 from klody_mcp import reaper_samples as rs
 
+DEUX = "principale=http://127.0.0.1:8788,externe=http://127.0.0.1:8799"
+
 
 @pytest.fixture(autouse=True)
-def _index_neutre(monkeypatch, tmp_path):
-    """Part d'un état vierge : aucun indexeur en cache, home vide.
-
-    `_sb_indexer` est un cache de module. Sans cette remise à zéro, un test qui
-    installe un faux indexeur le laisserait au suivant — et le suivant
-    passerait pour de mauvaises raisons.
-    """
-    monkeypatch.setattr(rs, "_sb_indexer", None, raising=False)
-    monkeypatch.setattr(rs, "_sb_derniere_erreur", "", raising=False)
-    monkeypatch.setenv("SAMPLEBRAIN_HOME", str(tmp_path / "sb"))
+def _env_neutre(monkeypatch):
+    monkeypatch.setenv("SAMPLEBRAIN_URLS", DEUX)
     monkeypatch.delenv("KLODY_SAMPLEBRAIN", raising=False)
+    monkeypatch.setattr(rs, "_sb_derniere_erreur", "", raising=False)
 
 
 def _bibliotheque(tmp_path):
@@ -38,16 +33,28 @@ def _bibliotheque(tmp_path):
     return lib
 
 
-class _FauxIndexeur:
-    """Tient le contrat de `Indexer.search_text` — rien de plus."""
+class _FauxHTTP:
+    """Tient le contrat de `_get_json` : (url, params, timeout) → payload JSON.
+    `reponses` = {suffixe d'url: payload | Exception}. Enregistre les appels."""
 
-    def __init__(self, resultats):
-        self.resultats = resultats
-        self.appels: list[tuple[str, int]] = []
+    def __init__(self, reponses):
+        self.reponses = reponses
+        self.appels: list[tuple[str, dict | None]] = []
 
-    def search_text(self, query, k=10):
-        self.appels.append((query, k))
-        return self.resultats
+    def __call__(self, url, params, timeout):
+        self.appels.append((url, params))
+        for suffixe, rep in self.reponses.items():
+            if url.endswith(suffixe):
+                if isinstance(rep, Exception):
+                    raise rep
+                return rep
+        raise ConnectionError(f"pas de réponse prévue pour {url}")
+
+
+def _hits(*paths, model="clap", d0=0.3):
+    return {"model": model,
+            "hits": [{"content_hash": f"h{i}", "distance": d0 + i / 10, "paths": [p]}
+                     for i, p in enumerate(paths)]}
 
 
 class TestDisponibilite:
@@ -67,63 +74,30 @@ class TestDisponibilite:
         monkeypatch.setenv("KLODY_SAMPLEBRAIN", valeur)
         assert rs.semantic_enabled() is True
 
-    def test_index_absent_est_une_raison_lisible(self, tmp_path):
-        st = rs.semantic_status()
-        # Le paquet peut être installé ou non selon la machine ; dans les deux
-        # cas la raison doit NOMMER ce qui manque, jamais rester vide.
-        assert st["available"] is False
-        assert st["reason"], "une indisponibilité sans raison est indiagnosticable"
-        assert str(tmp_path) in st["home"]
-
-    def test_indexeur_none_quand_indisponible(self):
-        assert rs._samplebrain_indexer() is None
-
-    def test_echec_non_mis_en_cache(self, monkeypatch):
-        """Un index construit après le démarrage doit être pris sans redémarrage."""
-        assert rs._samplebrain_indexer() is None
-        faux = _FauxIndexeur([])
-        monkeypatch.setattr(rs, "semantic_status", lambda: {"available": True})
-        monkeypatch.setattr(rs, "_sb_indexer", faux, raising=False)
-        assert rs._samplebrain_indexer() is faux
-
-
-class TestOuvertureQuiEchoue:
-    """Le chemin d'échec de l'ouverture de l'index.
-
-    Un garde-fou qui ne peut pas rougir est indiscernable d'un garde-fou vert :
-    ces deux tests forcent l'échec au lieu de l'espérer. Ils ont besoin du vrai
-    paquet installé — pas de son index, seulement du paquet — et se sautent
-    proprement là où il n'est pas (la CI, par exemple).
-    """
-
-    @pytest.fixture
-    def _index_bidon(self, tmp_path, monkeypatch):
-        pytest.importorskip("samplebrain", reason="paquet SampleBrain non installé")
-        home = tmp_path / "sb"
-        home.mkdir(parents=True, exist_ok=True)
-        (home / "catalog.sqlite3").write_bytes(b"")  # existe -> le statut passe
-        monkeypatch.setenv("SAMPLEBRAIN_HOME", str(home))
-        return home
-
-    def test_erreur_d_ouverture_est_retenue_et_lisible(self, _index_bidon, monkeypatch):
-        from samplebrain.indexer.service import Indexer
-
-        def _explose(*a, **k):
-            raise RuntimeError("disque en carton")
-
-        monkeypatch.setattr(Indexer, "open", staticmethod(_explose))
-        assert rs._samplebrain_indexer() is None
+    def test_aucun_serveur_est_une_raison_lisible(self, monkeypatch):
+        monkeypatch.setattr(rs, "_get_json", _FauxHTTP({}))
         st = rs.semantic_status()
         assert st["available"] is False
-        assert "disque en carton" in st["reason"]
-        assert "ouverture de l'index impossible" in st["reason"]
+        assert "8788" in st["reason"] and "8799" in st["reason"]
+        assert "samplebrain-index serve" in st["reason"]
+        assert st["vivantes"] == []
 
-    def test_statut_disponible_quand_tout_est_en_place(self, _index_bidon):
-        # Catalogue présent, aucune erreur retenue : le statut doit dire oui
-        # sans avoir rien chargé de lourd.
+    def test_partiel_reste_disponible_et_le_dit(self, monkeypatch):
+        faux = _FauxHTTP({"8788/api/status": {"model": "clap"}})
+        monkeypatch.setattr(rs, "_get_json", faux)
         st = rs.semantic_status()
-        assert st == {"home": str(_index_bidon), "charge": False,
-                      "available": True, "reason": ""}
+        assert st["available"] is True
+        assert st["vivantes"] == ["principale"]
+        assert "externe" in st["reason"]
+        assert st["modeles"] == {"principale": "clap"}
+        assert st["bibliotheques"] == {"principale": "http://127.0.0.1:8788",
+                                       "externe": "http://127.0.0.1:8799"}
+
+    def test_le_statut_ne_lance_aucune_recherche(self, monkeypatch):
+        faux = _FauxHTTP({"/api/status": {"model": "clap"}})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        rs.semantic_status()
+        assert all(u.endswith("/api/status") for u, _ in faux.appels)
 
 
 class TestConversionDeScore:
@@ -140,70 +114,89 @@ class TestConversionDeScore:
         assert rs._similarite(-0.5) == 1.0     # bruit numérique
 
 
+class TestFusionDesBibliotheques:
+    def test_les_deux_index_sont_interroges_en_local(self, monkeypatch):
+        faux = _FauxHTTP({"8788/api/search": _hits("/A/a.wav"),
+                          "8799/api/search": _hits("/B/b.wav", d0=0.1)})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        hits = rs._hits_http("kick", k=20)
+        assert [h["paths"][0] for h in hits] == ["/B/b.wav", "/A/a.wav"]   # trié par distance
+        assert all(p["local"] == "1" and p["k"] == 20 for _, p in faux.appels)
+
+    def test_modeles_differents_gardent_l_ordre_par_bibliotheque(self, monkeypatch):
+        faux = _FauxHTTP({"8788/api/search": _hits("/A/a.wav", d0=0.9),
+                          "8799/api/search": _hits("/B/b.wav", model="autre", d0=0.1)})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        hits = rs._hits_http("kick", k=5)
+        # externe < principale alphabétiquement, distances NON comparables → pas retrié
+        assert [h["paths"][0] for h in hits] == ["/B/b.wav", "/A/a.wav"]
+
+    def test_un_serveur_muet_n_emporte_pas_l_autre(self, monkeypatch):
+        faux = _FauxHTTP({"8788/api/search": _hits("/A/a.wav"),
+                          "8799/api/search": ConnectionError("down")})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        assert [h["paths"][0] for h in rs._hits_http("kick", 5)] == ["/A/a.wav"]
+        assert "externe" in rs._sb_derniere_erreur
+
+    def test_tout_muet_rend_vide(self, monkeypatch):
+        monkeypatch.setattr(rs, "_get_json", _FauxHTTP({}))
+        assert rs._hits_http("kick", 5) == []
+
+
 class TestFiltrageDesResultats:
+    def _brancher(self, monkeypatch, *paths, d0=0.5):
+        faux = _FauxHTTP({"/api/search": _hits(*paths, d0=d0)})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        return faux
+
     def test_hors_racine_est_ecarte(self, tmp_path, monkeypatch):
         lib = _bibliotheque(tmp_path)
         ailleurs = tmp_path / "ailleurs"
         ailleurs.mkdir()
         (ailleurs / "intrus.wav").write_bytes(b"RIFF")
-        faux = _FauxIndexeur([
-            {"content_hash": "a", "distance": 0.5, "paths": [str(ailleurs / "intrus.wav")]},
-            {"content_hash": "b", "distance": 0.6, "paths": [str(lib / "pads" / "dark_pad.wav")]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        self._brancher(monkeypatch, str(ailleurs / "intrus.wav"), str(lib / "pads" / "dark_pad.wav"))
         hits = rs._search_samplebrain("pad", [lib], limit=10)
         assert [h["name"] for h in hits] == ["dark_pad.wav"]
 
     def test_chemin_mort_est_ecarte(self, tmp_path, monkeypatch):
-        """Un index a le droit d'avoir une longueur de retard sur le disque.
-
-        Rendre un chemin disparu ferait échouer `import_sample` plus loin, avec
-        une erreur qui n'aurait plus rien à voir avec la recherche.
-        """
+        """Un index a le droit d'avoir une longueur de retard sur le disque."""
         lib = _bibliotheque(tmp_path)
-        faux = _FauxIndexeur([
-            {"content_hash": "a", "distance": 0.2, "paths": [str(lib / "supprime.wav")]},
-            {"content_hash": "b", "distance": 0.6, "paths": [str(lib / "kick_lourd.wav")]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        self._brancher(monkeypatch, str(lib / "supprime.wav"), str(lib / "kick_lourd.wav"))
         hits = rs._search_samplebrain("kick", [lib], limit=10)
         assert [h["name"] for h in hits] == ["kick_lourd.wav"]
 
     def test_plusieurs_chemins_pour_un_contenu(self, tmp_path, monkeypatch):
-        """Un contenu peut vivre à plusieurs chemins : ils sortent tous, une fois."""
         lib = _bibliotheque(tmp_path)
         a, b = lib / "pads" / "dark_pad.wav", lib / "pads" / "bright_pad.wav"
-        faux = _FauxIndexeur([
-            {"content_hash": "x", "distance": 0.4, "paths": [str(a), str(b), str(a)]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        faux = _FauxHTTP({"/api/search": {"model": "clap", "hits": [
+            {"content_hash": "x", "distance": 0.4, "paths": [str(a), str(b), str(a)]}]}})
+        monkeypatch.setattr(rs, "_get_json", faux)
         hits = rs._search_samplebrain("pad", [lib], limit=10)
+        # 2 bibliothèques rendent le même hit : dédupliqué par chemin
         assert [h["name"] for h in hits] == ["dark_pad.wav", "bright_pad.wav"]
         assert {h["score"] for h in hits} == {0.8}
 
     def test_limite_respectee(self, tmp_path, monkeypatch):
         lib = _bibliotheque(tmp_path)
-        faux = _FauxIndexeur([
-            {"content_hash": "x", "distance": 0.4,
-             "paths": [str(lib / "pads" / "dark_pad.wav"),
-                       str(lib / "pads" / "bright_pad.wav"),
-                       str(lib / "kick_lourd.wav")]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        self._brancher(monkeypatch, str(lib / "pads" / "dark_pad.wav"),
+                       str(lib / "pads" / "bright_pad.wav"), str(lib / "kick_lourd.wav"))
         assert len(rs._search_samplebrain("x", [lib], limit=2)) == 2
 
     def test_champs_du_contrat(self, tmp_path, monkeypatch):
         lib = _bibliotheque(tmp_path)
-        faux = _FauxIndexeur([
-            {"content_hash": "x", "distance": 0.5,
-             "paths": [str(lib / "pads" / "dark_pad.wav")]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        self._brancher(monkeypatch, str(lib / "pads" / "dark_pad.wav"))
         h = rs._search_samplebrain("pad", [lib], limit=1)[0]
         assert set(h) == {"path", "name", "rel", "root", "score", "via"}
         assert h["via"] == "samplebrain"
         assert h["rel"] == "pads/dark_pad.wav"
         assert h["root"] == str(lib)
+
+    def test_interrupteur_ne_touche_pas_le_reseau(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("KLODY_SAMPLEBRAIN", "0")
+        faux = _FauxHTTP({})
+        monkeypatch.setattr(rs, "_get_json", faux)
+        assert rs._search_samplebrain("pad", [tmp_path], 5) == []
+        assert faux.appels == []
 
 
 class TestChoixDuMoteur:
@@ -214,63 +207,54 @@ class TestChoixDuMoteur:
     def test_auto_se_rabat_quand_le_semantique_ne_repond_pas(self, tmp_path, monkeypatch):
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: None)
+        monkeypatch.setattr(rs, "_get_json", _FauxHTTP({}))
         hits = rs.search_samples("kick")
         assert hits and hits[0]["via"] == "filesystem"
         assert hits[0]["name"] == "kick_lourd.wav"
 
     def test_samplebrain_assume_son_vide(self, tmp_path, monkeypatch):
-        """Mode exigé : pas de repli, sinon le mode ne veut rien dire."""
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: None)
+        monkeypatch.setattr(rs, "_get_json", _FauxHTTP({}))
         assert rs.search_samples("kick", mode="samplebrain") == []
 
-    def test_filesystem_n_interroge_jamais_l_index(self, tmp_path, monkeypatch):
+    def test_filesystem_n_interroge_jamais_le_reseau(self, tmp_path, monkeypatch):
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
 
-        def _interdit():
-            raise AssertionError("le mode filesystem ne doit pas ouvrir l'index")
+        def _interdit(*a, **k):
+            raise AssertionError("le mode filesystem ne doit pas toucher le réseau")
 
-        monkeypatch.setattr(rs, "_samplebrain_indexer", _interdit)
+        monkeypatch.setattr(rs, "_get_json", _interdit)
         hits = rs.search_samples("kick", mode="filesystem")
         assert hits and hits[0]["via"] == "filesystem"
 
     def test_requete_vide_part_au_filesystem(self, tmp_path, monkeypatch):
-        """« Rien » n'a pas de voisin sémantique, mais lister reste utile."""
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
 
-        def _interdit():
-            raise AssertionError("une requête vide ne doit pas ouvrir l'index")
+        def _interdit(*a, **k):
+            raise AssertionError("une requête vide ne doit pas toucher le réseau")
 
-        monkeypatch.setattr(rs, "_samplebrain_indexer", _interdit)
+        monkeypatch.setattr(rs, "_get_json", _interdit)
         hits = rs.search_samples("", limit=10)
         assert len(hits) == 3
         assert {h["via"] for h in hits} == {"filesystem"}
 
     def test_semantique_prioritaire_quand_il_repond(self, tmp_path, monkeypatch):
-        """Le point du câblage : la requête « pad » ne matche AUCUN nom de
-        fichier contenant « pad » mieux que le sémantique ne le fait, et c'est
-        bien le sémantique qui répond quand il est là."""
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
-        faux = _FauxIndexeur([
-            {"content_hash": "x", "distance": 0.3, "paths": [str(lib / "kick_lourd.wav")]},
-        ])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        faux = _FauxHTTP({"/api/search": _hits(str(lib / "kick_lourd.wav"))})
+        monkeypatch.setattr(rs, "_get_json", faux)
         hits = rs.search_samples("nappe sombre", limit=5)
         assert [h["via"] for h in hits] == ["samplebrain"]
         assert hits[0]["name"] == "kick_lourd.wav"
-        assert faux.appels, "l'index doit avoir été interrogé"
+        assert faux.appels, "les serveurs doivent avoir été interrogés"
 
     def test_la_marge_demandee_depasse_la_limite(self, tmp_path, monkeypatch):
-        """On demande large à l'index : les filtres racine/existence retirent
-        des résultats après coup, demander exactement `limit` en rendrait moins."""
         lib = _bibliotheque(tmp_path)
         monkeypatch.setenv("KLODY_SAMPLES_DIR", str(lib))
-        faux = _FauxIndexeur([])
-        monkeypatch.setattr(rs, "_samplebrain_indexer", lambda: faux)
+        faux = _FauxHTTP({"/api/search": {"model": "clap", "hits": []}})
+        monkeypatch.setattr(rs, "_get_json", faux)
         rs.search_samples("pad", limit=5)
-        assert faux.appels[0][1] >= 20
+        assert faux.appels[0][1]["k"] >= 20

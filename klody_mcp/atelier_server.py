@@ -70,7 +70,10 @@ SUITE_PYTHON = Path(os.getenv("ATELIER_PYTHON", str(SUITE_ROOT / ".venv" / "bin"
 CACHE_DIR = Path(os.getenv("ATELIER_CACHE_DIR", "~/.klody/atelier")).expanduser()
 # Version de pipeline dans la clé de cache : une nouvelle version de la suite
 # (ou de ce serveur) invalide les analyses précédentes au lieu de les resservir.
-PIPELINE_VERSION = os.getenv("ATELIER_PIPELINE_VERSION", "hub-v1")
+# hub-v2 (MISSION-D 6.2) : le hub écrit aussi `midi/drums_oaf.json` + `kicks/`
+# (3 tranches de kick isolées, requêtes pour `chercher_kicks_pour_morceau`).
+# Changer la version invalide le cache : une analyse hub-v1 n'a pas de kicks.
+PIPELINE_VERSION = os.getenv("ATELIER_PIPELINE_VERSION", "hub-v2")
 PROFILS = ("balanced", "hq", "mobile", "live")
 
 _AUDIO_EXTS = {".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -202,6 +205,8 @@ def _resume(job_dir: Path, manifest: dict) -> dict[str, Any]:
              "drums_json": str(out / "drums.json") if (out / "drums.json").is_file() else None,
              "loops_json": str(out / "loops.json") if (out / "loops.json").is_file() else None,
              "drums_midi": summ.get("drums_midi"),
+             "kicks": summ.get("kicks"),
+             "kicks_json": str(out / "kicks" / "kicks.json") if (out / "kicks" / "kicks.json").is_file() else None,
              "stems": summ.get("stems")}
     return {"job_id": job_dir.name, "input": manifest.get("input"), "out_dir": str(out),
             "all_core_ok": manifest.get("all_core_ok"), "modules": mods,
@@ -305,7 +310,9 @@ def resultat_analyse(job_id: str, detail: str = "resume") -> dict:
         {"job_id", "input", "all_core_ok", "modules", "summary": {bpm, key, time_signature,
          n_chords, chords[], sections[], moss{caption, instruments, sections, mode},
          drums{hit_count, kick, snare, hihat, mean_microtiming_ms, groove_template},
-         drums_midi, loops[]}, "paths": {...}} ; sinon {"status"} ou {"error"}.
+         drums_midi, kicks[] (3 tranches de 300 ms du stem batterie aux kicks isolés —
+         à passer à `mcp__samplebrain__chercher_kicks_pour_morceau(job_id)`), loops[]},
+         "paths": {...}} ; sinon {"status"} ou {"error"}.
     """
     try:
         job_dir = _job_dir(job_id)
