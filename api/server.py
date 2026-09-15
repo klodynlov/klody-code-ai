@@ -463,7 +463,13 @@ def _sniff_audio(data: bytes) -> bool:
 
 
 def _safe_audio_paths(raw: Any) -> list[str]:
-    """Ne garde QUE les chemins audio réellement sous config.UPLOADS_DIR (cf. images)."""
+    """Ne garde QUE les chemins audio réellement sous config.UPLOADS_DIR (cf. images).
+
+    Le client ne choisit JAMAIS un chemin : seul le NOM de base de ce qu'il envoie est
+    retenu, recomposé sous `_uploads` (noms = uuid posés par /api/upload). Une chaîne
+    `/etc/x.wav` ou `../x.wav` ne peut donc désigner qu'un fichier de `_uploads` portant
+    ce nom, ou rien — aucune expression de chemin contrôlée par l'appelant (CodeQL 287).
+    """
     if not isinstance(raw, list):
         return []
     base = config.UPLOADS_DIR.resolve()
@@ -471,13 +477,11 @@ def _safe_audio_paths(raw: Any) -> list[str]:
     for item in raw:
         if not isinstance(item, str) or not item.strip():
             continue
-        try:
-            p = Path(item).resolve()
-        except (OSError, ValueError):
+        name = Path(item).name                      # basename seul, jamais le chemin client
+        if not name or name in (".", "..") or Path(name).suffix.lower() not in _AUDIO_EXTS:
             continue
+        p = base / name
         if p.parent != base or not p.is_file():
-            continue
-        if p.suffix.lower() not in _AUDIO_EXTS:
             continue
         out.append(str(p))
     return out

@@ -88,8 +88,10 @@ def _roots() -> list[Path]:
     try:
         import config  # racine du projet agent (UPLOADS_DIR) — optionnel hors agent
         roots.append(Path(config.UPLOADS_DIR).resolve())
-    except Exception:
-        pass
+    except Exception as exc:
+        # Serveur utilisable hors du dépôt agent (pas de `config`) : on perd seulement la
+        # racine `_uploads`, les racines audio restent. Dit dans le journal, pas avalé.
+        logger.debug("_roots : UPLOADS_DIR indisponible (%s) — racines audio seules", exc)
     return roots
 
 
@@ -153,8 +155,10 @@ def _etat(job_dir: Path) -> dict[str, Any]:
         try:
             fin = (job_dir / "hub_manifest.json").stat().st_mtime
             elapsed = round(fin - started, 1) if started else None
-        except OSError:
-            pass
+        except OSError as exc:
+            # Manifeste lu à l'instant mais stat() refusé (course avec une purge du cache) :
+            # on garde l'estimation « maintenant − départ » plutôt que d'échouer le statut.
+            logger.debug("_etat : stat() du manifeste impossible (%s), elapsed approximatif", exc)
         return {"status": "done", "all_core_ok": manifest.get("all_core_ok"),
                 "elapsed_sec": elapsed, "meta": meta}
     if _pid_alive(meta.get("pid")):
