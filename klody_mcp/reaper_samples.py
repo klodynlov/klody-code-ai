@@ -16,18 +16,13 @@ Deux moteurs de recherche, et le résultat dit TOUJOURS lequel a répondu
   aucune dépendance. C'est le repli, et il reste le seul moteur tant que
   SampleBrain n'est pas installé ou indexé.
 
-⚠️ **SampleBrain est une dépendance strictement OPTIONNELLE et non déclarée.**
-Elle tire `lancedb` (et, pour embedder la requête, `torch`/`transformers`) ;
-l'imposer au dépôt ferait payer ce poids à tout le monde pour un connecteur
-REAPER. L'import est donc tenté à l'exécution, isolément — jamais dans un `try`
-groupé avec autre chose, sinon une absence en emporterait une autre (piège
-vécu avec `numpy` importé dans le `try` de `librosa`). Toute indisponibilité
-est silencieuse côté comportement mais LISIBLE via `semantic_status()`.
-
-Pour l'activer dans le venv qui fait tourner le serveur MCP :
-
-    pip install -e ~/Projets/SampleBrain          # lancedb + pyarrow
-    samplebrain-index --roots "$KLODY_SAMPLES_DIR" index
+⚠️ **SampleBrain reste OPTIONNEL, et n'entre plus dans ce process** (MISSION-D
+6.2). Le module interroge en HTTP les serveurs `samplebrain-index serve`
+déclarés par `SAMPLEBRAIN_URLS` (interne :8788 + externe :8799 en prod) — le
+même chemin que `klody_mcp/samplebrain_server.py`. Plus de lancedb/torch ici,
+plus d'index « principal seulement » : les sons du disque externe deviennent
+plaçables. Serveur éteint → repli filesystem silencieux côté comportement,
+LISIBLE via `semantic_status()`.
 
 `KLODY_SAMPLEBRAIN=0` coupe le moteur sémantique sans rien désinstaller.
 
@@ -108,87 +103,76 @@ def _roots(root: str | None = None) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------- #
-# Pont SampleBrain — recherche sémantique, strictement optionnelle              #
+# Pont SampleBrain — recherche sémantique, strictement optionnelle, via HTTP    #
 # ---------------------------------------------------------------------------- #
 
 # Modes acceptés par `search_samples`. `auto` = sémantique si disponible.
 MODES = ("auto", "samplebrain", "filesystem")
 
-# L'index et le modèle CLAP sont gardés chauds entre deux appels : mesuré dans
-# le venv de ce dépôt (transformers 5.9.0), le premier appel paie ~2,6 s de
-# chargement de poids, les suivants ~0,03 s. Rouvrir à chaque recherche
-# rendrait l'outil MCP inutilisable.
-_sb_indexer: Any = None
+# MISSION-D 6.2 : UN SEUL chemin d'accès à l'index. Avant, ce module ouvrait
+# LanceDB + CLAP dans le process du serveur REAPER (600 Mo de poids, ~2,6 s,
+# et il ne voyait que l'index interne). Il interroge désormais les mêmes
+# serveurs `samplebrain-index serve` que `samplebrain_server.py`, déclarés
+# par `SAMPLEBRAIN_URLS` — index interne ET externe, modèle chargé une fois.
+_TIMEOUT_STATUT = float(os.getenv("SAMPLEBRAIN_STATUS_TIMEOUT", "3"))
+_TIMEOUT_RECHERCHE = float(os.getenv("SAMPLEBRAIN_MCP_TIMEOUT", "30"))
 _sb_derniere_erreur: str = ""
 
 
-def _samplebrain_home() -> Path:
-    """Dossier d'état de SampleBrain (catalogue + index vectoriel)."""
-    return Path(os.getenv("SAMPLEBRAIN_HOME") or (Path.home() / ".samplebrain")).expanduser()
+def _bibliotheques() -> dict[str, str]:
+    from klody_mcp._samplebrain_urls import lire_bibliotheques
+    return lire_bibliotheques()
 
 
 def semantic_enabled() -> bool:
     """Interrupteur `KLODY_SAMPLEBRAIN` (0/false/off/no désactive).
 
     Deux usages, tous deux réels : couper le moteur sémantique en production
-    sans désinstaller quoi que ce soit, et rendre les tests HERMÉTIQUES. Sans
-    lui, `test_reaper_samples.py` réussirait ou échouerait selon qu'un index
-    traîne dans le `$HOME` de la machine qui l'exécute — vert en CI, lent et
-    imprévisible en local.
+    sans rien arrêter, et rendre les tests HERMÉTIQUES. Sans lui,
+    `test_reaper_samples.py` réussirait ou échouerait selon qu'un serveur
+    SampleBrain tourne sur la machine.
     """
-    return (os.getenv("KLODY_SAMPLEBRAIN", "1") or "").strip().lower() not in (
+    return os.getenv("KLODY_SAMPLEBRAIN", "1").strip().lower() not in (
         "0", "false", "off", "no",
     )
+
+
+def _get_json(url: str, params: dict | None, timeout: float) -> dict:
+    """GET JSON — isolé pour être bouchonné par les tests. Lève sur tout échec."""
+    import httpx
+
+    response = httpx.get(url, params=params, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
 
 
 def semantic_status() -> dict:
     """Pourquoi la recherche sémantique répond — ou ne répond pas.
 
-    Volontairement bon marché : n'importe que le paquet `samplebrain` (dont
-    l'`__init__` ne tire ni torch ni lancedb) et vérifie l'existence du
-    catalogue. Sert à ce qu'une indisponibilité soit DIAGNOSTICABLE plutôt que
-    silencieuse — un repli muet est indiscernable d'un moteur qui marche mal.
+    Bon marché : un `/api/status` par bibliothèque, délai court. Sert à ce
+    qu'une indisponibilité soit DIAGNOSTICABLE plutôt que silencieuse — un
+    repli muet est indiscernable d'un moteur qui marche mal.
     """
-    home = _samplebrain_home()
-    infos: dict[str, Any] = {"home": str(home), "charge": _sb_indexer is not None}
+    biblios = _bibliotheques()
+    infos: dict[str, Any] = {"bibliotheques": biblios, "via": "http"}
     if not semantic_enabled():
+        return {**infos, "available": False, "reason": "désactivé par KLODY_SAMPLEBRAIN"}
+    vivantes, raisons = [], []
+    for nom, base in biblios.items():
+        try:
+            etat = _get_json(f"{base}/api/status", None, _TIMEOUT_STATUT)
+            vivantes.append(nom)
+            infos.setdefault("modeles", {})[nom] = str(etat.get("model", "?"))
+        except Exception as exc:  # réseau, HTTP, JSON : même diagnostic
+            raisons.append(f"{nom} ({base}) : {type(exc).__name__}: {str(exc)[:120] or 'injoignable'}")
+    infos["vivantes"] = vivantes
+    if not vivantes:
         return {**infos, "available": False,
-                "reason": "désactivé par KLODY_SAMPLEBRAIN"}
-    try:
-        import samplebrain  # noqa: F401  (import isolé : voir le module docstring)
-    except Exception as exc:  # ImportError, mais aussi toute erreur d'init
-        return {**infos, "available": False,
-                "reason": f"paquet samplebrain absent ou cassé : {type(exc).__name__}: {exc}"}
-    if not (home / "catalog.sqlite3").exists():
-        return {**infos, "available": False,
-                "reason": f"aucun index dans {home} — lancer `samplebrain-index index`"}
-    if _sb_derniere_erreur:
-        return {**infos, "available": False, "reason": _sb_derniere_erreur}
-    return {**infos, "available": True, "reason": ""}
-
-
-def _samplebrain_indexer() -> Any:
-    """Ouvre l'index une fois pour toutes. Rend None si indisponible.
-
-    L'échec n'est pas mis en cache : un index construit après le démarrage du
-    serveur MCP doit pouvoir être pris en compte sans redémarrage. Le coût d'un
-    nouvel essai est un `import` déjà résolu et deux `stat`.
-    """
-    global _sb_indexer, _sb_derniere_erreur
-    if _sb_indexer is not None:
-        return _sb_indexer
-    if not semantic_status()["available"]:
-        return None
-    try:
-        from samplebrain.indexer.config import load_config
-        from samplebrain.indexer.service import Indexer
-
-        _sb_indexer = Indexer.open(load_config(home=_samplebrain_home()))
-        _sb_derniere_erreur = ""
-    except Exception as exc:
-        _sb_derniere_erreur = f"ouverture de l'index impossible : {type(exc).__name__}: {exc}"
-        _sb_indexer = None
-    return _sb_indexer
+                "reason": "aucun serveur SampleBrain ne répond — " + " ; ".join(raisons)
+                + " ; démarrer : cd ~/Projets/SampleBrain && "
+                  "~/.venvs/samplebrain/bin/samplebrain-index serve"}
+    return {**infos, "available": True,
+            "reason": "" if not raisons else "partiel : " + " ; ".join(raisons)}
 
 
 def _similarite(distance: float) -> float:
@@ -212,6 +196,32 @@ def _sous_racine(chemin: str, racines: list[Path]) -> Path | None:
     return None
 
 
+def _hits_http(query: str, k: int) -> list[dict]:
+    """Interroge chaque bibliothèque en `local=1` (pas d'essaimage serveur : on
+    fusionne ici, et seulement si les modèles concordent — sinon on garde
+    l'ordre par bibliothèque, distances non comparables). [] si tout se tait."""
+    global _sb_derniere_erreur
+    par_biblio: dict[str, list[dict]] = {}
+    modeles: set[str] = set()
+    erreurs = []
+    for nom, base in _bibliotheques().items():
+        try:
+            payload = _get_json(f"{base}/api/search", {"q": query, "k": k, "local": "1"},
+                                _TIMEOUT_RECHERCHE)
+        except Exception as exc:
+            erreurs.append(f"{nom}: {type(exc).__name__}")
+            continue
+        modeles.add(str(payload.get("model", "?")))
+        par_biblio[nom] = [h for h in payload.get("hits", []) if h.get("paths")]
+    _sb_derniere_erreur = " ; ".join(erreurs)
+    if not par_biblio:
+        return []
+    if len(modeles) <= 1:
+        return sorted((h for liste in par_biblio.values() for h in liste),
+                      key=lambda h: float(h.get("distance") or 0.0))
+    return [h for nom in sorted(par_biblio) for h in par_biblio[nom]]
+
+
 def _search_samplebrain(query: str, racines: list[Path], limit: int) -> list[dict]:
     """Recherche sémantique. Rend [] si le moteur n'a rien à dire.
 
@@ -224,12 +234,11 @@ def _search_samplebrain(query: str, racines: list[Path], limit: int) -> list[dic
       `import_sample` plus loin, avec une erreur qui n'aurait plus rien à voir
       avec la recherche.
     """
-    ix = _samplebrain_indexer()
-    if ix is None:
+    if not semantic_enabled():
         return []
     # On demande large : un contenu peut porter plusieurs chemins, et les deux
     # filtres ci-dessous en retirent encore.
-    hits = ix.search_text(query, k=max(4 * int(limit), 20))
+    hits = _hits_http(query, k=max(4 * int(limit), 20))
     out: list[dict] = []
     vus: set[str] = set()
     for h in hits:
