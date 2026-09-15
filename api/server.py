@@ -439,6 +439,71 @@ def _sniff_image(data: bytes) -> bool:
     return any(data.startswith(sig) for sig in _IMAGE_MAGIC)
 
 
+# --- Audio joint (MISSION-D 6.1) : même contrat que les images — octets vérifiés,
+# nom uuid serveur, dossier _uploads, cap dédié (AUDIO_MAX_MB). Le morceau est ensuite
+# analysé par l'outil MCP `analyser_morceau` (serveur atelier → suite-musicale).
+_AUDIO_EXTS: frozenset[str] = frozenset({".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".ogg"})
+# Nom tel que /api/upload le pose (uuid4.hex + ext) — la SEULE forme acceptée en retour.
+_UPLOAD_AUDIO_NAME = re.compile(r"[0-9a-f]{32}\.(?:wav|aif|aiff|flac|mp3|m4a|ogg)")
+
+
+def _sniff_audio(data: bytes) -> bool:
+    """Vrai si `data` débute par une signature audio connue (wav/aiff/flac/mp3/m4a/ogg).
+
+    Même raison que `_sniff_image` : on ne croit ni le content-type ni l'extension,
+    on lit les octets — un script renommé `.wav` ne doit pas atterrir dans _uploads.
+    """
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return True
+    if data[:4] == b"FORM" and data[8:12] in (b"AIFF", b"AIFC"):
+        return True
+    if data[:4] == b"fLaC" or data[:4] == b"OggS" or data[:3] == b"ID3":
+        return True
+    if len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0:   # trame MPEG sans tag ID3
+        return True
+    return len(data) >= 12 and data[4:8] == b"ftyp"                        # m4a/mp4 (ISO BMFF)
+
+
+def _safe_audio_paths(raw: Any) -> list[str]:
+    """Ne garde QUE les chemins audio réellement sous config.UPLOADS_DIR (cf. images).
+
+    Le client ne choisit JAMAIS un chemin : seul le NOM de base de ce qu'il envoie est
+    retenu, recomposé sous `_uploads` (noms = uuid posés par /api/upload). Une chaîne
+    `/etc/x.wav` ou `../x.wav` ne peut donc désigner qu'un fichier de `_uploads` portant
+    ce nom, ou rien — aucune expression de chemin contrôlée par l'appelant (CodeQL 287).
+    """
+    if not isinstance(raw, list):
+        return []
+    base = str(config.UPLOADS_DIR.resolve())
+    out: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            continue
+        name = Path(item).name                      # basename seul, jamais le chemin client
+        # Les seuls noms que /api/upload écrit : uuid4 hex + extension audio whitelistée.
+        # Tout autre nom (traversée, espace, unicode) est refusé AVANT de toucher au disque.
+        if not _UPLOAD_AUDIO_NAME.fullmatch(name):
+            continue
+        candidate = os.path.normpath(os.path.join(base, name))
+        if not candidate.startswith(base + os.sep) or not os.path.isfile(candidate):
+            continue
+        out.append(candidate)
+    return out
+
+
+def _prefix_audio_note(user_text: str, audio_paths: list[str]) -> str:
+    """Préfixe une note (str) listant les morceaux joints et invitant le cerveau à
+    appeler analyser_morceau (serveur MCP atelier), puis statut/resultat. `content`
+    reste une str → cœur non touché, comme pour les images."""
+    listing = "\n".join(f"- {p}" for p in audio_paths)
+    note = (
+        "[Morceaux audio joints par l'utilisateur — utilise l'outil analyser_morceau "
+        "(serveur atelier) sur chaque chemin, puis statut_analyse jusqu'à status=done, "
+        f"puis resultat_analyse pour lire bpm, tonalité, accords, sections, batterie :\n{listing}\n]"
+    )
+    return f"{note}\n\n{user_text}" if user_text else note
+
+
 def _safe_image_paths(raw: Any) -> list[str]:
     """Ne garde QUE les chemins réellement sous config.UPLOADS_DIR (produits par
     /api/upload). Défense en profondeur : un client ne peut pas faire analyser un
@@ -493,21 +558,25 @@ async def upload_image(file: UploadFile = _UPLOAD_FILE):
       • nom = uuid serveur, JAMAIS le nom client → 0 traversée / 0 écrasement.
     """
     ext = Path(file.filename or "").suffix.lower()
-    if ext not in _IMAGE_EXTS:
-        raise HTTPException(415, f"extension non-image : {ext or '(aucune)'}")
+    if ext in _AUDIO_EXTS:                          # audio (MISSION-D 6.1) : même chaîne, cap dédié
+        kind, max_mb, sniff = "audio", config.AUDIO_MAX_MB, _sniff_audio
+    elif ext in _IMAGE_EXTS:
+        kind, max_mb, sniff = "image", config.VL_MAX_IMAGE_MB, _sniff_image
+    else:
+        raise HTTPException(415, f"extension ni image ni audio : {ext or '(aucune)'}")
 
-    max_bytes = int(config.VL_MAX_IMAGE_MB * 1024 * 1024)
+    max_bytes = int(max_mb * 1024 * 1024)
     data = await file.read(max_bytes + 1)          # +1 → détecte un dépassement
     if len(data) > max_bytes:
-        raise HTTPException(413, f"image trop volumineuse (max {config.VL_MAX_IMAGE_MB:.0f} Mo)")
-    if not _sniff_image(data):
-        raise HTTPException(415, "contenu non reconnu comme image")
+        raise HTTPException(413, f"{kind} trop volumineux (max {max_mb:.0f} Mo)")
+    if not sniff(data):
+        raise HTTPException(415, f"contenu non reconnu comme {kind}")
 
     config.UPLOADS_DIR.mkdir(exist_ok=True)        # robustesse si purgé à chaud
     name = f"{uuid.uuid4().hex}{ext}"
     dest = (config.UPLOADS_DIR / name).resolve()
     dest.write_bytes(data)
-    return {"ok": True, "path": str(dest), "name": name, "size": len(data)}
+    return {"ok": True, "path": str(dest), "name": name, "size": len(data), "kind": kind}
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -709,10 +778,13 @@ async def websocket_endpoint(ws: WebSocket):
                 # On ne garde que les chemins sous _uploads, puis on préfixe une note
                 # (texte) → le cerveau appelle analyser_image. `content` reste une str.
                 image_paths = _safe_image_paths(msg.get("image_paths"))
-                if not user_text and not image_paths:
+                audio_paths = _safe_audio_paths(msg.get("audio_paths"))
+                if not user_text and not image_paths and not audio_paths:
                     continue
                 if image_paths:
                     user_text = _prefix_image_note(user_text, image_paths)
+                if audio_paths:                     # MISSION-D 6.1 : morceau joint → atelier
+                    user_text = _prefix_audio_note(user_text, audio_paths)
 
                 # Métriques : démarre le timer + compte la requête
                 import time as _time

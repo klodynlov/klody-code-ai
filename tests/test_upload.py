@@ -14,7 +14,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from api.server import _prefix_image_note, _safe_image_paths, _sniff_image
+from api.server import (
+    _prefix_audio_note,
+    _prefix_image_note,
+    _safe_audio_paths,
+    _safe_image_paths,
+    _sniff_audio,
+    _sniff_image,
+)
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 _JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -191,3 +198,110 @@ class TestCablage:
         import config
         roots = config.build_allowed_roots(config._ROOT)
         assert config.match_allowed_root(config.UPLOADS_DIR.resolve(), roots) is not None
+
+
+# =========================================================================== #
+# Audio joint (MISSION-D 6.1) — même contrat que les images, cap AUDIO_MAX_MB   #
+# =========================================================================== #
+
+_WAV = b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 64
+_FLAC = b"fLaC" + b"\x00" * 32
+_MP3_ID3 = b"ID3" + b"\x00" * 32
+_MP3_TRAME = b"\xff\xfb\x90\x00" + b"\x00" * 32
+_AIFF = b"FORM" + b"\x00\x00\x00\x00" + b"AIFF" + b"\x00" * 32
+_M4A = b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32
+_OGG = b"OggS" + b"\x00" * 32
+
+
+class TestUploadAudio:
+    def test_wav_accepte(self, client):
+        c, uploads = client
+        r = c.post("/api/upload", files={"file": ("zouk.wav", _WAV, "audio/wav")})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] and body["kind"] == "audio"
+        p = Path(body["path"])
+        assert p.parent == uploads.resolve() and p.suffix == ".wav" and p.read_bytes() == _WAV
+
+    @pytest.mark.parametrize("nom,data", [("a.flac", _FLAC), ("a.mp3", _MP3_ID3),
+                                          ("b.mp3", _MP3_TRAME), ("a.aiff", _AIFF),
+                                          ("a.m4a", _M4A), ("a.ogg", _OGG)])
+    def test_formats_audio_acceptes(self, client, nom, data):
+        c, _ = client
+        r = c.post("/api/upload", files={"file": (nom, data, "application/octet-stream")})
+        assert r.status_code == 200, r.text
+        assert r.json()["kind"] == "audio"
+
+    def test_contenu_non_audio_rejete_malgre_extension(self, client):
+        c, uploads = client
+        r = c.post("/api/upload", files={"file": ("x.wav", b"#!/bin/sh\necho pwned\n", "audio/wav")})
+        assert r.status_code == 415
+        assert not any(uploads.glob("*.wav")) if uploads.exists() else True
+
+    def test_audio_trop_volumineux_413(self, client, monkeypatch):
+        c, _ = client
+        monkeypatch.setattr("config.AUDIO_MAX_MB", 0.0001)   # ~100 octets
+        r = c.post("/api/upload", files={"file": ("gros.wav", _WAV + b"\x00" * 4096, "audio/wav")})
+        assert r.status_code == 413
+
+    def test_cap_audio_distinct_du_cap_image(self, client, monkeypatch):
+        """Un cap image minuscule ne doit PAS bloquer un audio (cap dédié)."""
+        c, _ = client
+        monkeypatch.setattr("config.VL_MAX_IMAGE_MB", 0.00001)
+        r = c.post("/api/upload", files={"file": ("ok.wav", _WAV, "audio/wav")})
+        assert r.status_code == 200
+
+    def test_image_toujours_acceptee(self, client):
+        c, _ = client
+        r = c.post("/api/upload", files={"file": ("a.png", _PNG, "image/png")})
+        assert r.status_code == 200 and r.json()["kind"] == "image"
+
+
+class TestSniffAudio:
+    @pytest.mark.parametrize("data", [_WAV, _FLAC, _MP3_ID3, _MP3_TRAME, _AIFF, _M4A, _OGG])
+    def test_signatures_connues(self, data):
+        assert _sniff_audio(data)
+
+    @pytest.mark.parametrize("data", [b"", b"RIFF" + b"\x00" * 4 + b"WEBP", b"#!/bin/sh",
+                                      b"\x89PNG\r\n\x1a\n", b"FORM" + b"\x00" * 4 + b"XXXX"])
+    def test_non_audio(self, data):
+        assert not _sniff_audio(data)
+
+
+class TestSafeAudioPaths:
+    def test_garde_audio_sous_uploads(self, monkeypatch, tmp_path):
+        """Nom tel que /api/upload le pose (uuid4.hex + ext) : accepté, même passé avec un
+        chemin client fantaisiste — seul le nom de base compte."""
+        import uuid
+        monkeypatch.setattr("config.UPLOADS_DIR", tmp_path)
+        name = uuid.uuid4().hex + ".wav"
+        p = tmp_path / name
+        p.write_bytes(_WAV)
+        assert _safe_audio_paths([str(p)]) == [str(p.resolve())]
+        assert _safe_audio_paths([f"/etc/../{name}"]) == [str(p.resolve())]
+
+    def test_rejette_nom_hors_contrat_meme_sous_uploads(self, monkeypatch, tmp_path):
+        """Un fichier `a.wav` déposé à la main dans _uploads n'est pas un upload : refusé."""
+        monkeypatch.setattr("config.UPLOADS_DIR", tmp_path)
+        p = tmp_path / "a.wav"
+        p.write_bytes(_WAV)
+        assert _safe_audio_paths([str(p)]) == []
+
+    def test_rejette_image_et_hors_uploads(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("config.UPLOADS_DIR", tmp_path / "up")
+        (tmp_path / "up").mkdir()
+        img = tmp_path / "up" / "a.png"
+        img.write_bytes(_PNG)
+        dehors = tmp_path / "b.wav"
+        dehors.write_bytes(_WAV)
+        assert _safe_audio_paths([str(img), str(dehors), 42, ""]) == []
+
+
+class TestPrefixAudioNote:
+    def test_note_designe_l_outil_atelier(self):
+        txt = _prefix_audio_note("écoute ce morceau", ["/u/a.wav"])
+        assert "analyser_morceau" in txt and "resultat_analyse" in txt
+        assert txt.endswith("écoute ce morceau") and "/u/a.wav" in txt
+
+    def test_sans_texte_reste_une_str(self):
+        assert isinstance(_prefix_audio_note("", ["/u/a.wav"]), str)
