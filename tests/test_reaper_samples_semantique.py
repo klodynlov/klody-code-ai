@@ -258,3 +258,15 @@ class TestChoixDuMoteur:
         monkeypatch.setattr(rs, "_get_json", faux)
         rs.search_samples("pad", limit=5)
         assert faux.appels[0][1]["k"] >= 20
+
+
+def test_le_statut_expose_la_derniere_erreur_de_recherche(monkeypatch):
+    """Une bibliothèque muette pendant une recherche laisse une trace lisible
+    dans le statut — sinon le repli filesystem est indiscernable d'un index vide."""
+    faux = _FauxHTTP({"8788/api/search": _hits("/A/a.wav"),
+                      "8799/api/search": ConnectionError("down"),
+                      "/api/status": {"model": "clap"}})
+    monkeypatch.setattr(rs, "_get_json", faux)
+    rs._hits_http("kick", 5)
+    st = rs.semantic_status()
+    assert "externe" in st["derniere_erreur_recherche"]

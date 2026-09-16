@@ -166,6 +166,8 @@ def semantic_status() -> dict:
         except Exception as exc:  # réseau, HTTP, JSON : même diagnostic
             raisons.append(f"{nom} ({base}) : {type(exc).__name__}: {str(exc)[:120] or 'injoignable'}")
     infos["vivantes"] = vivantes
+    if _sb_derniere_erreur:
+        infos["derniere_erreur_recherche"] = _sb_derniere_erreur
     if not vivantes:
         return {**infos, "available": False,
                 "reason": "aucun serveur SampleBrain ne répond — " + " ; ".join(raisons)
