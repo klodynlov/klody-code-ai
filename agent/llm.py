@@ -37,6 +37,7 @@ from agent.erreurs_llm import (
     detail_http,
     expliquer_erreur_llm,
     message_reessai_503,
+    pour_journal,
 )
 from agent.stream_guard import LoopGuard
 from agent.tokens import count_tokens
@@ -534,7 +535,7 @@ class LLMClient:
             # Historiquement placée après, cette branche était donc morte —
             # un modèle lent était annoncé « injoignable » et la bascule sur
             # timeout n'a jamais tourné (trouvé le 2026-09-20 par le test).
-            logger.error("Timeout LLM (%s): %s", self.model, e)
+            logger.error("Timeout LLM (%s): %s", pour_journal(self.model), e)
             if self._fallback_model_utilisable():
                 logger.warning("Timeout — bascule sur '%s'", MODEL_FALLBACK)
                 if not silent:
@@ -593,7 +594,7 @@ class LLMClient:
                     max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503 + 1,
                 )
             if statut == 404 and self._fallback_model_utilisable():
-                logger.warning("Modèle '%s' introuvable — bascule sur '%s'", self.model, MODEL_FALLBACK)
+                logger.warning("Modèle '%s' introuvable — bascule sur '%s'", pour_journal(self.model), MODEL_FALLBACK)
                 if not silent:
                     console.print(
                         f"\n[yellow]⚠  Modèle [bold]{self.model}[/bold] introuvable — "
@@ -604,7 +605,7 @@ class LLMClient:
                     messages, tools, token_callback, temperature, silent, tool_choice,
                     max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503,
                 )
-            logger.error("Erreur HTTP %s du backend (%s): %s", statut, self.model, detail)
+            logger.error("Erreur HTTP %s du backend (%s): %s", statut, pour_journal(self.model), pour_journal(detail, 300))
             if not silent:
                 console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
             raise

@@ -23,7 +23,6 @@ import logging
 from typing import Any
 
 import config
-from config import BACKEND, LLM_BASE_URL, LLM_HTTP_TIMEOUT, LLM_MODEL
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 __all__ = [
@@ -32,6 +31,7 @@ __all__ = [
     "est_503",
     "expliquer_erreur_llm",
     "message_reessai_503",
+    "pour_journal",
     "resume_exception",
 ]
 
@@ -95,6 +95,15 @@ def message_reessai_503(exc: BaseException, essai: int, attente: float) -> str:
     )
 
 
+def pour_journal(valeur: object, max_len: int = 120) -> str:
+    """Rend une valeur d'origine EXTERNE (nom de modèle choisi par l'UI, détail
+    d'une réponse HTTP) sûre pour une ligne de log : retours à la ligne et
+    caractères de contrôle retirés, longueur bornée. CodeQL `py/log-injection`
+    sur `self.model` — le sélecteur de modèle de l'UI arrive par WebSocket."""
+    texte = "".join(c if c.isprintable() else " " for c in str(valeur))
+    return texte[:max_len]
+
+
 def resume_exception(exc: BaseException) -> str:
     """Résumé court (≤ ~40 car.) pour un en-tête d'UI ou un log d'une ligne.
 
@@ -133,14 +142,14 @@ def expliquer_erreur_llm(exc: BaseException, llm: Any = None) -> str:
 
 
 def _expliquer(exc: BaseException, llm: Any) -> str:
-    modele = str(getattr(llm, "model", None) or LLM_MODEL)
-    backend = str(getattr(llm, "_backend", None) or BACKEND)
-    base_url = str(getattr(llm, "_base_url", None) or LLM_BASE_URL)
+    modele = str(getattr(llm, "model", None) or config.LLM_MODEL)
+    backend = str(getattr(llm, "_backend", None) or config.BACKEND)
+    base_url = str(getattr(llm, "_base_url", None) or config.LLM_BASE_URL)
     cible = "le gateway Klody Core" if backend == "mlx" else "Ollama"
 
     # Ordre : Timeout AVANT Connection (APITimeoutError hérite d'APIConnectionError).
     if isinstance(exc, APITimeoutError):
-        lecture = getattr(LLM_HTTP_TIMEOUT, "read", None)
+        lecture = getattr(config.LLM_HTTP_TIMEOUT, "read", None)
         delai = f" ({lecture:.0f} s sans un seul token)" if isinstance(lecture, (int, float)) else ""
         return (
             f"Le modèle « {modele} » n'a pas répondu dans le délai{delai}. "
