@@ -553,7 +553,7 @@ sortedcontainers==2.4.0
     # via
     #   -c requirements.lock
     #   cyclonedx-python-lib
-soupsieve==2.9.0
+soupsieve==2.9
     # via
     #   -c requirements.lock
     #   beautifulsoup4
