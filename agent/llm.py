@@ -535,7 +535,11 @@ class LLMClient:
             # Historiquement placée après, cette branche était donc morte —
             # un modèle lent était annoncé « injoignable » et la bascule sur
             # timeout n'a jamais tourné (trouvé le 2026-09-20 par le test).
-            logger.error("Timeout LLM (%s): %s", pour_journal(self.model), e)
+            # Ces trois logs nomment l'URL du backend (config), pas `self.model` :
+            # le nom du modèle arrive de l'UI par WebSocket (sélecteur), et CodeQL
+            # `py/log-injection` le suit jusqu'ici même à travers `pour_journal`.
+            # Le modèle figure de toute façon dans l'exception (requête du SDK).
+            logger.error("Timeout LLM (%s): %s", self._base_url, e)
             if self._fallback_model_utilisable():
                 logger.warning("Timeout — bascule sur '%s'", MODEL_FALLBACK)
                 if not silent:
@@ -594,7 +598,7 @@ class LLMClient:
                     max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503 + 1,
                 )
             if statut == 404 and self._fallback_model_utilisable():
-                logger.warning("Modèle '%s' introuvable — bascule sur '%s'", pour_journal(self.model), MODEL_FALLBACK)
+                logger.warning("Modèle introuvable sur %s — bascule sur '%s'", self._base_url, MODEL_FALLBACK)
                 if not silent:
                     console.print(
                         f"\n[yellow]⚠  Modèle [bold]{self.model}[/bold] introuvable — "
@@ -605,7 +609,7 @@ class LLMClient:
                     messages, tools, token_callback, temperature, silent, tool_choice,
                     max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503,
                 )
-            logger.error("Erreur HTTP %s du backend (%s): %s", statut, pour_journal(self.model), pour_journal(detail, 300))
+            logger.error("Erreur HTTP %s du backend %s: %s", statut, self._base_url, pour_journal(detail, 300))
             if not silent:
                 console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
             raise
