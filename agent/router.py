@@ -25,6 +25,8 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, ValidationError
 
+from agent.erreurs_llm import resume_exception
+
 logger = logging.getLogger(__name__)
 
 
@@ -233,6 +235,9 @@ class Router:
 
     def __init__(self, model: str | None = None):
         self.model = model or LLM_MODEL
+        # Résumé de la dernière erreur de transport (« HTTP 503 »…), pour que le
+        # fallback en nomme la cause. Vide après un appel réussi.
+        self._derniere_erreur: str = ""
         self.client = OpenAI(
             base_url=LLM_BASE_URL,
             api_key=LLM_API_KEY,
@@ -270,7 +275,13 @@ class Router:
         for attempt in range(_ROUTER_MAX_RETRIES + 1):
             raw = self._call_llm(messages)
             if raw is None:
-                return self._fallback(reason="LLM error", raw=last_raw)
+                # Le résumé (« HTTP 503 », « connexion refusée ») remonte dans
+                # l'en-tête de l'UI (`[fallback: LLM error: HTTP 503]`) : un
+                # « LLM error » nu ne disait pas si c'était le réseau, la RAM ou
+                # un modèle inconnu — vécu le 2026-09-20.
+                return self._fallback(
+                    reason=f"LLM error: {self._derniere_erreur or 'inconnue'}", raw=last_raw
+                )
             last_raw = raw
             decision = self._parse_response(raw, user_prompt)
             if decision is not None:
@@ -301,9 +312,11 @@ class Router:
                 max_tokens=200,
                 stream=False,
             )
+            self._derniere_erreur = ""
             return (resp.choices[0].message.content or "").strip()
         except Exception as exc:
-            logger.error("Router LLM call failed: %s", exc)
+            self._derniere_erreur = resume_exception(exc)
+            logger.error("Router LLM call failed (%s): %s", self._derniere_erreur, exc)
             return None
 
     def _parse_response(self, raw: str, user_prompt: str) -> RoutingDecision | None:

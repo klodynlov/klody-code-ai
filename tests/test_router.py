@@ -324,3 +324,37 @@ class TestSerialisation:
         assert out["task_type"] == "edit"
         assert out["max_iterations"] == 3
         assert "reasoning" in out
+
+
+class TestFallbackNommeLaCause:
+    """Vécu le 2026-09-20 : l'en-tête de l'UI disait `[fallback: LLM error]`
+    sans dire si c'était le réseau, la RAM (503) ou un modèle inconnu (404)."""
+
+    @staticmethod
+    def _erreur_503():
+        import httpx
+        from openai import InternalServerError
+        return InternalServerError(
+            "Error code: 503",
+            response=httpx.Response(
+                503, request=httpx.Request("POST", "http://localhost:8090/v1/chat/completions")
+            ),
+            body={"error": "RAM insuffisante pour brain (~44 Go)"},
+        )
+
+    def test_503_apparait_dans_la_raison(self):
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = self._erreur_503()
+            mock_openai.return_value = mock_client
+            d = Router().classify("anything")
+        assert d.difficulty == "medium"
+        assert d.reasoning == "[fallback: LLM error: HTTP 503]"
+
+    def test_erreur_generique_donne_son_type(self):
+        with patch("agent.router.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = ConnectionError("server down")
+            mock_openai.return_value = mock_client
+            d = Router().classify("anything")
+        assert d.reasoning == "[fallback: LLM error: ConnectionError]"

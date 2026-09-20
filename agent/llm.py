@@ -24,7 +24,7 @@ from config import (
     THINKING_BUDGET_FORWARD,
     THINKING_MAX_TOKENS,
 )
-from openai import APIConnectionError, APITimeoutError, OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -32,6 +32,13 @@ from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
+from agent.erreurs_llm import (
+    attente_reessai_503,
+    detail_http,
+    expliquer_erreur_llm,
+    message_reessai_503,
+    pour_journal,
+)
 from agent.stream_guard import LoopGuard
 from agent.tokens import count_tokens
 
@@ -301,6 +308,7 @@ class LLMClient:
         enable_thinking: bool = False,
         thinking_budget: int | None = None,
         _recovering: bool = False,
+        _essai_503: int = 0,
     ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
@@ -522,6 +530,31 @@ class LLMClient:
 
             return full_content, tool_calls
 
+        except APITimeoutError as e:
+            # AVANT APIConnectionError : APITimeoutError en HÉRITE dans le SDK.
+            # Historiquement placée après, cette branche était donc morte —
+            # un modèle lent était annoncé « injoignable » et la bascule sur
+            # timeout n'a jamais tourné (trouvé le 2026-09-20 par le test).
+            # Ces trois logs nomment l'URL du backend (config), pas `self.model` :
+            # le nom du modèle arrive de l'UI par WebSocket (sélecteur), et CodeQL
+            # `py/log-injection` le suit jusqu'ici même à travers `pour_journal`.
+            # Le modèle figure de toute façon dans l'exception (requête du SDK).
+            logger.error("Timeout LLM (%s): %s", self._base_url, e)
+            if self._fallback_model_utilisable():
+                logger.warning("Timeout — bascule sur '%s'", MODEL_FALLBACK)
+                if not silent:
+                    console.print(
+                        f"\n[yellow]⚠  Timeout — bascule automatique sur "
+                        f"[bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
+                    )
+                self.model = MODEL_FALLBACK
+                return self._rejouer(
+                    messages, tools, token_callback, temperature, silent, tool_choice,
+                    max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503,
+                )
+            if not silent:
+                console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
+            raise
         except APIConnectionError as e:
             # Nomme le backend RÉELLEMENT visé. Le message disait « Impossible de
             # joindre Ollama » quoi qu'il arrive — hérité du mode ollama, alors
@@ -534,45 +567,97 @@ class LLMClient:
             # crédible ET faux — le gateway saturait (6 Go libres sur 80, une
             # requête encore en vol). Une enquête entière au mauvais endroit
             # parce que l'erreur nommait la mauvaise dépendance.
-            cible = "le gateway Klody Core" if self._backend == "mlx" else "Ollama"
-            remede = (
-                "le démarrer, et vérifier sa mémoire : "
-                "curl $MLX_BASE_URL/models puis /admin/status"
-                if self._backend == "mlx"
-                else "ollama serve"
-            )
-            logger.error("%s inaccessible sur %s: %s", cible, self._base_url, e)
-            console.print(
-                f"\n[bold red]✗ Impossible de joindre {cible} "
-                f"({self._base_url}).[/bold red]\n"
-                f"[dim]  backend={self._backend} → {remede}[/dim]\n"
-            )
+            # Le texte lui-même vit dans agent/erreurs_llm.py, partagé avec l'API
+            # WebSocket : les deux surfaces doivent raconter la même chose.
+            # ⚠️ Ordre des branches : APITimeoutError HÉRITE d'APIConnectionError
+            # dans le SDK → le timeout doit être attrapé AVANT, sinon un modèle
+            # lent serait annoncé « injoignable ».
+            logger.error("Backend LLM inaccessible sur %s: %s", self._base_url, e)
+            if not silent:
+                console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
             raise
-        except APITimeoutError as e:
-            logger.error("Timeout LLM: %s", e)
-            # Bascule automatique sur le modèle de secours si disponible
-            if self.model != MODEL_FALLBACK:
-                logger.warning("Timeout — bascule sur '%s'", MODEL_FALLBACK)
-                console.print(
-                    f"\n[yellow]⚠  Timeout — bascule automatique sur [bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
+        except APIStatusError as e:
+            # Réponse HTTP d'erreur du backend (4xx/5xx), AVANT toute génération.
+            detail = detail_http(e)
+            statut = getattr(e, "status_code", None)
+            attente = attente_reessai_503(e, _essai_503)
+            if attente is not None:
+                # Transitoire par nature (« RAM insuffisante pour brain », gateway
+                # en cours de chargement) : on attend et on rejoue, borné, avec
+                # un statut visible — vécu le 2026-09-20 : l'UI rendait le dict
+                # brut au premier refus, sans rien tenter. La décision (combien
+                # d'essais, quelle attente) vit dans agent/erreurs_llm.py, partagée
+                # avec le chemin WebSocket (api/streaming.py).
+                statut_txt = message_reessai_503(e, _essai_503, attente)
+                logger.warning("%s", statut_txt)
+                if not silent:
+                    console.print(f"\n[yellow]⚠  {statut_txt}[/yellow]\n")
+                time.sleep(attente)
+                return self._rejouer(
+                    messages, tools, token_callback, temperature, silent, tool_choice,
+                    max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503 + 1,
                 )
+            if statut == 404 and self._fallback_model_utilisable():
+                logger.warning("Modèle introuvable sur %s — bascule sur '%s'", self._base_url, MODEL_FALLBACK)
+                if not silent:
+                    console.print(
+                        f"\n[yellow]⚠  Modèle [bold]{self.model}[/bold] introuvable — "
+                        f"bascule sur [bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
+                    )
                 self.model = MODEL_FALLBACK
-                return self.stream_chat(messages, tools, token_callback)
-            console.print("\n[bold red]✗ Timeout du modèle.[/bold red]\n")
+                return self._rejouer(
+                    messages, tools, token_callback, temperature, silent, tool_choice,
+                    max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503,
+                )
+            logger.error("Erreur HTTP %s du backend %s: %s", statut, self._base_url, pour_journal(detail, 300))
+            if not silent:
+                console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
             raise
         except Exception as e:
-            err_str = str(e).lower()
-            # Modèle introuvable → bascule sur le modèle de secours
-            if ("not found" in err_str or "does not exist" in err_str) and self.model != MODEL_FALLBACK:
-                logger.warning("Modèle '%s' introuvable — bascule sur '%s'", self.model, MODEL_FALLBACK)
-                console.print(
-                    f"\n[yellow]⚠  Modèle [bold]{self.model}[/bold] introuvable — "
-                    f"bascule sur [bold]{MODEL_FALLBACK}[/bold][/yellow]\n"
-                )
-                self.model = MODEL_FALLBACK
-                return self.stream_chat(messages, tools, token_callback)
             logger.error("Erreur LLM: %s", e)
             raise
+
+    def _fallback_model_utilisable(self) -> bool:
+        """La bascule sur MODEL_FALLBACK a-t-elle un sens pour CE client ?
+
+        MODEL_FALLBACK est un nom de modèle OLLAMA (`mistral:latest`). Via le
+        gateway Klody Core (`BACKEND=mlx`), il est inconnu du registre : la
+        bascule rendait un 404 « modèle inconnu »… et comme elle MUTE
+        `self.model`, elle empoisonnait tout le reste de la session sur ce nom.
+        Trouvé le 2026-09-20 en auditant le chemin d'erreur ; `api/server.py`
+        (`/siri`) contournait déjà le même piège de son côté.
+        """
+        backend = getattr(self, "_backend", BACKEND)
+        return bool(MODEL_FALLBACK) and backend != "mlx" and self.model != MODEL_FALLBACK
+
+    def _rejouer(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None,
+        token_callback: Callable[[str], None] | None,
+        temperature: float,
+        silent: bool,
+        tool_choice: str,
+        max_tokens: int,
+        enable_thinking: bool,
+        thinking_budget: int | None,
+        _recovering: bool,
+        _essai_503: int,
+    ) -> tuple[str, list[dict] | None]:
+        """Relance stream_chat avec TOUS ses arguments.
+
+        Les bascules historiques rappelaient `stream_chat(messages, tools,
+        token_callback)` : `tool_choice="required"` (anti-stall), `max_tokens`,
+        `silent` (Best-of-N) et le thinking étaient perdus au passage — un
+        tour rejoué n'était pas le tour demandé.
+        """
+        return self.stream_chat(
+            messages, tools=tools, token_callback=token_callback,
+            temperature=temperature, silent=silent, tool_choice=tool_choice,
+            max_tokens=max_tokens, enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget, _recovering=_recovering,
+            _essai_503=_essai_503,
+        )
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

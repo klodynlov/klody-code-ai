@@ -8,6 +8,7 @@ import sys
 import threading
 from pathlib import Path
 
+from agent.erreurs_llm import expliquer_erreur_llm
 from agent.greeting import INVITE_PROPOSITIONS, AccueilEnTacheDeFond
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -676,7 +677,13 @@ def repl(orchestrator: Orchestrator, propositions: tuple[str, ...] = ()) -> None
             sys.exit(0)
         except Exception as e:
             logger.error("Erreur REPL: %s", e, exc_info=True)
-            console.print(f"\n  [bold red]Erreur :[/bold red] {e}")
+            # Même formulation que l'API WebSocket (agent/erreurs_llm.py) : une
+            # erreur du backend sort avec sa cause et son remède, pas le dict
+            # brut du SDK OpenAI.
+            console.print(
+                f"\n  [bold red]Erreur :[/bold red] "
+                f"{expliquer_erreur_llm(e, getattr(orchestrator, 'llm', None))}"
+            )
             console.print("  [dim]→ logs/agent.log pour les détails[/dim]\n")
 
 

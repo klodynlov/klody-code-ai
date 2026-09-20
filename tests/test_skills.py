@@ -40,7 +40,7 @@ class TestSaveSkill:
     def test_contenu_json_valide(self, tmp_path):
         from tools.skills import save_skill
         save_skill("Test", "ma description", "mon contenu")
-        f = list(tmp_path.glob("*.json"))[0]
+        f = next(iter(tmp_path.glob("*.json")))
         data = json.loads(f.read_text())
         assert data["name"] == "Test"
         assert data["description"] == "ma description"
@@ -238,6 +238,74 @@ class TestSelectSkills:
         assert "maitriser_les_algorithmes" in slugs
 
 
+# Vécu le 2026-09-20 : « faut-il une autorisation pour vendre des bouteilles de
+# liqueur au marché ? » injectait le skill « Séquencer un visage 3D » — sa
+# description dit « pipeline bout-en-bout », et `bout` ⊂ `bouteilles` passait la
+# règle de sous-chaîne à 4 caractères. `auto` ⊂ `autorisation` touchait 3 skills.
+_VISAGE = {
+    "name": "Séquencer un visage 3D (webcam → .blend animé → .mp4)",
+    "slug": "sequencer_visage_3d_pipeline",
+    "description": "Pipeline bout-en-bout : capture webcam MediaPipe → mesh → Blender → vidéo.",
+    "content": "",
+}
+_TAURI = {
+    "name": "Thème clair/sombre auto (Tauri 2 + React)",
+    "slug": "theme_clair_sombre_auto_ui_tauri_2_react",
+    "description": "bascule automatique du thème selon le système, composant React",
+    "content": "",
+}
+_NEXT = {
+    "name": "Next.js", "slug": "nextjs",
+    "description": "App Router, Server Components, next_js 15",
+    "content": "",
+}
+
+
+class TestRadicalPasSousChaine:
+    def _howto(self, query, skills):
+        from tools.skills import select_skills
+        return [s["slug"] for s in select_skills(skills, query)
+                if not s["slug"].startswith(("utilisateur_", "conventions_"))]
+
+    def test_question_de_liqueur_n_injecte_rien(self):
+        # RÉGRESSION du 2026-09-20 : aucun how-to sur une question sans rapport.
+        q = "faut il une autorisation pour vendre des bouteilles de liqueur au marché ?"
+        assert self._howto(q, [_VISAGE, _TAURI, _NEXT, _USER, _ALGOS]) == []
+
+    def test_bout_ne_touche_pas_bouteilles(self):
+        from tools.skills import _meme_radical
+        assert not _meme_radical("bout", "bouteilles")
+        assert not _meme_radical("auto", "autorisation")
+
+    def test_flexions_courtes_restent_reconnues(self):
+        from tools.skills import _meme_radical
+        assert _meme_radical("arbre", "arbres")
+        assert _meme_radical("fusionne", "fusionner")
+        assert _meme_radical("distille", "distiller")
+        assert _meme_radical("next", "nextjs")
+
+    def test_radical_est_un_prefixe_pas_une_sous_chaine_interne(self):
+        from tools.skills import _meme_radical
+        assert not _meme_radical("react", "preact")
+        assert not _meme_radical("tri", "trier")  # < 4 caractères : trop court
+
+    def test_nextjs_toujours_route(self):
+        assert "nextjs" in self._howto("composant Server Component dans Next.js", [_NEXT, _VISAGE, _USER])
+
+    def test_la_vraie_demande_visage_3d_passe_toujours(self):
+        q = "séquence-moi un visage 3D depuis la webcam"
+        assert "sequencer_visage_3d_pipeline" in self._howto(q, [_VISAGE, _TAURI, _USER])
+
+    def test_auto_dans_la_requete_ne_touche_pas_automatique(self):
+        # La sous-chaîne brute `t in hay_str` est morte aussi : « auto » (le
+        # véhicule) ne pêche plus un skill qui ne dit qu'« automatique ».
+        deploiement = {
+            "name": "Déploiement automatique", "slug": "deploiement_automatique",
+            "description": "déploiement automatique en continu", "content": "",
+        }
+        assert self._howto("quel est le prix d'une auto en 2026", [deploiement, _USER]) == []
+
+
 # ── list_skills ────────────────────────────────────────────────────────────────
 
 class TestListSkills:
@@ -295,17 +363,20 @@ class TestDeleteSkill:
 class TestIsUserSkill:
     def test_dict_est_user_skill(self, tmp_path):
         from tools.skills import _is_user_skill
-        p = tmp_path / "s.json"; p.write_text(json.dumps({"name": "x"}))
+        p = tmp_path / "s.json"
+        p.write_text(json.dumps({"name": "x"}))
         assert _is_user_skill(p) is True
 
     def test_liste_nest_pas_user_skill(self, tmp_path):
         from tools.skills import _is_user_skill
-        p = tmp_path / "d.json"; p.write_text(json.dumps([{"title": "t"}]))
+        p = tmp_path / "d.json"
+        p.write_text(json.dumps([{"title": "t"}]))
         assert _is_user_skill(p) is False
 
     def test_json_casse_nest_pas_user_skill(self, tmp_path):
         from tools.skills import _is_user_skill
-        p = tmp_path / "b.json"; p.write_text("{ cassé")
+        p = tmp_path / "b.json"
+        p.write_text("{ cassé")
         assert _is_user_skill(p) is False
 
 

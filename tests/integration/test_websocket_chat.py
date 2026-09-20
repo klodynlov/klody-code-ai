@@ -112,6 +112,10 @@ class _Completions:
         FakeOpenAI.captured.append(params.get("messages") or [])
         turn = self._turns[min(self._i, len(self._turns) - 1)]
         self._i += 1
+        # Un tour peut être une EXCEPTION du SDK (503 du gateway…) : on la lève
+        # comme le vrai client, pour tester le chemin d'erreur jusqu'à l'UI.
+        if isinstance(turn, BaseException):
+            raise turn
         return iter(turn)
 
 
@@ -170,6 +174,14 @@ def _drain_until(ws, wanted: str, max_msgs: int = 80) -> list[dict]:
         events.append(msg)
         if msg["type"] == wanted:
             return events
+        if msg["type"] == "error":
+            # Le relais serveur s'arrête au premier `error` : plus rien ne
+            # viendra. Sans ce garde, attendre `done` après une erreur BLOQUE
+            # le test pour toujours au lieu de le faire rougir (vécu le
+            # 2026-09-20 en écrivant TestErreurBackendLisible).
+            raise AssertionError(
+                f"event 'error' reçu en attendant '{wanted}' : {msg.get('content', '')[:200]!r}"
+            )
     raise AssertionError(f"event '{wanted}' jamais reçu (vu: {[e['type'] for e in events]})")
 
 
@@ -452,3 +464,88 @@ class TestCycleDeVieOrchestrateur:
         # L'event `done` n'est mis en queue qu'APRÈS le finally de run_agent :
         # l'avoir reçu prouve que la fermeture a eu lieu, sans course.
         assert len(fermes) == 1, "l'orchestrateur du message n'a pas été fermé"
+
+
+# --------------------------------------------------------------------------- #
+# Chemin d'erreur : le backend refuse (503) → l'UI reçoit une cause + un remède #
+# --------------------------------------------------------------------------- #
+
+def _erreur_503_ram():
+    import httpx
+    from openai import InternalServerError
+
+    detail = (
+        "RAM insuffisante pour brain (~44 Go) : libre 80/80 Go virtuel, "
+        "RAM réelle 46 Go (plancher 12), rien d'évinçable de plus"
+    )
+    return InternalServerError(
+        f"Error code: 503 - {{'error': {detail!r}}}",
+        response=httpx.Response(
+            503, request=httpx.Request("POST", "http://localhost:8090/v1/chat/completions")
+        ),
+        body={"error": detail},
+    )
+
+
+class TestErreurBackendLisible:
+    """Vécu le 2026-09-20 : la bulle rouge de KlodyAI montrait
+    `Error code: 503 - {'error': "RAM insuffisante pour brain…"}` — le dict brut
+    du SDK émis par `stream_api`, sans remède, sans une ligne dans agent.log ;
+    et le relais WS s'arrêtant au premier `error`, les events posés ensuite
+    restaient en file et avalaient le message SUIVANT."""
+
+    def test_503_ram_sort_avec_cause_et_remede(self, chat_client, monkeypatch, caplog):
+        # Pas de réessai : on juge le MESSAGE (le réessai est couvert plus bas).
+        monkeypatch.setattr("config.LLM_503_ESSAIS", 0)
+        FakeOpenAI._turns = [_erreur_503_ram()]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            with caplog.at_level("ERROR"):
+                ws.send_json({"type": "chat", "content": "faut-il une autorisation ?"})
+                events = _drain_until(ws, "error")
+        contenu = events[-1]["content"]
+        assert "Error code" not in contenu
+        assert "{'error'" not in contenu
+        assert "Pas assez de mémoire" in contenu
+        assert "RAM réelle 46 Go" in contenu           # le détail du gateway est conservé
+        assert "ferme des applications" in contenu     # …et un remède est donné
+        assert "/admin/status" in contenu
+        # Et l'erreur est JOURNALISÉE côté serveur (avant, seule l'UI la voyait).
+        assert any("run_agent" in r.getMessage() for r in caplog.records)
+
+    def test_le_message_suivant_n_est_pas_avale(self, chat_client, monkeypatch):
+        # Après l'erreur, la file par connexion ne doit rien garder : le tour
+        # suivant reçoit SA réponse, pas un `done`/`error` périmé.
+        monkeypatch.setattr("config.LLM_503_ESSAIS", 0)
+        FakeOpenAI._turns = [_erreur_503_ram()]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "premier"})
+            _drain_until(ws, "error")
+            # Un orchestrateur (donc un faux client) est construit PAR message :
+            # le script du second tour se pose entre les deux envois.
+            FakeOpenAI._turns = [_text_turn("Bonjour après la panne")]
+            ws.send_json({"type": "chat", "content": "second"})
+            events = _drain_until(ws, "done")
+        types = [e["type"] for e in events]
+        assert "error" not in types, types
+        streamed = "".join(e["content"] for e in events if e["type"] == "token")
+        assert "panne" in streamed
+
+    def test_503_puis_succes_est_rejoue_sans_erreur(self, chat_client, monkeypatch):
+        # Le réessai vit AUSSI sur le chemin WebSocket (stream_api), pas
+        # seulement dans LLMClient.stream_chat que l'API remplace.
+        monkeypatch.setattr("config.LLM_503_ESSAIS", 1)
+        monkeypatch.setattr("config.LLM_503_ATTENTE_S", 0.0)
+        FakeOpenAI._turns = [_erreur_503_ram(), _text_turn("Réponse après réessai")]
+        with chat_client.websocket_connect("/api/ws") as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "salut"})
+            events = _drain_until(ws, "done")
+        types = [e["type"] for e in events]
+        assert "error" not in types, types
+        # L'attente est annoncée dans le filigrane (reasoning), puis la réponse arrive.
+        statuts = [e["content"] for e in events if e["type"] == "reasoning"]
+        assert any("nouvel essai 1/1" in s for s in statuts), statuts
+        streamed = "".join(e["content"] for e in events if e["type"] == "token")
+        assert "réessai" in streamed

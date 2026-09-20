@@ -17,7 +17,7 @@ annotated-types==0.7.0
     # via
     #   -c requirements.lock
     #   pydantic
-anyio==4.13.0
+anyio==4.14.2
     # via
     #   -c requirements.lock
     #   httpx
@@ -553,7 +553,7 @@ sortedcontainers==2.4.0
     # via
     #   -c requirements.lock
     #   cyclonedx-python-lib
-soupsieve==2.8.4
+soupsieve==2.9
     # via
     #   -c requirements.lock
     #   beautifulsoup4
