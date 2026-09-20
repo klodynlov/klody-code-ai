@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 import config
+from agent.erreurs_llm import attente_reessai_503, message_reessai_503
 from agent.orchestrator import Orchestrator
 from agent.stream_guard import LoopGuard
 
@@ -44,6 +45,7 @@ def make_stream_api(
         enable_thinking: bool = False,
         thinking_budget: int | None = None,
         _recovering: bool = False,
+        _essai_503: int = 0,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -172,8 +174,30 @@ def make_stream_api(
         except StopGeneration:
             raise
         except Exception as e:
-            if not silent:
-                _put({"type": "error", "content": str(e)})
+            # Vécu le 2026-09-20 : ce bloc envoyait `str(e)` à l'UI — le dict
+            # brut du SDK (`Error code: 503 - {'error': "RAM insuffisante…"}`),
+            # sans remède — et comme le relais WS s'arrête au PREMIER `error`,
+            # c'est ce texte-là que l'utilisateur voyait, jamais celui de
+            # `run_agent`. Désormais : un 503 est rejoué (borné, même décision
+            # que la CLI, cf. agent/erreurs_llm.py), et toute autre erreur
+            # REMONTE sans être affichée ici — `run_agent` est le seul
+            # émetteur de `error`, avec un message lisible.
+            attente = attente_reessai_503(e, _essai_503)
+            if attente is not None:
+                statut_txt = message_reessai_503(e, _essai_503, attente)
+                logger.warning("%s", statut_txt)
+                if not silent:
+                    # `reasoning` : la seule surface texte que l'UI rend PENDANT
+                    # l'attente (filigrane du CoT) ; `thinking` est déjà posé.
+                    _put({"type": "reasoning", "content": f"⚠ {statut_txt}\n"})
+                _t.sleep(attente)
+                return stream_api(
+                    messages, tools=tools, token_callback=token_callback,
+                    temperature=temperature, silent=silent, tool_choice=tool_choice,
+                    max_tokens=max_tokens, enable_thinking=enable_thinking,
+                    thinking_budget=thinking_budget, _recovering=_recovering,
+                    _essai_503=_essai_503 + 1,
+                )
             raise
 
         tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None

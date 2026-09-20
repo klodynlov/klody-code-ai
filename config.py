@@ -73,6 +73,18 @@ AUDIO_MAX_MB: float = float(os.getenv("AUDIO_MAX_MB", "60"))
 LLM_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 LLM_MAX_RETRIES: int = 0
 
+# --- Réessai borné sur 503 ---
+# `LLM_MAX_RETRIES=0` ci-dessus interdit au SDK de re-générer un tour en silence ;
+# ce réessai-ci est DIFFÉRENT : un 503 est rendu AVANT toute génération (le
+# gateway refuse de charger le modèle — « RAM insuffisante pour brain », vécu le
+# 2026-09-20 dans KlodyAI), donc le rejouer ne coûte rien et il est transitoire
+# par nature : la garde mémoire suspend des processus, `vm_stat` sous-estime la
+# RAM disponible juste après un gros chargement (CLAUDE.md, préflight nightly).
+# Attente ESSAIS × ATTENTE × 2^k, soit 5 s puis 10 s avec les défauts — 15 s de
+# pire cas avant de rendre l'erreur, message de statut à chaque essai.
+LLM_503_ESSAIS: int = int(os.getenv("LLM_503_ESSAIS", "2"))
+LLM_503_ATTENTE_S: float = float(os.getenv("LLM_503_ATTENTE_S", "5"))
+
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()
 

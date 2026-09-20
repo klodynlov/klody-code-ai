@@ -138,13 +138,29 @@ def _skill_terms(text: str) -> set[str]:
     return {t for t in re.findall(r"[a-zà-ÿ0-9]{3,}", (text or "").lower()) if t not in _STOP}
 
 
+def _meme_radical(a: str, b: str) -> bool:
+    """Deux mots partagent-ils un radical ? Le plus court est PRÉFIXE du plus
+    long, fait ≥ 4 caractères, et l'écart tient dans une flexion courte (≤ 3) :
+    `arbre`↔`arbres`, `fusionne`↔`fusionner`, `next`↔`nextjs`, `distille`↔`distiller`.
+
+    Vécu le 2026-09-20 : la règle précédente acceptait toute sous-chaîne de
+    4 caractères, dans les deux sens. « faut-il une autorisation pour vendre des
+    bouteilles de liqueur au marché ? » injectait alors le skill « Séquencer un
+    visage 3D » — parce que sa description dit « pipeline bout-en-bout » et que
+    `bout` ⊂ `bouteilles` ; et `auto` ⊂ `autorisation` touchait trois skills de
+    plus. Un radical est un préfixe, et une flexion est courte : les deux bornes
+    ferment ces deux trous sans casser les paires que la règle servait.
+    """
+    court, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    return len(court) >= 4 and long_.startswith(court) and len(long_) - len(court) <= 3
+
+
 def _term_matches(t: str, hay_str: str, hay_terms: set[str]) -> bool:
-    """Un terme de requête « touche » un skill : inclusion directe dans le texte
-    (nom+desc+slug), ou sous-chaîne bidirectionnelle ≥4 car. (gère `nextjs` ↔
-    `next_js`/`Next.js`)."""
-    return t in hay_str or any(
-        (len(h) >= 4 and h in t) or (len(t) >= 4 and t in h) for h in hay_terms
-    )
+    """Un terme de requête « touche » un skill : mot ENTIER de nom+desc+slug, ou
+    même radical qu'un de ces mots (`_meme_radical`). Plus jamais de sous-chaîne
+    libre dans le texte brut : `auto` in "autorisation" touchait tout."""
+    del hay_str  # conservé dans la signature (appelants/tests) ; le juge est la liste de mots
+    return t in hay_terms or any(_meme_radical(t, h) for h in hay_terms)
 
 
 def _matching_terms(terms: set[str], skill: dict) -> set[str]:

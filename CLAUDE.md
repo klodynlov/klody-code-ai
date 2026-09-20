@@ -902,6 +902,60 @@ com.klody.veille-*.plist`). 14 tests.
 requiert `sudo` et n'a pas pu être posé dans cette session — l'utilisateur doit
 le faire une fois. Sans lui, la cause 1 reste ouverte.
 
+## État au 2026-09-20 — un 503 brut dans le chat, et ce qu'il cachait
+
+Capture KlodyAI : « faut-il une autorisation pour vendre des bouteilles de
+liqueur au marché ? » → bulle rouge `Error code: 503 - {'error': "RAM
+insuffisante pour brain (~44 Go) : libre 80/80 Go virtuel, RAM réelle 46 Go
+(plancher 12), rien d'évinçable de plus"}`, en-tête `[fallback: LLM error]`, et
+un skill « Séquencer un visage 3D » injecté. Le 503 était LÉGITIME et
+transitoire (RAM réelle 46 Go < 44 + plancher 12 ; une heure plus tard
+`memory_pressure` rendait 70 % libres). Tout le reste était à nous.
+
+> ### ⚠️ `stream_chat` n'est PAS le chemin de l'API — c'est `api/streaming.py`
+>
+> `_build_streaming_orchestrator` REMPLACE `orch.llm.stream_chat` par la closure
+> `make_stream_api(...)`. Un correctif posé dans `agent/llm.py` (réessai, message)
+> ne touche donc que la CLI. Et c'est `stream_api` qui envoyait `str(e)` à l'UI
+> AVANT de relancer — or **le relais WebSocket s'arrête au PREMIER `error`**
+> (`api/server.py`, `if et in ("done", "error"): break`) : le message de
+> `run_agent` n'arrivait jamais. Désormais `stream_api` ne rend plus d'`error` ;
+> `run_agent` est l'unique émetteur, via `agent/erreurs_llm.py` (cause + remède,
+> même texte en CLI), et JOURNALISE — avant, ce 503 n'existait que dans l'UI.
+>
+> **Corollaire trouvé par le test : la file d'events est PAR CONNEXION.** Le
+> `done` que `run_agent` posait après l'`error` restait en file et était consommé
+> en tête du message SUIVANT, qui se terminait avant d'avoir commencé — deux
+> messages avalés après une panne. Purge avant chaque run
+> (`WS : N event(s) périmé(s) purgé(s)`), plus de `done` après `error`, et
+> `_drain_until` des tests rougit sur un `error` inattendu au lieu de BLOQUER
+> (deux runs de suite de 120 s ont été perdus à ça).
+
+- **Réessai borné sur 503** (`LLM_503_ESSAIS=2`, `LLM_503_ATTENTE_S=5`, backoff
+  ×2), décision UNIQUE dans `agent/erreurs_llm.py::attente_reessai_503`, branchée
+  sur les DEUX chemins. Statut visible : filigrane `reasoning` dans l'UI, ligne
+  jaune en CLI. Justifié comme le préflight du nightly : un 503 est rendu avant
+  toute génération, le rejouer ne coûte rien.
+- **Skills : `bout` ⊂ `bouteilles`.** `_term_matches` acceptait toute sous-chaîne
+  de 4 caractères dans les deux sens ; « pipeline bout-en-bout » pêchait
+  `bouteilles`, `auto` pêchait `autorisation` sur trois skills. Règle remplacée
+  par un **radical** (`_meme_radical`) : le court est PRÉFIXE du long, ≥ 4 car.,
+  écart ≤ 3 (`arbre`↔`arbres`, `next`↔`nextjs`). Rejoué sur les 37 skills réels :
+  la question de liqueur n'injecte plus rien, la vraie demande « visage 3D »
+  route toujours. Reste connu : un terme exact à df = 1 suffit (« auto » dans le
+  nom d'un skill pêche « le prix d'une auto ») — homonymie, pas sous-chaîne.
+- ⚠️ **Deux branches mortes dans `stream_chat`, trouvées par les tests, pas par
+  la lecture.** (1) `except APIConnectionError` était placée AVANT
+  `except APITimeoutError`, qui en HÉRITE : la bascule sur timeout n'a jamais
+  tourné, un modèle lent était annoncé « injoignable ». (2) La bascule
+  `MODEL_FALLBACK` (`mistral:latest`, un nom OLLAMA) s'appliquait aussi en
+  `BACKEND=mlx`, où le gateway la rejette en 404 — et comme elle MUTE
+  `self.model`, elle empoisonnait toute la session. `_fallback_model_utilisable`
+  la réserve au mode ollama. Les relances rappelaient
+  `stream_chat(messages, tools, token_callback)` : `tool_choice="required"`,
+  `max_tokens`, `silent` perdus — `_rejouer` transmet tout.
+- Le routeur nomme la cause : `[fallback: LLM error: HTTP 503]`.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et

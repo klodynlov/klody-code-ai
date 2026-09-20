@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
 from agent import journal_client, peremption, preview_errors
 from agent.approval import requires_approval
+from agent.erreurs_llm import expliquer_erreur_llm
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
@@ -794,6 +795,19 @@ async def websocket_endpoint(ws: WebSocket):
                 # Créer l'orchestrateur avec callbacks via queue.
                 # Pin : on DÉMARRE sur le modèle épinglé et on verrouille le routeur.
                 # Auto : on démarre sur current_model, le routeur prend la main.
+                # Purge des events PÉRIMÉS du run précédent. La file est par
+                # CONNEXION, et le relais ci-dessous s'arrête au premier `error` :
+                # tout event posé APRÈS (le `done` de run_agent, un second
+                # `error`) restait en file et était consommé en tête du message
+                # SUIVANT — qui se terminait avant d'avoir commencé. Vécu le
+                # 2026-09-20 après un 503 du gateway : deux messages avalés.
+                perimes = 0
+                while not queue.empty():
+                    queue.get_nowait()
+                    perimes += 1
+                if perimes:
+                    logger.warning("WS : %d event(s) périmé(s) purgé(s) avant le run", perimes)
+
                 _stop_flag[0] = False
                 run_model = pinned_model if pinned_model is not None else current_model
                 orch = _build_streaming_orchestrator(
@@ -811,12 +825,22 @@ async def websocket_endpoint(ws: WebSocket):
                     except StopGeneration:
                         pass
                     except Exception as e:
-                        asyncio.run_coroutine_threadsafe(
-                            queue.put({"type": "error", "content": str(e)}),
-                            loop,
+                        # Journaliser AVANT d'afficher : ce chemin envoyait `str(e)`
+                        # à l'UI sans laisser une ligne dans agent.log — un 503
+                        # « RAM insuffisante » (2026-09-20) n'existait que dans la
+                        # bulle rouge du chat. Et l'UI reçoit un message lisible
+                        # avec remède, jamais le `Error code: 503 - {...}` du SDK.
+                        logger.error(
+                            "run_agent (session %s) : %s", memory.session_id, e, exc_info=True
                         )
+                        # Pas de `done` après `error` : le relais s'arrête au
+                        # premier `error`, un `done` posé ensuite ne serait jamais
+                        # relayé et resterait en file (cf. purge avant le run).
                         asyncio.run_coroutine_threadsafe(
-                            queue.put({"type": "done", "session_id": memory.session_id}),
+                            queue.put({
+                                "type": "error",
+                                "content": expliquer_erreur_llm(e, getattr(orch, "llm", None)),
+                            }),
                             loop,
                         )
                         return
