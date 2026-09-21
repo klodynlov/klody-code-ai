@@ -1542,7 +1542,9 @@ async def health(response: Response):
     ollama_p, mlx_p, *mcp_ps = await asyncio.gather(
         _probe_url(ollama_url),
         _probe_url(mlx_url) if config.BACKEND == "mlx" else asyncio.sleep(0, result=None),
-        *[_probe_url(u, accept_status=(200, 405, 406)) for u in mcp_http.values()],
+        # 406 = FastMCP 1.x ; 400 = mcp 2.x (GET sans session : « Bad Request ») — les deux
+        # signifient « serveur streamable-http vivant », la découverte passe par POST initialize.
+        *[_probe_url(u, accept_status=(200, 400, 405, 406)) for u in mcp_http.values()],
         return_exceptions=True,
     )
     ollama_ok = ollama_p is True
