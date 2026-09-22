@@ -1,0 +1,9 @@
+{
+  "name": "Digest musique generative (auto-distill)",
+  "slug": "digest_musique_generative",
+  "description": "musique générative, algorithmic composition, procedural music, generative art, cybernetic music, real-time adaptation, rule-based systems, AI music, interactive sound, sonic art, musique algorithmique, composition procédurale, adaptation contextuelle, systèmes autonomes, boucle de rétroaction",
+  "content": "La musique générative repose sur la conception de systèmes autonomes plutôt que sur la composition directe. Pour implémenter cela : 1) Définissez des règles probabilistes (échelles, progressions) comme base. 2) Créez des paramètres d'entrée (intensité, mood, contexte) qui modulent ces règles en temps réel. 3) Utilisez des boucles de rétroaction pour ajuster le système. Pièges : éviter la répétition mécanique en introduisant du hasard contrôlé ; ne pas sous-estimer la puissance de calcul requise pour le temps réel ; rester vigilant sur les biais des données d'entraînement si l'IA est impliquée. Mini-exemple : Un système qui augmente la densité rythmique et l'étendue des notes lorsque l'intensité de l'action utilisateur augmente.\nDigest complet : ~/Documents/Livres/.brain_distilled/musique-generative.md",
+  "updated": "2026-07-15",
+  "code_compatible": true,
+  "auto_distilled": true
+}

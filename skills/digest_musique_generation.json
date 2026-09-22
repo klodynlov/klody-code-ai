@@ -1,0 +1,9 @@
+{
+  "name": "Digest musique generation (auto-distill)",
+  "slug": "digest_musique_generation",
+  "description": "génération musicale IA, représentation REMI, CPW, MFE, génération procédurale, adaptation temps réel, renforcement émotionnel, leaderboards, RAVE, Magenta, MIDI, Transformers, style transfer, foley, immersion jeu vidéo, copyright IA, technodiversité musicale",
+  "content": "Ce digest couvre la génération musicale par IA, centrée sur l'ingénierie des représentations (REMI/CPW/MFE), la génération procédurale adaptative pour les jeux vidéo, et l'entraînement émotionnel par renforcement. Points clés : utiliser des leaderboards pour l'engagement communautaire, encoder explicitement la métrique/rythme pour les Transformers, et adapter la musique en temps réel via des paramètres de jeu (santé, vitesse). Pièges : éviter les retards de latence en temps réel, ne pas négliger l'aspect éthique/copyright, et comprendre que l'IA ne remplace pas la profondeur émotionnelle humaine sans fine-tuning ciblé. Mini-exemple : un système de jeu qui passe d'une musique 'furtive' (lente, douce) à 'intense' (rapide, forte) selon la détection du joueur.\nDigest complet : ~/Documents/Livres/.brain_distilled/musique-generation.md",
+  "updated": "2026-09-20",
+  "code_compatible": true,
+  "auto_distilled": true
+}
