@@ -24,4 +24,26 @@ regexes = [
     '''YOUR_[A-Z_]+_HERE''',
     '''sk-xxx+''',
     '''dummy[-_]?key''',
+    # Prose technique prise pour un secret par `generic-api-key`. La règle repère un
+    # mot-clé (`token` — y compris à l'intérieur de « tokenizer » —, `key`, `api`…),
+    # accepte la VIRGULE comme séparateur, puis prend les mots suivants pour une
+    # valeur. Cas réel, digest de distillation : « tokenizer, quantifier/compresser »
+    # (entropie 3,75, au-dessus du seuil). Les digests sont de la prose FR sur le ML,
+    # ce motif y reviendra.
+    #
+    # Portée volontairement étroite : uniquement des suites de mots EN MINUSCULES
+    # jointes par `/` ou `-`. Un identifiant réel porte des chiffres, des majuscules
+    # ou des underscores — donc rien qui ressemble à un secret ne passe par là.
+    # Vérifié avant commit PAR DIFFÉRENCE, pas par confiance : un fichier canari a été
+    # scanné avec et sans cette ligne. Elle masque EXACTEMENT une valeur — celle du
+    # faux positif ci-dessus — et rien d'autre. Un jeton d'accès personnel GitHub et
+    # une clé entropique mixed-case placés dans le même canari restent détectés.
+    #
+    # Pour rejouer le contrôle après toute modification de ce fichier (ne pas écrire
+    # les canaris ici : un littéral en forme de jeton ferait échouer detect-secrets) :
+    #   1. fabriquer un fichier hors dépôt contenant un faux jeton et la prose visée
+    #   2. gitleaks detect --no-git --source <dir> --config .gitleaks.toml  (2 fois,
+    #      avec puis sans la ligne) et comparer l'ensemble des secrets trouvés
+    #   3. la différence doit se limiter au faux positif que l'on entend taire
+    '''^[a-zà-öø-ÿ]+(?:[/-][a-zà-öø-ÿ]+)+$''',
 ]
