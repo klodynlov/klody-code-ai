@@ -1,0 +1,181 @@
+{
+  "version": "0.1",
+  "frozen_at": "2026-09-08T12:38:51.411023+00:00",
+  "database": "~/library_brain.db",
+  "scope": "Targeted selection; not an exhaustive ranking of the corpus.",
+  "methods": [
+    {
+      "id": "R1",
+      "name": "Arbitrer par la preuve et le contexte",
+      "passage_ids": [
+        1177632,
+        1177634,
+        1177638,
+        1177640
+      ],
+      "source_principle": "Comparer et contextualiser les preuves, justifier un jugement provisoire et le réviser avec de nouveaux éléments.",
+      "our_adaptation": "Grille de sélection à cinq axes, classement des divergences et journal des exclusions ; pas d’échelle psychométrique.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "R2",
+      "name": "Transformer le principe en procédure testable",
+      "passage_ids": [
+        1015,
+        1309520,
+        1309590
+      ],
+      "source_principle": "Des critères illustrés et des comparaisons sans contamination sont nécessaires à une évaluation interprétable.",
+      "our_adaptation": "Procédure originale de distillation : fiche d’action, provenance, limites, cas ordinaire et cas limite.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    }
+  ],
+  "books": [
+    {
+      "book_id": 7,
+      "title": "AI Engineering: Building Applications with Foundation Models",
+      "authors": "Chip Huyen",
+      "edition_note": "Première publication décembre 2024 ; copyright 2025",
+      "limitations": "Méthodes d’évaluation et d’adaptation ; ne pas généraliser les résultats de benchmarks cités à tous les modèles.",
+      "identity_passages": [
+        629,
+        635
+      ]
+    },
+    {
+      "book_id": 6636,
+      "title": "Developing Reflective Judgment",
+      "authors": "Patricia M. King et Karen Strohm Kitchener",
+      "edition_note": "1994, copyright vérifié ; catalogue 2021",
+      "limitations": "Travail sur le développement du jugement humain ; source conceptuelle, pas validation d’une procédure d’agent.",
+      "identity_passages": [
+        1177471,
+        1177477
+      ]
+    },
+    {
+      "book_id": 8524,
+      "title": "Designing Machine Learning Systems",
+      "authors": "Chip Huyen",
+      "edition_note": "Catalogue : 2022",
+      "limitations": "Méthodes de comparaison et de prévention des fuites ; application au corpus documentaire adaptée dans ce projet.",
+      "identity_passages": [
+        1309242
+      ]
+    }
+  ],
+  "passages": {
+    "1177632": {
+      "id": 1177632,
+      "book_id": 6636,
+      "page": 99,
+      "chapter": null,
+      "title": "Developing reflective judgment : understanding and promoting intellectual growth and critical thinking in adolescents and adults",
+      "author": "King, Patricia M., 1950-",
+      "year": 2021,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Developing reflective judgment  understanding and promoting intellectual growth and critical thinking in adolescents and… (Patricia M. King, King, Karen S. Kitchener etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "b397b6b125ffaf3c1f8d0023398e470ca8b18509fe4c95ca0cdf8edb5ab0e8f5",
+      "catalog_url": "http://127.0.0.1:8765/book/6636",
+      "citation_id": "LB-6636-1177632",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1177634": {
+      "id": 1177634,
+      "book_id": 6636,
+      "page": 100,
+      "chapter": null,
+      "title": "Developing reflective judgment : understanding and promoting intellectual growth and critical thinking in adolescents and adults",
+      "author": "King, Patricia M., 1950-",
+      "year": 2021,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Developing reflective judgment  understanding and promoting intellectual growth and critical thinking in adolescents and… (Patricia M. King, King, Karen S. Kitchener etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "9e4e6aa5c10ed99968c6afb3c865980afa606910793450de6a2c0e4811e2cb5e",
+      "catalog_url": "http://127.0.0.1:8765/book/6636",
+      "citation_id": "LB-6636-1177634",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1177638": {
+      "id": 1177638,
+      "book_id": 6636,
+      "page": 102,
+      "chapter": null,
+      "title": "Developing reflective judgment : understanding and promoting intellectual growth and critical thinking in adolescents and adults",
+      "author": "King, Patricia M., 1950-",
+      "year": 2021,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Developing reflective judgment  understanding and promoting intellectual growth and critical thinking in adolescents and… (Patricia M. King, King, Karen S. Kitchener etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "a46c053bcde2197d918add6f265a4223f038b2bb34f03b6e5c7e498db5f54b8f",
+      "catalog_url": "http://127.0.0.1:8765/book/6636",
+      "citation_id": "LB-6636-1177638",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1177640": {
+      "id": 1177640,
+      "book_id": 6636,
+      "page": 103,
+      "chapter": null,
+      "title": "Developing reflective judgment : understanding and promoting intellectual growth and critical thinking in adolescents and adults",
+      "author": "King, Patricia M., 1950-",
+      "year": 2021,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Developing reflective judgment  understanding and promoting intellectual growth and critical thinking in adolescents and… (Patricia M. King, King, Karen S. Kitchener etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "d710f2a42d092fd70281334053ae4767cd783d0b4973081e24b7b298d8cc2f16",
+      "catalog_url": "http://127.0.0.1:8765/book/6636",
+      "citation_id": "LB-6636-1177640",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1015": {
+      "id": 1015,
+      "book_id": 7,
+      "page": 227,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "ffaf39b5cde0ff6202d63e81fc69d2b2fe9124e0a21d1a2e6e0750114511391f",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1015",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309520": {
+      "id": 1309520,
+      "book_id": 8524,
+      "page": 159,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "4789244666f970cd6d3125fa2f9cbcfbd9b06b4587d24a3323556145e5233f9a",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309520",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309590": {
+      "id": 1309590,
+      "book_id": 8524,
+      "page": 200,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "ba7e8c91982a3f4ffb63ace8149e24cbec473a6b8bb5adede592395431024ff0",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309590",
+      "page_kind": "indexed page; verify printed numbering separately"
+    }
+  }
+}

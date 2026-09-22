@@ -1,0 +1,21 @@
+[
+  "list_asset_library_assets",
+  "import_asset_collection",
+  "execute_blender_code",
+  "get_blendfile_summary_datablocks",
+  "get_blendfile_summary_missing_files",
+  "get_blendfile_summary_of_linked_libraries",
+  "get_blendfile_summary_path_info",
+  "get_objects_summary",
+  "get_object_detail_summary",
+  "get_python_api_docs",
+  "search_api_docs",
+  "search_manual_docs",
+  "get_screenshot_of_window_as_json",
+  "jump_to_tab_by_name",
+  "jump_to_tab_by_space_type",
+  "jump_to_view3d_object_by_name",
+  "jump_to_view3d_object_data_by_name",
+  "render_thumbnail_to_path",
+  "render_viewport_to_path"
+]

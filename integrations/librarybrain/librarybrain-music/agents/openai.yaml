@@ -1,0 +1,4 @@
+interface:
+  display_name: "LibraryBrain · Méthodes musicales"
+  short_description: "Arrangement, équilibre et comparaisons à niveau égal"
+  default_prompt: "Applique $librarybrain-music pour améliorer cet arrangement avec la méthode adaptée."

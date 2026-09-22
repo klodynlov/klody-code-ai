@@ -1,0 +1,245 @@
+{
+  "timestamp": "2026-09-08T13:21:38.019008+00:00",
+  "skills": {
+    "api_loaded": [
+      "librarybrain_business",
+      "librarybrain_engineering",
+      "librarybrain_music",
+      "librarybrain_research"
+    ],
+    "selection_checks": [
+      {
+        "query": "Rééquilibre mon mixage, la voix est masquée et mon arrangement encombré",
+        "expected": "librarybrain_music",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_music",
+          "ableton_live_pilotage",
+          "digest_theorie_arrangement_mix",
+          "digest_chanson_succes",
+          "digest_ecriture_de_chansons_a_succes"
+        ],
+        "full_content_injected": true
+      },
+      {
+        "query": "Calcule mon seuil de rentabilité et propose un prix pour une offre rentable",
+        "expected": "librarybrain_business",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_business",
+          "capacite_materielle_pas_de_simulation"
+        ],
+        "full_content_injected": true
+      },
+      {
+        "query": "Choisis entre RAG et fine-tuning pour mon LLM et prépare son évaluation",
+        "expected": "librarybrain_engineering",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_engineering",
+          "digest_creer_un_slm_from_scratch",
+          "digest_llm_from_scratch_raschka",
+          "digest_reasoning_model_scratch",
+          "digest_llm_application_rag"
+        ],
+        "full_content_injected": true
+      },
+      {
+        "query": "Compare ces sources divergentes et distille leurs méthodes avec leurs preuves",
+        "expected": "librarybrain_research",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_research",
+          "croiser_des_sources_en_bonnes_pratiques",
+          "digest_software_architecture",
+          "digest_reasoning_model_scratch",
+          "methodes_de_programmation_avancees"
+        ],
+        "full_content_injected": true
+      },
+      {
+        "query": "Lis le tempo dans Ableton Live",
+        "expected": "ableton_live_pilotage",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "ableton_live_pilotage",
+          "digest_algorithmic_music"
+        ],
+        "full_content_injected": true
+      },
+      {
+        "query": "Améliore mon mix",
+        "expected": "librarybrain_music",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_music"
+        ]
+      },
+      {
+        "query": "Aide-moi à mixer ma chanson",
+        "expected": "librarybrain_music",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_music"
+        ]
+      },
+      {
+        "query": "Compare ces compresseurs",
+        "expected": "librarybrain_music",
+        "selected": [
+          "conventions_manips_klody_commits_secrets",
+          "utilisateur_conversations_stats",
+          "utilisateur_preferences",
+          "utilisateur_profil",
+          "utilisateur_projets",
+          "utilisateur_studio",
+          "utilisateur_tech_contexte",
+          "librarybrain_music",
+          "croiser_des_sources_en_bonnes_pratiques",
+          "digest_software_architecture",
+          "librarybrain_research"
+        ]
+      }
+    ],
+    "regression_tests": {
+      "command": "pytest tests/test_skills.py -q",
+      "passed": 47
+    }
+  },
+  "mcp": {
+    "discovered_tools": 53,
+    "names": [
+      "create_audio_clip",
+      "create_audio_track",
+      "create_clip",
+      "create_midi_track",
+      "create_return_track",
+      "create_scene",
+      "delete_track",
+      "duplicate_clip_to",
+      "duplicate_to_arrangement",
+      "duplicate_track",
+      "edit_notes",
+      "fire_clip",
+      "fire_scene",
+      "get_arrangement_clips",
+      "get_clip_info",
+      "get_clip_notes",
+      "get_device_parameters",
+      "get_master_device_parameters",
+      "get_return_device_parameters",
+      "get_return_tracks",
+      "get_session_info",
+      "get_session_snapshot",
+      "get_track_info",
+      "load_device_to_master",
+      "load_device_to_return",
+      "load_instrument_or_effect",
+      "redo",
+      "search_browser",
+      "set_arrangement_time",
+      "set_clip_loop",
+      "set_clip_name",
+      "set_device_enabled",
+      "set_device_parameter",
+      "set_loop",
+      "set_master_device_parameter",
+      "set_master_volume",
+      "set_metronome",
+      "set_return_device_parameter",
+      "set_scene_name",
+      "set_send",
+      "set_tempo",
+      "set_time_signature",
+      "set_track_mute",
+      "set_track_name",
+      "set_track_pan",
+      "set_track_solo",
+      "set_track_volume",
+      "start_playback",
+      "stop_all_clips",
+      "stop_clip",
+      "stop_playback",
+      "undo",
+      "write_automation"
+    ],
+    "validation": {
+      "negative_track_rejected": true,
+      "missing_tempo_rejected": true
+    },
+    "live_control_verified": true,
+    "status": "Active; read and reversible tempo edit verified in Live",
+    "klody_config_has_ableton": true,
+    "other_servers_preserved": 10,
+    "restart_approval": "User resumed on 2026-09-08; Live had been closed normally, so no forced termination was required",
+    "live_version": "12.4.5",
+    "bridge_version": "1.8.0",
+    "tempo_test": {
+      "before": 120.0,
+      "changed_to": 121.0,
+      "live_ui_verified": true,
+      "restored": 120.0,
+      "session_state_restored_exactly": true
+    },
+    "surface": "KlodyAbletonMCP on row 2; input/output None",
+    "old_klodybridge_ping_ok": true,
+    "verified_at": "2026-09-08T14:21:41.380457+00:00",
+    "restart_reconnect_verified": true,
+    "preferences_persisted": true,
+    "klody_chat_verified": {
+      "session_id": "7b70adac",
+      "tools_called": [
+        "mcp__ableton__get_session_info",
+        "mcp__ableton__get_session_snapshot"
+      ],
+      "reply": "\nVoici l'état actuel du set Ableton Live :\n\n- **Tempo :** 120.0 BPM\n- **Signature :** 4/4\n- **Nombre de pistes :** 4 (2 MIDI + 2 Audio)\n  - `1-MIDI` (piste MIDI)\n  - `2-MIDI` (piste MIDI)\n  - `3-Audio` (piste audio)\n  - `4-Audio` (piste audio)\n- **Pistes de retour :** 2 (`A-Reverb`, `B-Delay`)\n- **Scènes :** 8 (toutes vides)\n- **Lecture :** arrêtée, position à 0.0 s\n- **Aucun clip** sur aucune piste pour le moment.",
+      "completed": true
+    },
+    "python_environment": "~/.klody/venvs/ableton-mcp",
+    "dependency_files_excluded_from_project_index": true
+  },
+  "installed_bridge_hashes_verified": true,
+  "code_lint": "Passed for importer, MCP adapter and Live initialization wrapper"
+}

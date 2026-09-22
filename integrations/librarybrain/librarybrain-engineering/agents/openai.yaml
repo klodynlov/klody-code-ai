@@ -1,0 +1,4 @@
+interface:
+  display_name: "LibraryBrain · Méthodes IA"
+  short_description: "Diagnostiquer et évaluer avant d’adapter un modèle"
+  default_prompt: "Applique $librarybrain-engineering pour diagnostiquer ces erreurs et choisir quoi améliorer."

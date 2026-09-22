@@ -8,7 +8,10 @@ src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts"]
 # demos/ = copies illustratives de scripts sandbox (pipeline visage 3D) — pas du
 # code de lib maintenu ; hors périmètre lint (mypy les ignore déjà via son allowlist).
 # force-exclude → exclusion respectée même quand pre-commit passe les chemins en args.
-extend-exclude = ["demos"]
+# integrations/ = bundles embarqués (addon Blender packagé, serveurs MCP tiers,
+# snapshots LibraryBrain) — code livré tel quel, pas du code de lib maintenu ici ;
+# le reformater ferait diverger l'addon de son .zip de distribution.
+extend-exclude = ["demos", "integrations"]
 force-exclude = true
 
 [tool.ruff.lint]

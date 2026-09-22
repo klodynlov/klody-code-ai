@@ -1,0 +1,2432 @@
+{
+  "version": "1.0",
+  "frozen_at": "2026-09-09T19:44:47.735742+00:00",
+  "database": "~/library_brain.db",
+  "scope": "All indexed candidates from explicit queries screened; all 3 dedicated books represented by targeted methodological passages, not every page read.",
+  "page_convention": "chunks.page is indexed pagination; PDF and EPUB locators must not be called printed page numbers.",
+  "review_extent": "Titles/metadata and representative contexts for candidate screening; selected methodological passages for synthesis; no full visual review of book illustrations.",
+  "books": [
+    {
+      "book_id": 400,
+      "title": "La 3D libre avec Blender",
+      "authors": "Olivier Saraja",
+      "edition_note": "3e édition, 2008, Blender 2.46",
+      "role": "core",
+      "file_path": "~/Documents/Livres/Informatique/2008 - Eyrolles - La 3D libre avec Blender.pdf",
+      "catalog_checksum": "ac909e5acf9854170dea2d95bdb39c2e",
+      "indexed_chunks": 791,
+      "indexed_text_sha256": "8822a38efa0cb303f4076b44ee042c7a5a102dc38328749653c7fe7578467474",
+      "method_ids": [
+        "B02",
+        "B03",
+        "B04",
+        "B10",
+        "B15",
+        "B16",
+        "B17",
+        "B18"
+      ]
+    },
+    {
+      "book_id": 8408,
+      "title": "3D Environment Design with Blender 5",
+      "authors": "Abdelilah Hamdani",
+      "edition_note": "2e édition, mars 2026",
+      "role": "core",
+      "file_path": "~/Documents/Livres/Imports/3D Environment Design with Blender 5 Enhance your modeling, texturing, and lighting skills to create realistic 3D scenes (Abdelilah Hamdani) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "catalog_checksum": "78a0140ce6bef3f5b4f1adf922a42bb5",
+      "indexed_chunks": 443,
+      "indexed_text_sha256": "9c71e4aedbe53a2d01e506ed9ad9fc6c5f77fabaeda9a3f0eceba8ea1d7090d1",
+      "method_ids": [
+        "B01",
+        "B02",
+        "B04",
+        "B05",
+        "B06",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+        "B13",
+        "B14",
+        "B15",
+        "B18"
+      ]
+    },
+    {
+      "book_id": 26489,
+      "title": "3D Game Development with Blender 5 and Unity 6",
+      "authors": "Paolo Acampora",
+      "edition_note": "mars 2026, exemples Blender 5.1 / Unity 6.3",
+      "role": "core",
+      "file_path": "~/Documents/Livres/Imports/3D Game Development with Blender 5 and Unity 6 Create immersive 3D games in Blender and Unity using a real-time, elegant… (Paolo Acampora) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "catalog_checksum": "feb1a9e34060d0a29666e0fd94a62657",
+      "indexed_chunks": 339,
+      "indexed_text_sha256": "93ff9ecdb24a0a44777f681023e885ca34e9f6cc1552097198ea5949ae6acfbe",
+      "method_ids": [
+        "B01",
+        "B02",
+        "B04",
+        "B06",
+        "B07",
+        "B08",
+        "B09",
+        "B17",
+        "B19",
+        "B21"
+      ]
+    },
+    {
+      "book_id": 6193,
+      "title": "Interactive Web Development With Three.js and A-Frame",
+      "authors": "Alessandro Straccia",
+      "edition_note": "2024",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/Interactive Web Development With Three.js and A-Frame Create Captivating Visualizations and Projects in Immersive Creative… (Alessandro Straccia) (z-library.sk, 1lib.sk, z-lib.sk)_3.pdf",
+      "catalog_checksum": "af2793eb7ca0dc591fc80e8f84038ded",
+      "indexed_chunks": 428,
+      "indexed_text_sha256": "8345479751c332564049b22ddf3d5f9da2feacb708c6946a5830c9884d979b64",
+      "method_ids": [
+        "B07",
+        "B12",
+        "B16",
+        "B17",
+        "B19"
+      ]
+    },
+    {
+      "book_id": 6116,
+      "title": "Learning Three.js – the JavaScript 3D Library for WebGL",
+      "authors": "Jos Dirksen",
+      "edition_note": "2e édition, 2015 ; API historiques",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/Learning Three.js- The JavaScript 3D Library for WebGL - Second Edition [eBook].pdf",
+      "catalog_checksum": "78bd65420952516461fed1d31e11764a",
+      "indexed_chunks": 508,
+      "indexed_text_sha256": "a65a1c3f472d0274f7b7875b6841d69e642511d6070d624872fa3e2a56406347",
+      "method_ids": [
+        "B04",
+        "B19"
+      ]
+    },
+    {
+      "book_id": 6174,
+      "title": "3D Web Development with Three.js and Next.js",
+      "authors": "Andrei Tazetdinov",
+      "edition_note": "édition non résolue ; pagination EPUB indexée",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/3D Web Development with Three.js and Next.js (Andrei Tazetdinov) (z-library.sk, 1lib.sk, z-lib.sk)_2.epub",
+      "catalog_checksum": "5094556e76549d702a7b1211eda27656",
+      "indexed_chunks": 437,
+      "indexed_text_sha256": "aa6d65bda309d60e9d715ae48298d451f575ae1a2f672cbf24c67a0340b3f041",
+      "method_ids": [
+        "B01",
+        "B14",
+        "B19"
+      ]
+    },
+    {
+      "book_id": 6190,
+      "title": "How to Design 3D Games with Web Technology – Book 01",
+      "authors": "Jordi Josa",
+      "edition_note": "édition non résolue ; anciens exporteurs JSON",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/How to design 3D games with web technolology - book 01. Three.js - HTML5 and WebGL (Jordi Josa) (z-library.sk, 1lib.sk, z-lib.sk)_3.pdf",
+      "catalog_checksum": "d4118fe0699b9034b5f339bf8c3fe742",
+      "indexed_chunks": 248,
+      "indexed_text_sha256": "9b835f26bda51f790c1da012b362a9d788cd5370911b762f3022230001a0758e",
+      "method_ids": [
+        "B19"
+      ]
+    },
+    {
+      "book_id": 6114,
+      "title": "3D Data Science with Python",
+      "authors": "Florent Poux",
+      "edition_note": "édition non résolue ; pagination EPUB indexée",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/3D Data Science with Python Building Accurate Digital Environments with 3D Point Cloud Workflows (Florent Poux) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "catalog_checksum": "99838d7497f9c61f9053157703e06949",
+      "indexed_chunks": 756,
+      "indexed_text_sha256": "93f2aeb0129f7f3a11773312c9f8f5d571138d8c9793eb22e1cabe57746f45c3",
+      "method_ids": [
+        "B20"
+      ]
+    },
+    {
+      "book_id": 355,
+      "title": "Pratique de l’impression 3D",
+      "authors": "Collectif Make, compilé par Anna Kaziunas France",
+      "edition_note": "métadonnée auteur RTT corrigée ici depuis le frontispice, sans modifier le catalogue",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Informatique/Pratique de l'impression 3D - Eyrolles.pdf",
+      "catalog_checksum": "864dfb920e6270967f7af74fe3137274",
+      "indexed_chunks": 400,
+      "indexed_text_sha256": "55348d4446dca3de538b0c8645ab52b96c95b70e488d4cc2d03246615ebf91aa",
+      "method_ids": [
+        "B20"
+      ]
+    },
+    {
+      "book_id": 6181,
+      "title": "Conquering JavaScript: Three.js",
+      "authors": "Sufyan bin Uzayr",
+      "edition_note": "édition non résolue",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/Conquering JavaScript Three.js (Sufyan bin Uzayr) (z-library.sk, 1lib.sk, z-lib.sk)_2.pdf",
+      "catalog_checksum": "d84863281d16c607bfdc3c15da31568d",
+      "indexed_chunks": 262,
+      "indexed_text_sha256": "51c9eda2c9eefcd9df3ead11a63d3bdfb4c832e8a8c978bc1286e655f75a2c97",
+      "method_ids": [
+        "B19"
+      ]
+    },
+    {
+      "book_id": 2262,
+      "title": "Cinematic Algorithms",
+      "authors": "James Hutson et Andrew Allen Smith",
+      "edition_note": "1re édition, 2025",
+      "role": "complement",
+      "file_path": "~/Documents/Livres/Imports/Cinematic Algorithms (James Hutson  Andrew Allen Smith) (z-library.sk, 1lib.sk, z-lib.sk)_1.pdf",
+      "catalog_checksum": "f7b15e3cf3b03385036995e69c5e6de1",
+      "indexed_chunks": 436,
+      "indexed_text_sha256": "9638551b829450ece20845dc7f340a1f50f096da9677ddcc46f1449bc8fbafe3",
+      "method_ids": [
+        "B14",
+        "B15"
+      ]
+    }
+  ],
+  "methods": [
+    {
+      "id": "B01",
+      "name": "Référence, échelle et caméra avant les détails",
+      "reference": "references/modelisation.md",
+      "passage_ids": [
+        892677,
+        1252188,
+        1252189,
+        1252190,
+        1252191,
+        1951818,
+        1951819
+      ],
+      "source_and_adaptation_note": "Hamdani, chunks 1252188–1252191 ; Acampora 1951818–1951819 ; Tazetdinov 892677. Le contrôle des espaces négatifs et le traitement explicite de l’incertitude métrique sont notre adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B02",
+      "name": "Silhouette, topologie et modificateurs réversibles",
+      "reference": "references/modelisation.md",
+      "passage_ids": [
+        88943,
+        88945,
+        88986,
+        89013,
+        1252210,
+        1252211,
+        1951819,
+        1951820
+      ],
+      "source_and_adaptation_note": "Saraja 88943, 88945, 88986, 89013 ; Hamdani 1252210–1252211 ; Acampora 1951819–1951820. Contrôle sur copie et arbitrage selon le livrable : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B03",
+      "name": "Sculpter des masses vers le détail",
+      "reference": "references/modelisation.md",
+      "passage_ids": [
+        89038,
+        89039,
+        89040,
+        89041
+      ],
+      "source_and_adaptation_note": "Saraja 89038–89041. Le passage vers retopologie/baking est notre articulation avec les sources d’export.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B04",
+      "name": "Déplier selon la texture et le futur usage",
+      "reference": "references/modelisation.md",
+      "passage_ids": [
+        89160,
+        862719,
+        862722,
+        1252263,
+        1252264,
+        1252266,
+        1252269,
+        1252467,
+        1252468,
+        1951917,
+        1951919
+      ],
+      "source_and_adaptation_note": "Saraja 89160 ; Hamdani 1252263–1252264, 1252266, 1252269, 1252467–1252468 ; Dirksen 862719, 862722 ; Acampora 1951917, 1951919. Contrôles au damier et de densité : adaptation de la procédure.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B05",
+      "name": "Diagnostiquer un matériau par ses composantes",
+      "reference": "references/materiaux.md",
+      "passage_ids": [
+        1252228,
+        1252231,
+        1252255,
+        1252425,
+        1252426,
+        1252427
+      ],
+      "source_and_adaptation_note": "Hamdani 1252228, 1252231, 1252255, 1252425–1252427. Mise à jour d’export : manuel officiel glTF 5.1 cité dans compatibilite.md.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B06",
+      "name": "Construire un matériau procédural contrôlable",
+      "reference": "references/materiaux.md",
+      "passage_ids": [
+        1252412,
+        1252425,
+        1252439,
+        1252440,
+        1252445,
+        1252446,
+        1252447,
+        1252448,
+        1951903
+      ],
+      "source_and_adaptation_note": "Hamdani 1252412, 1252425, 1252439–1252440, 1252445–1252448 ; Acampora 1951903. Décomposition et test des extrêmes : synthèse adaptée.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B07",
+      "name": "Transférer les détails par baking",
+      "reference": "references/materiaux.md",
+      "passage_ids": [
+        901112,
+        901114,
+        901115,
+        901116,
+        901117,
+        1951905,
+        1951907,
+        1951960,
+        1951963
+      ],
+      "source_and_adaptation_note": "Straccia 901112, 901114–901117 ; Acampora 1951905, 1951907, 1951960, 1951963 ; manuel officiel baking 5.1. Le protocole de comparaison et les conditions de marge sont notre adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B08",
+      "name": "Paramétrer une famille de modèles",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        1951818,
+        1951819,
+        1951820,
+        1951835,
+        1951837,
+        1951942,
+        1951943,
+        1951944
+      ],
+      "source_and_adaptation_note": "Acampora 1951818–1951820, 1951835, 1951837, 1951942–1951944. Tests aux bornes et protection des divisions : adaptation d’ingénierie.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B09",
+      "name": "Constituer des assets réutilisables",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        1252520,
+        1951791,
+        1951794,
+        1951795
+      ],
+      "source_and_adaptation_note": "Acampora 1951791, 1951794–1951795 ; Hamdani 1252520. Contrôle dans une seconde scène : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B10",
+      "name": "Disperser selon des masques et une intention",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        89338,
+        1252306,
+        1252309,
+        1252310,
+        1252311,
+        1252312,
+        1252313,
+        1252314,
+        1252531
+      ],
+      "source_and_adaptation_note": "Hamdani 1252306, 1252309–1252314, 1252531 ; Saraja 89338 pour le principe historique du contrôle par poids. Graine, axes et mesure par zone : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B11",
+      "name": "Terrain : forme d’abord, masques ensuite",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        1252350,
+        1252351,
+        1252352,
+        1252353,
+        1252354,
+        1252355,
+        1252356,
+        1252363,
+        1252371,
+        1252445,
+        1252446,
+        1252447,
+        1252448
+      ],
+      "source_and_adaptation_note": "Hamdani 1252350–1252356, 1252363, 1252371, 1252445–1252448. Séparer explicitement pente/altitude et offrir une grille de repli : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B12",
+      "name": "Assets naturels au coût adapté à la caméra",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        900993,
+        900995,
+        1252467,
+        1252468,
+        1252496,
+        1252497,
+        1252512,
+        1252513,
+        1252514,
+        1252520
+      ],
+      "source_and_adaptation_note": "Hamdani 1252467–1252468, 1252496–1252497, 1252512–1252514, 1252520 ; Straccia 900993, 900995. Comparaison du coût de transparence : adaptation pour le temps réel.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B13",
+      "name": "Eau stylisée ou simulée : choisir le coût utile",
+      "reference": "references/procedural.md",
+      "passage_ids": [
+        1252387,
+        1252393,
+        1252400,
+        1252401
+      ],
+      "source_and_adaptation_note": "Hamdani 1252387, 1252393, 1252400–1252401. Contrôle de périodicité et des bornes temporelles : adaptation corrective.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B14",
+      "name": "Éclairer pour révéler la matière et l’intention",
+      "reference": "references/rendu.md",
+      "passage_ids": [
+        282755,
+        892677,
+        1252327,
+        1252343
+      ],
+      "source_and_adaptation_note": "Hamdani 1252327, 1252343 ; Hutson/Smith 282755 ; Tazetdinov 892677. Procédure de diagnostic sous lumière simple : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B15",
+      "name": "Converger avec de petits rendus, puis composer",
+      "reference": "references/rendu.md",
+      "passage_ids": [
+        89469,
+        89470,
+        89471,
+        89484,
+        89501,
+        282755,
+        1252560,
+        1252561,
+        1252562,
+        1252571,
+        1252574
+      ],
+      "source_and_adaptation_note": "Hamdani 1252560–1252562, 1252571, 1252574 ; Saraja 89469–89471, 89484, 89501 ; Hutson/Smith 282755. Estimation avec surcoûts, crops et test temporel : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B16",
+      "name": "Clés, interpolation et actions lisibles",
+      "reference": "references/animation.md",
+      "passage_ids": [
+        89283,
+        89284,
+        89285,
+        89286,
+        89287,
+        89288,
+        89295,
+        89296,
+        89434,
+        89435,
+        89436,
+        89437,
+        89438,
+        89439,
+        89440,
+        89441,
+        89442,
+        89443,
+        900989,
+        901126
+      ],
+      "source_and_adaptation_note": "Saraja 89283–89288, 89295–89296, 89434–89443 ; Straccia 900989, 901126. Vérification après réouverture et distinction vitesse/paramètre : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B17",
+      "name": "Rig : hiérarchie, contraintes et poids",
+      "reference": "references/animation.md",
+      "passage_ids": [
+        89419,
+        89420,
+        89425,
+        89426,
+        89427,
+        89428,
+        89431,
+        89432,
+        89433,
+        900995,
+        1952000,
+        1952002
+      ],
+      "source_and_adaptation_note": "Saraja 89419–89420, 89425–89428, 89431–89433 ; Acampora 1952000, 1952002 ; Straccia 900995. Batterie de poses et diagnostic des espaces : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B18",
+      "name": "Simuler une scène minimale avant d’augmenter la résolution",
+      "reference": "references/animation.md",
+      "passage_ids": [
+        89338,
+        89400,
+        89401,
+        89448,
+        89449,
+        1252189
+      ],
+      "source_and_adaptation_note": "Saraja 89338, 89400–89401, 89448–89449 ; Hamdani 1252189 pour l’échelle. Protocole minimal, suivi du cache et choix de solveur : synthèse adaptée, à vérifier sur la version exécutée.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B19",
+      "name": "Exporter et mesurer dans la destination",
+      "reference": "references/livraison.md",
+      "passage_ids": [
+        862687,
+        862719,
+        862720,
+        862721,
+        862722,
+        892864,
+        895709,
+        899291,
+        899313,
+        900989,
+        900990,
+        900991,
+        900992,
+        900993,
+        900994,
+        900995,
+        901104,
+        901105,
+        901126,
+        1951737,
+        1951741,
+        1951742,
+        1951743,
+        1951905,
+        1951906,
+        1951907,
+        1951917,
+        1951918,
+        1951919
+      ],
+      "source_and_adaptation_note": "Acampora 1951737, 1951741–1951743, 1951905–1951907, 1951917–1951919 ; Straccia 900989–900995, 901104–901105, 901126 ; Josa 899291, 899313 ; Dirksen 862687, 862719–862722 ; Uzayr 895709 ; Tazetdinov 892864 ; manuel glTF 5.1. Calcul mémoire, test asymétrique et non-cumul des conversions : adaptations explicites.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B20",
+      "name": "Préparer un mesh pour la fabrication",
+      "reference": "references/livraison.md",
+      "passage_ids": [
+        98277,
+        861525,
+        861526
+      ],
+      "source_and_adaptation_note": "Collectif Make, compilé par Anna Kaziunas France, 98277 ; Poux 861525–861526. Inspection des couches et traitement des cavités fonctionnelles : adaptation.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    },
+    {
+      "id": "B21",
+      "name": "Automatiser une opération observable",
+      "reference": "references/automatisation.md",
+      "passage_ids": [
+        1951801,
+        1951804,
+        1951863,
+        1951865,
+        1951866
+      ],
+      "source_and_adaptation_note": "Acampora 1951801, 1951804, 1951863, 1951865–1951866 pour les opérateurs/contextes et l’automatisation d’export. Préférences pour les données, contrôle du code de sortie, isolement et réouverture : notre protocole de fiabilisation, appuyé par le manuel officiel CLI 5.1 et testé localement. Le skill existant `blender_python_bpy` est conservé séparément ; ses snippets restent à vérifier selon la version.",
+      "validation_level": "Source-backed synthesis; technical smoke tests cover only a subset; independent effectiveness unmeasured."
+    }
+  ],
+  "passages": {
+    "88837": {
+      "id": 88837,
+      "book_id": 400,
+      "chunk_index": 0,
+      "page": 1,
+      "chapter": null,
+      "sha256": "0676da7fb5acaab6d2c53929532314539f65d80f6cd2860d4242bdde5ace4306",
+      "characters": 1992
+    },
+    "88845": {
+      "id": 88845,
+      "book_id": 400,
+      "chunk_index": 8,
+      "page": 5,
+      "chapter": null,
+      "sha256": "0a65b61ad28759e7a3e098113d2f971a8f96156413d0327e22d9a94386006ba0",
+      "characters": 910
+    },
+    "88943": {
+      "id": 88943,
+      "book_id": 400,
+      "chunk_index": 106,
+      "page": 66,
+      "chapter": null,
+      "sha256": "cac6bdab322780ec984b498b0886f5bfcf9a1032f72196fab260704624e921f6",
+      "characters": 1943
+    },
+    "88945": {
+      "id": 88945,
+      "book_id": 400,
+      "chunk_index": 108,
+      "page": 67,
+      "chapter": null,
+      "sha256": "91dc0788fde8f73946c83ee271e476ebf88b77af8b63232fdbd072e00f2a3780",
+      "characters": 1691
+    },
+    "88986": {
+      "id": 88986,
+      "book_id": 400,
+      "chunk_index": 149,
+      "page": 93,
+      "chapter": null,
+      "sha256": "d34f430ed904fdf0407e22e782fab59196cd3eb0e7ebabd8be5cae144e3edbd4",
+      "characters": 1914
+    },
+    "89013": {
+      "id": 89013,
+      "book_id": 400,
+      "chunk_index": 176,
+      "page": 108,
+      "chapter": null,
+      "sha256": "e76e0d0f8b05a61154fda09e39a713be8aa314c8dc7120adb4d853460f756a1d",
+      "characters": 1981
+    },
+    "89038": {
+      "id": 89038,
+      "book_id": 400,
+      "chunk_index": 201,
+      "page": 123,
+      "chapter": null,
+      "sha256": "d84c51389a5cc93b8521471ac280d0b1d1e4bde20cdcc645c00a440466d9f2ca",
+      "characters": 2065
+    },
+    "89039": {
+      "id": 89039,
+      "book_id": 400,
+      "chunk_index": 202,
+      "page": 123,
+      "chapter": null,
+      "sha256": "7a6f157f4c7f8aafe70982b0d56cf071fcb3863d4403e3789b6d8ba532ee50d1",
+      "characters": 1013
+    },
+    "89040": {
+      "id": 89040,
+      "book_id": 400,
+      "chunk_index": 203,
+      "page": 124,
+      "chapter": null,
+      "sha256": "ea0b5729bbec7b3836686986d63b962ef1ded6778244b627458debd73138712f",
+      "characters": 1923
+    },
+    "89041": {
+      "id": 89041,
+      "book_id": 400,
+      "chunk_index": 204,
+      "page": 124,
+      "chapter": null,
+      "sha256": "b4054bee3423f9912b25deaf678f7b45557c5967f379cca6c0923d30b30f942c",
+      "characters": 1204
+    },
+    "89160": {
+      "id": 89160,
+      "book_id": 400,
+      "chunk_index": 323,
+      "page": 194,
+      "chapter": null,
+      "sha256": "086708cbfe9a9f2d22527f91f9f9a45ba22e6aada1be980e4495f6450b9d9707",
+      "characters": 1709
+    },
+    "89283": {
+      "id": 89283,
+      "book_id": 400,
+      "chunk_index": 446,
+      "page": 263,
+      "chapter": null,
+      "sha256": "d7daaebb060c74de08a20d859daad5abf85e32d8aebde4c1588a1f866c3ab512",
+      "characters": 2105
+    },
+    "89284": {
+      "id": 89284,
+      "book_id": 400,
+      "chunk_index": 447,
+      "page": 263,
+      "chapter": null,
+      "sha256": "798b71a69775508cf9d6b12f4a3d3aeef95fdd3c67a315bfe419dab75f531248",
+      "characters": 1642
+    },
+    "89285": {
+      "id": 89285,
+      "book_id": 400,
+      "chunk_index": 448,
+      "page": 264,
+      "chapter": null,
+      "sha256": "5cb6593f9b245854bd25ff776b5b2dfa031f0e9f968e1df9575e222745dccf85",
+      "characters": 1804
+    },
+    "89286": {
+      "id": 89286,
+      "book_id": 400,
+      "chunk_index": 449,
+      "page": 264,
+      "chapter": null,
+      "sha256": "2a261e1f5cbe4076893c6b70bc8570cec409d88562e8662ac4bf20336acb76cb",
+      "characters": 41
+    },
+    "89287": {
+      "id": 89287,
+      "book_id": 400,
+      "chunk_index": 450,
+      "page": 265,
+      "chapter": null,
+      "sha256": "9e12fd1d025d284a4611a3a0233c281f394f0b061fb58cababb670e58b0471f9",
+      "characters": 754
+    },
+    "89288": {
+      "id": 89288,
+      "book_id": 400,
+      "chunk_index": 451,
+      "page": 266,
+      "chapter": null,
+      "sha256": "6e85d7edff5e98dac626ab3c07400b4573237290caf30c5b01d236c25be61d31",
+      "characters": 1869
+    },
+    "89295": {
+      "id": 89295,
+      "book_id": 400,
+      "chunk_index": 458,
+      "page": 270,
+      "chapter": null,
+      "sha256": "fc559acc7481ac2eb21aa3cf14ef4c647ea35ca4fa46e5a43e1effeb4a709f7f",
+      "characters": 1104
+    },
+    "89296": {
+      "id": 89296,
+      "book_id": 400,
+      "chunk_index": 459,
+      "page": 271,
+      "chapter": null,
+      "sha256": "ad74655eeec6e11e725d885bfa31383173bb9aef5e36b259c0a9435b3425c814",
+      "characters": 1173
+    },
+    "89338": {
+      "id": 89338,
+      "book_id": 400,
+      "chunk_index": 501,
+      "page": 295,
+      "chapter": null,
+      "sha256": "6509cfc4cdc72b76d340c7a2b0296cddf243f5b188b3b90564337522d43d6c41",
+      "characters": 1478
+    },
+    "89400": {
+      "id": 89400,
+      "book_id": 400,
+      "chunk_index": 563,
+      "page": 333,
+      "chapter": null,
+      "sha256": "2837dc21f32aeefedfef0694ddf299d8428ef600273956c111f94446709137aa",
+      "characters": 1975
+    },
+    "89401": {
+      "id": 89401,
+      "book_id": 400,
+      "chunk_index": 564,
+      "page": 333,
+      "chapter": null,
+      "sha256": "3cde7d9e5bc8b5ff0836183d1052f3c5e25c11d5d3b62aeb45addc81e7429cd8",
+      "characters": 808
+    },
+    "89419": {
+      "id": 89419,
+      "book_id": 400,
+      "chunk_index": 582,
+      "page": 343,
+      "chapter": null,
+      "sha256": "bb09e6e79fa3641fd8ca28f492e8d40dde4d4c7f5399caf11cb9110f05672ea4",
+      "characters": 1094
+    },
+    "89420": {
+      "id": 89420,
+      "book_id": 400,
+      "chunk_index": 583,
+      "page": 344,
+      "chapter": null,
+      "sha256": "c35b85d8c694317aa167367edae08ae2736dab5ef2d5e4fd72982c48879a9f35",
+      "characters": 2040
+    },
+    "89425": {
+      "id": 89425,
+      "book_id": 400,
+      "chunk_index": 588,
+      "page": 347,
+      "chapter": null,
+      "sha256": "0b7fea0916525b4b6fab7362a8156612fe9aa9fe71688392504fd5bd6b1453e4",
+      "characters": 2091
+    },
+    "89426": {
+      "id": 89426,
+      "book_id": 400,
+      "chunk_index": 589,
+      "page": 347,
+      "chapter": null,
+      "sha256": "29e9d192af4169232e11fbf68091d367a9f2adf6c8f7ab300ebbb9798eaa09e7",
+      "characters": 1180
+    },
+    "89427": {
+      "id": 89427,
+      "book_id": 400,
+      "chunk_index": 590,
+      "page": 348,
+      "chapter": null,
+      "sha256": "d86e19316bb6aab61c1bb7520465e065d2ff31a1772cbf831b46c0f15ce36656",
+      "characters": 1942
+    },
+    "89428": {
+      "id": 89428,
+      "book_id": 400,
+      "chunk_index": 591,
+      "page": 348,
+      "chapter": null,
+      "sha256": "d5980bbbe4abcf3e5b48c64e7d1c219f4bb008d28eaba08c01ed2f749fe7ac25",
+      "characters": 370
+    },
+    "89431": {
+      "id": 89431,
+      "book_id": 400,
+      "chunk_index": 594,
+      "page": 350,
+      "chapter": null,
+      "sha256": "726405fd48ed4348cae411d9216af73d611e2c3a1137bd8b57348cc3d854e76f",
+      "characters": 1889
+    },
+    "89432": {
+      "id": 89432,
+      "book_id": 400,
+      "chunk_index": 595,
+      "page": 350,
+      "chapter": null,
+      "sha256": "3a46185700cf4f36c0ad9a27457071bd0afebe9c39986214a7b998b75cf46724",
+      "characters": 1262
+    },
+    "89433": {
+      "id": 89433,
+      "book_id": 400,
+      "chunk_index": 596,
+      "page": 351,
+      "chapter": null,
+      "sha256": "c623d94e6d7c7354d586e2d716f9e7469c518542bdd9c5647cb1b69d89071551",
+      "characters": 1864
+    },
+    "89434": {
+      "id": 89434,
+      "book_id": 400,
+      "chunk_index": 597,
+      "page": 351,
+      "chapter": null,
+      "sha256": "52e7508880a9d200f0b71d18c617f3c8772bc4aaf39ac7afc76b18c2416f7078",
+      "characters": 850
+    },
+    "89435": {
+      "id": 89435,
+      "book_id": 400,
+      "chunk_index": 598,
+      "page": 352,
+      "chapter": null,
+      "sha256": "8c249c7f13f480c5ba756062e028f46659bbeff202ce4cda74073b16a3b72d97",
+      "characters": 1997
+    },
+    "89436": {
+      "id": 89436,
+      "book_id": 400,
+      "chunk_index": 599,
+      "page": 352,
+      "chapter": null,
+      "sha256": "c8edca05183deadaa8221ce4d7aa62ba1e4a34e5e14e764fa164168a419fffa2",
+      "characters": 1257
+    },
+    "89437": {
+      "id": 89437,
+      "book_id": 400,
+      "chunk_index": 600,
+      "page": 353,
+      "chapter": null,
+      "sha256": "08c0940ffc1b3badb21a2422a6f472e973f4db9c22042fa91eae14db7cca4654",
+      "characters": 1274
+    },
+    "89438": {
+      "id": 89438,
+      "book_id": 400,
+      "chunk_index": 601,
+      "page": 354,
+      "chapter": null,
+      "sha256": "424e13af641f4592d62bb231d2d48f507f4c7a79e15bf9257683e2cb79860a18",
+      "characters": 897
+    },
+    "89439": {
+      "id": 89439,
+      "book_id": 400,
+      "chunk_index": 602,
+      "page": 355,
+      "chapter": null,
+      "sha256": "a036ff3066205153042483fec3b8c719b0a583c41b5a088abf0e437af9557087",
+      "characters": 2005
+    },
+    "89440": {
+      "id": 89440,
+      "book_id": 400,
+      "chunk_index": 603,
+      "page": 355,
+      "chapter": null,
+      "sha256": "5172db111570215dea8c66387f15a0074e9d2f3ff2ed4715ebec0834d2c60fd2",
+      "characters": 1924
+    },
+    "89441": {
+      "id": 89441,
+      "book_id": 400,
+      "chunk_index": 604,
+      "page": 355,
+      "chapter": null,
+      "sha256": "13ed632c5a720c342da80c9176bcfeb94a681a125fe629c609e0812d2dffa3af",
+      "characters": 461
+    },
+    "89442": {
+      "id": 89442,
+      "book_id": 400,
+      "chunk_index": 605,
+      "page": 356,
+      "chapter": null,
+      "sha256": "7cabd9d65ea8b75188d44d1d3659f5bd60a5ce016571ded77bc1cafe1d9a82c0",
+      "characters": 1870
+    },
+    "89443": {
+      "id": 89443,
+      "book_id": 400,
+      "chunk_index": 606,
+      "page": 356,
+      "chapter": null,
+      "sha256": "dc219355af0e2dfa1b41128aabed1ab3d84b17a08d32e2e572930b1103f1930a",
+      "characters": 988
+    },
+    "89448": {
+      "id": 89448,
+      "book_id": 400,
+      "chunk_index": 611,
+      "page": 359,
+      "chapter": null,
+      "sha256": "044fc8b3db3c5f73a7715242cb99e772cbab3473918aba3d90a988807fd6f213",
+      "characters": 1146
+    },
+    "89449": {
+      "id": 89449,
+      "book_id": 400,
+      "chunk_index": 612,
+      "page": 360,
+      "chapter": null,
+      "sha256": "f1d7b3fc0c69e812501b06af6f3dfe3956d7c4c644515005e9bfcf41ba0cf1bc",
+      "characters": 1939
+    },
+    "89469": {
+      "id": 89469,
+      "book_id": 400,
+      "chunk_index": 632,
+      "page": 371,
+      "chapter": null,
+      "sha256": "9b94815b748abc798d10fc6c312877a74673da686cd88ba8e43a69eb1472dc93",
+      "characters": 1838
+    },
+    "89470": {
+      "id": 89470,
+      "book_id": 400,
+      "chunk_index": 633,
+      "page": 371,
+      "chapter": null,
+      "sha256": "b5dd256cccc29efb6cd31f8147b1648aae3ce347213e330aac658a361223e3e6",
+      "characters": 517
+    },
+    "89471": {
+      "id": 89471,
+      "book_id": 400,
+      "chunk_index": 634,
+      "page": 372,
+      "chapter": null,
+      "sha256": "2d632f752488d61966269270d669828d00dd316d749dc66d6679dffe4624cf8d",
+      "characters": 2019
+    },
+    "89484": {
+      "id": 89484,
+      "book_id": 400,
+      "chunk_index": 647,
+      "page": 380,
+      "chapter": null,
+      "sha256": "cd143455fc3c5058c758eeff2be87240fedf8583f8f55e51940d42bf6c7a1409",
+      "characters": 1864
+    },
+    "89501": {
+      "id": 89501,
+      "book_id": 400,
+      "chunk_index": 664,
+      "page": 388,
+      "chapter": null,
+      "sha256": "65a8c1bada59474909f148d5d58071c343c0892334ca79225293bfd38661023b",
+      "characters": 1884
+    },
+    "98171": {
+      "id": 98171,
+      "book_id": 355,
+      "chunk_index": 0,
+      "page": 1,
+      "chapter": null,
+      "sha256": "bbb4696a9185d4b87a4a837e16c4bb3a7d1226d8a59ca541a259632255906672",
+      "characters": 149
+    },
+    "98277": {
+      "id": 98277,
+      "book_id": 355,
+      "chunk_index": 106,
+      "page": 61,
+      "chapter": null,
+      "sha256": "e04950f4fd8f3bbf5aa4cfdee1a9e49c8cd0fda4c0b99fd0358f1d0fc8a73b1c",
+      "characters": 566
+    },
+    "282362": {
+      "id": 282362,
+      "book_id": 2262,
+      "chunk_index": 0,
+      "page": 2,
+      "chapter": null,
+      "sha256": "4524f075cb88ba840a4838a68f380de71c039ff678ca2f1305ad53462dbca860",
+      "characters": 283
+    },
+    "282363": {
+      "id": 282363,
+      "book_id": 2262,
+      "chunk_index": 1,
+      "page": 3,
+      "chapter": null,
+      "sha256": "738b3a3683eaedfe3b1b23764c944e0068f971b5b89f944a593fc3d5bda5230b",
+      "characters": 1946
+    },
+    "282755": {
+      "id": 282755,
+      "book_id": 2262,
+      "chunk_index": 393,
+      "page": 206,
+      "chapter": null,
+      "sha256": "6cf32aa9d0f0b7f402bb5d085b55ebbefacf0f7f7ed9f6fd2ea6043a20cc0fb2",
+      "characters": 2078
+    },
+    "861525": {
+      "id": 861525,
+      "book_id": 6114,
+      "chunk_index": 369,
+      "page": 17,
+      "chapter": "Chapter 10. 3D Modeling: Advanced Techniques",
+      "sha256": "68be29a7e050297aba81bd1f633f811a5f3dd7ec45fc7baf604fa50a6c9d7399",
+      "characters": 1806
+    },
+    "861526": {
+      "id": 861526,
+      "book_id": 6114,
+      "chunk_index": 370,
+      "page": 17,
+      "chapter": "Chapter 10. 3D Modeling: Advanced Techniques",
+      "sha256": "33e0c2c6ba7f173d6d45a07194eb720d7ce12922ff1a8b8e54a40e5f51422ab8",
+      "characters": 1867
+    },
+    "862327": {
+      "id": 862327,
+      "book_id": 6116,
+      "chunk_index": 0,
+      "page": 2,
+      "chapter": null,
+      "sha256": "c5283d9d38b3152ebf3d4ff0290417af28ebe27ee620c262f92b2fcb0ecc43a3",
+      "characters": 184
+    },
+    "862328": {
+      "id": 862328,
+      "book_id": 6116,
+      "chunk_index": 1,
+      "page": 3,
+      "chapter": null,
+      "sha256": "8131a4de2d61901a5d01e83d98138d0e37e280eade5d8784746d2b1161d512f7",
+      "characters": 1223
+    },
+    "862687": {
+      "id": 862687,
+      "book_id": 6116,
+      "chunk_index": 360,
+      "page": 298,
+      "chapter": null,
+      "sha256": "1f2c5d521837a7ea89e19fec8bd2beef447eb095d724bd365b8b0531693f9435",
+      "characters": 877
+    },
+    "862719": {
+      "id": 862719,
+      "book_id": 6116,
+      "chunk_index": 392,
+      "page": 325,
+      "chapter": null,
+      "sha256": "92738519d7b298f95c2f4c7917d859c5426a63756c5758995d8e12f7b57de7fa",
+      "characters": 780
+    },
+    "862720": {
+      "id": 862720,
+      "book_id": 6116,
+      "chunk_index": 393,
+      "page": 326,
+      "chapter": null,
+      "sha256": "9bc0b12c65c0cf0aff3536236835ce7c43da5c7ab77c82b3e53b25f4218760e8",
+      "characters": 796
+    },
+    "862721": {
+      "id": 862721,
+      "book_id": 6116,
+      "chunk_index": 394,
+      "page": 327,
+      "chapter": null,
+      "sha256": "fa2150e23cec35b69957024224ff4dd91f95ce1ac2d2627b4a2d8cb80d32d8b2",
+      "characters": 344
+    },
+    "862722": {
+      "id": 862722,
+      "book_id": 6116,
+      "chunk_index": 395,
+      "page": 328,
+      "chapter": null,
+      "sha256": "fea5ecca268510612644e97d9aafd48b2d925108c50f8fccc4344290b1b0a674",
+      "characters": 1200
+    },
+    "892677": {
+      "id": 892677,
+      "book_id": 6174,
+      "chunk_index": 108,
+      "page": 16,
+      "chapter": "C HAPTER 5 Introduction to 3D Development",
+      "sha256": "1dee9eb6f0b5180fa436f42b973c5fe3239a40c9ea2cd41afc06d704cee16ab4",
+      "characters": 1372
+    },
+    "892864": {
+      "id": 892864,
+      "book_id": 6174,
+      "chunk_index": 295,
+      "page": 27,
+      "chapter": "C HAPTER 16 User Interactions and Controls",
+      "sha256": "d7c863054e06e63d3b9eb966e465ea32ca35926fd3d2fecaa0f429a05e4f4363",
+      "characters": 1682
+    },
+    "895709": {
+      "id": 895709,
+      "book_id": 6181,
+      "chunk_index": 179,
+      "page": 147,
+      "chapter": null,
+      "sha256": "cad8cd58f8434ecac372f1d004b3988fe4d9dfa4fe7e7baf2fe82bade2e0180b",
+      "characters": 1851
+    },
+    "899178": {
+      "id": 899178,
+      "book_id": 6190,
+      "chunk_index": 0,
+      "page": 2,
+      "chapter": null,
+      "sha256": "af9504b9333bde1c2fa56162dd4ea87fb8b492dabcbb49f75524f93013bb6962",
+      "characters": 90
+    },
+    "899291": {
+      "id": 899291,
+      "book_id": 6190,
+      "chunk_index": 73,
+      "page": 62,
+      "chapter": null,
+      "sha256": "d45d1c0af87666062129c18fea444996c241c11ed20204d872a86cf93aef08d6",
+      "characters": 1109
+    },
+    "899313": {
+      "id": 899313,
+      "book_id": 6190,
+      "chunk_index": 95,
+      "page": 78,
+      "chapter": null,
+      "sha256": "59adc99d5f68a910a38b77240ebe92b938017275249d14c363c5afae0f2fc063",
+      "characters": 1789
+    },
+    "900819": {
+      "id": 900819,
+      "book_id": 6193,
+      "chunk_index": 0,
+      "page": 3,
+      "chapter": null,
+      "sha256": "b6c0d355cd5498ca638b708d30fae71ccbdbc861b1831134e389c51d03697e24",
+      "characters": 223
+    },
+    "900820": {
+      "id": 900820,
+      "book_id": 6193,
+      "chunk_index": 1,
+      "page": 4,
+      "chapter": null,
+      "sha256": "9f685ff4bb5cc02c23f4d6e7b946ea89a966cbce41a6e298f0a4d81603f561a6",
+      "characters": 1491
+    },
+    "900989": {
+      "id": 900989,
+      "book_id": 6193,
+      "chunk_index": 170,
+      "page": 159,
+      "chapter": null,
+      "sha256": "f02a71d3daaa0b32f9e242ac73e740730510c3eb13f2ec36b064d0d0bd123579",
+      "characters": 1191
+    },
+    "900990": {
+      "id": 900990,
+      "book_id": 6193,
+      "chunk_index": 171,
+      "page": 160,
+      "chapter": null,
+      "sha256": "b25983343181bb76cb35cc3d80748226bcc83818ac175d09537ede9064b6f09c",
+      "characters": 1401
+    },
+    "900991": {
+      "id": 900991,
+      "book_id": 6193,
+      "chunk_index": 172,
+      "page": 161,
+      "chapter": null,
+      "sha256": "118310b333f8e578948113f77989f02f58a5da44c8b53076f1526ceed65b4630",
+      "characters": 840
+    },
+    "900992": {
+      "id": 900992,
+      "book_id": 6193,
+      "chunk_index": 173,
+      "page": 162,
+      "chapter": null,
+      "sha256": "f9ceb56086217d6406f9b2db8ac07c868111ff7c51274b347d53fdf8c4164899",
+      "characters": 815
+    },
+    "900993": {
+      "id": 900993,
+      "book_id": 6193,
+      "chunk_index": 174,
+      "page": 163,
+      "chapter": null,
+      "sha256": "0639f068d45befd11b26d1f2370413669023b8f0db95577c90dc6129623b0097",
+      "characters": 1386
+    },
+    "900994": {
+      "id": 900994,
+      "book_id": 6193,
+      "chunk_index": 175,
+      "page": 164,
+      "chapter": null,
+      "sha256": "8e57a13f6848693185e63dbf80933680906c34816333c6f20552edbcef102024",
+      "characters": 521
+    },
+    "900995": {
+      "id": 900995,
+      "book_id": 6193,
+      "chunk_index": 176,
+      "page": 165,
+      "chapter": null,
+      "sha256": "d185a8a62b0c84ced454b6fc81a68c8e1801d6cfd5457b671d86c0065b1380a8",
+      "characters": 1370
+    },
+    "901104": {
+      "id": 901104,
+      "book_id": 6193,
+      "chunk_index": 185,
+      "page": 173,
+      "chapter": null,
+      "sha256": "ddbc51dc381c2cc9c84f25f36a704fe3a836dcd66678735651ff1c532df95c52",
+      "characters": 737
+    },
+    "901105": {
+      "id": 901105,
+      "book_id": 6193,
+      "chunk_index": 186,
+      "page": 174,
+      "chapter": null,
+      "sha256": "6c430b8824b7ac5253af34312478e8274d5c1ed3c6344e9311c08e4c3271ecd7",
+      "characters": 638
+    },
+    "901112": {
+      "id": 901112,
+      "book_id": 6193,
+      "chunk_index": 193,
+      "page": 179,
+      "chapter": null,
+      "sha256": "76328b0478040b01b1d1946a8bb25365f503b84bce47108b7eec8afed6655470",
+      "characters": 778
+    },
+    "901114": {
+      "id": 901114,
+      "book_id": 6193,
+      "chunk_index": 195,
+      "page": 181,
+      "chapter": null,
+      "sha256": "34587619e81fa7e5c3f08b2f7fd2b85fc0c23ff5f724cbb08b70a5d70acece3f",
+      "characters": 495
+    },
+    "901115": {
+      "id": 901115,
+      "book_id": 6193,
+      "chunk_index": 196,
+      "page": 182,
+      "chapter": null,
+      "sha256": "b33d9dbce1780e41d1fb9ce4618595f874f54c6ef7a0ee97aa9be3217cf502f2",
+      "characters": 978
+    },
+    "901116": {
+      "id": 901116,
+      "book_id": 6193,
+      "chunk_index": 197,
+      "page": 183,
+      "chapter": null,
+      "sha256": "947c0faadcb858538d0e780d0f8a5e55444e0d646ce709930ea9249de77efda8",
+      "characters": 673
+    },
+    "901117": {
+      "id": 901117,
+      "book_id": 6193,
+      "chunk_index": 198,
+      "page": 184,
+      "chapter": null,
+      "sha256": "cb60484964610e6e7856b5cad067fc37e2191b73e039b55f40dc7d0b82b33f3e",
+      "characters": 316
+    },
+    "901126": {
+      "id": 901126,
+      "book_id": 6193,
+      "chunk_index": 207,
+      "page": 192,
+      "chapter": null,
+      "sha256": "3f416c8391263e3ac02cb6f7ce7dff208940b10750e9aae85aebe9ceb0fd3148",
+      "characters": 1735
+    },
+    "1252152": {
+      "id": 1252152,
+      "book_id": 8408,
+      "chunk_index": 0,
+      "page": 2,
+      "chapter": null,
+      "sha256": "e7f02a6afb37345b55129bffe7a377c0c3299012a06cc6fb13056a9e19267121",
+      "characters": 153
+    },
+    "1252153": {
+      "id": 1252153,
+      "book_id": 8408,
+      "chunk_index": 1,
+      "page": 3,
+      "chapter": null,
+      "sha256": "6a0c628a2918cb85be3751de902e4a8eb960bf74ca08b3075351d80f92e26690",
+      "characters": 1517
+    },
+    "1252188": {
+      "id": 1252188,
+      "book_id": 8408,
+      "chunk_index": 36,
+      "page": 31,
+      "chapter": null,
+      "sha256": "9982a6403b96d6f7dd1a7e53306b33fcf62b98a4b56f5f6ab9bfef4fb3aee4b3",
+      "characters": 1079
+    },
+    "1252189": {
+      "id": 1252189,
+      "book_id": 8408,
+      "chunk_index": 37,
+      "page": 32,
+      "chapter": null,
+      "sha256": "9690cae8d18845c42f028ea0ae046513c1ce49681daf00a037c4ab9347a4d646",
+      "characters": 1063
+    },
+    "1252190": {
+      "id": 1252190,
+      "book_id": 8408,
+      "chunk_index": 38,
+      "page": 33,
+      "chapter": null,
+      "sha256": "b90f79879be3656d1585209c9e3356f5ac717669a848536f75d60a81dd772564",
+      "characters": 1210
+    },
+    "1252191": {
+      "id": 1252191,
+      "book_id": 8408,
+      "chunk_index": 39,
+      "page": 34,
+      "chapter": null,
+      "sha256": "255bda8e61c99488e4ac51e2d6f7fc6c4139272ca1d99d665a376885183b99b9",
+      "characters": 1358
+    },
+    "1252210": {
+      "id": 1252210,
+      "book_id": 8408,
+      "chunk_index": 58,
+      "page": 52,
+      "chapter": null,
+      "sha256": "8a0ac45641956339dadc1707ed1f663b72471797f5069af62e48054ef9f90dea",
+      "characters": 1158
+    },
+    "1252211": {
+      "id": 1252211,
+      "book_id": 8408,
+      "chunk_index": 59,
+      "page": 53,
+      "chapter": null,
+      "sha256": "190716ab1a3f4277640c183fceda2739d1e38474668a7ce050034725710eb9f7",
+      "characters": 1081
+    },
+    "1252228": {
+      "id": 1252228,
+      "book_id": 8408,
+      "chunk_index": 76,
+      "page": 68,
+      "chapter": null,
+      "sha256": "9096832ef6ab052d773847dce98dddc84cfcf8a6522878098c8185bd25029ef7",
+      "characters": 622
+    },
+    "1252231": {
+      "id": 1252231,
+      "book_id": 8408,
+      "chunk_index": 79,
+      "page": 71,
+      "chapter": null,
+      "sha256": "ecf74fb0c77600d0e5e5aa61d1c2c8f025e5d47afabddde66b7b92838024dd4a",
+      "characters": 806
+    },
+    "1252255": {
+      "id": 1252255,
+      "book_id": 8408,
+      "chunk_index": 103,
+      "page": 94,
+      "chapter": null,
+      "sha256": "1cbf56b6438c80e7a7c12d6fcb5c89a49315b9dee15369da0a60c58d50d7e4ac",
+      "characters": 1144
+    },
+    "1252263": {
+      "id": 1252263,
+      "book_id": 8408,
+      "chunk_index": 111,
+      "page": 102,
+      "chapter": null,
+      "sha256": "766a43ca2e7636abf21c2899a411dc832c33c6b60a65cd23d6d295f3649fcc83",
+      "characters": 951
+    },
+    "1252264": {
+      "id": 1252264,
+      "book_id": 8408,
+      "chunk_index": 112,
+      "page": 103,
+      "chapter": null,
+      "sha256": "c14b7a3bc8ee3feb714097e6e27ede398be6c27a589893ea4356f2eb4d44af66",
+      "characters": 272
+    },
+    "1252266": {
+      "id": 1252266,
+      "book_id": 8408,
+      "chunk_index": 114,
+      "page": 105,
+      "chapter": null,
+      "sha256": "0991d19cd22c1644a65746d1edfbe1d75ae8583f872d5a9f61673af64f837ae5",
+      "characters": 570
+    },
+    "1252269": {
+      "id": 1252269,
+      "book_id": 8408,
+      "chunk_index": 117,
+      "page": 108,
+      "chapter": null,
+      "sha256": "6d7ae6a0c52ec18b7cce5c1f16a98d3eb01e94bd21973334d6ec7a7b95ed0bf1",
+      "characters": 581
+    },
+    "1252306": {
+      "id": 1252306,
+      "book_id": 8408,
+      "chunk_index": 154,
+      "page": 145,
+      "chapter": null,
+      "sha256": "8f3d80a1ce2b8ee6ee2aa63c097186aeb20d9c5c4d6435c9383ed46d9566f6e4",
+      "characters": 1066
+    },
+    "1252309": {
+      "id": 1252309,
+      "book_id": 8408,
+      "chunk_index": 157,
+      "page": 148,
+      "chapter": null,
+      "sha256": "d2ba036e67646128d0f6601c2842fa59b68c046cdb3f8b68528d9dd33a7981e1",
+      "characters": 431
+    },
+    "1252310": {
+      "id": 1252310,
+      "book_id": 8408,
+      "chunk_index": 158,
+      "page": 149,
+      "chapter": null,
+      "sha256": "4b6ea2689edd42f4f7071dea063f4a8a3036b5a625118f4b293116a799386bc1",
+      "characters": 525
+    },
+    "1252311": {
+      "id": 1252311,
+      "book_id": 8408,
+      "chunk_index": 159,
+      "page": 150,
+      "chapter": null,
+      "sha256": "de19b24c4a8f6d347719e3ddbacec6587d8db095a1463bd1e2232c82028885d6",
+      "characters": 375
+    },
+    "1252312": {
+      "id": 1252312,
+      "book_id": 8408,
+      "chunk_index": 160,
+      "page": 151,
+      "chapter": null,
+      "sha256": "da6e763a42ba9c76a454a1c05715180aa811236daa2edd6fba284b3d1ab9aa9f",
+      "characters": 788
+    },
+    "1252313": {
+      "id": 1252313,
+      "book_id": 8408,
+      "chunk_index": 161,
+      "page": 152,
+      "chapter": null,
+      "sha256": "431fe6e443398a3903a88a188323b83eb58fbccc43116b37df1ed1a997cfd419",
+      "characters": 703
+    },
+    "1252314": {
+      "id": 1252314,
+      "book_id": 8408,
+      "chunk_index": 162,
+      "page": 153,
+      "chapter": null,
+      "sha256": "24c61a55eabcb559642a92f19563255ac1143367a31882f56c2ba8d3b66b3cfb",
+      "characters": 542
+    },
+    "1252327": {
+      "id": 1252327,
+      "book_id": 8408,
+      "chunk_index": 175,
+      "page": 165,
+      "chapter": null,
+      "sha256": "e0a845c8997f2b333e5754f5e7f1190f796857b107c5a200071f370130c41abc",
+      "characters": 614
+    },
+    "1252343": {
+      "id": 1252343,
+      "book_id": 8408,
+      "chunk_index": 191,
+      "page": 181,
+      "chapter": null,
+      "sha256": "8c20a686a066788704848aa3a81ccf8715b3dbac82cd9583f611b528d0c3482f",
+      "characters": 930
+    },
+    "1252350": {
+      "id": 1252350,
+      "book_id": 8408,
+      "chunk_index": 198,
+      "page": 190,
+      "chapter": null,
+      "sha256": "037feacac3c8e51a82065da815df72dc3f5d4631f2e1616622297c1e4aa2e514",
+      "characters": 1377
+    },
+    "1252351": {
+      "id": 1252351,
+      "book_id": 8408,
+      "chunk_index": 199,
+      "page": 191,
+      "chapter": null,
+      "sha256": "1e4cf8bcf6c67273370042ba19b4bc7c9809bcb7ede03d884552348a0892617d",
+      "characters": 570
+    },
+    "1252352": {
+      "id": 1252352,
+      "book_id": 8408,
+      "chunk_index": 200,
+      "page": 192,
+      "chapter": null,
+      "sha256": "37f879088f673227616c85ad6a9dafdbe3cfc9fb3099a3259d5f500ae85aded1",
+      "characters": 476
+    },
+    "1252353": {
+      "id": 1252353,
+      "book_id": 8408,
+      "chunk_index": 201,
+      "page": 193,
+      "chapter": null,
+      "sha256": "d5731d7e82807bafd27048d44362f1f18a39296a88e0bef6cfe566c4bf801807",
+      "characters": 383
+    },
+    "1252354": {
+      "id": 1252354,
+      "book_id": 8408,
+      "chunk_index": 202,
+      "page": 194,
+      "chapter": null,
+      "sha256": "63af148ece21618feae98ce83c5153eb21be7ee020b2ba4ddda4910f3352e238",
+      "characters": 929
+    },
+    "1252355": {
+      "id": 1252355,
+      "book_id": 8408,
+      "chunk_index": 203,
+      "page": 195,
+      "chapter": null,
+      "sha256": "0b4ef67b2a2b660e68e6548388889a6791b9f9def57188474a6a51f8f67c8b25",
+      "characters": 431
+    },
+    "1252356": {
+      "id": 1252356,
+      "book_id": 8408,
+      "chunk_index": 204,
+      "page": 196,
+      "chapter": null,
+      "sha256": "b2f64cc66afb7a556810436de9ade80c08119bb0648322fb313da99a2ef7b249",
+      "characters": 926
+    },
+    "1252363": {
+      "id": 1252363,
+      "book_id": 8408,
+      "chunk_index": 211,
+      "page": 203,
+      "chapter": null,
+      "sha256": "0864c8ac4a2e016cbfc51e009ddf60e1d119145324c70a2d8f7f9285e5d4e59b",
+      "characters": 554
+    },
+    "1252371": {
+      "id": 1252371,
+      "book_id": 8408,
+      "chunk_index": 219,
+      "page": 211,
+      "chapter": null,
+      "sha256": "d2e2243583f258259f5a76aa05fd6400882c719c99f3c3e79dccaf0316691c71",
+      "characters": 1302
+    },
+    "1252387": {
+      "id": 1252387,
+      "book_id": 8408,
+      "chunk_index": 235,
+      "page": 227,
+      "chapter": null,
+      "sha256": "f8016ef3bf9e6ae5278242e620e0904f53e58abbf4a806ce73dc61f1d481d3ad",
+      "characters": 810
+    },
+    "1252393": {
+      "id": 1252393,
+      "book_id": 8408,
+      "chunk_index": 241,
+      "page": 233,
+      "chapter": null,
+      "sha256": "d0b1567167f9e67e577020c9ef27613c71d01331dad0170bdd54b99a24a6af87",
+      "characters": 266
+    },
+    "1252400": {
+      "id": 1252400,
+      "book_id": 8408,
+      "chunk_index": 248,
+      "page": 240,
+      "chapter": null,
+      "sha256": "c201be4bc4745c58262c9545d1678648e8e34d9e58284bfbd3f31dba94c06386",
+      "characters": 645
+    },
+    "1252401": {
+      "id": 1252401,
+      "book_id": 8408,
+      "chunk_index": 249,
+      "page": 241,
+      "chapter": null,
+      "sha256": "29b972d8e1af7f8f009f730553d6d29a131175f6fc1c65b0031e4f7d77477cd0",
+      "characters": 989
+    },
+    "1252412": {
+      "id": 1252412,
+      "book_id": 8408,
+      "chunk_index": 260,
+      "page": 253,
+      "chapter": null,
+      "sha256": "2d93a997fc9ce40fbe09d333b645597f47cb94e930f72ffac22b94d8bd35cef7",
+      "characters": 881
+    },
+    "1252425": {
+      "id": 1252425,
+      "book_id": 8408,
+      "chunk_index": 273,
+      "page": 266,
+      "chapter": null,
+      "sha256": "094f040713d610d8746b774adfe144fc2580bacd67c06971ffa86a4623bbb826",
+      "characters": 1211
+    },
+    "1252426": {
+      "id": 1252426,
+      "book_id": 8408,
+      "chunk_index": 274,
+      "page": 267,
+      "chapter": null,
+      "sha256": "ce36a617c959a31bdb9e789bb395395635d6a6ba3bb293ae53dac1fb1237a6cc",
+      "characters": 333
+    },
+    "1252427": {
+      "id": 1252427,
+      "book_id": 8408,
+      "chunk_index": 275,
+      "page": 268,
+      "chapter": null,
+      "sha256": "e0bfb2bf53c0ad1a5e3b41153056db83cc4df6107bb8f5e3fc887c0f5c78cc09",
+      "characters": 715
+    },
+    "1252439": {
+      "id": 1252439,
+      "book_id": 8408,
+      "chunk_index": 287,
+      "page": 280,
+      "chapter": null,
+      "sha256": "6e772f261b9c53426e82b8f570ad0a1914d686dcfe71b4c11ea5e0ef422e84c6",
+      "characters": 257
+    },
+    "1252440": {
+      "id": 1252440,
+      "book_id": 8408,
+      "chunk_index": 288,
+      "page": 281,
+      "chapter": null,
+      "sha256": "b418d6c0a9b05d91921e728a86587603eee2fea3d757d9a629101737b56bc6f5",
+      "characters": 484
+    },
+    "1252445": {
+      "id": 1252445,
+      "book_id": 8408,
+      "chunk_index": 293,
+      "page": 285,
+      "chapter": null,
+      "sha256": "8415b1caccec4341131c01d6382ec2e85228a699b410b644b4b6abe7db0fcaa5",
+      "characters": 410
+    },
+    "1252446": {
+      "id": 1252446,
+      "book_id": 8408,
+      "chunk_index": 294,
+      "page": 286,
+      "chapter": null,
+      "sha256": "ea44bf3f00bd9e12cdf1e58bb5facc28e04563aa8ae3e8c9814a7ba8c18af753",
+      "characters": 671
+    },
+    "1252447": {
+      "id": 1252447,
+      "book_id": 8408,
+      "chunk_index": 295,
+      "page": 287,
+      "chapter": null,
+      "sha256": "dfac534d332cb9d7ed736a08604af6871b5a43546b34e0a06f5b6aa251da7e61",
+      "characters": 800
+    },
+    "1252448": {
+      "id": 1252448,
+      "book_id": 8408,
+      "chunk_index": 296,
+      "page": 288,
+      "chapter": null,
+      "sha256": "f57f7ed5bca0ffab856b3bb3b481c5fe4c0351c43164ff45bb7f77e2e0ea2bfd",
+      "characters": 299
+    },
+    "1252467": {
+      "id": 1252467,
+      "book_id": 8408,
+      "chunk_index": 315,
+      "page": 308,
+      "chapter": null,
+      "sha256": "1da7700e02c43acb41f5cfedfc23a1d27c866c8ba8fd5049cac4ce172678c470",
+      "characters": 1049
+    },
+    "1252468": {
+      "id": 1252468,
+      "book_id": 8408,
+      "chunk_index": 316,
+      "page": 309,
+      "chapter": null,
+      "sha256": "1f4ebd4c5875654008b290651d7dc9f730daa8a2dd98bea4d07b10cc7522e028",
+      "characters": 718
+    },
+    "1252496": {
+      "id": 1252496,
+      "book_id": 8408,
+      "chunk_index": 344,
+      "page": 337,
+      "chapter": null,
+      "sha256": "2d0f5e793e638d7707a1494133065d6298bfbe9844e52ef256adcb440f212afe",
+      "characters": 857
+    },
+    "1252497": {
+      "id": 1252497,
+      "book_id": 8408,
+      "chunk_index": 345,
+      "page": 338,
+      "chapter": null,
+      "sha256": "2d081f2e4c955cfd00424f479af15b8cb7d5c509584869e220fedf3bf7af06e0",
+      "characters": 968
+    },
+    "1252512": {
+      "id": 1252512,
+      "book_id": 8408,
+      "chunk_index": 360,
+      "page": 354,
+      "chapter": null,
+      "sha256": "0e8642fc2def62a80a43ece487f8e04e0463192a024528ac9a59abf07b4ca96f",
+      "characters": 1803
+    },
+    "1252513": {
+      "id": 1252513,
+      "book_id": 8408,
+      "chunk_index": 361,
+      "page": 354,
+      "chapter": null,
+      "sha256": "03ea0afad8c36a53d0b366f5b888df97d470e29797cd0aa7e12a81468bb51471",
+      "characters": 151
+    },
+    "1252514": {
+      "id": 1252514,
+      "book_id": 8408,
+      "chunk_index": 362,
+      "page": 355,
+      "chapter": null,
+      "sha256": "8140ba873382ae9c4b00076909017310a6f3101d808c5d7d38ca275032206493",
+      "characters": 540
+    },
+    "1252520": {
+      "id": 1252520,
+      "book_id": 8408,
+      "chunk_index": 368,
+      "page": 360,
+      "chapter": null,
+      "sha256": "e32733d6f8285f886277f98606bf6a740d09fdf324a94258d852da617f58b905",
+      "characters": 771
+    },
+    "1252531": {
+      "id": 1252531,
+      "book_id": 8408,
+      "chunk_index": 379,
+      "page": 371,
+      "chapter": null,
+      "sha256": "fd8500a01fddfcc000c554bba8376f06e0bb5d968cddb69448b540fcc25940c4",
+      "characters": 1742
+    },
+    "1252560": {
+      "id": 1252560,
+      "book_id": 8408,
+      "chunk_index": 408,
+      "page": 399,
+      "chapter": null,
+      "sha256": "b7a5a874edd9b403ee60a783eda08f52c17a5a7eabea371f91ded2a41efd63e3",
+      "characters": 1280
+    },
+    "1252561": {
+      "id": 1252561,
+      "book_id": 8408,
+      "chunk_index": 409,
+      "page": 400,
+      "chapter": null,
+      "sha256": "f6113276334940f621d5462ad00b16229ea29277bc11a2b3bb03d4a75989816f",
+      "characters": 604
+    },
+    "1252562": {
+      "id": 1252562,
+      "book_id": 8408,
+      "chunk_index": 410,
+      "page": 401,
+      "chapter": null,
+      "sha256": "5e62873641b3a5462473d5d9b62bcf0f77d7785cced126419f85791a0018b2db",
+      "characters": 1142
+    },
+    "1252571": {
+      "id": 1252571,
+      "book_id": 8408,
+      "chunk_index": 419,
+      "page": 410,
+      "chapter": null,
+      "sha256": "bcee867ba690d8be87cadc0dd7b372efbb69432212791b85224f638557328f4a",
+      "characters": 324
+    },
+    "1252574": {
+      "id": 1252574,
+      "book_id": 8408,
+      "chunk_index": 422,
+      "page": 413,
+      "chapter": null,
+      "sha256": "b1a0dcac946a65315e2216993d3d9a92553af0a8b5e55a6e2892c929e05bd46f",
+      "characters": 681
+    },
+    "1951692": {
+      "id": 1951692,
+      "book_id": 26489,
+      "chunk_index": 0,
+      "page": 2,
+      "chapter": null,
+      "sha256": "9fe003f9aecc08c9e2c03adac74849f8cf6494f08e4148180c7ea8ec28b4465e",
+      "characters": 144
+    },
+    "1951693": {
+      "id": 1951693,
+      "book_id": 26489,
+      "chunk_index": 1,
+      "page": 3,
+      "chapter": null,
+      "sha256": "231618e0a7daddecdc780ec03b1785ab0feb17950943985d343edec74a718038",
+      "characters": 1533
+    },
+    "1951737": {
+      "id": 1951737,
+      "book_id": 26489,
+      "chunk_index": 45,
+      "page": 44,
+      "chapter": null,
+      "sha256": "831e72132c10372c7fa367ed82c4f576419a76ca0d12e894c1178cf666fce8fd",
+      "characters": 1205
+    },
+    "1951741": {
+      "id": 1951741,
+      "book_id": 26489,
+      "chunk_index": 49,
+      "page": 47,
+      "chapter": null,
+      "sha256": "ba2923d5a658a3bf975590c9d5b52383474c5896b3d79c359b40473dc1574647",
+      "characters": 1198
+    },
+    "1951742": {
+      "id": 1951742,
+      "book_id": 26489,
+      "chunk_index": 50,
+      "page": 48,
+      "chapter": null,
+      "sha256": "1254ed1cecbdd16069df92a6cf050065c310145a3574b16cc67167f7669f4509",
+      "characters": 1266
+    },
+    "1951743": {
+      "id": 1951743,
+      "book_id": 26489,
+      "chunk_index": 51,
+      "page": 49,
+      "chapter": null,
+      "sha256": "d99e45aa9ec76abb6314831a5a6be89a93364ac3fa90665bf0f0ba9fb2aa406e",
+      "characters": 1207
+    },
+    "1951791": {
+      "id": 1951791,
+      "book_id": 26489,
+      "chunk_index": 99,
+      "page": 93,
+      "chapter": null,
+      "sha256": "09b1d9de600959ea9f700b92f6dc030dd45facc2ee9c2274ef1fdd2556a2fe3b",
+      "characters": 1524
+    },
+    "1951794": {
+      "id": 1951794,
+      "book_id": 26489,
+      "chunk_index": 102,
+      "page": 96,
+      "chapter": null,
+      "sha256": "0fa354288ed1f513d7792d44aeeb899619d7d9bb53702d2a3ac4523890085599",
+      "characters": 1331
+    },
+    "1951795": {
+      "id": 1951795,
+      "book_id": 26489,
+      "chunk_index": 103,
+      "page": 97,
+      "chapter": null,
+      "sha256": "b9b852b0b978b35504f7f0ccf439f612a59bf87b23b2403bd4fa7a9ac0bd061a",
+      "characters": 1025
+    },
+    "1951801": {
+      "id": 1951801,
+      "book_id": 26489,
+      "chunk_index": 109,
+      "page": 102,
+      "chapter": null,
+      "sha256": "8b504adc6dd3ee8c75d1ee641f5b4e634024c42d54c3157f9b41d71623536954",
+      "characters": 436
+    },
+    "1951804": {
+      "id": 1951804,
+      "book_id": 26489,
+      "chunk_index": 112,
+      "page": 105,
+      "chapter": null,
+      "sha256": "ee3fcd0f0475ca70e706e95999e522f84f1dadc49613d559b34bb1d03d00062a",
+      "characters": 1909
+    },
+    "1951818": {
+      "id": 1951818,
+      "book_id": 26489,
+      "chunk_index": 126,
+      "page": 117,
+      "chapter": null,
+      "sha256": "2209271619facf5a74cb11dc2084aef746d310aa7982b56531aa1d426e86dc35",
+      "characters": 1157
+    },
+    "1951819": {
+      "id": 1951819,
+      "book_id": 26489,
+      "chunk_index": 127,
+      "page": 118,
+      "chapter": null,
+      "sha256": "a00248db91ccf63f3ccb902b9f7ca5e091b2efa589f53beb40136442d2724473",
+      "characters": 1249
+    },
+    "1951820": {
+      "id": 1951820,
+      "book_id": 26489,
+      "chunk_index": 128,
+      "page": 119,
+      "chapter": null,
+      "sha256": "966f199ec05d15269b793c1bbeba9df8ed357bf59e6d5e6587ed3743a966fe5b",
+      "characters": 1596
+    },
+    "1951835": {
+      "id": 1951835,
+      "book_id": 26489,
+      "chunk_index": 143,
+      "page": 132,
+      "chapter": null,
+      "sha256": "6c165c0eec381135ba788725e03a2b85900261829284984b4e8ace012b99ce91",
+      "characters": 1693
+    },
+    "1951837": {
+      "id": 1951837,
+      "book_id": 26489,
+      "chunk_index": 145,
+      "page": 133,
+      "chapter": null,
+      "sha256": "48b49d9634a98d092429d72f91edd2b84dfb770842199396c8fbfc3839f432d3",
+      "characters": 969
+    },
+    "1951863": {
+      "id": 1951863,
+      "book_id": 26489,
+      "chunk_index": 171,
+      "page": 157,
+      "chapter": null,
+      "sha256": "e0a7b6e5fe9346d5852df7810f47497fdafa0225000d93a41b4fc287db382d64",
+      "characters": 1526
+    },
+    "1951865": {
+      "id": 1951865,
+      "book_id": 26489,
+      "chunk_index": 173,
+      "page": 159,
+      "chapter": null,
+      "sha256": "212fc958e61a1726f00a36c48ef56eb0a03da7a5f5ebefd61854fa02569f60d7",
+      "characters": 1525
+    },
+    "1951866": {
+      "id": 1951866,
+      "book_id": 26489,
+      "chunk_index": 174,
+      "page": 160,
+      "chapter": null,
+      "sha256": "141e4fa507b95b9a55297a705db3373e8186218b25680cfd3cbecc3a28c9dcfa",
+      "characters": 1146
+    },
+    "1951903": {
+      "id": 1951903,
+      "book_id": 26489,
+      "chunk_index": 211,
+      "page": 196,
+      "chapter": null,
+      "sha256": "af3da4444e90e74e20df993d60173b1c0403f1c87ece167d28ffb1bb0c6b5129",
+      "characters": 961
+    },
+    "1951905": {
+      "id": 1951905,
+      "book_id": 26489,
+      "chunk_index": 213,
+      "page": 198,
+      "chapter": null,
+      "sha256": "be09876c0e607d08672389f99ff57f1eff3acffa60b2b647fb314d0bcad956cc",
+      "characters": 1821
+    },
+    "1951906": {
+      "id": 1951906,
+      "book_id": 26489,
+      "chunk_index": 214,
+      "page": 198,
+      "chapter": null,
+      "sha256": "2b85e66a53063623253de43506e6d890c62afca7ca565e5cf2d059d1f8601959",
+      "characters": 472
+    },
+    "1951907": {
+      "id": 1951907,
+      "book_id": 26489,
+      "chunk_index": 215,
+      "page": 199,
+      "chapter": null,
+      "sha256": "0a4dfdfd183ab708255771ee5c68fc08987420c4e2a93d109fe0fd5a56f9fb8f",
+      "characters": 1230
+    },
+    "1951917": {
+      "id": 1951917,
+      "book_id": 26489,
+      "chunk_index": 225,
+      "page": 208,
+      "chapter": null,
+      "sha256": "842a4dd0aa4a18eff5611bade09aa5457bb548960c41f53069fa395b59e7e3ca",
+      "characters": 1735
+    },
+    "1951918": {
+      "id": 1951918,
+      "book_id": 26489,
+      "chunk_index": 226,
+      "page": 208,
+      "chapter": null,
+      "sha256": "b4d41a317c5f3dc1c64f03472f4e8267f3cf0fa010d3ab4a2d83a13cb58769ad",
+      "characters": 173
+    },
+    "1951919": {
+      "id": 1951919,
+      "book_id": 26489,
+      "chunk_index": 227,
+      "page": 209,
+      "chapter": null,
+      "sha256": "955a2d69952c27e6eebd0f853df023fa7b027b1984f34278b912a1d8cc62d9ec",
+      "characters": 1445
+    },
+    "1951942": {
+      "id": 1951942,
+      "book_id": 26489,
+      "chunk_index": 250,
+      "page": 230,
+      "chapter": null,
+      "sha256": "0ed7ccc6e92ab2fa7947c940509d59f5d557834e6f6556813c1da57cea54ce12",
+      "characters": 1182
+    },
+    "1951943": {
+      "id": 1951943,
+      "book_id": 26489,
+      "chunk_index": 251,
+      "page": 231,
+      "chapter": null,
+      "sha256": "0ecabec525680d82966382cbc13e4f119d519c1c725568c6713e06d910103ac3",
+      "characters": 1324
+    },
+    "1951944": {
+      "id": 1951944,
+      "book_id": 26489,
+      "chunk_index": 252,
+      "page": 232,
+      "chapter": null,
+      "sha256": "9dc02cb11e6b44dbbdacf243c53927b57c3f2c4f3dfa58dfa0c5a4b06382bebd",
+      "characters": 1322
+    },
+    "1951960": {
+      "id": 1951960,
+      "book_id": 26489,
+      "chunk_index": 268,
+      "page": 247,
+      "chapter": null,
+      "sha256": "14b57e3ba87a38917f2cd26a013046d4f50dc6c5e5995572d5012159c1721575",
+      "characters": 1082
+    },
+    "1951963": {
+      "id": 1951963,
+      "book_id": 26489,
+      "chunk_index": 271,
+      "page": 249,
+      "chapter": null,
+      "sha256": "49efcf471901d5faf59beb70c5e08d9cb3e21c7cbe0ffad501e3a7faea0bd1e5",
+      "characters": 1053
+    },
+    "1952000": {
+      "id": 1952000,
+      "book_id": 26489,
+      "chunk_index": 308,
+      "page": 281,
+      "chapter": null,
+      "sha256": "efc8998e6a31d59067ce57090bd3bf409f343aa1bcc82034b43ea4087841583e",
+      "characters": 1729
+    },
+    "1952002": {
+      "id": 1952002,
+      "book_id": 26489,
+      "chunk_index": 310,
+      "page": 282,
+      "chapter": null,
+      "sha256": "b6fd735c547dd45600cc8eb0501e30cc6345bc5a5ef0aa49501a5efc6bb6bbba",
+      "characters": 1539
+    }
+  },
+  "duplicate_catalog_checksum_groups": [],
+  "coverage": {
+    "400": [
+      {
+        "section": "1–2 : prise en main et interface",
+        "method_ids": [
+          "B01",
+          "B21"
+        ],
+        "decision": "Principes d’inspection ; gestes 2.46 historiques."
+      },
+      {
+        "section": "3–4 : premier objet et techniques de modélisation",
+        "method_ids": [
+          "B02",
+          "B03"
+        ],
+        "decision": "Volume, normales, subdivision et sculpture ; pas toutes les variantes de commandes."
+      },
+      {
+        "section": "5 : matériaux, textures et UV",
+        "method_ids": [
+          "B04",
+          "B05"
+        ],
+        "decision": "Principes ; shaders du moteur interne non transposés."
+      },
+      {
+        "section": "6 : éclairage",
+        "method_ids": [
+          "B14"
+        ],
+        "decision": "Famille couverte prioritairement par l’ouvrage récent ; radiosité ancienne non reprise."
+      },
+      {
+        "section": "7 : animation fondamentale et particules",
+        "method_ids": [
+          "B10",
+          "B16",
+          "B18"
+        ],
+        "decision": "Clés, interpolation, poids ; recettes particules historiques."
+      },
+      {
+        "section": "8 : animation avancée",
+        "method_ids": [
+          "B16",
+          "B17",
+          "B18"
+        ],
+        "decision": "NLA, rigging, cloth, fluides ; implémentations anciennes à adapter."
+      },
+      {
+        "section": "9 : rendu et composition",
+        "method_ids": [
+          "B15"
+        ],
+        "decision": "Séquence d’images, montage, passes ; anciens codecs et boutons écartés."
+      },
+      {
+        "section": "Annexes, index et DVD",
+        "method_ids": [],
+        "decision": "Repérage/identité seulement ; pas de reproduction des listes de raccourcis ou contenu du DVD."
+      }
+    ],
+    "8408": [
+      {
+        "section": "1 : échelle, photo et biseaux",
+        "method_ids": [
+          "B01",
+          "B02"
+        ],
+        "decision": "Dimensions d’exemple contextualisées."
+      },
+      {
+        "section": "2 : matériaux réalistes",
+        "method_ids": [
+          "B05",
+          "B06"
+        ],
+        "decision": "Maps, coordonnées, procédural et affichage."
+      },
+      {
+        "section": "3 : UV",
+        "method_ids": [
+          "B04"
+        ],
+        "decision": "Dépliage et contrôle de texture."
+      },
+      {
+        "section": "4 : plantes et dispersion",
+        "method_ids": [
+          "B10",
+          "B12"
+        ],
+        "decision": "Masques, instances et variation."
+      },
+      {
+        "section": "5 : éclairage",
+        "method_ids": [
+          "B14"
+        ],
+        "decision": "Soleil, température, ciel, HDRI."
+      },
+      {
+        "section": "6 : paysages",
+        "method_ids": [
+          "B11"
+        ],
+        "decision": "Terrain, échelle, densité, orientation des normales."
+      },
+      {
+        "section": "7 : eau et animation",
+        "method_ids": [
+          "B13"
+        ],
+        "decision": "Approximation visuelle et limite de la boucle de bruit."
+      },
+      {
+        "section": "8–9 : boue et masques de paysage",
+        "method_ids": [
+          "B06",
+          "B11"
+        ],
+        "decision": "Groupes, paramètres et masques."
+      },
+      {
+        "section": "10 : rochers",
+        "method_ids": [
+          "B04",
+          "B12"
+        ],
+        "decision": "UV et optimisation d’un asset répétitif."
+      },
+      {
+        "section": "11–12 : fleurs et arbres",
+        "method_ids": [
+          "B09",
+          "B12"
+        ],
+        "decision": "Plans alpha, pivots et résolution."
+      },
+      {
+        "section": "13 : dispersion du décor",
+        "method_ids": [
+          "B10"
+        ],
+        "decision": "Familles d’assets et zones."
+      },
+      {
+        "section": "14 : rendu et compositing",
+        "method_ids": [
+          "B14",
+          "B15"
+        ],
+        "decision": "Échantillons, débruitage, coût, couleur, glare."
+      },
+      {
+        "section": "15, index et contenus promotionnels",
+        "method_ids": [],
+        "decision": "Hors méthodes."
+      }
+    ],
+    "26489": [
+      {
+        "section": "1–2 : Blender et Unity",
+        "method_ids": [
+          "B19"
+        ],
+        "decision": "Interopérabilité et coordonnées ; installation Unity hors scope."
+      },
+      {
+        "section": "3 : prototype du niveau",
+        "method_ids": [
+          "B01"
+        ],
+        "decision": "Blocking comme référence ; ProBuilder/C# hors scope du skill Blender."
+      },
+      {
+        "section": "4 : personnalisation",
+        "method_ids": [
+          "B09",
+          "B21"
+        ],
+        "decision": "Collections, assets, opérateurs ; pas de modification globale imposée."
+      },
+      {
+        "section": "5 : Geometry Nodes",
+        "method_ids": [
+          "B08"
+        ],
+        "decision": "Décomposition, silhouette, paramètres."
+      },
+      {
+        "section": "6 : assemblage",
+        "method_ids": [
+          "B08",
+          "B09",
+          "B19",
+          "B21"
+        ],
+        "decision": "Réemploi et export ; auto-exécution non imposée."
+      },
+      {
+        "section": "7 : matériaux",
+        "method_ids": [
+          "B05",
+          "B07",
+          "B19"
+        ],
+        "decision": "UV générées, textures et packing spécifique."
+      },
+      {
+        "section": "8 : baking des détails",
+        "method_ids": [
+          "B07",
+          "B08"
+        ],
+        "decision": "Instances, UV et projection entre meshes."
+      },
+      {
+        "section": "9 : gameplay et animation",
+        "method_ids": [
+          "B16",
+          "B17",
+          "B19"
+        ],
+        "decision": "Retenir armature simple et animation ; contrôleur Unity hors scope."
+      },
+      {
+        "section": "10, index et contenus promotionnels",
+        "method_ids": [],
+        "decision": "Hors méthodes."
+      }
+    ]
+  }
+}

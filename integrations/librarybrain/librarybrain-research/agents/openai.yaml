@@ -1,0 +1,4 @@
+interface:
+  display_name: "LibraryBrain · Distillation"
+  short_description: "Sélectionner les sources et distiller leurs méthodes"
+  default_prompt: "Applique $librarybrain-research pour extraire les méthodes les plus solides de ces sources."

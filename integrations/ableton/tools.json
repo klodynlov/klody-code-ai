@@ -1,0 +1,18 @@
+[
+  "get_session_info", "get_session_snapshot", "get_track_info",
+  "get_return_tracks", "get_clip_info", "get_clip_notes",
+  "get_arrangement_clips", "get_device_parameters", "get_master_device_parameters",
+  "get_return_device_parameters", "search_browser",
+  "set_tempo", "start_playback", "stop_playback", "set_metronome",
+  "set_time_signature", "set_loop", "set_arrangement_time", "stop_all_clips",
+  "create_scene", "fire_scene", "set_scene_name", "undo", "redo",
+  "create_midi_track", "create_audio_track", "create_return_track",
+  "duplicate_track", "delete_track", "set_track_name",
+  "set_track_volume", "set_track_pan", "set_track_mute", "set_track_solo",
+  "set_master_volume", "set_send",
+  "create_clip", "create_audio_clip", "edit_notes", "set_clip_name",
+  "fire_clip", "stop_clip", "set_clip_loop", "duplicate_clip_to",
+  "load_instrument_or_effect", "load_device_to_master", "load_device_to_return",
+  "set_device_parameter", "set_master_device_parameter", "set_return_device_parameter",
+  "set_device_enabled", "duplicate_to_arrangement", "write_automation"
+]

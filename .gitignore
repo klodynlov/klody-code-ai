@@ -119,3 +119,17 @@ skills/digest_procedure_disciplinaire_harceleme.json
 # des artefacts runtime : produits par scripts/import-librarybrain-methods.py
 # et chargés par l'agent au démarrage.
 !skills/librarybrain_*.json
+
+# integrations/ : le bundle est versionné, mais pas ses artefacts.
+# Les .zip sont des builds de integrations/blender/addon/ (identiques au
+# source) ; les .plist sont des doublons exacts de launchagents/, qui en
+# est l'emplacement canonique et où seuls eux portent des chemins absolus
+# (launchd n'accepte pas « ~ »).
+integrations/**/*.zip
+integrations/**/*.plist
+# L'extension Blender amont est sous GPL-3.0-or-later (Blender Authors,
+# projects.blender.org/lab/blender_mcp) alors que ce dépôt est sous MIT.
+# Embarquer ce source ici est une décision de licence à prendre à part :
+# exclu tant qu'elle n'est pas tranchée. Provenance, commit amont et
+# empreintes restent tracés dans integrations/blender/installation.json.
+integrations/blender/addon/
