@@ -79,7 +79,7 @@ _SERVER_POLICIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             # tir / armement / mouvement de la tête (laser éteint ou non)
             "laser_arm", "laser_run", "laser_dot", "laser_frame", "laser_resume",
             "laser_jog", "laser_goto", "laser_send", "laser_reset", "laser_unlock",
-            "laser_set_origin",
+            "laser_set_origin", "job_goto_op",
             # repère planche et calibration caméra : écrasent une référence physique
             "work_set_from_dots", "work_reset", "work_confirm",
             "camera_align", "camera_align_auto", "camera_calibrate_intrinsics",
@@ -94,6 +94,10 @@ _SERVER_POLICIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             "job_update", "job_remove", "job_list", "job_preview", "job_export_gcode",
             "job_save", "job_load",
             "image_to_svg", "text_to_svg", "mesh_to_svg",
+            # formes « LightBurn » : produisent des fichiers / des ops, jamais un tir
+            "job_add_text", "job_add_fill", "job_offset_op", "job_boolean", "job_array", "job_circular_array",
+            "job_add_material_test", "job_add_interval_test", "job_add_svg_layers",
+            "material_list", "material_set", "material_apply", "list_fonts",
             "camera_list", "camera_open", "camera_capture", "camera_status",
             "camera_bed_view", "camera_px_to_bed", "camera_find_dot",
         }),

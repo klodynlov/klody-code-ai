@@ -92,7 +92,8 @@ def test_mcp_unknown_head_falls_back_to_strong_write_verb():
 def test_laser_firing_and_motion_tools_require_approval():
     for leaf in ["laser_arm", "laser_run", "laser_dot", "laser_frame", "laser_jog", "laser_goto",
                  "laser_send", "laser_reset", "laser_unlock", "laser_resume", "laser_set_origin",
-                 "work_set_from_dots", "work_reset", "work_confirm", "camera_align", "camera_align_auto"]:
+                 "work_set_from_dots", "work_reset", "work_confirm", "camera_align", "camera_align_auto",
+                 "job_goto_op"]:
         assert requires_approval(f"mcp__laser__{leaf}"), f"doit être gardé : {leaf}"
 
 
@@ -106,7 +107,8 @@ def test_laser_preparation_tools_are_free():
     # job_add_* aurait été gardé par le verbe « add » : préparer un job ne tire jamais.
     for leaf in ["job_add_vector", "job_add_raster", "job_new", "job_preview", "text_to_svg",
                  "image_to_svg", "mesh_to_svg", "camera_capture", "camera_bed_view", "laser_connect",
-                 "laser_status", "work_info"]:
+                 "laser_status", "work_info", "job_add_text", "job_offset_op", "job_boolean", "job_array",
+                 "job_add_material_test", "material_apply", "list_fonts"]:
         assert not requires_approval(f"mcp__laser__{leaf}"), f"doit être libre : {leaf}"
 
 
