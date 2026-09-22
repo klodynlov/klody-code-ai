@@ -1,0 +1,4 @@
+interface:
+  display_name: "LibraryBrain · Méthodes business"
+  short_description: "Valeur client, offres rentables et tests de canal"
+  default_prompt: "Applique $librarybrain-business pour construire mon offre et vérifier sa rentabilité."

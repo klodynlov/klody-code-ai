@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blender — méthodes LibraryBrain"
+  short_description: "Modélisation, matériaux, animation, rendu et exports"
+  default_prompt: "Utilise $librarybrain-blender pour améliorer ma scène Blender avec une méthode traçable et un contrôle visible."

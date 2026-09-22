@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-22T18:07:41.561000+00:00",
+  "skills": [
+    {
+      "slug": "librarybrain_unity",
+      "path": "skills/librarybrain_unity.json",
+      "source_sha256": "c8a44ba2a7d5d9d756307f50529333a41055ab5f5acaa230a6328d8f09266630",
+      "bundle_sha256": "fac1cb8ed33ea61875f47d971aaabc94978c120313bb0891c085a9fe4173c04a"
+    },
+    {
+      "slug": "librarybrain_research",
+      "path": "skills/librarybrain_research.json",
+      "source_sha256": "d4d3b01fb6c606e1a96e6dfb89ba8e43e7fb80bf675e83ea15eba39b3acbe6a3",
+      "bundle_sha256": "e0bea4cb0baa20f3b8683bd2316935f163c38aad0ce6fa8bd7c9d61fb2fa2381"
+    },
+    {
+      "slug": "librarybrain_music",
+      "path": "skills/librarybrain_music.json",
+      "source_sha256": "c9c4cacad23cb63a0bbbe4ba2471c3ed4503178f34ec3fdb2d84725debe51d6b",
+      "bundle_sha256": "e8cb3456dde3f0ae6fbbc56eb88550b51449c1c1acdaeb3eae6cceb12bd29d65"
+    },
+    {
+      "slug": "librarybrain_business",
+      "path": "skills/librarybrain_business.json",
+      "source_sha256": "264e4d74a68cc6ebbd86f336810a9373c1742c474d3f2a33e67828cfb4703c91",
+      "bundle_sha256": "173ddbf3edd1dc9cd4afbfa7533fb7d3a3d7efa8700ffb43e80b28d70182291c"
+    },
+    {
+      "slug": "librarybrain_engineering",
+      "path": "skills/librarybrain_engineering.json",
+      "source_sha256": "694b2b9198f8ebe932847383e6543bbf4fb622638946d396e58d323e5e9b3efe",
+      "bundle_sha256": "bf9513470f7fd84afa17e281c8c00da781bb66b2af945c1e51bbfe0506c27c1b"
+    },
+    {
+      "slug": "librarybrain_blender",
+      "path": "skills/librarybrain_blender.json",
+      "source_sha256": "06b75f24b3a278b2a3acf7b809434f0dd84cb9addf96fa0471a61ad18077b13a",
+      "bundle_sha256": "cea446789ba828394bec1efe6f211dbecf4c6584d44a326fe9ec2aec368fa3ff"
+    }
+  ]
+}

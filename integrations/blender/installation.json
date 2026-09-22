@@ -1,0 +1,31 @@
+{
+  "upstream": "https://projects.blender.org/lab/blender_mcp",
+  "tag": "v1.0.0",
+  "commit": "03004fd0216bfe5e0a3d9ac9b47d5efadc3d78c4",
+  "package": "blender-mcp==1.0.0 (Blender Lab source, not the homonymous PyPI project)",
+  "addon_zip_sha256": "7fbfb8e9f391281a5612c5e71162042d5c0844f71d5702fe322d11de2c0ebbac",
+  "addon_files": {
+    "__init__.py": "42c618aa4cab373529524fd58c6f26b8c84d56ffef17b2db1edc2df3be914c8d",
+    "blender_manifest.toml": "ef0becf6faf13f6ea2bcdccf2dc68aa4de9e9e95cec8fb8ac3c5e3784e28407c",
+    "capture_output.py": "437c783fc8647e35653435d624f983252b4e5463293b47399652306723377105",
+    "cli.py": "a3d2e3cd2d1e13662b05e0084b2b59ad37d38113fc697597d1962086056f0dfc",
+    "deferred_tool.py": "c366890985bd9f32dd87313db0bea42137bcec64e4f9762b24ee7453ccb47435",
+    "execute_blocking.py": "3cd5d65cbb8dae1d61a13a7ba32c21c8f7f0f13375ac714b41e51e90c0a4c875",
+    "execute_interactive.py": "015bd8342fba3dcbb1fca7fd534021cfe5dbd18e6da392648c42b038eb1aa266",
+    "mcp_to_blender_server.py": "4080b91fb4f8b648209ba850acbfa143e8d2ede385f1d7db5c198e483304e50a",
+    "weak_sandbox.py": "0bf7a6b4bf0be7ab16a758d38c386e930b9d7de44c3f12550feff235e0ecc47b"
+  },
+  "installed_addon_module": "bl_ext.user_default.klody_blender_mcp",
+  "installed_addon_files": {
+    "__init__.py": "96619c8e74098d4160b0fa3500b8fb9e375d83912837b3624dde412a8b496030",
+    "blender_manifest.toml": "8d5457b0660b3c16808d885c5575267413236a420e27a687cb7c4c04cf4a161c",
+    "capture_output.py": "437c783fc8647e35653435d624f983252b4e5463293b47399652306723377105",
+    "cli.py": "a3d2e3cd2d1e13662b05e0084b2b59ad37d38113fc697597d1962086056f0dfc",
+    "deferred_tool.py": "c366890985bd9f32dd87313db0bea42137bcec64e4f9762b24ee7453ccb47435",
+    "execute_blocking.py": "3cd5d65cbb8dae1d61a13a7ba32c21c8f7f0f13375ac714b41e51e90c0a4c875",
+    "execute_interactive.py": "015bd8342fba3dcbb1fca7fd534021cfe5dbd18e6da392648c42b038eb1aa266",
+    "mcp_to_blender_server.py": "aebed6d85a99218d77dcf5cc19c16f92674e03026f882f61f7c18fd7f820273c",
+    "weak_sandbox.py": "0bf7a6b4bf0be7ab16a758d38c386e930b9d7de44c3f12550feff235e0ecc47b"
+  },
+  "adaptation": "Explicit 127.0.0.1-only network IPC; Blender online_access remains false; distinct extension name."
+}

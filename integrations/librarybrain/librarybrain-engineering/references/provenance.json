@@ -1,0 +1,248 @@
+{
+  "version": "0.1",
+  "frozen_at": "2026-09-08T12:38:51.410800+00:00",
+  "database": "~/library_brain.db",
+  "scope": "Targeted selection; not an exhaustive ranking of the corpus.",
+  "methods": [
+    {
+      "id": "E1",
+      "name": "Choisir l’intervention à partir des échecs",
+      "passage_ids": [
+        1206,
+        1207,
+        1208,
+        1209
+      ],
+      "source_principle": "Diagnostiquer manque d’information ou comportement inadéquat ; choisir l’adaptation avec une évaluation préalable.",
+      "our_adaptation": "Taxonomie des erreurs incluant la recherche et comparaison des interventions sur les mêmes cas.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "E2",
+      "name": "Séparer la recherche de la réponse",
+      "passage_ids": [
+        944,
+        1115,
+        1015
+      ],
+      "source_principle": "Mesurer pertinence/rappel des passages et distinguer fidélité locale, vérité externe et utilité.",
+      "our_adaptation": "Expérience à contexte fixé puis chaîne complète pour localiser l’échec.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "E3",
+      "name": "Construire une comparaison qui résiste aux fuites",
+      "passage_ids": [
+        1309590,
+        1309591,
+        1309520,
+        1309517,
+        1015
+      ],
+      "source_principle": "Comparer à des références, contrôler doublons/groupes/temps et clarifier les rubriques d’évaluation avec des personnes.",
+      "our_adaptation": "Regrouper ouvrages et éditions avant génération de variantes ; réserver de nouveaux cas finaux.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    }
+  ],
+  "books": [
+    {
+      "book_id": 7,
+      "title": "AI Engineering: Building Applications with Foundation Models",
+      "authors": "Chip Huyen",
+      "edition_note": "Première publication décembre 2024 ; copyright 2025",
+      "limitations": "Méthodes d’évaluation et d’adaptation ; ne pas généraliser les résultats de benchmarks cités à tous les modèles.",
+      "identity_passages": [
+        629,
+        635
+      ]
+    },
+    {
+      "book_id": 8524,
+      "title": "Designing Machine Learning Systems",
+      "authors": "Chip Huyen",
+      "edition_note": "Catalogue : 2022",
+      "limitations": "Méthodes de comparaison et de prévention des fuites ; application au corpus documentaire adaptée dans ce projet.",
+      "identity_passages": [
+        1309242
+      ]
+    }
+  ],
+  "passages": {
+    "1206": {
+      "id": 1206,
+      "book_id": 7,
+      "page": 340,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "85008e68f5c70e681f9319b48104442a92045fe05105ba4bfddcbfd835077e0f",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1206",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1207": {
+      "id": 1207,
+      "book_id": 7,
+      "page": 341,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "4284d0e80085ca5b7b06d70af22b897f3221e1fa300ab77d40bad9befa6ca663",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1207",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1208": {
+      "id": 1208,
+      "book_id": 7,
+      "page": 341,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "60bd72b8696dc2f3544ef0f4375aab3aa375cfe8ad7db8670903ceda90f382d8",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1208",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1209": {
+      "id": 1209,
+      "book_id": 7,
+      "page": 342,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "4142339e3ad97d0ec48ee9908fda53f1610917931ad6ec8abd44a2e8b252ce68",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1209",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "944": {
+      "id": 944,
+      "book_id": 7,
+      "page": 189,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "493e0ccc28f4be74cbbcea8928d174f8165445f90d8b8335acdd87e2b0d508c5",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-944",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1115": {
+      "id": 1115,
+      "book_id": 7,
+      "page": 288,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "ecc6e42f01adc7aabf825ae89d0e146208d69c7b555c218d4b3d2ddd433affce",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1115",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1015": {
+      "id": 1015,
+      "book_id": 7,
+      "page": 227,
+      "chapter": null,
+      "title": "AI Engineering",
+      "author": "Chip Huyen;",
+      "year": 2024,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/AI Engineering Building Applications with Foundation Models (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "ffaf39b5cde0ff6202d63e81fc69d2b2fe9124e0a21d1a2e6e0750114511391f",
+      "catalog_url": "http://127.0.0.1:8765/book/7",
+      "citation_id": "LB-7-1015",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309590": {
+      "id": 1309590,
+      "book_id": 8524,
+      "page": 200,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "ba7e8c91982a3f4ffb63ace8149e24cbec473a6b8bb5adede592395431024ff0",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309590",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309591": {
+      "id": 1309591,
+      "book_id": 8524,
+      "page": 200,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "5125c7c2c41f702382569ec064b8c12525d95b833636932e39e24793af1d91be",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309591",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309520": {
+      "id": 1309520,
+      "book_id": 8524,
+      "page": 159,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "4789244666f970cd6d3125fa2f9cbcfbd9b06b4587d24a3323556145e5233f9a",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309520",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1309517": {
+      "id": 1309517,
+      "book_id": 8524,
+      "page": 157,
+      "chapter": null,
+      "title": "Designing Machine Learning Systems",
+      "author": "Huyen, Chip;",
+      "year": 2022,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Imports/Designing Machine Learning Systems An Iterative Process for Production-Ready (Chip Huyen) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "d079bf5d0ed03d380e79b4198699ab23e561f1c744291db6268eadcbcbbe14ad",
+      "catalog_url": "http://127.0.0.1:8765/book/8524",
+      "citation_id": "LB-8524-1309517",
+      "page_kind": "indexed page; verify printed numbering separately"
+    }
+  }
+}

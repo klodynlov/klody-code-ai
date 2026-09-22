@@ -1,0 +1,290 @@
+{
+  "version": "0.1",
+  "frozen_at": "2026-09-08T12:38:51.410466+00:00",
+  "database": "~/library_brain.db",
+  "scope": "Targeted selection; not an exhaustive ranking of the corpus.",
+  "methods": [
+    {
+      "id": "B1",
+      "name": "Partir de la valeur, puis construire l’offre",
+      "passage_ids": [
+        1842849,
+        1842851,
+        1842852,
+        1842853,
+        1842855,
+        1842856,
+        1842866
+      ],
+      "source_principle": "Clarifier le résultat, ses mesures et sa valeur, puis discuter le prix et les options de proposition.",
+      "our_adaptation": "Explicitation de la part attribuable, abandon des pourcentages universels et articulation au contrôle B2.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "B2",
+      "name": "Vérifier contribution, seuil et capacité",
+      "passage_ids": [
+        22003,
+        22004,
+        22006
+      ],
+      "source_principle": "Les frais fixes sont couverts par les contributions unitaires ; le modèle rencontre des limites quand les coûts changent de structure.",
+      "our_adaptation": "Contrôle explicite de capacité et scénario de coût ou volume défavorable.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "B3",
+      "name": "Choisir le canal à partir de la cible et du résultat",
+      "passage_ids": [
+        743995,
+        744220,
+        743997
+      ],
+      "source_principle": "Les personas s’appuient sur des données et la stratégie relie cible, objectif, canal et observation des performances.",
+      "our_adaptation": "Fiche de test avec événement, budget, horizon et décision prédéfinie.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    }
+  ],
+  "books": [
+    {
+      "book_id": 246,
+      "title": "L’essentiel de la finance à l’usage des managers",
+      "authors": "Pierre Cabane",
+      "edition_note": "Catalogue : 2008",
+      "limitations": "Calcul de contribution et de seuil vérifiable ; usage limité aux mécanismes de gestion, pas aux règles fiscales actuelles.",
+      "identity_passages": [
+        21880
+      ]
+    },
+    {
+      "book_id": 4353,
+      "title": "Le Grand Livre du Marketing digital",
+      "authors": "Claire Gallic et Rémy Marrone",
+      "edition_note": "2023",
+      "limitations": "Méthodes de ciblage et de cohérence de stratégie ; détails des plateformes susceptibles d’avoir changé.",
+      "identity_passages": [
+        743921
+      ]
+    },
+    {
+      "book_id": 26017,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "authors": "Blair Enns",
+      "edition_note": "2018, vérifié dans le texte",
+      "limitations": "Conseil de tarification pour prestations créatives et expertes ; valeur estimée et prix accepté restent incertains.",
+      "identity_passages": [
+        1842738
+      ]
+    }
+  ],
+  "passages": {
+    "1842849": {
+      "id": 1842849,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "0304b9d2d7c15e20d686c2b9c56a224f87fe77c22f101d68563ca627a5fd652c",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842849",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842851": {
+      "id": 1842851,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "73b9603702920aceb4c4eba7dc314a1b1a67280169c046612f498b7fdfecd9a5",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842851",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842852": {
+      "id": 1842852,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "1fa60f58597c8ac225eba3215d2cd0010c12d23f4d97099c2c038fd9b582f6f3",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842852",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842853": {
+      "id": 1842853,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "395549b4d32f7c4dbc6b96eeca5fc4ae7cf2eb7a7e59ea1c3cfdfecb0001670f",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842853",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842855": {
+      "id": 1842855,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "08ed51cfd450c667d3411113639e741fa2496f53a7db06c0f6238579150316c2",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842855",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842856": {
+      "id": 1842856,
+      "book_id": 26017,
+      "page": 27,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "474da15e16d29369581c4de142c26d33dbc631ac4d46abba833e00ee89450f06",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842856",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "1842866": {
+      "id": 1842866,
+      "book_id": 26017,
+      "page": 29,
+      "chapter": null,
+      "title": "Pricing Creativity: A Guide to Profit Beyond the Billable Hour",
+      "author": "Blair Enns",
+      "year": null,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Pricing Creativity A Guide to Profit Beyond the Billable Hour (Blair Enns) (z-library.sk, 1lib.sk, z-lib.sk)_1.epub",
+      "license": null,
+      "text_sha256": "99b9cd8b2cbde0630333978d82b25db463bbf3a688f5193e478b7be821f1c285",
+      "catalog_url": "http://127.0.0.1:8765/book/26017",
+      "citation_id": "LB-26017-1842866",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "22003": {
+      "id": 22003,
+      "book_id": 246,
+      "page": 108,
+      "chapter": null,
+      "title": "L'essentiel de la finance à l'usage des managers",
+      "author": "Pierre Cabane",
+      "year": 2008,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Business/L'essentiel de la finance à l'usage des managers.pdf",
+      "license": null,
+      "text_sha256": "bf0ea400882dcaa0e14dbc6868b246a3e1da757324be04c154c093742f3a2628",
+      "catalog_url": "http://127.0.0.1:8765/book/246",
+      "citation_id": "LB-246-22003",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "22004": {
+      "id": 22004,
+      "book_id": 246,
+      "page": 109,
+      "chapter": null,
+      "title": "L'essentiel de la finance à l'usage des managers",
+      "author": "Pierre Cabane",
+      "year": 2008,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Business/L'essentiel de la finance à l'usage des managers.pdf",
+      "license": null,
+      "text_sha256": "26824e9035a485a480a132574f686e08d543eb8ac5aabf7d4060cc14d76f2190",
+      "catalog_url": "http://127.0.0.1:8765/book/246",
+      "citation_id": "LB-246-22004",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "22006": {
+      "id": 22006,
+      "book_id": 246,
+      "page": 110,
+      "chapter": null,
+      "title": "L'essentiel de la finance à l'usage des managers",
+      "author": "Pierre Cabane",
+      "year": 2008,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Business/L'essentiel de la finance à l'usage des managers.pdf",
+      "license": null,
+      "text_sha256": "79cd5f0c8dda53cd6bc80a5d1ca30acdf5e4677d01a971172909733c6e9fbd30",
+      "catalog_url": "http://127.0.0.1:8765/book/246",
+      "citation_id": "LB-246-22006",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "743995": {
+      "id": 743995,
+      "book_id": 4353,
+      "page": 11,
+      "chapter": null,
+      "title": "Le Grand Livre du Marketing digital",
+      "author": "Gallic Claire, Marrone Rémy",
+      "year": 2023,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Le Grand Livre du Marketing digital (Gallic Claire etc.) (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": null,
+      "text_sha256": "bc838753fcf90ecee5b5b5b564f337f6a979834e5ef765af83dedc36b5259f51",
+      "catalog_url": "http://127.0.0.1:8765/book/4353",
+      "citation_id": "LB-4353-743995",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "744220": {
+      "id": 744220,
+      "book_id": 4353,
+      "page": 27,
+      "chapter": null,
+      "title": "Le Grand Livre du Marketing digital",
+      "author": "Gallic Claire, Marrone Rémy",
+      "year": 2023,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Le Grand Livre du Marketing digital (Gallic Claire etc.) (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": null,
+      "text_sha256": "5d3fda3058e700fa729d0fd9d4440f530e3613ee426928fb5dd581118565dd13",
+      "catalog_url": "http://127.0.0.1:8765/book/4353",
+      "citation_id": "LB-4353-744220",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "743997": {
+      "id": 743997,
+      "book_id": 4353,
+      "page": 11,
+      "chapter": null,
+      "title": "Le Grand Livre du Marketing digital",
+      "author": "Gallic Claire, Marrone Rémy",
+      "year": 2023,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Le Grand Livre du Marketing digital (Gallic Claire etc.) (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": null,
+      "text_sha256": "40237e16718d2b137bd3745c7c5e878d17638bc55a7a7d802de98c65ca79c2a5",
+      "catalog_url": "http://127.0.0.1:8765/book/4353",
+      "citation_id": "LB-4353-743997",
+      "page_kind": "indexed page; verify printed numbering separately"
+    }
+  }
+}

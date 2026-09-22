@@ -1,0 +1,57 @@
+--- upstream/__init__.py
++++ klody_blender_mcp/__init__.py
+@@ -35,7 +35,7 @@
+ #
+ # NOTE(@ideasman42): we could consider `localhost` to be acceptable, this is a grey area
+ # regarding what counts as "online" or not.
+-_state_offline_error_message = "Online access must be enabled in the system preferences"
++_state_offline_error_message = "Klody MCP requires the loopback host 127.0.0.1"
+ 
+ 
+ class _State:
+@@ -77,12 +77,15 @@
+         """
+         Return True when online access is permitted, otherwise store an error and return False.
+         """
+-        if bpy.app.online_access:
++        # Klody adaptation: only a loopback listener is allowed. Local IPC
++        # does not enable Blender Internet access or alter online preferences.
++        prefs = bpy.context.preferences.addons[__package__].preferences
++        if prefs.host == "127.0.0.1":
+             return True
+         cls.startup_info_set(_state_offline_error_message)
+         if bpy.app.background:
+             print("Error: {:s}".format(_state_offline_error_message))
+-            print("  Use --online-mode to enable online access from the command line")
++            print("  Set the Klody MCP host to 127.0.0.1")
+         return False
+ 
+ 
+--- upstream/mcp_to_blender_server.py
++++ klody_blender_mcp/mcp_to_blender_server.py
+@@ -35,7 +35,7 @@
+ from collections.abc import Callable
+ from typing import NamedTuple
+ 
+-DEFAULT_HOST = "localhost"
++DEFAULT_HOST = "127.0.0.1"
+ DEFAULT_PORT = 9876
+ 
+ # Seconds between main-thread timer ticks.
+--- upstream/blender_manifest.toml
++++ klody_blender_mcp/blender_manifest.toml
+@@ -1,10 +1,10 @@
+ schema_version = "1.0.0"
+ 
+-id = "mcp"
++id = "klody_blender_mcp"
+ version = "1.0.0"
+-name = "MCP"
+-tagline = "MCP server add-on for LLM interaction"
+-maintainer = "Blender Lab"
++name = "Klody MCP (Blender Lab)"
++tagline = "Local Blender Lab MCP bridge for Klody AI"
++maintainer = "Klody integration, based on Blender Lab"
+ type = "add-on"
+ website = "https://www.blender.org/lab/mcp-server/"
+ blender_version_min = "5.1.0"

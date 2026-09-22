@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unity — méthodes et pipeline Blender"
+  short_description: "Intégrer, rendre interactif et valider un prototype Unity"
+  default_prompt: "Utilise $librarybrain-unity pour construire et vérifier une tranche complète du prototype."

@@ -1,0 +1,13 @@
+{
+  "package": "mcp-server-ableton-live==1.8.0",
+  "upstream": "https://github.com/wstierhout/ableton-live-mcp",
+  "surface": "KlodyAbletonMCP",
+  "socket": "127.0.0.1:9878",
+  "mcp": "http://127.0.0.1:8094/mcp",
+  "files": {
+    "LICENSE": "b4a97f23cd6f5c22a84279f568617c7b68335d0d00e9de6f61e440ee00105456",
+    "bridge.py": "093fea4fc3d354239ba8f721ac5e240272e549a708d0026951dd44fac07424cf",
+    "__init__.py": "1545a0e3acfc4397bfa137c4f117f4e56f54c6f4724d1c262d3dd8f447982aeb"
+  },
+  "python": "~/.klody/venvs/ableton-mcp/bin/python"
+}

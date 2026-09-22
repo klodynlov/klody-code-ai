@@ -1,0 +1,2 @@
+# Isolated from Klody's inference/API environment.
+mcp-server-ableton-live==1.8.0

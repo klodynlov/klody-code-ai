@@ -1,0 +1,316 @@
+{
+  "date": "2026-09-10T12:32:35.486370+00:00",
+  "scope": "Focused Blender-to-Unity methods, not an exhaustive Unity corpus distillation",
+  "source": {
+    "id": 26489,
+    "title": "3D Game Development with Blender 5 and Unity 6 Create immersive 3D games in Blender and Unity using a real-time, elegant… (Paolo Acampora) (z-library.sk, 1lib.sk, z-lib.sk)",
+    "author": null,
+    "file_path": "~/Documents/Livres/Imports/3D Game Development with Blender 5 and Unity 6 Create immersive 3D games in Blender and Unity using a real-time, elegant… (Paolo Acampora) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+    "checksum": "feb1a9e34060d0a29666e0fd94a62657",
+    "page_count": 306
+  },
+  "verified_identity": {
+    "author": "Paolo Acampora",
+    "title": "3D Game Development with Blender 5 and Unity 6",
+    "publication": "March 2026",
+    "examples": "Blender 5.1 / Unity 6.3"
+  },
+  "methods": [
+    {
+      "id": "U01",
+      "passage_ids": [
+        1951727,
+        1951728,
+        1951729,
+        1951765,
+        1951766,
+        1951767,
+        1951768,
+        1951769
+      ],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U02",
+      "passage_ids": [
+        1951738,
+        1951741,
+        1951742,
+        1951743,
+        1951917,
+        1951918,
+        1951919
+      ],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U03",
+      "passage_ids": [
+        1951757,
+        1951905,
+        1951906,
+        1951907,
+        1951917,
+        1951918,
+        1951919
+      ],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U04",
+      "passage_ids": [
+        1951885
+      ],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U05",
+      "passage_ids": [
+        1951979,
+        1951980,
+        1951981,
+        1951982,
+        1951983
+      ],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U06",
+      "passage_ids": [],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    },
+    {
+      "id": "U07",
+      "passage_ids": [],
+      "additional_basis": "Official Unity 6.6 manual and explicitly labelled local adaptations"
+    }
+  ],
+  "passages": [
+    {
+      "id": 1951727,
+      "book_id": 26489,
+      "chunk_index": 35,
+      "page": 33,
+      "chapter": null,
+      "sha256": "893096d8f40a5e20e901d6805f69546aab8c21522165920d0b0c47e348e2cd40",
+      "characters": 1331
+    },
+    {
+      "id": 1951728,
+      "book_id": 26489,
+      "chunk_index": 36,
+      "page": 34,
+      "chapter": null,
+      "sha256": "f0e9d0d4e8cc2a63d32e3885f86aba4a5018952156723c334ab8d354caf61b9b",
+      "characters": 1349
+    },
+    {
+      "id": 1951729,
+      "book_id": 26489,
+      "chunk_index": 37,
+      "page": 35,
+      "chapter": null,
+      "sha256": "f064620bed3e90108eab96c071a23cf3428b53179dad20524ffc9ab819a29921",
+      "characters": 1239
+    },
+    {
+      "id": 1951738,
+      "book_id": 26489,
+      "chunk_index": 46,
+      "page": 45,
+      "chapter": null,
+      "sha256": "d86f771ceefd15df753637beba30db3e899ec9d96a8f8333d012bc9326e4a715",
+      "characters": 1748
+    },
+    {
+      "id": 1951741,
+      "book_id": 26489,
+      "chunk_index": 49,
+      "page": 47,
+      "chapter": null,
+      "sha256": "ba2923d5a658a3bf975590c9d5b52383474c5896b3d79c359b40473dc1574647",
+      "characters": 1198
+    },
+    {
+      "id": 1951742,
+      "book_id": 26489,
+      "chunk_index": 50,
+      "page": 48,
+      "chapter": null,
+      "sha256": "1254ed1cecbdd16069df92a6cf050065c310145a3574b16cc67167f7669f4509",
+      "characters": 1266
+    },
+    {
+      "id": 1951743,
+      "book_id": 26489,
+      "chunk_index": 51,
+      "page": 49,
+      "chapter": null,
+      "sha256": "d99e45aa9ec76abb6314831a5a6be89a93364ac3fa90665bf0f0ba9fb2aa406e",
+      "characters": 1207
+    },
+    {
+      "id": 1951757,
+      "book_id": 26489,
+      "chunk_index": 65,
+      "page": 61,
+      "chapter": null,
+      "sha256": "e03a5f7aaf28953a551b66b5a2b6e3700b0bedae5f63f014620c75bbffa3626a",
+      "characters": 1597
+    },
+    {
+      "id": 1951765,
+      "book_id": 26489,
+      "chunk_index": 73,
+      "page": 69,
+      "chapter": null,
+      "sha256": "0c3ba1414f1c142ce19dc74df68d7f650b0ba53bc432d7f260eb4e1296b3ed83",
+      "characters": 1085
+    },
+    {
+      "id": 1951766,
+      "book_id": 26489,
+      "chunk_index": 74,
+      "page": 70,
+      "chapter": null,
+      "sha256": "0b66e7a058571d6858e2297813c84b25834dc132fedb9c71da6983ae77df997e",
+      "characters": 1125
+    },
+    {
+      "id": 1951767,
+      "book_id": 26489,
+      "chunk_index": 75,
+      "page": 71,
+      "chapter": null,
+      "sha256": "3d0aca96a46c9233b47a50a7bc508a9e6589d281abbf4c0cfedd320501d7a0e4",
+      "characters": 1601
+    },
+    {
+      "id": 1951768,
+      "book_id": 26489,
+      "chunk_index": 76,
+      "page": 71,
+      "chapter": null,
+      "sha256": "ef24dee3cc50dc0d6bfb2a1582708ef7fedd8295258174186d41bbb5e80896e4",
+      "characters": 408
+    },
+    {
+      "id": 1951769,
+      "book_id": 26489,
+      "chunk_index": 77,
+      "page": 72,
+      "chapter": null,
+      "sha256": "09eb2c0862af95abd09276976f4a42cc6107b6d28c8590b744d46c5e3025c1ef",
+      "characters": 1563
+    },
+    {
+      "id": 1951885,
+      "book_id": 26489,
+      "chunk_index": 193,
+      "page": 179,
+      "chapter": null,
+      "sha256": "b51f985034e5911931b3dd9e2cc5417d988cf01bfbb72e65505cc8448e761222",
+      "characters": 1176
+    },
+    {
+      "id": 1951905,
+      "book_id": 26489,
+      "chunk_index": 213,
+      "page": 198,
+      "chapter": null,
+      "sha256": "be09876c0e607d08672389f99ff57f1eff3acffa60b2b647fb314d0bcad956cc",
+      "characters": 1821
+    },
+    {
+      "id": 1951906,
+      "book_id": 26489,
+      "chunk_index": 214,
+      "page": 198,
+      "chapter": null,
+      "sha256": "2b85e66a53063623253de43506e6d890c62afca7ca565e5cf2d059d1f8601959",
+      "characters": 472
+    },
+    {
+      "id": 1951907,
+      "book_id": 26489,
+      "chunk_index": 215,
+      "page": 199,
+      "chapter": null,
+      "sha256": "0a4dfdfd183ab708255771ee5c68fc08987420c4e2a93d109fe0fd5a56f9fb8f",
+      "characters": 1230
+    },
+    {
+      "id": 1951917,
+      "book_id": 26489,
+      "chunk_index": 225,
+      "page": 208,
+      "chapter": null,
+      "sha256": "842a4dd0aa4a18eff5611bade09aa5457bb548960c41f53069fa395b59e7e3ca",
+      "characters": 1735
+    },
+    {
+      "id": 1951918,
+      "book_id": 26489,
+      "chunk_index": 226,
+      "page": 208,
+      "chapter": null,
+      "sha256": "b4d41a317c5f3dc1c64f03472f4e8267f3cf0fa010d3ab4a2d83a13cb58769ad",
+      "characters": 173
+    },
+    {
+      "id": 1951919,
+      "book_id": 26489,
+      "chunk_index": 227,
+      "page": 209,
+      "chapter": null,
+      "sha256": "955a2d69952c27e6eebd0f853df023fa7b027b1984f34278b912a1d8cc62d9ec",
+      "characters": 1445
+    },
+    {
+      "id": 1951979,
+      "book_id": 26489,
+      "chunk_index": 287,
+      "page": 263,
+      "chapter": null,
+      "sha256": "e5a9a8551808ad2239023264ae0f9101489976a312ab296a665020f3621b95fb",
+      "characters": 1286
+    },
+    {
+      "id": 1951980,
+      "book_id": 26489,
+      "chunk_index": 288,
+      "page": 264,
+      "chapter": null,
+      "sha256": "90cfe4711bd8e33bb0543eeb84b94882e9c46ea3c646bd4c1d4f85a8828d6abb",
+      "characters": 1717
+    },
+    {
+      "id": 1951981,
+      "book_id": 26489,
+      "chunk_index": 289,
+      "page": 264,
+      "chapter": null,
+      "sha256": "59fa27c1d9202d68005c31188b96a064a2a5f096f589ee861b0f9e270d52ec26",
+      "characters": 726
+    },
+    {
+      "id": 1951982,
+      "book_id": 26489,
+      "chunk_index": 290,
+      "page": 265,
+      "chapter": null,
+      "sha256": "777289e382ad0b5065f1e953d69e6e5f7aecdecd8e0efdc3993c9a611a0894d4",
+      "characters": 658
+    },
+    {
+      "id": 1951983,
+      "book_id": 26489,
+      "chunk_index": 291,
+      "page": 266,
+      "chapter": null,
+      "sha256": "8d4c0540b9dc16a60a2af2bfcfb483b94aee28043b8304deb6b8eb2fc0c9603e",
+      "characters": 1492
+    }
+  ],
+  "validation": "Signal prototype; independent effectiveness not measured"
+}

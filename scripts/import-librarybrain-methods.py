@@ -13,6 +13,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+HOME = str(Path.home())
+
+
+def _sanitize_home(snapshot):
+    """Remplace le home absolu par « ~ » dans les fichiers texte copiés.
+
+    Les bundles LibraryBrain embarquent les chemins de la bibliothèque
+    personnelle (`provenance.json` → `file_path`, `database`). Ce dépôt est
+    public : publier ces chemins divulguerait l'arborescence de la machine
+    sans rien apporter — les titres et auteurs restent dans `sources.md`.
+    """
+    for path in snapshot.rglob("*"):
+        if not path.is_file() or path.suffix not in {".json", ".md", ".txt", ".yaml", ".toml"}:
+            continue
+        text = path.read_text()
+        if HOME in text:
+            path.write_text(text.replace(HOME, "~"))
 DOMAINS = {
     "unity": ("Unity — prototype interactif et pipeline Blender", "Aide Unity 6, Unity 6.6 et URP : créer un prototype interactif ou un jeu 3D, importer un asset Blender FBX, corriger échelle, axes, UV et matériaux roses. Prefabs, animation, interactions C#, Input System, performances, Profiler, build macOS et validation dans le player."),
     "research": ("Recherche et distillation des sources", "Comparer des sources, arbitrer des recommandations divergentes, extraire des méthodes traçables d'un corpus et tester leurs limites."),
@@ -71,11 +88,12 @@ def run(source, domains=None):
     for original, data, target in prepared:
         snapshot = destination / original.name
         shutil.copytree(original, snapshot, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        _sanitize_home(snapshot)
         skills_dir.mkdir(parents=True, exist_ok=True)
         rendered = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
         (snapshot / "klody-skill.json").write_text(rendered)
         target.write_text(rendered)
-        exports.append({"slug": data["slug"], "path": str(target), "source_sha256": data["source_sha256"], "bundle_sha256": data["bundle_sha256"]})
+        exports.append({"slug": data["slug"], "path": str(target.relative_to(ROOT)), "source_sha256": data["source_sha256"], "bundle_sha256": data["bundle_sha256"]})
     report_path = destination / "import-report.json"
     previous = json.loads(report_path.read_text()).get("skills", []) if report_path.exists() else []
     combined = {entry["slug"]: entry for entry in previous}

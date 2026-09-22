@@ -1,0 +1,189 @@
+{
+  "version": "0.1",
+  "frozen_at": "2026-09-08T12:38:51.410059+00:00",
+  "database": "~/library_brain.db",
+  "scope": "Targeted selection; not an exhaustive ranking of the corpus.",
+  "methods": [
+    {
+      "id": "M1",
+      "name": "Construire l’équilibre par les rôles",
+      "passage_ids": [
+        137308,
+        133507
+      ],
+      "source_principle": "L’arrangement participe à l’équilibre ; le contrôle en mono dissocie balance et panoramique.",
+      "our_adaptation": "Carte des rôles et test par retrait/réintroduction, adaptés à la section réelle.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "M2",
+      "name": "Tester un traitement sans biais de volume",
+      "passage_ids": [
+        133557,
+        133558,
+        133985
+      ],
+      "source_principle": "Comparer après compensation de niveau et sur une portion représentative ; le traitement dynamique varie dans le temps.",
+      "our_adaptation": "Critère formulé avant comparaison, relevé des effets secondaires et outils de mesure si disponibles.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    },
+    {
+      "id": "M3",
+      "name": "Réécrire la structure par l’effet recherché",
+      "passage_ids": [
+        509822,
+        509837
+      ],
+      "source_principle": "Choisir une structure cohérente avec l’intention et expérimenter des réorganisations lors de la réécriture.",
+      "our_adaptation": "Deux plans de forme, fonction des sections et contrôle des durées MIDI.",
+      "validation_level": "source-reviewed; independent effectiveness evaluation pending"
+    }
+  ],
+  "books": [
+    {
+      "book_id": 222,
+      "title": "Mixing with Impact: Learning to Make Musical Choices",
+      "authors": "Wessel Oltheten ; traduction anglaise de Gijs van Osch",
+      "edition_note": "2018",
+      "limitations": "Protocole d’écoute explicite et réserves perceptives ; ne constitue pas une expérience contrôlée publiée.",
+      "identity_passages": [
+        133432,
+        133433
+      ]
+    },
+    {
+      "book_id": 227,
+      "title": "The Mixing Engineer’s Handbook, 4e édition",
+      "authors": "Bobby Owsinski",
+      "edition_note": "2017",
+      "limitations": "Pratique professionnelle et entretiens ; l’auteur indique le caractère notamment expérientiel des conseils.",
+      "identity_passages": [
+        137194
+      ]
+    },
+    {
+      "book_id": 2441,
+      "title": "Écrire une chanson",
+      "authors": "Robert Léger",
+      "edition_note": "Catalogue : 2012 ; le texte comporte des dates d’édition antérieures",
+      "limitations": "Méthode de réécriture artistique ; pas de forme universelle ni de résultat esthétique garanti.",
+      "identity_passages": [
+        509791
+      ]
+    }
+  ],
+  "passages": {
+    "137308": {
+      "id": 137308,
+      "book_id": 227,
+      "page": 89,
+      "chapter": null,
+      "title": "The Mixing Engineer's Handbook 4th Edition",
+      "author": "Bobby Owsinski",
+      "year": 2017,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Musique/The Mixing Engineers Handbook 4th Edition (Bobby Owsinski) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "220f5036f8c7bafdabeda2626b6ce59e2ced9538860133cefa9734b714092fcd",
+      "catalog_url": "http://127.0.0.1:8765/book/227",
+      "citation_id": "LB-227-137308",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "133507": {
+      "id": 133507,
+      "book_id": 222,
+      "page": 46,
+      "chapter": null,
+      "title": "Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "author": null,
+      "year": 2018,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Musique/Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "16ebec7bf0e1e9fe8021f5e5986021ac17f3c2b0752ee50b03400a9ebb28bafb",
+      "catalog_url": "http://127.0.0.1:8765/book/222",
+      "citation_id": "LB-222-133507",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "133557": {
+      "id": 133557,
+      "book_id": 222,
+      "page": 73,
+      "chapter": null,
+      "title": "Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "author": null,
+      "year": 2018,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Musique/Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "28b3e9af51827d395a90677edb2af3d521d7ddb4122af537751ac0dbf6fdea9b",
+      "catalog_url": "http://127.0.0.1:8765/book/222",
+      "citation_id": "LB-222-133557",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "133558": {
+      "id": 133558,
+      "book_id": 222,
+      "page": 73,
+      "chapter": null,
+      "title": "Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "author": null,
+      "year": 2018,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Musique/Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "8190f83367176eaf15b2d4827420aa24c3f311a05c3d670feae70ac1eb2033c6",
+      "catalog_url": "http://127.0.0.1:8765/book/222",
+      "citation_id": "LB-222-133558",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "133985": {
+      "id": 133985,
+      "book_id": 222,
+      "page": 299,
+      "chapter": null,
+      "title": "Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk)",
+      "author": null,
+      "year": 2018,
+      "format": "pdf",
+      "file_path": "~/Documents/Livres/Musique/Mixing with Impact  Learning to Make Musical Choices (Oltheten, Wessel Osch, Gijs van) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "license": null,
+      "text_sha256": "45d3ca9f497afe1f5ceb053fe3982a99d6988dee23be221f2d84d570dcef354d",
+      "catalog_url": "http://127.0.0.1:8765/book/222",
+      "citation_id": "LB-222-133985",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "509822": {
+      "id": 509822,
+      "book_id": 2441,
+      "page": 13,
+      "chapter": "LES STRUCTURES",
+      "title": "Écrire une chanson",
+      "author": "Robert Léger",
+      "year": 2012,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Écrire une chanson (Robert Léger [Léger, Robert]) (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": null,
+      "text_sha256": "35dfad286aafc194525007aec56b447ba1fcbee660ee48f27be8b01f6c221956",
+      "catalog_url": "http://127.0.0.1:8765/book/2441",
+      "citation_id": "LB-2441-509822",
+      "page_kind": "indexed page; verify printed numbering separately"
+    },
+    "509837": {
+      "id": 509837,
+      "book_id": 2441,
+      "page": 13,
+      "chapter": "LES STRUCTURES",
+      "title": "Écrire une chanson",
+      "author": "Robert Léger",
+      "year": 2012,
+      "format": "epub",
+      "file_path": "~/Documents/Livres/Imports/Écrire une chanson (Robert Léger [Léger, Robert]) (z-library.sk, 1lib.sk, z-lib.sk).epub",
+      "license": null,
+      "text_sha256": "2930aa6678954083b0a652ae1a3b8a53ae44b3f121e5b8a20aca6231e324859f",
+      "catalog_url": "http://127.0.0.1:8765/book/2441",
+      "citation_id": "LB-2441-509837",
+      "page_kind": "indexed page; verify printed numbering separately"
+    }
+  }
+}
