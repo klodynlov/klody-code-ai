@@ -92,6 +92,29 @@ graphify-out/
 .env.bak*
 data/
 skills/*.json
+# EXCEPTION : les digests de distillation. La règle ci-dessus les a emportés le
+# 2026-07-03 (2518676) sous le motif « régénérables via l'export distill » — le
+# motif est faux. Un digest est une synthèse LLM non déterministe de livres de
+# Library Brain : le relancer produit un AUTRE texte, et les 3 runs de
+# `auto_distill.py` (state/assistant.db, table distill_runs) comme les ~44
+# `/distill` manuels ne sont pas rejouables à l'identique. Ce sont les seuls
+# artefacts durables de la boucle : un `git clean -xdf` les détruisait sans trace.
+# Même convention que bench/results/reference_* : le préfixe promeut au dépôt.
+# Les 4 premiers (digest_design_d_api_rest, _mastering_claude_ai,
+# _prompt_engineering, _threejs_3d) étaient déjà versionnés avant la règle — la
+# preuve que le versionnement était l'intention d'origine.
+!skills/digest_*.json
+# ...SAUF ces deux-là. Contenu vérifié sans donnée personnelle (droit du travail
+# français générique, aucun nom, aucun employeur), mais ce dépôt est PUBLIC et sur
+# ces sujets la simple présence du fichier est un signal. Décision utilisateur du
+# 2026-09-22 : ils restent LOCAUX. Une règle plutôt qu'un simple `git rm --cached`,
+# pour qu'un `git add` de masse ne puisse pas les réintroduire par accident.
+# ⚠️ Conséquence : pas de copie git pour ces deux fichiers, et ils n'ont pas de
+# jumeau dans ~/Documents/Livres/.brain_distilled/ (digests `/distill` écrits
+# directement ici). Leur seul filet est Time Machine.
+skills/digest_conflits_toxiques_diffamation.json
+skills/digest_procedure_disciplinaire_harceleme.json
+
 # … sauf les skills LibraryBrain, qui sont des livrables versionnés et non
 # des artefacts runtime : produits par scripts/import-librarybrain-methods.py
 # et chargés par l'agent au démarrage.

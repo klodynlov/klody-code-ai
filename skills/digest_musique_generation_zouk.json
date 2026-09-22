@@ -1,0 +1,9 @@
+{
+  "name": "Digest musique generation zouk (auto-distill)",
+  "slug": "digest_musique_generation_zouk",
+  "description": "génération musicale IA, transfert de style, overpainting musical, structure musicale, production hybride, Zouk, curation humaine, données MIDI, apprentissage profond, émotion musicale",
+  "content": "Pour générer de la musique Zouk avec l'IA, ne comptez pas sur un modèle 'boîte noire' pour créer une chanson complète. La méthode robuste consiste en un pipeline hybride : 1) Utilisez un modèle de 'Style Transfer' pour adapter une mélodie de base au style Zouk (rythme, instrumentation). 2) Appliquez une technique de 'Music Overpainting' pour générer des variations rythmiques ou mélodiques courtes. 3) Le producteur humain doit ensuite assembler ces clips, corriger la structure (intro, couplet, refrain) et ajouter la 'vibe' humaine que l'IA ne capture pas. Attention aux artefacts de transcription : la qualité des données d'entraînement (MIDI propre) est critique pour éviter le bruit.\nDigest complet : ~/Documents/Livres/.brain_distilled/musique-generation-zouk.md",
+  "updated": "2026-09-21",
+  "code_compatible": true,
+  "auto_distilled": true
+}
