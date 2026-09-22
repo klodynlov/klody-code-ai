@@ -25,6 +25,29 @@ _PREFIX = "mcp__"
 # Timeouts (secondes) pour ne jamais bloquer Klody sur un serveur mort.
 _DISCOVER_TIMEOUT = 8.0
 _CALL_TIMEOUT = 60.0
+# Par serveur : certains outils sont longs PAR NATURE (génération d'image FLUX,
+# boucle cerveau → juge vision, streaming G-code) — 60 s les tuerait à mi-course
+# alors que le serveur, lui, continue. Surcharge par env KLODY_MCP_CALL_TIMEOUTS
+# ('{"laser": 900}'), sinon ces valeurs. Un serveur absent garde _CALL_TIMEOUT.
+_DEFAULT_CALL_TIMEOUTS: dict[str, float] = {"laser": 600.0, "blender": 120.0}
+
+
+def _parse_timeouts(raw: str) -> dict[str, float]:
+    import json
+    try:
+        data = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        logger.warning("KLODY_MCP_CALL_TIMEOUTS: JSON invalide, ignoré : %r", raw[:80])
+        return {}
+    return {str(k): float(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def call_timeout(server: str) -> float:
+    """Délai d'appel (s) pour un serveur MCP : env > défauts par serveur > _CALL_TIMEOUT."""
+    import os
+    return {**_DEFAULT_CALL_TIMEOUTS, **_parse_timeouts(os.getenv("KLODY_MCP_CALL_TIMEOUTS", ""))}.get(
+        server, _CALL_TIMEOUT
+    )
 
 # Cache de découverte au niveau processus : l'API recrée un Orchestrator à
 # chaque message, on évite ainsi de re-scanner les serveurs (round-trip réseau)
@@ -184,18 +207,18 @@ class MCPManager:
         server, real_name = self._index[tool_name]
         target = self.servers[server]
         try:
-            result = _run_async(self._call(target, real_name, args or {}))
+            result = _run_async(self._call(target, real_name, args or {}, call_timeout(server)))
         except Exception as exc:
             logger.warning("[MCP] appel '%s' échoué : %s", tool_name, exc)
             return f"ERREUR MCP ({server}): {exc}"
         return _result_to_text(result)
 
-    async def _call(self, target: Any, name: str, args: dict) -> Any:
+    async def _call(self, target: Any, name: str, args: dict, timeout: float = _CALL_TIMEOUT) -> Any:
         from fastmcp import Client
 
         async with Client(target, init_timeout=_DISCOVER_TIMEOUT) as client:
             return await client.call_tool(
-                name, args, timeout=_CALL_TIMEOUT, raise_on_error=False
+                name, args, timeout=timeout, raise_on_error=False
             )
 
     # ------------------------------------------------------------------ #
