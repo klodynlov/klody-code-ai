@@ -92,3 +92,7 @@ graphify-out/
 .env.bak*
 data/
 skills/*.json
+# … sauf les skills LibraryBrain, qui sont des livrables versionnés et non
+# des artefacts runtime : produits par scripts/import-librarybrain-methods.py
+# et chargés par l'agent au démarrage.
+!skills/librarybrain_*.json
