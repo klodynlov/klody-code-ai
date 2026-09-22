@@ -1,0 +1,119 @@
+{
+  "skill": "Créer un univers de fiction cohérent (craft + moteur)",
+  "domain": "worldbuilding",
+  "description": "Méthode pour construire un univers de fiction cohérent et extensible : penser le monde (Star Model, mythologie, canon) puis le construire à la machine comme un graphe de concepts typé avec détection de conflits, agents à température différenciée, revue itérative et compression de contexte.",
+  "source": {
+    "book": "How to Create a Universe",
+    "author": "Jakob Ion Wille, Simon Jon Andreasen, Gunnar Wille",
+    "year": 2025
+  },
+  "principles": [
+    "L'univers d'abord, l'histoire ensuite : le story world existe au-delà de chaque œuvre ; chaque récit n'en est qu'une fenêtre.",
+    "Minimal departure : ne spécifier que les écarts au monde familier ; le public comble le reste par défaut.",
+    "Le lore est un GRAPHE de concepts typé, pas de la prose : la cohérence, les dépendances et les conflits deviennent calculables.",
+    "Cohérence par construction : détecter et stopper les conflits à l'entrée (cycle, appartenance unique, spatiotemporel, stylistique) plutôt que réparer après coup.",
+    "Diversité ET cohérence : agents créatifs à haute température, agents factuels à basse, sous une matrice de compatibilité qui cloisonne les registres incompatibles.",
+    "Séparer la génération de la revue : un panel d'auditeurs distinct des générateurs neutralise l'auto-approbation.",
+    "La mythologie profonde agit même invisible, par décodage vertical (traces dans l'environnement, les artefacts, l'architecture)."
+  ],
+  "workflow": [
+    {
+      "step": "Amorcer par divergence",
+      "purpose": "Faire émerger un noyau d'univers distinctif sans se figer trop tôt",
+      "guidelines": [
+        "Poser des questions 'what if' radicales (et si les mammifères respiraient sous l'eau ?).",
+        "Parcourir le Star Model comme grille générative : ethos (valeurs), topos (lieux), mythos (origine), logos (règles), aisthetis (style), + chairos (temps), kharakter (personnage).",
+        "Différer le premisse moral : le formuler en itérations ultérieures, pas au premier jet."
+      ],
+      "pitfalls": [
+        "Confondre worldbuilding et intrigue : le Star Model ne traite ni le plot ni le média.",
+        "Sur-spécifier ce que le lecteur comblerait seul (violer minimal departure)."
+      ]
+    },
+    {
+      "step": "Modéliser en graphe de concepts",
+      "purpose": "Rendre l'univers cohérent et interrogeable par la machine",
+      "guidelines": [
+        "Chaque entité = nœud typé (géographie, race, organisation, événement, système, personnage) avec attributs.",
+        "Relier par relations typées en 6 catégories : hiérarchique (IS_A, PART_OF, MADE_OF), attributive (LOCATED_IN, CAPABLE_OF), fonctionnelle (USED_FOR, REQUIRED_BY, ENABLES), événementielle (SUBEVENT_OF, PREREQUISITE_OF), causale (CONFLICTS_WITH), sémantique (RELATED_TO).",
+        "Persister le graphe (base + FTS + index vectoriel) pour retrieval et exports."
+      ],
+      "pitfalls": [
+        "Garder le lore en prose libre : les contradictions y restent invisibles."
+      ]
+    },
+    {
+      "step": "Valider à l'entrée",
+      "purpose": "Empêcher les incohérences d'entrer dans le canon",
+      "guidelines": [
+        "Détection de cycle sur les seules relations transitives (IS_A/PART_OF/MADE_OF).",
+        "Appartenance unique : un concept n'est PART_OF que d'un seul parent.",
+        "Détecter les contradictions spatiotemporelles (même lieu/temps incompatibles) et stylistiques (magie vs technologie selon le type de monde).",
+        "Terminer proprement sur erreur structurelle plutôt que tenter une auto-réparation."
+      ],
+      "pitfalls": [
+        "Tenter de réparer une dépendance cyclique après coup : moins fiable que refuser à l'entrée."
+      ]
+    },
+    {
+      "step": "Générer en multi-agents ordonnancés",
+      "purpose": "Produire beaucoup de contenu cohérent, en parallèle et à coût maîtrisé",
+      "guidelines": [
+        "Décomposer en tâches, construire le DAG de dépendances, partitionner en batches (tri topologique + localité sémantique, taille 2/6/10).",
+        "Un agent = un fichier skill Markdown (frontmatter YAML : rôle, mots-clés, température).",
+        "Température différenciée : créatif ~0.9, factuel/géographie ~0.3.",
+        "Packer le contexte en 4 couches (Essential / Relevant via retrieval / Summary / Collaboration) sous budget serré au lieu d'élargir la fenêtre."
+      ],
+      "pitfalls": [
+        "Silos d'info entre agents → concepts dupliqués ou dépendances manquantes.",
+        "Température uniforme : trop haute = incohérence, trop basse = homogénéité."
+      ]
+    },
+    {
+      "step": "Réviser puis intégrer",
+      "purpose": "Garantir la qualité et livrer un actif exploitable",
+      "guidelines": [
+        "Panel d'auditeurs séparés des générateurs : boucle score → révise → réévalue jusqu'au seuil.",
+        "Intégrateur final : catégoriser le graphe par type et générer des documents Markdown typés (la bible).",
+        "Mesurer la bible à son utilité stakeholder ; test d'héritage : « que ne peut-on pas perdre sans trahir les fans ? ».",
+        "Valider par des glimpses concrets (scènes test, mood boards, prototypes)."
+      ],
+      "pitfalls": [
+        "Laisser un LLM juger sa propre sortie : il sur-approuve.",
+        "Bible-dépotoir : accumuler du lore dont personne ne mesure l'utilité."
+      ]
+    }
+  ],
+  "checklist": [
+    "L'univers est pensé comme entité première, indépendante de toute intrigue.",
+    "Seuls les écarts au monde familier sont spécifiés (minimal departure).",
+    "Le lore est un graphe de concepts typé, persistant et interrogeable.",
+    "La détection de conflits tourne à l'ENTRÉE (cycle, appartenance unique, spatiotemporel, stylistique).",
+    "Les agents créatifs et factuels ont des températures distinctes ; une matrice de compatibilité cloisonne les registres.",
+    "La revue est assurée par des auditeurs séparés des générateurs, en boucle.",
+    "Une mythologie profonde existe même si le public n'en voit qu'une tranche.",
+    "La porosité du canon (fermé vs monde ouvert) est décidée explicitement.",
+    "La bible est exportée en documents Markdown typés et mesurée à son utilité."
+  ],
+  "vocabulary": [
+    {"term": "Story world", "definition": "L'univers fictionnel qui existe au-delà de la pièce individuelle où on raconte une histoire (Gomez)."},
+    {"term": "Minimal departure", "definition": "Principe (Ryan 1980) : le public complète le monde nouveau à partir du monde familier ; ne spécifier que les écarts."},
+    {"term": "Star Model", "definition": "Grille générative de questions : ethos, topos, mythos, logos, aisthetis (+ chairos, kharakter)."},
+    {"term": "Décodage vertical", "definition": "Lecture de la mythologie via ses traces dans l'environnement, les artefacts et l'architecture, sans exposition directe."},
+    {"term": "Glimpse", "definition": "Aperçu jouable et concret (scène test, mood board) matérialisant ce qui peut arriver dans l'univers."},
+    {"term": "Graphe de concepts", "definition": "Graphe orienté étiqueté N=(V,E,B) modélisant entités et relations typées de l'univers."},
+    {"term": "Matrice de compatibilité", "definition": "Table contrôlant quel type d'agent voit quels concepts, pour cloisonner les registres incompatibles (magie/techno)."}
+  ],
+  "heuristics": [
+    "Si deux agents peuvent produire des concepts de registres opposés (magie et technologie), cloisonne-les par la matrice de compatibilité.",
+    "Si le contexte d'un monde dépasse la fenêtre du modèle, filtre par retrieval sémantique plutôt que d'agrandir la fenêtre.",
+    "Si le taux d'acceptation d'une première passe est bas, ajoute une boucle score-révise-réévalue plutôt que de baisser les exigences.",
+    "Si un texte d'univers n'a qu'un seul bloc/section, refuse et demande une structure plutôt que d'inventer les manques."
+  ],
+  "antipatterns": [
+    "Fragmentation stylistique : 'Portail Quantique' sci-fi cohabitant avec 'Réseau de Téléportation Magique' fantasy dans le même monde.",
+    "Conflits conceptuels silencieux (elfes placés au nord par un agent, au sud par un autre) faute de graphe et de détection.",
+    "Edge-of-the-world non déguisé : laisser le public buter sur une limite non justifiée casse l'immersion.",
+    "Confondre volume et valeur : une bible massive mais non mesurée à son utilité stakeholder."
+  ]
+}

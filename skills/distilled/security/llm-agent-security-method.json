@@ -1,0 +1,51 @@
+{
+  "skill": "Sécurité LLM & agents : menace composée, défense RAG, éval jailbreak",
+  "domain": "security",
+  "description": "Auditer et défendre des systèmes LLM/agents : modéliser la menace comme une chaîne composée (condition dormante → porteur → harness → population → récupération), défendre une base RAG au retrieval boundary, évaluer correctement jailbreaks et backdoors, et tester la robustesse au paraphrasage.",
+  "source": {"book": "Order 66 (Compositional Threat Analysis) / Defending RAG-IDS / RAGSieve / Measuring the Wrong Thing / When Explanations Betray Backdoors / Semantically Equivalent Adversarial Attacks", "author": "divers (arXiv/COLM 2026)", "year": 2026},
+  "principles": [
+    "L'objet dangereux n'est jamais isolé : la compromission est une composition (condition + carrier + harness + population + recovery).",
+    "Auditer la chaîne composée (artefact + harness + état de déploiement), jamais un artefact seul.",
+    "La base vectorielle d'un RAG est persistante et writable : c'est une surface d'attaque, et la récupération est une décision de confiance.",
+    "Un poison RAG n'déclenche aucune règle de détection : il faut une défense dédiée.",
+    "Prompt harmfulness (intention) et realized jailbreak success (outcome) divergent — ne jamais les confondre.",
+    "Origin-neutral : juger la lignée et le comportement de l'artefact exact, pas son origine.",
+    "Contrôles les plus fiables : médiation de capacité indépendante, récupération protégée, provenance d'état durable, isolation de propagation."
+  ],
+  "workflow": [
+    {"step": "Modéliser la menace en chaîne", "purpose": "Voir la composition, pas la phrase", "guidelines": ["Cartographier condition dormante → carrier → harness → population → recovery plane.", "Lister les primitives présentes : backdoor, sleeper, promptware, prompt injection, worm, exfiltration, model poisoning, supply chain.", "Placer les contrôles aux jointures (mediation, protected recovery, provenance, isolation)."], "pitfalls": ["Auditer un artefact isolé.", "Croire le dommage indépendant du harness (il en dépend)."]},
+    {"step": "Défendre le RAG au retrieval boundary", "purpose": "Bloquer l'empoisonnement", "guidelines": ["Traiter la KB vectorielle comme writable et hostile.", "Empiler trust-score souple (D1) + label-embedding consistency check LECC (D2) + prompt sanitizer (D3).", "Préférer la démotion souple par confiance au filtrage dur."], "pitfalls": ["Seuil global de cohérence (évadable par poison dispersé).", "Supposer qu'un poison déclenche une alerte."]},
+    {"step": "Détecter le poison sans oracle", "purpose": "Trouver un doc promu par attaque", "guidelines": ["Le corpus inspecté EST l'objet attaqué : pas de référence de confiance externe.", "Construire une référence auto-référencée par contraste local (RAGSieve).", "Distinguer une promotion induite par attaque de la structure de pertinence normale."], "pitfalls": ["Se fier à l'accord global entre documents récupérés."]},
+    {"step": "Évaluer jailbreaks et backdoors correctement", "purpose": "Mesurer la bonne chose", "guidelines": ["Séparer harmfulness (prompt) et realized success (target + décodage + juge) ; mesurer sur prompts appariés.", "Auditer un backdoor en black-box : demander label + rationale/evidence citée.", "Tester la robustesse au paraphrasage (perturbations sémantiquement équivalentes → hallucinations intrinsèques), query-only."], "pitfalls": ["Traiter un score d'intention comme une preuve de succès.", "Exiger l'accès aux poids ou au trigger pour auditer."]}
+  ],
+  "checklist": [
+    "Chaîne de menace cartographiée (condition→carrier→harness→population→recovery) ?",
+    "Contrôles placés aux jointures (mediation/recovery/provenance/isolation) ?",
+    "KB RAG traitée comme writable/hostile ?",
+    "Retrieval boundary défendu (trust-score + LECC + sanitizer, démotion souple) ?",
+    "Détection de poison sans oracle (contraste local, pas seuil global) ?",
+    "Éval jailbreak séparant harmfulness et realized success ?",
+    "Audit backdoor black-box par rationale ?",
+    "Robustesse au paraphrasage testée (semantic-equivalence, query-only) ?"
+  ],
+  "vocabulary": [
+    {"term": "Menace compositionnelle", "definition": "Un dommage réalisé n'existe que par la composition condition dormante + carrier + harness + population + recovery, pas par un artefact seul."},
+    {"term": "Prompt injection (indirecte)", "definition": "Contenu adversarial dans un document récupéré qui détourne le comportement du LLM sans instruction directe de l'utilisateur."},
+    {"term": "Knowledge / RAG poisoning", "definition": "Corruption de la base vectorielle writable pour faire remonter un document attaquant sur une requête cible."},
+    {"term": "LECC", "definition": "Label-Embedding Consistency Check : vérifier la cohérence entre le texte récupéré et son label par distance d'embedding."},
+    {"term": "Harmfulness vs realized success", "definition": "Nocivité intrinsèque du prompt vs succès effectif du jailbreak (dépend du modèle cible, du décodage, du juge)."}
+  ],
+  "heuristics": [
+    "Si tu audites un modèle sans son harness → tu sous-estimes la menace.",
+    "Si ta KB RAG est writable par des tiers → défends le retrieval boundary avant tout.",
+    "Si un score de nocivité classe mal les jailbreaks réussis → tu mesures l'intention, pas l'outcome.",
+    "Si la détection repose sur un seuil global → un poison dispersé l'évade ; passe au contraste local."
+  ],
+  "antipatterns": [
+    "Auditer un artefact isolé plutôt que la chaîne composée.",
+    "Filtrage dur au retrieval boundary au lieu d'une démotion souple par confiance.",
+    "Confondre prompt harmfulness et realized jailbreak success.",
+    "Juger le risque sur l'origine (pays/marque) plutôt que lignée + comportement.",
+    "Supposer qu'un empoisonnement RAG déclenche une règle de détection."
+  ]
+}

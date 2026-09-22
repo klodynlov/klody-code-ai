@@ -1,0 +1,122 @@
+{
+  "skill": "Reasoning model from scratch : inference-scaling, RLVR/GRPO, distillation",
+  "domain": "machine-learning",
+  "description": "Méthode pas-à-pas pour transformer un base LLM en modèle de raisonnement : empiler trois leviers du moins cher au plus cher — inference-time scaling (sans entraînement), reinforcement learning à récompense vérifiable (RLVR + GRPO), puis distillation des traces d'un teacher — en mesurant chaque gain sur MATH-500.",
+  "source": {
+    "book": "Build a Reasoning Model (From Scratch) MEAP V08",
+    "author": "Sebastian Raschka",
+    "year": 2026
+  },
+  "principles": [
+    "Un reasoning model s'obtient par EMPILEMENT, pas par un entraînement monolithique : inference-scaling, puis RLVR/GRPO, puis distillation.",
+    "Empiler du moins cher au plus cher et mesurer chaque gain sur un benchmark (MATH-500) avant d'investir dans le levier suivant.",
+    "La récompense est vérifiable et binaire sur la RÉPONSE FINALE (format \\boxed{}), jamais sur les étapes intermédiaires (les process reward models ont échoué).",
+    "GRPO est préféré à PPO car il n'exige pas de value model — les avantages groupe-relatifs remplacent le critique.",
+    "Le comportement de raisonnement émerge vite (~50 steps GRPO) ; sur-entraîner déstabilise.",
+    "Pour un petit modèle, la distillation hard (SFT sur les traces d'un teacher) bat souvent le RL direct.",
+    "Un reasoning model génère beaucoup de tokens : l'évaluation est coûteuse et doit être budgétée."
+  ],
+  "workflow": [
+    {
+      "step": "Partir d'un base model et poser l'éval",
+      "purpose": "Avoir un point de comparaison mesurable avant toute amélioration",
+      "guidelines": [
+        "Charger un petit base model (ex. Qwen3-0.6B) avec un env reproductible (uv), CPU par défaut pour des résultats déterministes.",
+        "Fixer un benchmark vérifiable (MATH-500 / GSM8K) et un parseur de réponse (extraction \\boxed{}).",
+        "Mesurer la baseline en chain-of-thought (Explain step by step) — point zéro de toutes les améliorations."
+      ],
+      "pitfalls": [
+        "Comparer des méthodes sans harnais d'éval commun ni parseur de réponse fiable."
+      ]
+    },
+    {
+      "step": "Levier 1 — inference-time scaling (0 entraînement)",
+      "purpose": "Gagner de l'accuracy en dépensant du compute à la génération, sans toucher les poids",
+      "guidelines": [
+        "Contrôler le sampling : temperature (diversité) + top-p nucleus (filtre les tokens improbables) via un wrapper pluggable.",
+        "Self-consistency : générer N réponses et voter à la majorité (gain net mesuré, ex. 33.4%→43.2% à n=3).",
+        "Ajouter un scorer (heuristic ou log-proba moyenne) comme tie-breaker ou pour un Best-of-N.",
+        "Self-refinement : faire critiquer et réviser itérativement la réponse par le modèle."
+      ],
+      "pitfalls": [
+        "Multiplier les échantillons sans borne : le coût/temps explose pour un gain marginal.",
+        "Oublier que ces gains ne modifient pas le modèle (à refaire à chaque inférence)."
+      ]
+    },
+    {
+      "step": "Levier 2 — RLVR + GRPO",
+      "purpose": "Entraîner réellement le raisonnement avec une récompense vérifiable",
+      "guidelines": [
+        "Définir reward_rlvr : 1.0 uniquement si la réponse finale est correcte au format \\boxed{}, sinon 0.0.",
+        "Boucle GRPO : plusieurs rollouts par prompt → récompenses → avantages groupe-relatifs ((r-mean)/std) → log-probas → loss = mean(-advantage*logp).",
+        "Commencer par la version simplifiée SANS terme KL ; ajouter le KL vs modèle de référence ensuite si besoin de rester proche.",
+        "Ajouter un format reward pondéré pour stabiliser l'émission des balises <think></think> sans écraser la correction.",
+        "Entraîner peu (~50 steps peuvent suffire), surveiller l'accuracy, checkpointer."
+      ],
+      "pitfalls": [
+        "Scorer les étapes intermédiaires (process reward) → instable, non concluant.",
+        "Lancer trop de steps → GRPO original instable, accuracy qui baisse.",
+        "Récompense non vérifiable ou format non contraint → signal bruité."
+      ]
+    },
+    {
+      "step": "Levier 3 — distillation",
+      "purpose": "Transférer le raisonnement d'un gros teacher vers un petit student",
+      "guidelines": [
+        "Distillation HARD = SFT du student sur le TEXTE (traces + réponse) généré par le teacher — recette DeepSeek-R1-distilled, n'exige que le texte.",
+        "Réserver la distillation SOFT (distribution complète) au cas mêmes tokenizers + logits accessibles ; c'est plus coûteux.",
+        "Pour un petit modèle, privilégier hard : souvent plus précis que le RL direct et bien plus simple."
+      ],
+      "pitfalls": [
+        "Soft distillation entre familles de modèles (tokenizers différents) → distributions non alignées.",
+        "Réutiliser des sorties d'API propriétaires (ChatGPT/Claude) sans vérifier leurs ToS."
+      ]
+    },
+    {
+      "step": "Vérifier, évaluer, déployer",
+      "purpose": "Mesurer honnêtement et faire tourner le modèle",
+      "guidelines": [
+        "Utiliser des vérificateurs symboliques (parse \\boxed{}) et, si utile, un petit modèle-vérificateur (xVerify).",
+        "Budgéter l'éval (tokens longs) : échantillonner le benchmark, logguer temps ET accuracy.",
+        "Pour déployer/adapter (angle DeepSeek-V3/R1) : déploiement local pour données sensibles, fine-tuning ciblé sur le domaine."
+      ],
+      "pitfalls": [
+        "Sous-estimer le coût d'éval d'un reasoning model (o1 ≈ 1500$ sur 7 benchmarks)."
+      ]
+    }
+  ],
+  "checklist": [
+    "Base model + benchmark vérifiable (MATH-500) + parseur \\boxed{} en place ?",
+    "Baseline chain-of-thought mesurée avant toute amélioration ?",
+    "Inference-scaling essayé d'abord (self-consistency, scorer) et gain mesuré ?",
+    "Récompense vérifiable binaire sur la réponse FINALE, sans reward d'étape ?",
+    "GRPO plutôt que PPO, démarré sans KL, avantages groupe-relatifs ?",
+    "Entraînement court (~50 steps) surveillé et checkpointé ?",
+    "Format reward pondéré pour les balises <think> si voulu ?",
+    "Distillation hard envisagée pour un petit modèle avant le RL direct ?",
+    "ToS vérifiés avant de distiller des sorties d'API propriétaires ?",
+    "Budget et temps d'évaluation prévus (échantillonnage, logs temps+accuracy) ?"
+  ],
+  "vocabulary": [
+    {"term": "Inference-time scaling", "definition": "Dépenser plus de compute à la génération (plus de tokens, plusieurs essais) sans modifier les poids."},
+    {"term": "RLVR", "definition": "Reinforcement Learning from Verifiable Rewards : entraîner avec une récompense automatiquement vérifiable."},
+    {"term": "GRPO", "definition": "Group Relative Policy Optimization : policy-gradient sans value model, avantages normalisés dans un groupe de rollouts."},
+    {"term": "Rollout", "definition": "Une génération complète du modèle pour un prompt donné, scorée par la récompense."},
+    {"term": "Distillation hard", "definition": "SFT du student sur le texte généré par le teacher (traces incluses) ; soft = matcher la distribution complète."},
+    {"term": "Process reward model", "definition": "Récompense sur les étapes intermédiaires — a échoué chez DeepSeek, à éviter au profit de la réponse finale."}
+  ],
+  "heuristics": [
+    "Si un gain vient sans entraînement (self-consistency) → l'exploiter avant de lancer du RL.",
+    "Si le modèle est petit → tenter la distillation hard avant le RL direct.",
+    "Si l'accuracy chute pendant GRPO → réduire le nombre de steps, revenir à un checkpoint.",
+    "Si tu veux rester proche d'un modèle de référence → garder le terme KL, sinon l'omettre.",
+    "Si l'éval coûte trop cher → échantillonner le benchmark plutôt que le passer entier."
+  ],
+  "antipatterns": [
+    "Entraîner un reasoning model comme un unique gros run monolithique.",
+    "Récompenser les étapes intermédiaires au lieu de la réponse finale.",
+    "Sur-entraîner GRPO en croyant que plus de steps = mieux.",
+    "Choisir PPO (value model coûteux) là où GRPO suffit.",
+    "Distiller des sorties propriétaires sans vérifier les conditions d'utilisation."
+  ]
+}

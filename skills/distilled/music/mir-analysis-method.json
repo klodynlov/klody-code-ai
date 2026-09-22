@@ -1,0 +1,49 @@
+{
+  "skill": "Analyser la musique (MIR) : chroma, accords, tempo, structure, séparation",
+  "domain": "music",
+  "description": "Extraire des features audio et analyser la musique avec les méthodes canoniques du Music Information Retrieval : STFT et chroma, reconnaissance d'accords, tempo et beat tracking, analyse de structure, alignement DTW, séparation harmonique-percussive et de sources — implémentables en librosa.",
+  "source": {"book": "Fundamentals of Music Processing", "author": "Meinard Müller", "year": 2015},
+  "principles": [
+    "Partir de la STFT comme front-end, puis dériver la feature adaptée à la tâche.",
+    "Chroma pour l'harmonie/mélodie : robuste au timbre et à l'instrumentation.",
+    "Deux structures reviennent partout : matrice de coûts accumulés (DTW) et matrice d'auto-similarité (SSM).",
+    "Estimer le rythme sur une fonction de novelty, pas sur le signal brut.",
+    "Choisir la taille de trame au niveau du phénomène musical analysé.",
+    "Formuler tout problème de recherche dans le plan spécificité × granularité."
+  ],
+  "workflow": [
+    {"step": "Extraire les features", "purpose": "Représenter l'audio pour l'analyse", "guidelines": ["STFT → spectrogramme (librosa.stft).", "Chroma pour l'harmonie (librosa.feature.chroma_cqt).", "Fonction de novelty pour le rythme (librosa.onset.onset_strength)."], "pitfalls": ["Utiliser des features spectrales brutes pour l'harmonie (sensibles au timbre) au lieu de chroma."]},
+    {"step": "Reconnaître les accords", "purpose": "Étiqueter l'harmonie", "guidelines": ["Chroma → matching contre 24 templates (12 majeurs + 12 mineurs).", "Prefiltering (compression/lissage) + postfiltering.", "Passer au HMM 24 états + Viterbi pour exploiter le contexte de progression."], "pitfalls": ["Trame trop courte (200 ms) → contexte harmonique insuffisant.", "Pas de postfiltering → labels instables trame à trame."]},
+    {"step": "Estimer tempo et beats", "purpose": "Trouver la pulsation", "guidelines": ["Novelty → tempogram par autocorrélation / comb-filters / Fourier.", "librosa.beat.beat_track pour les positions de beats.", "Vérifier les octaves de tempo (double/moitié)."], "pitfalls": ["Estimer le tempo sur le signal brut au lieu d'une novelty."]},
+    {"step": "Analyser structure, aligner, séparer", "purpose": "Comprendre et décomposer la pièce", "guidelines": ["SSM lue par 3 principes : répétition (diagonales), homogénéité (blocs), novelty (coins).", "DTW / subsequence DTW pour aligner deux versions ou retrouver un extrait.", "HPS (librosa.effects.hpss) pour séparer harmonique/percussif ; NMF score-informed pour la séparation notewise ; F0 prédominante pour la mélodie."], "pitfalls": ["Fingerprint là où il faut de l'audio matching (covers/versions)."]}
+  ],
+  "checklist": [
+    "STFT calculée comme front-end ?",
+    "Chroma utilisé pour l'harmonie/les accords ?",
+    "Accords : template matching + pré/post-filtering, HMM pour le contexte ?",
+    "Taille de trame au niveau du phénomène (mesure pour les accords) ?",
+    "Tempo estimé via une novelty function, octaves vérifiées ?",
+    "Structure lue sur la SSM (répétition/homogénéité/novelty) ?",
+    "DTW / subsequence DTW pour aligner ou retrouver un extrait ?",
+    "HPS/NMF pour séparer harmonique-percussif / sources ?"
+  ],
+  "vocabulary": [
+    {"term": "Chroma", "definition": "Vecteur 12-D par trame (énergie par pitch class) capturant l'harmonie, robuste au timbre."},
+    {"term": "DTW", "definition": "Dynamic Time Warping : aligne deux séquences malgré le tempo via une matrice de coûts accumulés."},
+    {"term": "Tempogram", "definition": "Représentation temps-tempo de la périodicité d'une fonction de novelty (BPM)."},
+    {"term": "SSM", "definition": "Self-Similarity Matrix : révèle répétition (diagonales), homogénéité (blocs), novelty (coins)."},
+    {"term": "HPS", "definition": "Séparation harmonique (horizontal) / percussif (vertical) du spectrogramme."}
+  ],
+  "heuristics": [
+    "Si les labels d'accords sautent trame à trame → agrandir la fenêtre + postfiltering HMM.",
+    "Si le tempo estimé est le double/la moitié → ambiguïté d'octave à trancher.",
+    "Pour améliorer les chroma ou l'onset → faire une HPS en amont.",
+    "Pour retrouver un court extrait dans un long flux → subsequence DTW."
+  ],
+  "antipatterns": [
+    "Features spectrales brutes pour l'harmonie au lieu de chroma.",
+    "Estimer le tempo sans fonction de novelty.",
+    "Reconnaître les accords sans postfiltering contextuel.",
+    "Utiliser un fingerprint pour matcher des covers/versions."
+  ]
+}

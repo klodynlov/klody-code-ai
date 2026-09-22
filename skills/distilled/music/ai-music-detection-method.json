@@ -1,0 +1,48 @@
+{
+  "skill": "Détecter la musique générée par IA et la tatouer (watermark)",
+  "domain": "music",
+  "description": "Distinguer la musique réelle de la musique générée par IA et en tracer la provenance : exploiter l'empreinte spectrale déterminée par l'architecture du décodeur, rendre la détection robuste aux manipulations et généralisable aux nouveaux générateurs, et préférer un watermarking génératif au post-hoc.",
+  "source": {"book": "Improved Robustness in AI-Generated Music Detection / Finding the noise / Sofia / MusicMark", "author": "Deezer Research et al.", "year": 2026},
+  "principles": [
+    "Les générateurs laissent des artefacts spectraux prévisibles déterminés par l'architecture du décodeur.",
+    "Une détection quasi-parfaite sur audio brut est fragile aux manipulations simples (speed, pitch).",
+    "Pour généraliser aux générateurs inconnus, s'appuyer sur des features musique-intrinsèques, pas seulement des artefacts bas-niveau.",
+    "La détection zero-shot apprend la variété du réel plutôt qu'un classifieur par générateur.",
+    "Garder les détecteurs légers et interprétables (déploiement + recours sur faux positifs).",
+    "Le watermarking génératif survit à la ré-synthèse par codec, contrairement au post-hoc."
+  ],
+  "workflow": [
+    {"step": "Exploiter l'empreinte architecturale", "purpose": "Détecter le synthétique", "guidelines": ["Les conv transposées d'upsampling produisent des pics à des fréquences fixées par l'architecture (indépendants des données/poids).", "Détecteur factorisé : extracteur d'artefact A(s) → classifieur binaire D."], "pitfalls": ["Détecteur entraîné sur audio brut → s'effondre au moindre speed/pitch shift."]},
+    {"step": "Rendre robuste", "purpose": "Résister aux manipulations", "guidelines": ["Extension invariante au frequency-scaling (speed/pitch).", "Détecteur léger et interprétable."], "pitfalls": ["Se fier à des artefacts bas-niveau/hypothèses fixes → mauvaise généralisation."]},
+    {"step": "Généraliser et adapter", "purpose": "Couvrir les nouveaux générateurs", "guidelines": ["Zero-shot one-class : apprendre le manifold du réel (pics aléatoires) vs synthétique (fakeprint structuré) ; dictionary learning + seuil quantile 95%.", "Features musique-intrinsèques + Mixture-of-Experts (Vocal, Audio-effect, Global-structure).", "Adaptation few-shot par générateur (encodeurs gelés, N~50) — ex. ACE-Step 1.5, Suno v5."], "pitfalls": ["Ne pas ré-adapter aux nouvelles versions → détecteur figé dépassé."]},
+    {"step": "Prévenir par watermark génératif", "purpose": "Tracer la provenance", "guidelines": ["Intégrer le watermark DANS la génération (adapter + détecteur sur le modèle de base).", "Objectif joint : génération latente + fidélité (latent consistency) + watermark.", "Augmentations d'attaque (compression, codec re-synthesis, cover-song) à l'entraînement."], "pitfalls": ["Watermark post-hoc : effacé par ré-synthèse codec, contournable si le post-traitement est omis.", "Watermark trop agressif → dégrade la qualité."]}
+  ],
+  "checklist": [
+    "Détecteur exploitant l'empreinte architecturale (pics d'upsampling) ?",
+    "Robustesse testée aux manipulations (speed/pitch) ?",
+    "Extension invariante au frequency-scaling ?",
+    "Zero-shot one-class quand on ne veut pas un classifieur par générateur ?",
+    "Features musique-intrinsèques + MoE pour généraliser ?",
+    "Adaptation few-shot aux nouveaux générateurs (ACE-Step/Suno) ?",
+    "Watermarking génératif plutôt que post-hoc ?",
+    "Fidélité préservée (latent consistency) + augmentations d'attaque ?"
+  ],
+  "vocabulary": [
+    {"term": "Empreinte architecturale", "definition": "Pics spectraux fixés par l'architecture du décodeur (conv transposée), indépendants des données."},
+    {"term": "One-class detection", "definition": "Apprendre la variété du réel et rejeter ce qui s'en écarte, sans exemples de chaque générateur."},
+    {"term": "Fakeprint", "definition": "Profil de pics structuré propre à un service IA, absent de la vraie musique (pics aléatoires)."},
+    {"term": "Watermarking génératif", "definition": "Watermark intégré à la génération, robuste à la ré-synthèse par codec."}
+  ],
+  "heuristics": [
+    "Si le détecteur marche en labo mais échoue en réel → rendre invariant au scaling.",
+    "Si un nouveau générateur apparaît → adaptation few-shot (N~50, encodeurs gelés).",
+    "Si le watermark disparaît après compression → passer au génératif, pas post-hoc.",
+    "Si la détection doit couvrir des générateurs inconnus → features musique-intrinsèques."
+  ],
+  "antipatterns": [
+    "Détecteur entraîné uniquement sur audio brut.",
+    "Se fier à des artefacts bas-niveau non généralisables.",
+    "Watermark post-hoc effacé par la ré-synthèse codec.",
+    "Ne jamais ré-adapter aux nouvelles versions de générateurs."
+  ]
+}

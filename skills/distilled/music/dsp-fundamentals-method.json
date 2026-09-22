@@ -1,0 +1,48 @@
+{
+  "skill": "Traiter le signal (DSP) : convolution, FFT, filtres FIR/IIR",
+  "domain": "music",
+  "description": "Filtrer, transformer et analyser des signaux numériques avec les fondamentaux du DSP : caractériser un système par sa réponse impulsionnelle et l'appliquer par convolution, passer au domaine fréquentiel par FFT, et choisir un filtre FIR ou IIR selon le domaine et la vitesse — en numpy/scipy.",
+  "source": {"book": "Digital Signal Processing — A Practical Guide", "author": "Steven W. Smith", "year": 2003},
+  "principles": [
+    "Un système linéaire est entièrement décrit par sa réponse impulsionnelle h[n].",
+    "La convolution dérive tout : décomposer l'entrée en impulsions, réagir par h[n], sommer.",
+    "Temps et fréquence sont deux vues duales du même signal.",
+    "La FFT rend la DFT praticable (des centaines de fois plus rapide).",
+    "FIR (convolution) donne de meilleures performances ; IIR (récursion) est ~10× plus rapide.",
+    "Choisir un filtre selon le domaine de la tâche, puis performance vs vitesse."
+  ],
+  "workflow": [
+    {"step": "Caractériser et convoluer", "purpose": "Appliquer un système/filtre", "guidelines": ["Un filtre = concevoir sa réponse impulsionnelle h[n] (filter kernel).", "Appliquer par convolution : np.convolve(x, h).", "Une moving average = convoluer par np.ones(M)/M."], "pitfalls": ["Croire qu'un système linéaire a une info cachée au-delà de h[n]."]},
+    {"step": "Analyser en fréquence", "purpose": "Voir le spectre", "guidelines": ["FFT : np.fft.rfft ; fréquences : np.fft.rfftfreq (0..Fs/2).", "Utiliser la real FFT pour un signal réel (~30% plus rapide).", "Garder les facteurs de normalisation cohérents avec la FFT."], "pitfalls": ["Mélanger les conventions de normalisation → programmes faux."]},
+    {"step": "Choisir et concevoir le filtre", "purpose": "Séparer des bandes ou lisser", "guidelines": ["Fréquence : windowed-sinc FIR (meilleure atténuation, phase nulle) vs Chebyshev IIR (rapide).", "Temps : moving average (rapide, pas d'arithmétique entière fragile).", "scipy.signal.firwin / cheby1 / lfilter ; FFT convolution pour de longs kernels."], "pitfalls": ["FIR haute-perf là où la vitesse compte (IIR suffisait, ~10×)."]},
+    {"step": "Numériser proprement", "purpose": "Éviter les artefacts d'ADC", "guidelines": ["Respecter le théorème d'échantillonnage ; filtrer avant de sous-échantillonner.", "Ajouter un dither (~⅔ LSB) avant quantification pour révéler les signaux faibles."], "pitfalls": ["Sous-échantillonner sans anti-aliasing → repliement irréversible.", "Oublier le dither → signaux < ½ LSB collés sur un niveau."]}
+  ],
+  "checklist": [
+    "Système/filtre caractérisé par sa h[n] ?",
+    "Application par convolution (np.convolve) ?",
+    "Spectre par real FFT, normalisation cohérente ?",
+    "Analyse limitée à 0..Fs/2 quand c'est suffisant ?",
+    "Filtre choisi par domaine (moving average temps / windowed-sinc fréquence) ?",
+    "FIR vs IIR arbitré (performance vs vitesse ~10×) ?",
+    "Anti-aliasing avant sous-échantillonnage ?",
+    "Dither avant quantification pour les signaux faibles ?"
+  ],
+  "vocabulary": [
+    {"term": "Réponse impulsionnelle h[n]", "definition": "Sortie d'un système linéaire à un delta ; décrit entièrement le système."},
+    {"term": "Convolution", "definition": "Opération combinant l'entrée et h[n] pour produire la sortie."},
+    {"term": "FIR / IIR", "definition": "Filtre par convolution (meilleur, lent) / par récursion (~10× plus rapide)."},
+    {"term": "Dither", "definition": "Bruit ajouté avant quantification pour révéler les signaux sous le LSB."}
+  ],
+  "heuristics": [
+    "Si on lisse dans le temps → moving average.",
+    "Si on sépare des bandes de fréquence → windowed-sinc (ou Chebyshev si la vitesse prime).",
+    "Si la convolution est longue → FFT convolution.",
+    "Si des signaux faibles se 'collent' à un niveau → ajouter du dither."
+  ],
+  "antipatterns": [
+    "Conventions de normalisation DFT/FFT incohérentes.",
+    "Sous-échantillonner sans filtre anti-aliasing.",
+    "FIR coûteux là où un IIR rapide suffisait.",
+    "Single-pole récursif en arithmétique entière fragile."
+  ]
+}

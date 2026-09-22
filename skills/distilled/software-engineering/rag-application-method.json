@@ -1,0 +1,47 @@
+{
+  "skill": "Construire une application LLM : recherche sémantique + RAG + évaluation",
+  "domain": "software-engineering",
+  "description": "Construire une application autour d'un LLM : encoder des documents (SBERT), les indexer pour la recherche sémantique (FAISS/HNSW), combiner retrieval et génération en RAG pour ancrer les réponses et réduire les hallucinations, puis évaluer avec RAGAS.",
+  "source": {"book": "Build an LLM Application (from Scratch)", "author": "Hamza Farooq", "year": 2025},
+  "principles": [
+    "Choisir le bon paradigme : encodeur pour la recherche/similarité, décodeur pour la génération, RAG pour combiner.",
+    "Encoder les phrases indépendamment (SBERT) + cosine pour une recherche scalable.",
+    "Choisir exact vs ANN selon le volume : ANN/HNSW dès que le dataset est grand.",
+    "Le décodeur seul hallucine : ancrer la génération dans un contexte récupéré.",
+    "Chunker les documents longs avant embedding.",
+    "Toujours évaluer le RAG avec des métriques dédiées (RAGAS)."
+  ],
+  "workflow": [
+    {"step": "Encoder pour la similarité", "purpose": "Obtenir des embeddings comparables", "guidelines": ["Utiliser SBERT (Sentence-BERT) qui encode chaque phrase indépendamment.", "Comparer par similarité cosine.", "Comprendre l'entraînement Siamese/Triplet qui rapproche les paires similaires."], "pitfalls": ["Concaténer les paires façon BERT pour comparer un corpus → coût O(n²)."]},
+    {"step": "Indexer et rechercher", "purpose": "Retrouver vite les documents pertinents", "guidelines": ["Stocker les embeddings dans une vector DB / FAISS.", "IndexFlatIP + normalize_L2 pour du cosine ; search(query, k) → top-k.", "Choisir ANN (HNSW) plutôt qu'exact quand le dataset est grand."], "pitfalls": ["Recherche exacte sur un très gros index → lente.", "Renvoyer des résultats non structurés → couplage entre couches."]},
+    {"step": "Construire le RAG", "purpose": "Générer des réponses factuelles ancrées", "guidelines": ["Chunker les longs documents avant embedding.", "Récupérer le top-k puis injecter le contexte dans le prompt ('réponds uniquement à partir du contexte').", "Passer de FAISS (proto) à une vraie vector DB persistante en production."], "pitfalls": ["Compter sur le décodeur seul → hallucinations.", "Ne pas chunker → dépassement de contexte + retrieval grossier."]},
+    {"step": "Évaluer", "purpose": "Détecter les régressions", "guidelines": ["Mesurer Faithfulness, Answer Relevancy, Context Adherence, Completeness.", "Outiller avec RAGAS pour une évaluation systématique."], "pitfalls": ["Livrer un RAG sans métriques → régressions invisibles."]}
+  ],
+  "checklist": [
+    "Embeddings produits avec SBERT (encodage indépendant) ?",
+    "Index vectoriel en place (FAISS/HNSW), exact vs ANN choisi selon le volume ?",
+    "Documents longs chunkés avant embedding ?",
+    "Prompt RAG qui contraint la réponse au contexte récupéré ?",
+    "Migration FAISS → vraie vector DB prévue pour la prod ?",
+    "Évaluation RAGAS (faithfulness, relevancy, context adherence, completeness) ?",
+    "Résultats de retrieval renvoyés en JSON structuré (rank, texte, score) ?"
+  ],
+  "vocabulary": [
+    {"term": "SBERT", "definition": "Sentence-BERT : encode chaque phrase indépendamment pour une similarité cosine scalable."},
+    {"term": "ANN", "definition": "Approximate Nearest Neighbor : recherche approchée (ex. HNSW) rapide au prix d'un peu de précision."},
+    {"term": "RAG", "definition": "Retrieval-Augmented Generation : récupérer un contexte externe puis générer une réponse ancrée."},
+    {"term": "Faithfulness", "definition": "Métrique RAGAS : la réponse reste ancrée dans le contexte sans invention."}
+  ],
+  "heuristics": [
+    "Si la recherche est lente sur un gros corpus → passer à l'ANN (HNSW).",
+    "Si le modèle invente → renforcer l'ancrage (contexte dans le prompt) et vérifier la faithfulness.",
+    "Si le retrieval rate l'info → revoir la taille des chunks.",
+    "Si la comparaison de phrases explose en coût → utiliser SBERT + cosine, pas BERT concaténé."
+  ],
+  "antipatterns": [
+    "Utiliser le décodeur seul sur du domaine/récent.",
+    "Comparer un corpus par concaténation BERT (O(n²)).",
+    "Rester sur FAISS in-memory en production.",
+    "Déployer un RAG sans métriques d'évaluation."
+  ]
+}

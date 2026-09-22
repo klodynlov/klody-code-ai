@@ -1,0 +1,48 @@
+{
+  "skill": "Faire raisonner un LLM sur la musique symbolique (grammaire, axes, éval)",
+  "domain": "music",
+  "description": "Rendre la musique symbolique lisible, mesurable et éditable par un LLM : la textualiser en grammaire compacte à voix, accords et slots entiers, situer une pièce dans un espace structurel calibré sur corpus pour diagnostiquer ses défauts, et évaluer génération et compréhension avec des métriques dédiées.",
+  "source": {"book": "Libretto: Giving LLM Agents a Sense of Musical Structure", "author": "Yichen Xu", "year": 2026},
+  "principles": [
+    "La représentation détermine ce qu'un LLM peut lire, éditer et régénérer.",
+    "Préférer des slots entiers au temps flottant pour un rythme compact et explicite.",
+    "Abstraire ce qui ne sert pas la tâche (velocity, micro-timing, timbre) pour la lisibilité.",
+    "Mesurer la structure sur des axes calibrés par corpus plutôt qu'un score subjectif unique.",
+    "Boucler : générer → diagnostiquer les axes extrêmes → corriger.",
+    "Les LLMs encodent déjà tonalité/accords/intervalles : les extraire par probing, les contrôler par steering."
+  ],
+  "workflow": [
+    {"step": "Textualiser la partition", "purpose": "Exposer la structure à l'agent", "guidelines": ["Grammaire : nb de mesures, lignes de voix ordonnées, chaque mesure = label d'accord + tokens de note.", "Note = pitch, slot d'onset, slot de durée ; simultanés joints par '+'.", "Grille à slots entiers (16e en 4/4 → 1,5,9,13), grilles adaptatives pour triolets."], "pitfalls": ["Donner du MIDI brut en attendant que le LLM 'voie' la structure.", "Temps flottant → rythme fragile."]},
+    {"step": "Choisir le format", "purpose": "Adapter au but", "guidelines": ["MIDI = performance (pas de structure de partition exposée).", "ABC = bien étudié pour les LLMs.", "LilyPond = rendu + substrat via LilyBERT."], "pitfalls": ["Utiliser une représentation performance-oriented pour un travail structurel."]},
+    {"step": "Mesurer et diagnostiquer", "purpose": "Rendre les défauts inspectables", "guidelines": ["Situer la pièce sur rythme/harmonie/mélodie/texture/forme/variation, chaque axe en percentile vs corpus.", "L'agent révise la voix responsable d'un axe extrême.", "Contraindre copy-risk et beat-alignment."], "pitfalls": ["Juger par un score subjectif unique au lieu d'axes inspectables."]},
+    {"step": "Évaluer et interpréter", "purpose": "Vérifier et comprendre", "guidelines": ["Compile-rate + descripteurs MusPy (Jensen-Shannon) + Fréchet Music Distance.", "Probing linéaire pour extraire les concepts encodés ; steering pour les contrôler.", "Modéliser explicitement les rôles des voix en polyphonie."], "pitfalls": ["Confondre génération exécutable (facile) et compréhension structurelle (dure)."]}
+  ],
+  "checklist": [
+    "Partition textualisée en grammaire voix+accords+slots entiers ?",
+    "Élements non pertinents abstraits (velocity, micro-timing) ?",
+    "Format adapté (MIDI/ABC/LilyPond) au but ?",
+    "Structure mesurée sur des axes percentile vs corpus ?",
+    "Boucle générer → diagnostiquer axes extrêmes → corriger ?",
+    "Contraintes copy-risk et beat-alignment ?",
+    "Éval : compile-rate + descripteurs (JS) + FMD ?",
+    "Rôles des voix modélisés en polyphonie ?"
+  ],
+  "vocabulary": [
+    {"term": "Grammaire symbolique", "definition": "Textualisation compacte (voix, accords, slots) qu'un LLM peut lire et éditer."},
+    {"term": "Axes structurels", "definition": "Dimensions (rythme/harmonie/mélodie/texture/forme/variation) exprimées en percentile vs corpus."},
+    {"term": "Fréchet Music Distance", "definition": "Métrique portant la construction FID/FAD au symbolique via un encodeur (LilyBERT)."},
+    {"term": "Steering", "definition": "Contrôle bidirectionnel d'un attribut via difference-in-means sur les activations."}
+  ],
+  "heuristics": [
+    "Si le LLM ne 'voit' pas la structure → passer de MIDI à une grammaire de partition.",
+    "Si le rythme est instable → slots entiers plutôt que temps flottant.",
+    "Si un axe est extrême (ex. stepwise 95e pct) → réviser la voix concernée.",
+    "Si on veut renforcer/inverser un attribut → steering par difference-in-means."
+  ],
+  "antipatterns": [
+    "MIDI brut pour un travail structurel.",
+    "Temps flottant dans la grammaire.",
+    "Score subjectif unique au lieu d'axes inspectables.",
+    "Polyphonie sans perception de rôle des voix."
+  ]
+}

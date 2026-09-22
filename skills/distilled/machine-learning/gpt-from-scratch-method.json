@@ -1,0 +1,47 @@
+{
+  "skill": "Coder un GPT from scratch en PyTorch (attention, transformer, pretraining)",
+  "domain": "machine-learning",
+  "description": "Construire un LLM type GPT-2 de A à Z en PyTorch : préparer le texte (BPE, embeddings, positions), coder l'attention pas à pas puis le transformer block, pré-entraîner, charger les poids GPT-2 d'OpenAI, puis fine-tuner (classification et instructions).",
+  "source": {"book": "Build a Large Language Model (From Scratch)", "author": "Sebastian Raschka", "year": 2024},
+  "principles": [
+    "Coder chaque brique à la main avant de l'assembler — c'est le but pédagogique du from-scratch.",
+    "Réutiliser tiktoken pour le BPE, mais comprendre l'algorithme (sous-mots → aucun token inconnu).",
+    "Les token embeddings n'encodent pas la position : ajouter des positional embeddings.",
+    "Les shortcut/residual connections dans chaque block assurent un flux de gradient stable.",
+    "Pour prototyper, charger des poids pré-entraînés (GPT-2 OpenAI) plutôt que pré-entraîner soi-même.",
+    "Fine-tuner = repartir des poids pré-entraînés avec une tête adaptée ; classification puis instruction."
+  ],
+  "workflow": [
+    {"step": "Préparer le texte", "purpose": "Transformer le corpus en tenseurs d'entraînement", "guidelines": ["Tokeniser en BPE via tiktoken.get_encoding('gpt2') (vocab 50257).", "Générer des paires input-target par sliding window.", "Créer des token embeddings (nn.Embedding) + des positional embeddings absolus additionnés."], "pitfalls": ["Oublier les positional embeddings → ordre des mots perdu."]},
+    {"step": "Coder l'attention (4 étapes)", "purpose": "Passer d'une intuition à une attention multi-head réelle", "guidelines": ["1) self-attention simplifiée (dot products).", "2) self-attention trainable Q/K/V, scaled dot-product softmax(QKt/sqrt(d))V.", "3) causale : masque triangulaire + dropout.", "4) multi-head via weight splits (GPT-2 small = 12 têtes, 768 dim, ctx 1024)."], "pitfalls": ["Oublier le masque causal → le modèle regarde le futur.", "Confondre self-attention simplifiée (sans poids) et attention trainable."]},
+    {"step": "Assembler le GPT", "purpose": "Construire le corps du modèle", "guidelines": ["Transformer block = LayerNorm + FFN (Linear→GELU→Linear, hidden 4x) + shortcut.", "Empiler n_layers blocks + token/pos embeddings + LayerNorm final + Linear(vocab)."], "pitfalls": ["Omettre les shortcuts → vanishing gradient."]},
+    {"step": "Pré-entraîner et décoder", "purpose": "Apprendre à générer du texte cohérent", "guidelines": ["Loss = cross-entropy, optimiseur = AdamW ; boucle DL standard.", "Décodage : temperature scaling + top-k sampling.", "Alternative au coût : charger les poids GPT-2 d'OpenAI (archi maison identique)."], "pitfalls": ["Petit dataset multi-epoch → mémorisation ; préférer gros corpus / 1 epoch.", "Archi ≠ GPT-2 → import des poids impossible."]},
+    {"step": "Fine-tuner", "purpose": "Spécialiser le modèle", "guidelines": ["Classification : ajouter une tête, init pré-entraînée, loss+accuracy (ex. spam).", "Instruction/SFT : dataset instruction→réponse formaté, batching, entraîner à suivre les instructions."], "pitfalls": ["Juger la qualité sur un mini-dataset (mémorisation ≠ généralisation)."]}
+  ],
+  "checklist": [
+    "BPE via tiktoken + paires input-target par sliding window ?",
+    "Positional embeddings ajoutés aux token embeddings ?",
+    "Attention causale avec masque triangulaire + dropout ?",
+    "Multi-head aux dimensions GPT-2 (12 têtes / 768 / 1024) ?",
+    "Transformer block avec LayerNorm + GELU + shortcuts ?",
+    "Loss cross-entropy + AdamW ; décodage temperature/top-k ?",
+    "Poids GPT-2 OpenAI chargés pour prototyper (archi identique) ?",
+    "Fine-tuning classification puis instruction depuis les poids pré-entraînés ?"
+  ],
+  "vocabulary": [
+    {"term": "BPE", "definition": "Byte Pair Encoding : tokenisation en sous-mots qui gère tout mot inconnu sans token <unk>."},
+    {"term": "Scaled dot-product attention", "definition": "softmax(QKᵀ/√d)·V : cœur de la self-attention trainable."},
+    {"term": "Shortcut connection", "definition": "Connexion résiduelle (x + f(x)) qui stabilise le gradient dans les réseaux profonds."},
+    {"term": "Causal mask", "definition": "Masque triangulaire empêchant un token d'attendre les positions futures."}
+  ],
+  "heuristics": [
+    "Si le modèle mémorise → dataset trop petit / trop d'epochs ; agrandir le corpus, 1 epoch.",
+    "Si l'import des poids GPT-2 échoue → une dimension de l'archi ne matche pas.",
+    "Si la génération est plate → augmenter temperature ou top-k."
+  ],
+  "antipatterns": [
+    "Écrire un parseur maison de tokens au lieu d'utiliser BPE.",
+    "Oublier le masque causal dans l'attention.",
+    "Empiler des blocks sans connexions résiduelles."
+  ]
+}

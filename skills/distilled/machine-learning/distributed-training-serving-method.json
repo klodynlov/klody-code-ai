@@ -1,0 +1,50 @@
+{
+  "skill": "Systèmes IA distribués : entraînement, inférence et serving scalables",
+  "domain": "machine-learning",
+  "description": "Construire des systèmes IA distribués : choisir la stratégie de parallélisme d'entraînement selon qu'on shard le calcul ou l'état, configurer DDP/FSDP/Megatron sur un cluster GPU, puis servir le modèle avec vLLM (PagedAttention, continuous batching) en optimisant latence et throughput.",
+  "source": {"book": "Distributed AI Systems", "author": "Fuheng Wu", "year": 2025},
+  "principles": [
+    "Question centrale : shardez-vous du calcul (model parallelism) ou de l'état (data parallelism) ?",
+    "L'entraînement optimise le throughput ; l'inférence optimise latence ET throughput simultanément.",
+    "En inférence, la mémoire est dominée par le KV cache, pas par les poids.",
+    "Toujours recouvrir communication et calcul pour cacher la latence réseau.",
+    "Pour servir, commencer simple (1 GPU + quantization) avant tout parallélisme.",
+    "Le model parallelism ajoute de la communication à chaque couche : ne l'utiliser que si nécessaire."
+  ],
+  "workflow": [
+    {"step": "Choisir la stratégie de parallélisme", "purpose": "Faire tenir et entraîner efficacement", "guidelines": ["DDP (réplique le modèle, shard les données) par défaut.", "FSDP dès que le modèle ne tient plus sur un GPU (shard params+grads+optimizer).", "ZeRO-1/2/3 (DeepSpeed) ou Megatron TP/PP pour le très gros ; combiner TP+FSDP."], "pitfalls": ["Sortir le model parallelism trop tôt (communication à chaque couche)."]},
+    {"step": "Configurer le cluster", "purpose": "Entraîner de façon stable et rapide", "guidelines": ["Lancer via torchrun ; DistributedSampler pour des données distinctes par rang.", "Réseau InfiniBand + NCCL bien configurés ; profiler les collectifs (all_reduce).", "Overlap gradient/communication (bucketing DDP, flags --overlap-* Megatron)."], "pitfalls": ["Ethernet quand InfiniBand est disponible.", "NCCL mal configuré → hangs / lenteurs."]},
+    {"step": "Fiabiliser les runs longs", "purpose": "Survivre aux pannes", "guidelines": ["Checkpointing régulier.", "Elastic training pour tolérer perte/ajout de nœuds.", "Mixed precision + gradient accumulation pour l'efficacité."], "pitfalls": ["Pas de checkpoint → run de plusieurs jours perdu au moindre crash."]},
+    {"step": "Servir le modèle", "purpose": "Latence basse et débit élevé en production", "guidelines": ["Start simple : 1 GPU + quantization INT8/INT4 + kernels fusionnés avant TP/PP.", "Répliquer et batcher avant de sortir le tensor parallelism.", "vLLM/SGLang : PagedAttention pour le KV cache, continuous batching pour l'occupation GPU.", "MoE : TP+EP (latence) vs DP+EP (KV partitionné, throughput, MLA/MQA)."], "pitfalls": ["Ignorer le KV cache (domine la mémoire).", "Allouer le KV cache en bloc contigu par requête → gaspillage.", "Batch fixe alors que les requêtes sont variables et continues."]}
+  ],
+  "checklist": [
+    "Décidé : sharder du calcul ou de l'état ?",
+    "DDP par défaut, FSDP si le modèle déborde d'un GPU, ZeRO/Megatron si très gros ?",
+    "torchrun + DistributedSampler + overlap comm/calcul ?",
+    "InfiniBand + NCCL configurés, collectifs profilés ?",
+    "Checkpoint + elastic training pour les runs longs ?",
+    "Serving démarré simple (1 GPU + quantization) avant TP/PP ?",
+    "Répliqué et batché avant le tensor parallelism ?",
+    "vLLM avec PagedAttention + continuous batching ?",
+    "MoE : TP+EP (latence) ou DP+EP (throughput) selon le besoin ?"
+  ],
+  "vocabulary": [
+    {"term": "FSDP", "definition": "Fully Sharded Data Parallel : shard params, gradients et états d'optimizer sur la dimension data-parallel."},
+    {"term": "ZeRO", "definition": "DeepSpeed : sharding incrémental optimizer (1) → +gradients (2) → +params (3)."},
+    {"term": "PagedAttention", "definition": "Gestion du KV cache par pagination (concepts d'OS) qui élimine le gaspillage mémoire de vLLM."},
+    {"term": "Continuous batching", "definition": "Injecter/retirer des requêtes au fil de leurs arrivées/fins pour garder les GPU occupés."},
+    {"term": "TTFT", "definition": "Time To First Token : métrique de latence clé du serving."}
+  ],
+  "heuristics": [
+    "Si le modèle ne tient pas sur un GPU → FSDP FULL_SHARD avant TP/PP.",
+    "Si l'inférence sature en mémoire → c'est le KV cache : PagedAttention + quantization.",
+    "Si le multi-nœud est lent → profiler NCCL, vérifier InfiniBand.",
+    "Si la concurrence est élevée sur un MoE MLA/MQA → DP+EP (KV partitionné)."
+  ],
+  "antipatterns": [
+    "Utiliser le model parallelism là où réplication + batching suffisaient.",
+    "Allouer le KV cache en blocs contigus par requête.",
+    "Entraîner en multi-nœud sur Ethernet quand l'InfiniBand est là.",
+    "Lancer un run long sans checkpointing."
+  ]
+}

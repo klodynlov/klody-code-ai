@@ -1,0 +1,51 @@
+{
+  "skill": "Mémoire d'agents : compaction rate-distortion, anti-contamination, rappel",
+  "domain": "agents",
+  "description": "Concevoir la mémoire d'un agent LLM comme un cycle write–manage–read fiable : garantir la fiabilité au write-time (gate self-consistency contre la contamination), compacter sous budget comme un problème de rate-distortion (réversible et query-conditioned), rappeler l'evidence par association, et gérer la mémoire comme un skill avec revue de qualité.",
+  "source": {"book": "What to Keep, What to Forget (rate-distortion) / ConsistencyGate / RippleMem / SelfMem / MERIT", "author": "divers (arXiv 2026)", "year": 2026},
+  "principles": [
+    "Une mémoire est écrite une fois et lue plusieurs fois : une erreur au write-time devient une fausse prémisse permanente.",
+    "La contamination de mémoire (faits hallucinés) s'accumule sur les longues trajectoires.",
+    "La compaction est un problème de rate-distortion : garder les bits qui prédisent la réponse, rien de plus.",
+    "Sous le besoin d'information de la tâche, oublier fait forcément des erreurs — aucune architecture n'y échappe.",
+    "La réversibilité (re-récupérer ce qu'on a jeté) compte plus que n'importe quelle astuce de scoring.",
+    "La mémoire se gère comme un skill : source immuable + mémoire révisable + revue de qualité.",
+    "L'expérience de réparation se mémorise indexée par type d'erreur."
+  ],
+  "workflow": [
+    {"step": "Fiabiliser l'écriture", "purpose": "Empêcher la contamination", "guidelines": ["Gater chaque write par un test de self-consistency (k échantillons, accord ≥ seuil).", "Stocker source-backed (id de source + timestamp) et auditable.", "Rejeter ou marquer incertain plutôt qu'écrire un fait douteux."], "pitfalls": ["Ne gater que les lectures.", "Écrire une extraction hallucinée qui deviendra une fausse prémisse."]},
+    {"step": "Compacter comme un rate-distortion", "purpose": "Oublier sous budget sans casser la tâche", "guidelines": ["Conditionner la rétention à la requête (query-conditioning).", "Garder les bits qui prédisent la réponse ; archiver le reste de façon réversible.", "Reconnaître que les tâches à réponse riche en bits compressent mal."], "pitfalls": ["Compaction query-agnostic (pénalité quantifiable).", "Jeter sans possibilité de re-fetch."]},
+    {"step": "Rappeler par association", "purpose": "Ne pas manquer l'evidence liée", "guidelines": ["Au-delà du top-k, ramener l'evidence associée à la mémoire déclenchée.", "Relier les fragments par personnages/causalité/co-occurrence."], "pitfalls": ["Retrieval isolé quand la réponse dépend d'un fait connexe non co-indexé."]},
+    {"step": "Gérer et mesurer dans la durée", "purpose": "Maintenir une mémoire saine", "guidelines": ["Donner un memory action space : inspecter, écrire/réviser, réviser la qualité, self-test.", "Mesurer l'accumulation d'erreur sous compaction RÉPÉTÉE, pas seulement single-turn.", "Mémoriser l'expérience de réparation error-typed pour l'auto-correction."], "pitfalls": ["Mécanisme de mémoire fixe non adaptatif.", "Évaluer la compaction sur un seul tour."]}
+  ],
+  "checklist": [
+    "Écritures gatées par self-consistency ?",
+    "Faits source-backed + auditables ?",
+    "Compaction query-conditioned ?",
+    "Matériel jeté re-récupérable (réversibilité) ?",
+    "Rappel associatif au-delà du top-k ?",
+    "Source immuable + mémoire révisable + revue qualité ?",
+    "Accumulation d'erreur sous compaction répétée mesurée ?",
+    "Expérience de réparation indexée par type d'erreur ?"
+  ],
+  "vocabulary": [
+    {"term": "Memory contamination", "definition": "Accumulation de faits hallucinés écrits en mémoire, qui compound sur les longues trajectoires."},
+    {"term": "Rate-distortion (compaction)", "definition": "Compromis entre le budget mémoire (rate) et l'erreur sur la tâche (distortion) ; garder les bits qui prédisent la réponse."},
+    {"term": "Réversibilité", "definition": "Capacité à re-récupérer une information écartée ; décisive sur les requêtes portant sur le matériel jeté."},
+    {"term": "Recollection associative", "definition": "Rappeler l'evidence liée à une mémoire déclenchée, pas seulement le top-k de la requête."},
+    {"term": "Memory action space", "definition": "Ensemble d'actions (inspecter, écrire, réviser, évaluer, self-test) exposées à l'agent pour gérer sa mémoire."}
+  ],
+  "heuristics": [
+    "Si tu ne gates pas les écritures → tu accumules des fausses prémisses.",
+    "Si ta compaction est query-agnostic → tu paies une pénalité inutile.",
+    "Si une méthode ne peut pas re-fetcher ce qu'elle jette → elle perd sur les requêtes qui en dépendent.",
+    "Si tu testes la compaction en single-turn → tu ignores l'erreur qui s'accumule sur les vrais agents."
+  ],
+  "antipatterns": [
+    "Gater les lectures mais pas les écritures.",
+    "Compaction query-agnostic et irréversible.",
+    "Choisir une méthode d'oubli par astuce de scoring plutôt que par réversibilité.",
+    "Retrieval isolé ignorant l'evidence associée.",
+    "Mécanisme de mémoire fixe, jamais audité ni révisé."
+  ]
+}

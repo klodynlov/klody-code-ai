@@ -1,0 +1,49 @@
+{
+  "skill": "Prendre des décisions d'architecture défendables (tradeoffs, ADR)",
+  "domain": "software-engineering",
+  "description": "Transformer une demande en décision d'architecture défendable : nommer les qualités visées (-ilities), rendre le compromis visible avec le Tradeoff Triangle, documenter le choix en ADR, et concevoir pour une haute cohésion et un couplage lâche avec SOLID, puis faire appliquer la décision par des fitness functions.",
+  "source": {"book": "Grokking Software Architecture", "author": "Matt Erman", "year": 2026},
+  "principles": [
+    "L'architecture est un ensemble de petites décisions consistantes, chacune un compromis assumé ('pick your pain on purpose').",
+    "Chasser l'architecture parfaite est un piège : tout choix a un coût.",
+    "Nommer la qualité visée (-ility) et le tradeoff avant de décider.",
+    "Documenter chaque décision significative, y compris ce qu'on a choisi de ne pas faire.",
+    "Viser une haute cohésion et un couplage lâche à tous les niveaux (nature fractale).",
+    "Une décision d'architecture ne vaut que si le pipeline la fait respecter."
+  ],
+  "workflow": [
+    {"step": "Enquêter (le pourquoi)", "purpose": "Comprendre la vraie qualité recherchée", "guidelines": ["Utiliser les 5 Whys pour remonter à la cause de la demande.", "Nommer les -ilities prioritaires (Reliability, Security, Scalability…).", "Identifier les contraintes réelles (temps, coût, changement)."], "pitfalls": ["Décider sans nommer la -ility prioritaire ni le tradeoff."]},
+    {"step": "Comparer les options", "purpose": "Rendre le compromis visible", "guidelines": ["Esquisser le haut niveau (Simple Sketch).", "Lister au moins deux options avec pros/cons.", "Placer un Decision Dot dans le Tradeoff Triangle (ex. Performance/Scalability/Consistency)."], "pitfalls": ["Présenter une seule option comme une évidence."]},
+    {"step": "Documenter en ADR", "purpose": "Rendre la décision défendable et mémorisée", "guidelines": ["Sections : Metadata, Context (+ -ility prioritaire), Options & Tradeoffs, Decision.", "Écrire le POURQUOI et ce qu'on a choisi de NE PAS faire.", "Pour un système distribué, expliciter le tradeoff CAP (Consistency vs Availability)."], "pitfalls": ["Ne pas documenter → decision amnesia, mêmes débats rejoués."]},
+    {"step": "Concevoir et faire appliquer", "purpose": "Traduire la décision en code durable", "guidelines": ["Viser haute cohésion + couplage lâche ; appliquer SOLID (DIP = dépendre d'abstractions).", "Lier le ticket (Jira) à l'ADR concerné.", "Ajouter des fitness functions (tests automatisés) qui vérifient la conformité en CI avant la review."], "pitfalls": ["Basse cohésion / couplage serré.", "ADR laissé à l'état de document, jamais appliqué."]}
+  ],
+  "checklist": [
+    "La vraie cause de la demande est-elle trouvée (5 Whys) ?",
+    "Les -ilities prioritaires sont-elles nommées ?",
+    "Au moins deux options comparées avec pros/cons ?",
+    "Le compromis est-il visible (Tradeoff Triangle + Decision Dot) ?",
+    "Un ADR documente-t-il le choix ET ce qu'on ne fait pas ?",
+    "Le tradeoff CAP est-il explicité pour tout système distribué ?",
+    "Le design vise-t-il haute cohésion + couplage lâche (SOLID/DIP) ?",
+    "Des fitness functions font-elles respecter l'ADR en CI ?"
+  ],
+  "vocabulary": [
+    {"term": "-ility (NFR/CFR)", "definition": "Exigence non-fonctionnelle : comment le système performe (fiabilité, sécurité, scalabilité), pas ce qu'il fait."},
+    {"term": "Tradeoff Triangle", "definition": "Outil visuel plaçant un Decision Dot entre objectifs concurrents pour matérialiser le compromis."},
+    {"term": "ADR", "definition": "Architecture Decision Record : reçu d'une décision (contexte, options, choix, pourquoi, y compris le non-retenu)."},
+    {"term": "Fitness function", "definition": "Test automatisé qui vérifie en continu qu'une contrainte d'architecture est respectée."},
+    {"term": "CAP", "definition": "Sous partition réseau, on ne peut avoir à la fois Consistency forte et Availability totale."}
+  ],
+  "heuristics": [
+    "Si deux options semblent équivalentes → expliciter la -ility prioritaire pour trancher.",
+    "Si une classe fait plusieurs choses non liées → basse cohésion, appliquer SRP.",
+    "Si un module haut niveau dépend d'un détail concret → appliquer DIP (abstraction).",
+    "Si l'équipe rejoue le même débat → il manque un ADR."
+  ],
+  "antipatterns": [
+    "Chasser l'architecture 'parfaite'.",
+    "Décider sans nommer le tradeoff ni la -ility.",
+    "Coupler serré des composants qui ne se swappent plus.",
+    "Écrire un ADR sans jamais le faire appliquer par le pipeline."
+  ]
+}

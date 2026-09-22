@@ -1,0 +1,79 @@
+{
+  "skill": "Distillation de méthode depuis un livre",
+  "domain": "prompt-engineering",
+  "description": "Méthode pour transformer un livre en une méthode actionnable structurée, sans copier la prose de l'auteur, en extraire les principes, le workflow et la checklist.",
+  "source": {
+    "book": "Library Brain (RAG multi-livres)",
+    "author": "Klody",
+    "year": 2026
+  },
+  "principles": [
+    "Reformuler la méthode, ne jamais recopier la prose du livre.",
+    "Une étape sans consigne actionnable n'est pas une étape.",
+    "Privilégier les items binaires dans la checklist pour une vérification claire.",
+    "Le workflow doit être ordonné : chaque étape dépend de la précédente."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer",
+      "purpose": "Définir le domaine, le thème et l'objectif de la distillation.",
+      "guidelines": [
+        "Choisir un domaine (ex: leadership, productivity, software-engineering).",
+        "Formuler le thème à distiller en une phrase claire.",
+        "Déterminer si le skill doit être code-compatible (true/false)."
+      ],
+      "pitfalls": [
+        "Thème trop vague (ex: 'productivité') sans précision.",
+        "Oublier de spécifier code_compatible."
+      ]
+    },
+    {
+      "step": "Distiller",
+      "purpose": "Extraire la méthode depuis les livres indexés via LibraryBrain.",
+      "guidelines": [
+        "Lancer distill_theme avec le thème et le slug.",
+        "Vérifier que le digest est généré dans skills/digest_<slug>.json.",
+        "S'assurer que le contenu est reformulé (pas de citation directe)."
+      ],
+      "pitfalls": [
+        "Ne pas vérifier la présence du fichier digest après l'appel.",
+        "Accepter un contenu qui ressemble trop à la prose du livre."
+      ]
+    },
+    {
+      "step": "Structurer",
+      "purpose": "Convertir le digest en format skill JSON conforme au schéma.",
+      "guidelines": [
+        "Créer le fichier skills/distilled/<slug>.json.",
+        "Mapper les sections du digest vers skill, domain, description, source.",
+        "Extraire principles, workflow (étapes), checklist depuis le contenu.",
+        "Ajouter vocabulary, heuristics, antipatterns, examples si présents."
+      ],
+      "pitfalls": [
+        "Oublier des champs obligatoires (principles, workflow, checklist).",
+        "Ne pas respecter le schéma JSON (ex: minItems, pattern)."
+      ]
+    },
+    {
+      "step": "Valider",
+      "purpose": "Vérifier la conformité du fichier JSON généré.",
+      "guidelines": [
+        "Lire le fichier généré pour s'assurer qu'il est complet.",
+        "Vérifier qu'il respecte le schema.json (required, types).",
+        "Tester que le fichier est lisible par les outils Klody."
+      ],
+      "pitfalls": [
+        "Ne pas valider le JSON avant de l'utiliser.",
+        "Générer un fichier incomplet ou mal formé."
+      ]
+    }
+  ],
+  "checklist": [
+    "Le thème est clair et spécifique.",
+    "Le digest a été généré dans skills/digest_<slug>.json.",
+    "Le fichier skills/distilled/<slug>.json existe et est complet.",
+    "Aucune phrase du livre source n'est copiée directement.",
+    "Chaque étape du workflow a au moins une guideline.",
+    "La checklist contient des items binaires vérifiables."
+  ]
+}

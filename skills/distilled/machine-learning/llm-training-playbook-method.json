@@ -1,0 +1,48 @@
+{
+  "skill": "Entraîner un LLM à l'échelle : données, hyperparamètres, infra",
+  "domain": "machine-learning",
+  "description": "Retour d'expérience HuggingFace (SmolLM3) pour entraîner un LLM : décider s'il faut entraîner, curer les données par ablations manuelles, régler les hyperparamètres pour son setup, et dimensionner l'infrastructure GPU (mémoire, batch, parallélisme, throughput).",
+  "source": {"book": "The Smol Training Playbook — The Secrets to Building World-Class LLMs", "author": "Loubna Ben Allal, Lewis Tunstall et al. (HuggingFace)", "year": 2025},
+  "principles": [
+    "Répondre au 'why train?' d'abord — le plus souvent, ne pas entraîner from scratch.",
+    "La donnée définit ce que le modèle apprend : aucun compute ni optimizer ne compense de mauvaises données.",
+    "Les plus gros gains viennent de la curation des données et des ablations d'architecture, pas d'une méthode à +0,5%.",
+    "Tuner les hyperparamètres pour son setup ; ne pas copier aveuglément la littérature.",
+    "Dimensionner l'infra méthodiquement : fit mémoire, puis batch cible, puis throughput.",
+    "Done is better than perfect : équilibrer exploration et exécution."
+  ],
+  "workflow": [
+    {"step": "Décider (why → what → how)", "purpose": "Éviter des mois gâchés", "guidelines": ["Clarifier l'objectif : research / production / strategic.", "Définir architecture, taille, data mix, type d'assistant.", "Planifier infra, framework, gestion des loss spikes."], "pitfalls": ["Entraîner from scratch alors qu'un modèle existant suffirait."]},
+    {"step": "Curer les données", "purpose": "Le levier de performance n°1", "guidelines": ["Construire la data mixture par ablations MANUELLES systématiques + annealing.", "Équilibrer objectifs conflictuels (anglais vs multilingue/math/code)."], "pitfalls": ["Faire confiance aux méthodes auto (DoReMi/Rho/RegMix) : convergent vers 'plus de ce qu'on a déjà'."]},
+    {"step": "Régler les hyperparamètres", "purpose": "Ne pas laisser de perf sur la table", "guidelines": ["AdamW + cosine schedule + warmup ; faire un lr sweep (SmolLM3 → 2e-4).", "Augmenter le batch vers la critical batch size pour le throughput, en re-tunant le lr.", "Utiliser les scaling laws (Chinchilla) pour le signal d'ablation."], "pitfalls": ["Copier lr/batch de la littérature sans re-tuner.", "Augmenter le batch sans re-tuner le lr."]},
+    {"step": "Dimensionner l'infra (Ultra-Scale, 3 étapes)", "purpose": "Entraîner efficacement et sans crash mémoire", "guidelines": ["1) vérifier que le training step fit en mémoire (nanotron predict_memory).", "2) atteindre la GBS cible : GBS = DP × MBS × GRAD_ACC × SEQLEN.", "3) optimiser le throughput ; benchmarker chaque dimension de parallélisme isolément.", "Activation checkpointing + weak scaling (~8K tokens/GPU)."], "pitfalls": ["Pipeline Parallelism à petite échelle (bulle + communication dominante).", "Lancer sans vérifier le fit mémoire.", "Lustre sur beaucoup de petits fichiers → goulot metadata."]}
+  ],
+  "checklist": [
+    "Le 'why train?' est-il répondu (sinon ne pas entraîner) ?",
+    "Data mixture construite par ablations manuelles + annealing ?",
+    "Hyperparamètres tunés pour ce setup (lr sweep, cosine, warmup) ?",
+    "Batch poussé vers la critical batch size avec lr re-tuné ?",
+    "Training step vérifié en mémoire (predict_memory) ?",
+    "GBS cible atteinte via l'équation DP×MBS×GRAD_ACC×SEQLEN ?",
+    "Parallélisme benchmarké dimension par dimension (PP évité à petite échelle) ?",
+    "Temps alloué entre exploration et exécution (done > perfect) ?"
+  ],
+  "vocabulary": [
+    {"term": "Data mixture", "definition": "Proportions des sources de données ; détermine ce que le modèle apprend."},
+    {"term": "Critical batch size", "definition": "Taille de batch au-delà de laquelle augmenter n'améliore plus l'efficacité data."},
+    {"term": "GBS", "definition": "Global Batch Size = DP × MBS × GRAD_ACC × SEQLEN."},
+    {"term": "ZeRO", "definition": "Sharding des états d'optimizer entre GPU pour réduire la mémoire par GPU."}
+  ],
+  "heuristics": [
+    "Si le modèle apprend mal malgré une belle convergence → suspecter les données avant l'archi.",
+    "Si un H100 sature (~80GB) → introduire TP/PP/ZeRO ou activation checkpointing.",
+    "Si le modèle est petit → éviter le Pipeline Parallelism.",
+    "Si l'éval coûte trop cher → échantillonner le benchmark."
+  ],
+  "antipatterns": [
+    "Optimiser l'archi/les hyperparamètres en négligeant les données.",
+    "Copier les hyperparamètres de la littérature sans re-tuner.",
+    "Se fier aux méthodes automatiques de data mixture.",
+    "Lancer un entraînement sans budget mémoire vérifié."
+  ]
+}

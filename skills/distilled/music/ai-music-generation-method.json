@@ -1,0 +1,48 @@
+{
+  "skill": "Générer de la musique par IA : tokenizer→LLM→renderer + planification",
+  "domain": "music",
+  "description": "Construire un système de génération musicale moderne : un pipeline tokenizer (RVQ/sémantique) → LLM autoregressif → renderer (flow-matching/diffusion), en planifiant explicitement mélodie et structure avant l'audio et en arbitrant entre autoregressif et diffusion selon durée et qualité.",
+  "source": {"book": "Qwen-Music Technical Report / Pushing the Frontier of Full-Song Generation", "author": "Qwen Team ; Alibaba Token Foundry", "year": 2026},
+  "principles": [
+    "Adopter le pipeline 3-étages : tokens portent la sémantique, le renderer porte la fidélité.",
+    "Planifier avant de générer : mélodie (Melody-CoT) et structure (layout explicite time-aligned).",
+    "Exposer un plan intermédiaire inspectable/révisable avant l'audio.",
+    "Arbitrer autoregressif (durée longue) vs diffusion (qualité/diversité), ou combiner.",
+    "Réécrire la requête utilisateur en condition textuelle structurée avant de conditionner le LLM.",
+    "Générer en symbolique (MIDI) quand on veut un contrôle et une édition précis."
+  ],
+  "workflow": [
+    {"step": "Poser le pipeline 3-étages", "purpose": "Séparer sémantique et fidélité", "guidelines": ["Tokenizer RVQ / semantic tokens (audio → tokens discrets).", "LLM autoregressif modélisant structure + détails.", "Renderer flow-matching / diffusion en latent VAE continu pour la haute-fidélité."], "pitfalls": ["Attendre la fidélité des seuls tokens discrets.", "Synthèse par chunks pour un full-song → coutures."]},
+    {"step": "Structurer la condition", "purpose": "Donner un prompt exploitable", "guidelines": ["Réécrire la requête NL en condition structurée : tags genre/mood/instruments/voix + paroles + marqueurs de section.", "Curer des annotations fines (structure segment-level intro/couplet/refrain/pont)."], "pitfalls": ["Prompt global unique → structure implicite non contrôlable."]},
+    {"step": "Planifier avant l'audio", "purpose": "Cohérence long-range + contrôle", "guidelines": ["Melody-CoT : planifier la mélodie (chain-of-thought sur tokens de mélodie), + cloning depuis référence.", "MusicLayout : produire un plan time-aligned de sections/répétitions/instruments PUIS les tokens audio conditionnés."], "pitfalls": ["Générer long sans plan → dérive et incohérence."]},
+    {"step": "Choisir AR/diffusion et l'efficacité", "purpose": "Qualité, durée, latence", "guidelines": ["AR = durée longue ; diffusion = qualité/diversité ; diffusion latente autoregressive = long + qualité.", "MIDI symbolique pour le contrôle/édition précis.", "Step-distillation few-step pour le temps réel, en surveillant l'alignement cross-modal."], "pitfalls": ["Few-step trop agressif → alignement cross-modal et instruction-following cassés."]}
+  ],
+  "checklist": [
+    "Pipeline tokenizer → LLM AR → renderer en place ?",
+    "Condition textuelle structurée (tags + paroles + sections) ?",
+    "Mélodie planifiée (Melody-CoT) avant génération ?",
+    "Plan de structure explicite inspectable (layout) ?",
+    "AR vs diffusion choisi selon durée/qualité ?",
+    "Symbolique (MIDI) si contrôle précis requis ?",
+    "Few-step surveillé pour l'alignement cross-modal ?",
+    "Annotations segment-level pour placer intro/refrain/pont ?"
+  ],
+  "vocabulary": [
+    {"term": "RVQ tokenizer", "definition": "Residual Vector Quantization : encode l'audio en tokens discrets multi-codebook."},
+    {"term": "Melody-CoT", "definition": "Chain-of-thought sur tokens de mélodie qui planifie la mélodie avant la génération full-song."},
+    {"term": "MusicLayout", "definition": "Représentation intermédiaire explicite : layout time-aligned de sections/instruments."},
+    {"term": "Flow-matching renderer", "definition": "Rendu haute-fidélité en latent VAE continu, au-delà des tokens discrets."}
+  ],
+  "heuristics": [
+    "Si l'audio manque de fidélité → renforcer le renderer, pas seulement les tokens.",
+    "Si la structure dérive sur un morceau long → planifier un layout explicite.",
+    "Si on veut éditer précisément → passer au symbolique (MIDI).",
+    "Si l'inférence est trop lente → step-distillation, mais vérifier l'alignement."
+  ],
+  "antipatterns": [
+    "Prompt global sans plan de structure.",
+    "Compter sur les tokens discrets seuls pour la fidélité.",
+    "Synthèse par chunks pour un full-song.",
+    "Few-step agressif qui casse l'alignement cross-modal."
+  ]
+}

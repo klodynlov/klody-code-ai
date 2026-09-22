@@ -1,0 +1,90 @@
+{
+  "skill": "Pipeline de retrieval avancé (RAG 2 étages : hybrid, rerank, GraphRAG)",
+  "domain": "llm",
+  "description": "Construire un retrieval RAG de qualité production : rappel hybride BM25+dense fusionné RRF, reranking cross-encoder, index vectoriel choisi selon l'échelle, pré-retrieval (HyDE/multi-query), GraphRAG pour les questions globales, et évaluation RAGAS.",
+  "source": { "book": "RAG with Python Cookbook", "author": "Deepak Dhyani" },
+  "principles": [
+    "Retrieval en 2 étages : rappel large bon marché, puis reranking précis. Le cosinus bi-encoder sature à l'échelle — jamais comme tri final.",
+    "Hybrider sparse (BM25, précision lexicale) et dense (embeddings, sémantique) couvre le vocabulary mismatch ; fusionner par Reciprocal Rank Fusion.",
+    "Choisir l'index vectoriel selon l'échelle et la RAM, pas par défaut : Flat exact, IVF, HNSW, +quantization.",
+    "Transformer la requête AVANT de chercher quand elle est vague, trop étroite, multi-facettes ou éloignée des documents.",
+    "GraphRAG (graphe de connaissances) seulement pour l'agrégation / synthèse globale / multi-hop que les embeddings ratent — sinon RAG vectoriel classique.",
+    "Le contexte est une ressource finie à rendement décroissant : ordonner les passages pertinents en tête et en queue, ne pas sur-remplir.",
+    "Évaluer retrieval et génération séparément sur un jeu golden."
+  ],
+  "workflow": [
+    {
+      "step": "Découper et indexer",
+      "purpose": "Préparer des unités de récupération pertinentes",
+      "guidelines": [
+        "Chunker ni trop petit (perte de contexte) ni trop gros (dilution) ; sliding window avec overlap, ou semantic sur titres/paragraphes.",
+        "Embedder (normaliser les vecteurs → L2 ~ cosinus) et bâtir un index FAISS : Flat pour petit/exact, IVF (régler nprobe) pour moyen-grand, HNSW (M=16, efConstruction élevé) pour grand, +PQ/SQ si la RAM contraint.",
+        "Bâtir en parallèle un index BM25 pour la jambe lexicale."
+      ],
+      "pitfalls": ["IN() sur un index vec0 = full scan : utiliser IndexIDMap et des point-deletes par ID"]
+    },
+    {
+      "step": "Rappel hybride",
+      "purpose": "Maximiser le rappel sans perdre la précision mot-clé",
+      "guidelines": [
+        "Lancer BM25 (top-50) ET dense/HNSW (top-50, régler efSearch pour rappel/latence).",
+        "Fusionner les deux classements par RRF : score(doc) = Σ 1/(k + rang), k≈60."
+      ]
+    },
+    {
+      "step": "Reranking",
+      "purpose": "Trier finement les candidats",
+      "guidelines": [
+        "Scorer les paires (query, doc) avec un cross-encoder ('cross-encoder/ms-marco-MiniLM-L-6-v2'), trier décroissant, garder le top-5.",
+        "C'est le tri FINAL — pas le cosinus."
+      ]
+    },
+    {
+      "step": "Pré-retrieval (si le rappel est faible)",
+      "purpose": "Réparer une requête mal formée avant de chercher",
+      "guidelines": [
+        "Requête vague → rewriting ; trop étroite → step-back ; multi-facettes → sub-query decomposition ; grand écart question↔doc → HyDE (générer un doc hypothétique, l'embedder, retrouver doc↔doc).",
+        "Ou multi-query : 3-5 reformulations, retrieve chacune, merge."
+      ],
+      "pitfalls": ["HyDE dérive si le LLM ignore le domaine ; matcher la taille du doc hypothétique aux chunks"]
+    },
+    {
+      "step": "GraphRAG (questions globales/agrégation)",
+      "purpose": "Répondre à ce que l'embedding ne peut pas",
+      "guidelines": [
+        "Extraire un knowledge graph par LLM (entités + relations, Structured Outputs), résumer, détecter les communautés.",
+        "Global search = map-reduce sur les résumés de communautés ; local search = vector search sur entités → voisins + relations + chunks."
+      ],
+      "pitfalls": ["Communautés trop grosses = coût LLM de summarization explosif : sous-partitionner"]
+    },
+    {
+      "step": "Assembler et évaluer",
+      "purpose": "Grounder la génération et mesurer",
+      "guidelines": [
+        "Ordonner les passages : les plus pertinents en tête ET en queue du prompt (éviter lost-in-the-middle).",
+        "Évaluer avec RAGAS : context_precision/context_recall (retrieval) séparés de faithfulness/answer_relevancy (génération), sur un golden set."
+      ]
+    }
+  ],
+  "checklist": [
+    "Rappel hybride BM25 + dense fusionné par RRF ?",
+    "Tri final par cross-encoder, pas par cosinus ?",
+    "Index vectoriel choisi selon échelle+RAM (Flat/IVF/HNSW/PQ) ?",
+    "Pré-retrieval branché si la requête est mal formée (rewriting/HyDE/multi-query) ?",
+    "GraphRAG réservé aux questions globales/agrégation/multi-hop ?",
+    "Passages pertinents placés en tête et queue du contexte ?",
+    "Évaluation RAGAS retrieval-vs-génération sur un jeu golden ?"
+  ],
+  "vocabulary": [
+    {"term": "RRF", "definition": "Reciprocal Rank Fusion : fusion de classements par Σ 1/(k+rang)"},
+    {"term": "HNSW", "definition": "Index graphe multicouche pour ANN ; params M, efConstruction, efSearch"},
+    {"term": "cross-encoder", "definition": "Modèle lisant (query,doc) ensemble pour un score de pertinence précis (reranking)"},
+    {"term": "HyDE", "definition": "Hypothetical Document Embeddings : chercher via un doc hypothétique généré (document-space)"},
+    {"term": "GraphRAG", "definition": "RAG sur graphe de connaissances ; global (communautés) vs local (entités)"}
+  ],
+  "antipatterns": [
+    "Trier les résultats finaux au cosinus bi-encoder (sature à l'échelle → faux positifs thématiques)",
+    "Empiler tout le contexte disponible (context rot ; le milieu du prompt est ignoré)",
+    "Utiliser GraphRAG partout (coûteux) au lieu de le réserver aux questions globales/multi-hop"
+  ]
+}
