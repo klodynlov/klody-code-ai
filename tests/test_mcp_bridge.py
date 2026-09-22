@@ -123,7 +123,7 @@ class TestHelpers:
         class FakeTool:
             name = "send_email"
             description = "Envoie un email"
-            inputSchema = {"type": "object", "properties": {"to": {"type": "string"}}}
+            inputSchema = {"type": "object", "properties": {"to": {"type": "string"}}}  # noqa: RUF012
         schema = _tool_to_openai_schema("gmail", FakeTool())
         assert schema["function"]["name"] == "mcp__gmail__send_email"
         assert schema["function"]["parameters"]["properties"]["to"]["type"] == "string"
@@ -140,14 +140,14 @@ class TestHelpers:
         class Item:
             text = "bonjour"
         class Result:
-            content = [Item()]
+            content = [Item()]  # noqa: RUF012
             data = None
         assert _result_to_text(Result()) == "bonjour"
 
     def test_result_to_text_data_fallback(self):
         class Result:
-            content = []
-            data = {"ok": True}
+            content = []  # noqa: RUF012
+            data = {"ok": True}  # noqa: RUF012
         assert "ok" in _result_to_text(Result())
 
 
@@ -170,3 +170,21 @@ class TestConfigParsing:
     def test_pas_un_dict(self):
         from config import _parse_mcp_servers
         assert _parse_mcp_servers("[1, 2, 3]") == {}
+
+
+
+class TestCallTimeout:
+    """Délai d'appel par serveur : défauts (laser long), env, repli sur _CALL_TIMEOUT."""
+
+    def test_defaut_par_serveur(self, monkeypatch):
+        from tools import mcp_bridge as mb
+        monkeypatch.delenv("KLODY_MCP_CALL_TIMEOUTS", raising=False)
+        assert mb.call_timeout("laser") == 600.0
+        assert mb.call_timeout("gmail") == mb._CALL_TIMEOUT
+
+    def test_env_surcharge_et_json_invalide(self, monkeypatch):
+        from tools import mcp_bridge as mb
+        monkeypatch.setenv("KLODY_MCP_CALL_TIMEOUTS", '{"laser": 900, "gmail": 15}')
+        assert mb.call_timeout("laser") == 900.0 and mb.call_timeout("gmail") == 15.0
+        monkeypatch.setenv("KLODY_MCP_CALL_TIMEOUTS", "{pas du json")
+        assert mb.call_timeout("laser") == 600.0

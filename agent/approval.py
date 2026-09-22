@@ -66,6 +66,47 @@ _STRONG_WRITE_VERBS: frozenset[str] = frozenset({
 })
 
 
+# Politiques PAR SERVEUR : certains organes ont des outils dont le nom ne porte
+# pas de verbe (« laser_arm », « work_reset ») mais dont l'effet est physique et
+# irréversible — un laser de classe 4 qui tire, une tête qui bouge, un repère
+# planche qu'on écrase. Là, la règle générique (verbe de tête) laisserait passer
+# `laser_arm` : on déclare explicitement ce qui exige l'humain, et ce qui est
+# libre (préparer un job, vectoriser, regarder la caméra ne tirent jamais).
+# Un outil du serveur absent des deux listes retombe sur la règle générique.
+_SERVER_POLICIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "laser": (
+        frozenset({
+            # tir / armement / mouvement de la tête (laser éteint ou non)
+            "laser_arm", "laser_run", "laser_dot", "laser_frame", "laser_resume",
+            "laser_jog", "laser_goto", "laser_send", "laser_reset", "laser_unlock",
+            "laser_set_origin",
+            # repère planche et calibration caméra : écrasent une référence physique
+            "work_set_from_dots", "work_reset", "work_confirm",
+            "camera_align", "camera_align_auto", "camera_calibrate_intrinsics",
+        }),
+        frozenset({
+            # arrêt d'urgence et pause : ne JAMAIS attendre une validation
+            "laser_stop", "laser_hold",
+            # connexion, lecture, préparation de job, création de SVG, caméra en lecture
+            "laser_connect", "laser_disconnect", "laser_ports", "laser_status",
+            "laser_settings", "laser_progress", "work_info", "ui_url",
+            "job_new", "job_add_vector", "job_add_raster", "job_add_markers",
+            "job_update", "job_remove", "job_list", "job_preview", "job_export_gcode",
+            "job_save", "job_load",
+            "image_to_svg", "text_to_svg", "mesh_to_svg",
+            "camera_list", "camera_open", "camera_capture", "camera_status",
+            "camera_bed_view", "camera_px_to_bed", "camera_find_dot",
+        }),
+    ),
+}
+
+
+def _server_of(tool_name: str) -> str:
+    # mcp__<serveur>__<outil> → <serveur> (les noms de serveur n'ont pas de « __ »)
+    parts = tool_name.split("__", 2)
+    return parts[1] if len(parts) == 3 else ""
+
+
 def requires_approval(tool_name: str) -> bool:
     """True si `tool_name` doit être validé par l'utilisateur avant exécution.
 
@@ -79,6 +120,13 @@ def requires_approval(tool_name: str) -> bool:
         return False
 
     leaf = tool_name.rsplit("__", 1)[-1].lower().replace("-", "_")
+    policy = _SERVER_POLICIES.get(_server_of(tool_name))
+    if policy is not None:
+        approve, free = policy
+        if leaf in approve:
+            return True
+        if leaf in free:
+            return False
     tokens = [t for t in leaf.split("_") if t]
     head = tokens[0] if tokens else ""
     if head in _WRITE_VERBS:
