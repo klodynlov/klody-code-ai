@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>KeepAlive</key>
+	<dict>
+		<key>Crashed</key>
+		<true/>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>Label</key>
+	<string>com.klody.blender-mcp</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/klodynlov/Projets/klody-code-ai/scripts/start-blender-mcp.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>/Users/klodynlov/Library/Logs/klody-blender-mcp.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/klodynlov/Library/Logs/klody-blender-mcp.log</string>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>WorkingDirectory</key>
+	<string>/Users/klodynlov/Projets/klody-code-ai</string>
+</dict>
+</plist>
