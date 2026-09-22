@@ -22,7 +22,9 @@ with tempfile.TemporaryDirectory(prefix='klody-assets-') as tmp:
     bpy.data.collections.remove(source)
     bpy.data.objects.remove(obj)
     bpy.data.meshes.remove(mesh)
-    lib=bpy.context.preferences.filepaths.asset_libraries.new(name='Fixture',directory=tmp)
+    # L'appel enregistre la bibliothèque « Fixture » consommée plus bas ; la valeur
+    # rendue ne sert pas — pas de liaison, pour ne pas laisser de global mort (CodeQL).
+    bpy.context.preferences.filepaths.asset_libraries.new(name='Fixture',directory=tmp)
     original={o.name:tuple(o.matrix_world) for o in bpy.context.scene.objects}
     selected=list(bpy.context.selected_objects)
     active=bpy.context.view_layer.objects.active

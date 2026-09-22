@@ -15,6 +15,23 @@ paths = [
     '''bench/results/''',
     # Fixtures de tests : peuvent contenir des tokens factices pour vérifier le parsing
     '''tests/.*\.json$''',
+    # Baseline de detect-secrets : par construction une liste de CANDIDATS où chaque
+    # valeur est étiquetée « secret » et de haute entropie — faux positif permanent
+    # pour `generic-api-key`. detect-secrets n'y écrit que `hashed_secret`, un
+    # condensat SHA-1 de 40 hex ; aucun champ ne porte de secret en clair, le fichier
+    # ne PEUT pas divulguer d'identifiant utilisable. Le scanner qui produit ce
+    # fichier est lui-même un hook pre-commit : le re-scanner ici est circulaire.
+    #
+    # Écart latent, pas introduit : la version de `main` donne déjà 3 findings,
+    # invisibles tant qu'aucun commit ne touche le fichier (gitleaks-action ne scanne
+    # que le diff de la PR). Le premier PR qui modifie la baseline les révèle.
+    #
+    # Portée : ce seul fichier, à la racine. Vérifié PAR DIFFÉRENCE sur un canari hors
+    # dépôt selon la procédure décrite plus bas — un PAT GitHub et une clé entropique
+    # mixed-case placés dans le même canari restent détectés.
+    # (non ancré à gauche, comme les motifs ci-dessus : gitleaks confronte le chemin
+    # absolu du fichier, pas un chemin relatif à la racine du dépôt.)
+    '''\.secrets\.baseline$''',
     '''tests/fixtures/''',
 ]
 regexes = [
