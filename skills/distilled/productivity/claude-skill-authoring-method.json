@@ -1,0 +1,48 @@
+{
+  "skill": "Écrire un skill Claude efficace (SKILL.md, progressive disclosure)",
+  "domain": "productivity",
+  "description": "Concevoir, écrire et débugger un skill Claude : structurer le dossier et SKILL.md, exploiter la progressive disclosure, rédiger une description qui déclenche au bon moment, respecter les règles de nommage, tester le triggering et packager le skill.",
+  "source": {"book": "The Complete Guide to Building Skills for Claude", "author": "Anthropic", "year": 2026},
+  "principles": [
+    "Un skill est un dossier : SKILL.md requis, plus scripts/references/assets optionnels.",
+    "Progressive disclosure : seul le frontmatter est toujours chargé ; le corps et les fichiers se chargent au besoin.",
+    "La description décide du déclenchement : c'est le levier n°1.",
+    "Instructions concises, critiques en haut, détail déporté dans references/.",
+    "Concevoir pour la composabilité : plusieurs skills peuvent être chargés ensemble.",
+    "Itérer via le test de triggering et le feedback réel."
+  ],
+  "workflow": [
+    {"step": "Structurer le skill", "purpose": "Poser une base valide et portable", "guidelines": ["Créer un dossier kebab-case avec SKILL.md (nom exact, sensible à la casse).", "Frontmatter YAML délimité par --- avec name (kebab-case = dossier) et description.", "Ajouter scripts/, references/, assets/ selon les besoins."], "pitfalls": ["Nommer le fichier SKILL.MD / skill.md → 'Could not find SKILL.md'.", "Mettre des chevrons XML (< >) dans le frontmatter → invalide (sécurité)."]},
+    {"step": "Rédiger la description", "purpose": "Faire déclencher le skill au bon moment", "guidelines": ["Structure : [Ce que ça fait] + [Quand l'utiliser] + [Capacités].", "Inclure des phrases de déclenchement réelles et les types de fichiers concernés.", "Clarifier le scope si le skill risque de sur-déclencher."], "pitfalls": ["Description trop générique → le skill ne se déclenche jamais.", "Préfixe 'claude'/'anthropic' dans le name → réservé, rejeté."]},
+    {"step": "Écrire les instructions", "purpose": "Rendre le skill effectivement suivi", "guidelines": ["Concis, puces/numéros ; critiques en haut (## Important / ## Critical).", "Déporter le détail lourd dans references/ (progressive disclosure).", "Toujours prévoir error handling et exemples ; restreindre via allowed-tools si utile."], "pitfalls": ["Instructions verbeuses ou critiques enfouies → non suivies.", "Skill qui suppose être seul → casse la composabilité."]},
+    {"step": "Tester et packager", "purpose": "Valider le déclenchement et livrer", "guidelines": ["Tester sur tâches évidentes + paraphrases + vérifier le non-déclenchement sur sujets non liés.", "Debug : demander 'Quand utiliserais-tu le skill [nom] ?' → Claude restitue la description.", "Packager en .zip ; après upload, monitorer under/over-triggering et bumper la version."], "pitfalls": ["Ne pas monitorer le triggering après upload → skill inutile ou envahissant."]}
+  ],
+  "checklist": [
+    "Dossier kebab-case + fichier exactement SKILL.md ?",
+    "Frontmatter avec --- , name kebab-case = dossier ?",
+    "Description = WHAT + WHEN + phrases de déclenchement réelles ?",
+    "Aucun chevron XML ; pas de préfixe claude/anthropic ?",
+    "Instructions concises, critiques en haut, error handling + exemples ?",
+    "Détail lourd déporté dans references/ ?",
+    "Triggering testé (évident + paraphrases + non-déclenchement) ?",
+    "Packagé en .zip, version dans metadata, monitoring prévu ?"
+  ],
+  "vocabulary": [
+    {"term": "Progressive disclosure", "definition": "Chargement en 3 niveaux : frontmatter toujours, corps au déclenchement, fichiers au besoin."},
+    {"term": "SKILL.md", "definition": "Fichier requis (nom exact) contenant les instructions Markdown + frontmatter YAML."},
+    {"term": "Triggering", "definition": "Déclenchement du skill, décidé par le champ description."},
+    {"term": "allowed-tools", "definition": "Champ optionnel du frontmatter restreignant les outils accessibles au skill."}
+  ],
+  "heuristics": [
+    "Si le skill ne se déclenche jamais → description trop générique ou sans phrases réelles.",
+    "Si le skill se déclenche trop → clarifier le scope dans la description.",
+    "Pour vérifier une description → demander à Claude quand il utiliserait le skill.",
+    "Si un skill a déjà un serveur MCP → l'habiller de recettes (skill MCP-enhanced)."
+  ],
+  "antipatterns": [
+    "Écrire une description vague ('aide avec les projets').",
+    "Renommer SKILL.md ou y mettre des chevrons XML.",
+    "Empiler des instructions verbeuses au lieu de puces + references/.",
+    "Livrer sans tester le triggering ni monitorer après upload."
+  ]
+}

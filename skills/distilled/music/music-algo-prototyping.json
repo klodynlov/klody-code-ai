@@ -1,0 +1,110 @@
+{
+  "skill": "Prototyper un algorithme de creation musicale (gate, local, mesure)",
+  "domain": "music",
+  "description": "Methode gatee et locale pour prototyper un algorithme de creation musicale (composition procedurale, DSP/synthese, ou analyse) : cadrer l'intention + la metrique, choisir le paradigme, concevoir le MAPPING (etape decisive), coder un spike SYMBOLIQUE (MIDI) d'abord, rendre + mesurer objectivement (MIR), gater, iterer sur le processus.",
+  "source": {
+    "book": "The Oxford Handbook of Algorithmic Music (+ MIR Muller, DSP Smith)",
+    "author": "Roger T. Dean & Alex McLean (eds)",
+    "year": 2018
+  },
+  "principles": [
+    "Prototyper un PROCESSUS, pas des notes fixes (Eno : vendre le processus, pas l'output) ; la sortie est UNE realisation parmi une infinite.",
+    "Le MAPPING (etat-algo -> parametres musicaux) est l'etape DECISIVE, pas le paradigme : le concevoir explicitement et en premier, viser l'emergent plutot que l'un-a-un.",
+    "Symbolique d'abord : sortir du MIDI verifiable et deterministe AVANT de rendre de l'audio (finding klod-session : MIDI verifie bat l'audio-first).",
+    "I6 : jamais 'ca sonne bien' sans mesure ; definir la metrique de succes AVANT de coder l'algo.",
+    "Axe humain<->algorithme (live-coding <-> agent autonome) = decision de design a prendre en premier.",
+    "Echelle contrat-first : 20 lignes de regles avant un ML ; monter d'un cran seulement si le gate prouve l'echec du cran inferieur.",
+    "Local-first, venv DEDIE par prototype (ne jamais polluer un venv de prod)."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer l'intention + definir le 'bon' avant le code",
+      "purpose": "Savoir ce qu'on genere et comment on jugera que ca marche.",
+      "guidelines": [
+        "Reduire a 1 phrase + 1 dimension musicale cible (rythme / harmonie / timbre / forme).",
+        "Definir la metrique de succes AVANT d'ecrire l'algo."
+      ],
+      "pitfalls": ["Coder sans metrique -> on ne saura jamais si le proto reussit."]
+    },
+    {
+      "step": "Choisir le paradigme (par ce qu'on genere)",
+      "purpose": "Matcher la methode a la structure musicale visee.",
+      "guidelines": [
+        "Regles/grammaire L-system : hierarchie, ramification, auto-similarite.",
+        "Stochastique Markov/chaos/fractales : variation controlee, style 'a la maniere de'.",
+        "Genetique (GA) : quand on sait scorer une fitness (attention optima locaux ; fitness souvent interactive).",
+        "Automates cellulaires : emergence, textures, nappes.",
+        "DSP/synthese : quand le timbre est la cible.",
+        "ML/generatif : seulement si data-driven et que le reste plafonne."
+      ],
+      "pitfalls": ["Sortir un ML quand 20 lignes de regles suffisent (payer un cout sans preuve)."]
+    },
+    {
+      "step": "Concevoir le MAPPING (le coeur, ecrit noir sur blanc)",
+      "purpose": "C'est le mapping qui fait la musicalite, pas le paradigme.",
+      "guidelines": [
+        "Table explicite sortie-algo -> parametre musical (ex. valeur CA in [0,1] -> pitch-class de la gamme).",
+        "Contraindre dans un espace musical (gamme, grille rythmique, tessiture).",
+        "Viser un mapping emergent (raffine par feedback) plutot qu'un-a-un fige."
+      ],
+      "pitfalls": ["Mapping un-a-un ou implicite -> fragile et amusical."]
+    },
+    {
+      "step": "Spike : plus petit coeur executable, en MIDI",
+      "purpose": "Rendre le processus executable et inspectable vite.",
+      "guidelines": [
+        "numpy (algo) -> mido/pretty_midi (MIDI symbolique).",
+        "Deterministe (seed fixe) pour comparer les iterations.",
+        "Inspecter le MIDI (notes, timing) avant tout rendu audio."
+      ],
+      "pitfalls": ["Coder l'audio avant le symbolique -> sortie invérifiable, debug a l'oreille."]
+    },
+    {
+      "step": "Rendre + mesurer (I6)",
+      "purpose": "Verifier objectivement la dimension cible, pas a l'oreille seule.",
+      "guidelines": [
+        "Rendre en audio pour ecouter (REAPER via pont Klody TCP :9000, PAS computer-use).",
+        "Mesurer avec librosa : tempo/onset (rythme), chroma/cle (harmonie), nouveaute/SSM (forme), centroide spectral (timbre).",
+        "La metrique repond a la question du cadrage."
+      ],
+      "pitfalls": ["Pas de metrique -> pas de gate possible."]
+    },
+    {
+      "step": "Gate d'eval (go/no-go chiffre)",
+      "purpose": "Decider si le proto capture l'intention, mesurablement.",
+      "guidelines": [
+        "Objectif musical (metrique MIR) + A/B d'ecoute.",
+        "A/B = page HTML autonome (Web Audio, donnees integrees), PAS REAPER ; cle/logique hors page.",
+        "Decision go/no-go chiffree."
+      ],
+      "pitfalls": ["Juger sur une impression sans A/B ni metrique."]
+    },
+    {
+      "step": "Iterer sur le processus",
+      "purpose": "Explorer l'espace des realisations et raffiner la ou est le gain.",
+      "guidelines": [
+        "Balayage parametres/seed pour observer l'espace des sorties.",
+        "Tourner le curseur humain<->algo ; raffiner le mapping (c'est presque toujours la que se gagne la musicalite)."
+      ],
+      "pitfalls": ["Optimiser une sortie figee au lieu du processus generatif."]
+    }
+  ],
+  "checklist": [
+    "Intention en 1 phrase + 1 dimension cible + metrique de succes definie AVANT le code ?",
+    "Axe humain<->algo (controle) tranche ?",
+    "Paradigme choisi par la structure visee, pas par mode ; regles avant ML ?",
+    "MAPPING ecrit explicitement, contraint a un espace musical, emergent > un-a-un ?",
+    "Spike deterministe en MIDI symbolique, inspecte avant audio ?",
+    "Sortie MESUREE (librosa) sur la dimension cible, pas 'ca sonne bien' ?",
+    "Gate : metrique MIR + A/B HTML autonome -> go/no-go ?",
+    "venv dedie, prod intacte ?"
+  ],
+  "antipatterns": [
+    "Coder l'audio avant le symbolique (invérifiable).",
+    "Mapping un-a-un ou implicite (fragile, amusical).",
+    "'Ca sonne bien' sans mesure (viole I6).",
+    "Sortir un ML quand des regles suffisent.",
+    "Prototyper dans un venv de prod.",
+    "Ignorer l'axe humain<->algo au cadrage."
+  ]
+}

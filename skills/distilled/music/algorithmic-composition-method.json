@@ -1,0 +1,48 @@
+{
+  "skill": "Composer de la musique algorithmique : processus, méthodes, mapping",
+  "domain": "music",
+  "description": "Créer de la musique générative en spécifiant un processus plutôt que des notes : se situer sur l'axe humain↔algorithme, choisir une méthode générative (L-systems, automates cellulaires, algorithmes génétiques, Markov, chaos) selon la structure voulue, et soigner le mapping des valeurs générées vers les paramètres sonores.",
+  "source": {"book": "The Oxford Handbook of Algorithmic Music", "author": "Roger T. Dean & Alex McLean (eds.)", "year": 2018},
+  "principles": [
+    "Composer le processus, pas les notes : chaque exécution est une réalisation valide parmi une infinité.",
+    "La relation humain↔algorithme est un continuum (agent autonome ↔ notation) à choisir explicitement.",
+    "La méthode générative se choisit selon la structure musicale visée.",
+    "En algorithme génétique, la fitness et la douceur du paysage décident du résultat.",
+    "Le mapping fait autant l'œuvre que le générateur.",
+    "Doser l'équilibre ordre/surprise : ni chaos total, ni règle rigide."
+  ],
+  "workflow": [
+    {"step": "Se situer sur l'axe humain↔algorithme", "purpose": "Cadrer le design", "guidelines": ["Live algorithm : agent autonome + machine listening qui répond aux humains en direct.", "Live coding : l'algorithme est une notation que l'humain écrit/édite en direct.", "Positionner le projet entre ces extrêmes."], "pitfalls": ["Prêter une agentivité créative à un live algorithm sans écoute ni réponse réelle."]},
+    {"step": "Choisir la méthode générative", "purpose": "Produire la structure voulue", "guidelines": ["L-systems / grammaires : axiome + réécriture parallèle → hiérarchie/ramification.", "Automates cellulaires : règles locales → émergence.", "Algorithmes génétiques : population + fitness → recherche vers un objectif.", "Markov / stochastique : probabilités de transition ; chaos/fractales : variation contrôlée."], "pitfalls": ["GA sur un paysage de fitness accidenté → optima locaux.", "Trop de chaos → incohérent ; trop de règle → répétitif."]},
+    {"step": "Mapper vers le son", "purpose": "Transformer les valeurs en musique", "guidelines": ["Mapping simple : une donnée → un paramètre (hauteur, durée, timbre).", "Mapping émergent : une combinaison de données → un paramètre.", "Laisser le bon mapping émerger via une matrice de poids raffinée par feedback perceptuel."], "pitfalls": ["Explorer tous les mappings à la main → explosion combinatoire.", "Confondre l'algorithme et l'œuvre : le mapping fait l'œuvre."]},
+    {"step": "Évaluer et itérer", "purpose": "Comparer et améliorer", "guidelines": ["Utiliser un cadre (Creative Systems Framework) pour comparer des systèmes créatifs.", "En art, préférer une fitness interactive (jugée par l'humain).", "Itérer sur l'équilibre ordre/surprise."], "pitfalls": ["Juger ad hoc sans cadre.", "Distribuer un processus comme un simple enregistrement (fige le génératif)."]}
+  ],
+  "checklist": [
+    "Un processus génère la musique (pas des notes fixes) ?",
+    "Position choisie sur l'axe humain↔algorithme ?",
+    "Méthode générative adaptée à la structure voulue ?",
+    "GA : fitness définie (interactive si art) + paysage lisse ?",
+    "Mapping traité comme décision de premier plan ?",
+    "Mapping émergent tenté et raffiné par feedback ?",
+    "Équilibre ordre/surprise dosé ?",
+    "Systèmes comparés via un cadre (CSF) ?"
+  ],
+  "vocabulary": [
+    {"term": "Live algorithm", "definition": "Algorithme-agent autonome qui écoute et répond aux musiciens humains en direct."},
+    {"term": "Live coding", "definition": "Écrire/éditer des algorithmes en direct comme activité musicale (algorithme = notation)."},
+    {"term": "L-system", "definition": "Grammaire de réécriture (axiome + règles) produisant une hiérarchie mappable en musique."},
+    {"term": "Mapping", "definition": "Association des valeurs générées aux paramètres sonores ; simple ou émergent."}
+  ],
+  "heuristics": [
+    "Si on veut une structure hiérarchique/ramifiée → L-systems.",
+    "Si on veut de l'émergence à partir de règles simples → automates cellulaires.",
+    "Si on optimise vers un objectif → algorithme génétique (fitness lisse).",
+    "Si le résultat est plat → repenser le mapping avant le générateur."
+  ],
+  "antipatterns": [
+    "Confondre l'algorithme et l'œuvre (oublier le mapping).",
+    "GA avec une fitness mal définie ou un paysage accidenté.",
+    "Chaos non canalisé ou règle rigide.",
+    "Distribuer un processus figé en enregistrement."
+  ]
+}

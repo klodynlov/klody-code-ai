@@ -1,0 +1,51 @@
+{
+  "skill": "Coder un synthé/plugin DSP : architecture, oscillateurs band-limited, filtres VA",
+  "domain": "music",
+  "description": "Concevoir un synthétiseur logiciel ou un plugin audio temps réel : structurer en engine/voice/module/core, générer des oscillateurs band-limited sans aliasing, implémenter des filtres virtual-analog résonants avec résolution des delay-free loops, gérer enveloppes/LFO/polyphonie et voice-stealing, et garder une gain structure propre.",
+  "source": {"book": "Designing Software Synthesizer Plugins in C++, 2nd Edition (+ Meyer Sound Design Reference pour la gain structure)", "author": "Will C. Pirkle ; Bob McCarthy", "year": 2021},
+  "principles": [
+    "Un synthé est une architecture en couches temps réel : engine → voice → module → core.",
+    "Ce qui est simple en analogique est plein de problèmes en numérique : band-limiter la génération.",
+    "L'aliasing est l'ennemi n°1 des oscillateurs : générer BLIT/BLEP/DPW/wavetable, pas naïf.",
+    "Les filtres analogiques virtuels ont des delay-free loops qu'il faut résoudre (TPT/Zavalishin).",
+    "La polyphonie exige un voice-stealing propre, piloté par timestamps.",
+    "La modulation se câble par une matrice source→destination.",
+    "Une gain structure saine (unity gain par étage) évite le clipping silencieux."
+  ],
+  "workflow": [
+    {"step": "Poser l'architecture", "purpose": "Rendre le synthé extensible et temps réel", "guidelines": ["Engine possède une pile de voices (4–16) et parle au processor object du framework (JUCE/VST).", "Chaque voice contient un jeu identique LFO/filtre/EG/oscillateur/DCA.", "Structurer chaque brique en Module + Core subclassable ; partager les paramètres de voice."], "pitfalls": ["Coder en monolithe sans engine/voice/module/core (non extensible)."]},
+    {"step": "Générer sans aliasing", "purpose": "Oscillateurs propres", "guidelines": ["Utiliser BLEP/BLIT (corriger les discontinuités), DPW, ou wavetable.", "Pour le hard sync, réinitialiser l'oscillateur par un reset oscillator (seule sa période compte).", "Vérifier le spectre : pas de repliement au-dessus de Nyquist."], "pitfalls": ["Émettre une saw/carrée naïve (aliasing massif)."]},
+    {"step": "Filtrer en virtual-analog", "purpose": "Résonance musicale et stable", "guidelines": ["Implémenter Moog/diode ladder (4 étages 1er ordre, feedback −K → résonance, K=4 auto-oscillation).", "Résoudre les delay-free loops par la structure TPT (Zavalishin) ou Härmä.", "Contrôler la perte de basses quand Q monte."], "pitfalls": ["Boucle de feedback non résolue → filtre faux ou instable."]},
+    {"step": "Enveloppes, LFO, voix", "purpose": "Articulation et jeu", "guidelines": ["EG ADSR (émulation analogique) module le DCA et cutoff/pitch via la matrice.", "LFO avec BPM sync, step (arpégiateur), FM LFO (phase modulation).", "Voice-stealing par timestamps : doNoteOff ancien puis doNoteOn nouveau ; vérifier la gain structure en sortie."], "pitfalls": ["Voice-stealing sans timestamps (clics, notes coupées).", "Clipping silencieux d'un étage de sommation."]}
+  ],
+  "checklist": [
+    "Architecture engine/voice/module/core en place ?",
+    "Oscillateurs band-limited (BLEP/BLIT/DPW/wavetable) ?",
+    "Spectre vérifié sans aliasing ?",
+    "Filtres VA avec delay-free loops résolus (TPT) ?",
+    "Résonance/auto-oscillation contrôlée (feedback −K) ?",
+    "EG ADSR → DCA + matrice de modulation ?",
+    "LFO (BPM sync / step / FM) routé ?",
+    "Voice-stealing par timestamps + gain structure propre ?"
+  ],
+  "vocabulary": [
+    {"term": "engine/voice/module/core", "definition": "Hiérarchie SynthLab : l'engine gère les voices, chaque voice enchaîne des modules faits de cores subclassables."},
+    {"term": "BLEP / BLIT / DPW", "definition": "Techniques de génération band-limited corrigeant les discontinuités des formes d'onde pour supprimer l'aliasing."},
+    {"term": "Moog ladder", "definition": "Filtre à 4 étages du 1er ordre avec feedback −K produisant la résonance ; K=4 déclenche l'auto-oscillation."},
+    {"term": "Delay-free loop", "definition": "Boucle de feedback instantanée d'un filtre analogique virtuel, résolue par la structure TPT (Zavalishin) ou Härmä."},
+    {"term": "Voice-stealing", "definition": "Réattribuer une voice active à une nouvelle note quand la polyphonie est saturée, via des timestamps."}
+  ],
+  "heuristics": [
+    "Si l'oscillateur crache des aigus parasites → il aliase, passe en BLEP/wavetable.",
+    "Si le filtre VA sonne faux ou instable → la delay-free loop n'est pas résolue.",
+    "Si les notes cliquent en jeu rapide → voice-stealing sans timestamps ou release mal géré.",
+    "Si le master sature sans raison → vérifier l'unity gain de chaque étage."
+  ],
+  "antipatterns": [
+    "Formes d'onde naïves non band-limited (aliasing).",
+    "Filtre analogique virtuel sans résolution des delay-free loops.",
+    "Voice-stealing ad hoc sans timestamps.",
+    "Ignorer la gain structure (clipping silencieux d'un bus de sommation).",
+    "Synthé monolithique sans séparation engine/voice/module/core."
+  ]
+}

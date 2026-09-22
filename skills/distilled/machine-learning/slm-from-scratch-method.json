@@ -1,0 +1,131 @@
+{
+  "skill": "Construire un SLM (Small Language Model) from scratch",
+  "domain": "machine-learning",
+  "description": "Méthode de bout en bout pour construire un petit modèle de langage : architecture transformer, tokenizer, pré-entraînement next-token, post-training (SFT, LoRA/QLoRA, DPO), compression (quantization, distillation) et déploiement. Adaptée au matériel modeste et à Apple Silicon (MLX).",
+  "source": {
+    "book": "Build a DeepSeek Model (From Scratch)",
+    "author": "Raj Abhijit Dandekar et al."
+  },
+  "principles": [
+    "Suivre l'ordre du pipeline sans sauter d'étape : tokenizer -> bloc transformer -> pretraining next-token -> SFT -> alignement -> compression -> évaluation.",
+    "La boucle d'entraînement PyTorch est invariante quel que soit le modèle : forward -> loss -> backward -> optimizer.step -> zero_grad. La stabiliser une fois.",
+    "Le pré-entraînement est auto-supervisé : prédire le token suivant (cross-entropy), aucune annotation humaine — c'est ce qui crée le base model.",
+    "'Small' se gagne par la compression : QLoRA pour adapter, quantization 4-bit + knowledge distillation pour déployer.",
+    "Commencer petit et prouver la boucle : un modèle de 2-4 blocs qui overfit un mini-corpus valide tout le plumbing avant de scaler.",
+    "La qualité du dataset prime sur la quantité, en SFT comme en alignement de préférences.",
+    "Mesurer avant/après chaque compression (perplexity + éval tâche) : une quantization instable dégrade en silence."
+  ],
+  "workflow": [
+    {
+      "step": "Entraîner le tokenizer",
+      "purpose": "Segmenter le texte en sous-mots pour couvrir tout mot inconnu par des unités connues.",
+      "guidelines": [
+        "Choisir un algo subword : BPE (fixer le nb de merges), WordPiece (fixer le vocab), ou Unigram/SentencePiece.",
+        "Vocab typique 8K-32K ; BPE byte-level couvre n'importe quel caractère.",
+        "L'entraîner SUR le corpus de domaine visé pour un SLM spécialisé (HuggingFace `tokenizers`)."
+      ],
+      "pitfalls": [
+        "Un tokenizer générique gonfle la longueur de séquence sur du texte de domaine (code, langue peu couverte)."
+      ]
+    },
+    {
+      "step": "Coder le bloc transformer",
+      "purpose": "Bâtir l'unité répétée du modèle : attention causale + FFN, normalisée et résiduelle.",
+      "guidelines": [
+        "Pre-norm + résidus : x = x + attn(norm(x)); x = x + ffn(norm(x)).",
+        "Attention causale multi-tête : F.scaled_dot_product_attention(q,k,v, is_causal=True) (KV cache-ready).",
+        "Normaliser en RMSNorm (moins cher que LayerNorm) ; position en RoPE (rotation de Q/K).",
+        "Pour scaler sans exploser le calcul : MLA (KV cache compressé, ÷4 mémoire) et MoE (experts + routeur)."
+      ],
+      "pitfalls": [
+        "RoPE standard est incompatible avec MLA -> utiliser un RoPE découplé.",
+        "MoE sans auxiliary loss de load-balancing (CV des importances) -> experts morts par feedback du routeur.",
+        "KV cache non géré -> explosion mémoire en inférence au-delà d'un petit contexte."
+      ]
+    },
+    {
+      "step": "Pré-entraîner (next-token)",
+      "purpose": "Transformer les poids aléatoires en base model capable de prédire le langage.",
+      "guidelines": [
+        "Objectif = cross-entropy entre logits et tokens décalés de 1 : loss = F.cross_entropy(logits.view(-1,V), targets.view(-1)).",
+        "Boucle : DataLoader(batch_size=puissance de 2, shuffle=True) -> forward/loss/backward/step/zero_grad.",
+        "Optionnel avancé : multi-token prediction (prédire D tokens, somme des cross-entropy) ; quantization d'entraînement FP8."
+      ],
+      "pitfalls": [
+        "shuffle=True sur des séries temporelles = fuite de données.",
+        "Confondre quantization d'ENTRAÎNEMENT (FP8) et de DÉPLOIEMENT (int8/4-bit)."
+      ]
+    },
+    {
+      "step": "Post-training : SFT puis alignement",
+      "purpose": "Passer de prédicteur de tokens à assistant conforme aux préférences.",
+      "guidelines": [
+        "SFT : ré-entraîner sur paires instruction->réponse (TRL SFTTrainer, chat templates).",
+        "PEFT/LoRA : geler la base, entraîner des adapters bas-rang (r=64, alpha=64, target_modules='all-linear').",
+        "QLoRA : base quantifiée NF4 4-bit + LoRA -> fine-tune sur petit GPU / Apple Silicon (unsloth load_in_4bit=True).",
+        "Alignement : préférer DPO (DPOTrainer, beta≈0.1) à RLHF/PPO — pas de reward model ni boucle RL."
+      ],
+      "pitfalls": [
+        "SFT seul ne capte pas les préférences fines ni la longue traîne -> étape d'alignement nécessaire.",
+        "Dataset d'instructions peu diversifié / non filtré -> assistant médiocre malgré un bon base model."
+      ]
+    },
+    {
+      "step": "Compresser et déployer",
+      "purpose": "Rendre le modèle assez petit et rapide pour la cible matérielle.",
+      "guidelines": [
+        "Quantization déploiement : 8-bit ou 4-bit NF4 (bitsandbytes) ; LLM.int8() gère les valeurs aberrantes.",
+        "Knowledge distillation : entraîner un student à imiter un teacher (KL sur soft targets) -> petit modèle.",
+        "Inférence : KV cache, continuous batching, speculative decoding, FlashAttention, parallélisme DP/PP/TP.",
+        "Apple Silicon : viser MLX/mlx-lm (mémoire unifiée) plutôt que CUDA ; ONNX Runtime / DeepSpeed sinon."
+      ],
+      "pitfalls": [
+        "Quantifier sans re-mesurer perplexity + éval tâche -> perte de qualité silencieuse."
+      ]
+    },
+    {
+      "step": "Évaluer",
+      "purpose": "Vérifier le modèle à chaque étape, pas seulement à la fin.",
+      "guidelines": [
+        "Base model : perplexity (exp de la cross-entropy moyenne).",
+        "Assistant : évals task/domain-specific + MT-Bench / leaderboards.",
+        "Test-time compute (beam/tree search, self-consistency) pour pousser la qualité au prix du calcul."
+      ]
+    }
+  ],
+  "checklist": [
+    "Tokenizer entraîné sur le corpus cible, vocab 8K-32K.",
+    "Bloc transformer : pre-norm + résidus + attention causale + RMSNorm + RoPE.",
+    "Boucle d'entraînement : forward/loss(next-token)/backward/step/zero_grad vérifiée sur un mini-corpus (overfit).",
+    "SFT sur paires instruction->réponse de qualité.",
+    "Adaptation en LoRA/QLoRA si matériel contraint.",
+    "Alignement en DPO (sauf besoin explicite de RLHF).",
+    "Compression : quantization 4-bit et/ou distillation, mesurée avant/après.",
+    "Perplexity + éval tâche relevées à chaque étape.",
+    "Sur Apple Silicon : chemin MLX/mlx-lm envisagé."
+  ],
+  "vocabulary": [
+    {"term": "SLM", "definition": "Small Language Model — petit modèle de langage, entraînable/déployable sur matériel modeste."},
+    {"term": "MLA", "definition": "Multi-Head Latent Attention — compresse le KV cache dans un espace latent (÷4 mémoire) sans perte de perplexité (DeepSeek)."},
+    {"term": "MoE", "definition": "Mixture-of-Experts — remplace le FFN dense par N experts dont un routeur n'active que k par token."},
+    {"term": "RoPE", "definition": "Rotary Positional Encoding — injecte la position en faisant tourner Q/K, sensible aux distances relatives."},
+    {"term": "PEFT", "definition": "Parameter-Efficient Fine-Tuning — n'entraîner qu'un petit sous-ensemble de paramètres (LoRA, Prefix, P-tuning...)."},
+    {"term": "LoRA", "definition": "Low-Rank Adaptation — adapters bas-rang injectés, base gelée ; qualité proche du full fine-tuning."},
+    {"term": "QLoRA", "definition": "LoRA sur une base quantifiée NF4 4-bit — fine-tune sur GPU modeste / Apple Silicon."},
+    {"term": "SFT", "definition": "Supervised Fine-Tuning — ré-entraînement sur paires instruction->réponse (base model -> assistant)."},
+    {"term": "DPO", "definition": "Direct Preference Optimization — alignement sur paires (chosen, rejected) sans reward model ni RL."},
+    {"term": "distillation", "definition": "Knowledge distillation — entraîner un petit modèle (student) à imiter un gros (teacher)."}
+  ],
+  "heuristics": [
+    "Si le matériel est contraint : QLoRA d'abord, full fine-tuning seulement si nécessaire.",
+    "Si l'objectif est un assistant : SFT puis DPO ; ne pas s'arrêter au base model.",
+    "Si le modèle doit tenir sur petit matériel : quantization 4-bit, et distillation si l'écart de qualité est trop grand.",
+    "Sur M-series Apple : préférer MLX/mlx-lm pour exploiter la mémoire unifiée."
+  ],
+  "antipatterns": [
+    "Écrire un boilerplate à longues énumérations quasi-identiques pour un LLM local : il part en répétition dégénérée à basse température — préférer des structures data-driven (boucles).",
+    "Empiler les paramètres sans overfit préalable d'un mini-modèle : les bugs de plumbing se paient au prix fort à l'échelle.",
+    "Quantifier ou distiller sans mesurer perplexity et éval tâche avant/après.",
+    "Attendre une amélioration d'un reranker/retrieval quand le goulot est ailleurs : mesurer d'abord."
+  ]
+}

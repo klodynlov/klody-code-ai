@@ -1,0 +1,48 @@
+{
+  "skill": "Vibe Engineering : construire du logiciel avec l'IA de façon fiable",
+  "domain": "software-engineering",
+  "description": "Discipline pour produire du logiciel avec l'IA sans accumuler de dette de confiance : faire de la spécification exécutable l'artefact central qui guide et vérifie l'IA, générer des verification gates pilotés par l'humain, et garder l'humain dans la boucle au bon niveau d'attention.",
+  "source": {"book": "Vibe Engineering", "author": "Tomasz Lelek and Artur Skowroński", "year": 2026},
+  "principles": [
+    "Garder la vitesse de prototypage des LLM, mais l'entourer des piliers du génie logiciel (tests, QA, erreurs, edge cases, non-fonctionnel, stabilité).",
+    "L'artefact central est une spécification exécutable écrite par l'humain, pas le code généré.",
+    "Intent before code, contract before commit : définir l'effet, laisser l'implémentation suivre.",
+    "La dette de confiance est réelle : livrer du code IA non vérifié coûte cher plus tard.",
+    "L'humain garde l'attention au bon niveau : rédiger des specs et des tests adversariaux, pas relire ligne à ligne.",
+    "Vérifier l'intégration au système, pas seulement la correction locale des composants."
+  ],
+  "workflow": [
+    {"step": "Écrire la spécification exécutable", "purpose": "Donner un contrat qui guide ET vérifie l'IA", "guidelines": ["Décrire le comportement (Gherkin), le contrat d'API (OpenAPI + sémantique d'erreur).", "Ajouter invariants de domaine (property tests), gardes de state-machine, SLO comme perf gates, sécurité/conformité, provenance.", "L'humain rédige et cure la spec ; elle couvre plus que des tests unitaires."], "pitfalls": ["Confondre spec exécutable et simple 'tests d'abord'."]},
+    {"step": "Générer les verification gates", "purpose": "Automatiser la preuve de qualité", "guidelines": ["Laisser l'IA générer les jobs CI, mais garder l'humain aux commandes de la spec.", "Property tests (jqwik), mutation tests (PIT ≥80%), contract tests (depuis OpenAPI).", "Rendre perf/sécu explicites en gates : p50/p95, taux de succès, RSS, CPU, avec verdicts pass/fail sur la PR."], "pitfalls": ["Boucle machine-vérifie-machine : IA génère code ET tests → même edge case raté."]},
+    {"step": "Garder l'humain dans la boucle", "purpose": "Neutraliser les biais cognitifs", "guidelines": ["Concevoir des tests adversariaux et résistants à la mutation.", "Éviter les handoffs tardifs (zéro implication → scrutiny profonde au pire moment).", "Ne pas sur-truster les tests verts ni scanner les diffs en pilote automatique."], "pitfalls": ["Automation bias et vigilance decrement : rater l'invariant qui compte."]},
+    {"step": "Protéger l'architecture", "purpose": "Éviter la dette systémique", "guidelines": ["Vérifier que les composants générés respectent conventions et patterns du projet.", "Contrôler l'intégration (les coutures entre composants), pas que l'unitaire.", "Mutualiser prompts/specs/policies à l'échelle de l'équipe."], "pitfalls": ["Dette architecturale implicite : 'pièce de puzzle parfaite pour le mauvais puzzle'."]}
+  ],
+  "checklist": [
+    "Une spécification exécutable écrite par l'humain sert-elle de contrat ?",
+    "La spec couvre-t-elle API, invariants, gardes d'état, SLO, sécurité, provenance ?",
+    "Les verification gates existent-ils en CI (property/mutation/contract/load) ?",
+    "Les gates de perf/sécu sont-ils explicites (p50/p95, succès, RSS, CPU) ?",
+    "A-t-on évité la boucle machine-vérifie-machine (tests adversariaux humains) ?",
+    "L'humain reste-t-il dans la boucle (pas de handoff tardif) ?",
+    "L'intégration au système est-elle vérifiée, pas que la correction locale ?",
+    "La dette de confiance est-elle suivie plutôt que masquée par le gain de vitesse ?"
+  ],
+  "vocabulary": [
+    {"term": "Vibe coding", "definition": "Générer vite du code par intuition sans vérification ; utile en exploration, risqué en prod."},
+    {"term": "Spécification exécutable", "definition": "Contrat écrit par l'humain (API, invariants, SLO, sécurité) qui guide et vérifie l'IA."},
+    {"term": "Trust debt", "definition": "Coût invisible et différé de livrer du code IA non vérifié."},
+    {"term": "Automation bias", "definition": "Tendance à sur-truster la sortie d'un système automatisé même contre son expertise."}
+  ],
+  "heuristics": [
+    "Si l'IA génère code et tests → ajouter des tests adversariaux écrits par l'humain.",
+    "Si un composant passe les tests mais s'intègre mal → dette architecturale implicite.",
+    "Si la review se fait en pilote automatique → réintroduire l'humain plus tôt dans la boucle.",
+    "Si une exigence est non-fonctionnelle → en faire un gate CI mesurable (SLO)."
+  ],
+  "antipatterns": [
+    "Livrer du code IA non vérifié en production (trust debt).",
+    "Laisser l'IA générer code + tests en boucle fermée.",
+    "Sur-truster les tests verts et scanner les diffs sans attention.",
+    "Ne vérifier que la correction locale, jamais l'intégration."
+  ]
+}

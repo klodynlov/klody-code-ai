@@ -1,0 +1,48 @@
+{
+  "skill": "Tokeniser l'audio pour un LLM : bas débit, latents continus, patches",
+  "domain": "music",
+  "description": "Concevoir la tokenization audio pour la génération et la compréhension par LLM : réduire le débit de tokens sans perdre sémantique ni fidélité, unifier compréhension et génération dans un tokenizer, passer au modeling continu par flow-matching, et raccourcir les séquences par patches et compression de KV cache.",
+  "source": {"book": "CleanCodec / AudioCALM / F3-Tokenizer / VoxZip / TLDR", "author": "divers (2026)", "year": 2026},
+  "principles": [
+    "L'audio exige un token-rate bien plus élevé que le texte : le réduire est l'objectif central.",
+    "Viser le plus bas débit qui préserve sémantique et timbre (retirer le perceptuellement inutile avant d'encoder).",
+    "Un bon tokenizer réunit fidélité (décodable), compréhension (représentations) et prédictibilité (générable).",
+    "Préférer des latents continus normalisés à un VAE KL quand on veut décodabilité et stabilité.",
+    "Router l'attention par modalité : serrée pour la parole, diffuse pour son et musique.",
+    "Raccourcir les séquences (patches, compression KV) pour tenir le long-contexte."
+  ],
+  "workflow": [
+    {"step": "Compresser à bas débit", "purpose": "Des tokens courts et utiles", "guidelines": ["Guidage perceptuel : retirer bruit/artefacts avant l'encodage (tâche de speech-enhancement dans le codec).", "Objectifs de conditionnement poussant l'info linguistique et de timbre.", "Mesurer SIM (fidélité) + WER (intelligibilité) + tokens/s ensemble."], "pitfalls": ["Encoder tout (bruit, artefacts) → token-rate gonflé, dépendances longues perdues."]},
+    {"step": "Unifier compréhension et génération", "purpose": "Un seul tokenizer", "guidelines": ["Bottleneck d'autoencodeur normalisé + régularisé par bruit (channel-norm + perturbation) plutôt que KL.", "Representation encoder côté latent (self-supervision + supervision d'un LLM gelé) pour la compréhension.", "Tête de flow pour prédire les patches de latent."], "pitfalls": ["Compter sur un AE continu brut pour la compréhension, ou un encodeur SSL non décodable pour la génération."]},
+    {"step": "Modéliser en continu", "purpose": "Génération de longueur arbitraire", "guidelines": ["Remplacer le softmax par une tête de flow-matching (vélocités rectified-flow).", "Attention block-causal (causale entre blocs, bidirectionnelle dans le bloc actif) + KV réutilisé par bloc.", "Router les modalités (parole/son/musique) via un Mixture-of-Modality-Experts."], "pitfalls": ["Mélanger uniformément parole (time-aligned) et musique (holistique) → dégrade son/musique."]},
+    {"step": "Raccourcir les séquences", "purpose": "Efficacité long-contexte", "guidelines": ["TLDR : grouper des tokens en patches latents, backbone AR gelé + LoRA, reconstruire les tokens fins par patch.", "VoxZip : compresser le KV cache via des ancres textuelles (ASR)."], "pitfalls": ["Transférer telle quelle une compression KV text/vision à l'audio (redondance temporelle, faible densité)."]}
+  ],
+  "checklist": [
+    "Token-rate visé le plus bas possible sans perdre sémantique/timbre ?",
+    "Perceptuellement inutile retiré avant l'encodage ?",
+    "Tokenizer couvrant fidélité + compréhension + prédictibilité ?",
+    "Latents continus normalisés (channel-norm + bruit) plutôt que VAE KL ?",
+    "Génération continue par tête de flow-matching + attention block-causal ?",
+    "Attention routée par modalité (parole vs musique) ?",
+    "Séquences raccourcies par patches et/ou compression KV ?",
+    "SIM + WER + tokens/s mesurés ensemble ?"
+  ],
+  "vocabulary": [
+    {"term": "Token rate", "definition": "Nombre de tokens par seconde d'audio ; l'audio en exige des centaines vs quelques-uns pour le texte."},
+    {"term": "RVQ", "definition": "Residual Vector Quantization : quantification multi-codebook des codecs acoustiques."},
+    {"term": "Flow-matching head", "definition": "Tête prédisant des vélocités rectified-flow, remplaçant le softmax pour du continu."},
+    {"term": "KV cache compression", "definition": "Réduire la mémoire du cache clé/valeur pour le long-contexte (ex. ancres ASR)."}
+  ],
+  "heuristics": [
+    "Si les séquences audio sont trop longues pour le LLM → baisser le token-rate ou passer aux patches.",
+    "Si l'AE ne sert pas la compréhension → ajouter un representation encoder sur latents gelés.",
+    "Si le KV cache explose en long-contexte → compression ancrée sémantique (VoxZip).",
+    "Si son/musique se dégradent face à la parole → attention par modalité (MoME)."
+  ],
+  "antipatterns": [
+    "Encoder le bruit et les artefacts.",
+    "VAE KL quand on veut des latents décodables et stables.",
+    "Mélanger parole et musique avec une attention uniforme.",
+    "Modéliser au niveau token quand le patch-level suffit."
+  ]
+}

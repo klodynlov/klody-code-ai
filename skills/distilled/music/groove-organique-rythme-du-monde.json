@@ -1,0 +1,66 @@
+{
+  "skill": "Groove organique & rythme du monde",
+  "domain": "music",
+  "description": "Créer un groove organique (batterie/rythme du monde) sans qu'il sonne mécanique : squelette euclidien E(k,n) + timelines (clave, tresillo) PUIS humanisation par offset microtiming BORNÉ contre un beat implicite — jamais quantifier à la grille. Apart-playing (parties qui se croisent), off-beat contrôlé (Waterman), absence du downbeat. Chernoff + Toussaint.",
+  "source": {"book": "The Geometry of Musical Rhythm", "author": "Godfried T. Toussaint", "year": 2020},
+  "principles": [
+    "Le groove = tension d'OFFSETS contre un beat IMPLICITE, pas une grille de hits (Chernoff, African Rhythm / Waterman).",
+    "Off-beat CONTRÔLÉ : les accents menacent mais ne détruisent jamais le métronome subjectif de l'auditeur ; trop d'off-beat = même effet que zéro (Waterman via Chernoff p.118).",
+    "Absence du downbeat : le temps 1 est souvent silencieux, le beat est impliqué — ne pas présumer un hit sur le pulse 0 (Toussaint ch.14 / Chernoff p.68).",
+    "Apart-playing : le beat vit là où les rythmes se croisent ; une partie SEULE est stérile ('meaningless without a second') — le groove est une conversation (Chernoff p.67, 75).",
+    "Squelette calculable : les timelines du monde sont des rythmes euclidiens E(k,n) et des necklaces (rotations équivalentes) (Toussaint ch.14, 21).",
+    "Mesurer par off-beatness / syncope (Keith) et distance d'édition entre rythmes, PAS par un F d'alignement grille (Toussaint ch.8, 13, 16).",
+    "Structure d'abord (squelette), FEEL (microtiming) ensuite — ne jamais quantifier le feel."
+  ],
+  "workflow": [
+    {"step": "Poser le squelette", "purpose": "structure calculable avant tout feel", "guidelines": [
+      "Choisir le régime : binaire ou ternaire (le swing est un continuum entre les deux).",
+      "Générer le squelette par rythme euclidien E(k,n) (k onsets répartis uniformément sur n pulses, Bjorklund) ou une timeline canonique : tresillo E(3,8)=[3-3-2], cinquillo E(5,8), son clave, bembé, cloche Aka E(5,12), ouest-africain E(7,12).",
+      "Un rythme = un necklace : ses rotations sont le même rythme (utile pour dériver des variantes)."]},
+    {"step": "Composer en apart-playing", "purpose": "faire vivre le beat dans la relation, pas une piste", "guidelines": [
+      "Générer PLUSIEURS parties distinctes qui se croisent (cross-rhythm), jamais à l'unisson.",
+      "Le beat principal peut n'être joué par AUCUNE partie (impliqué).",
+      "Un rythme seul est stérile : il lui faut un second pour la conversation (call-and-response)."]},
+    {"step": "Ne pas présumer le temps 1", "purpose": "respecter l'absence du downbeat", "guidelines": [
+      "Beaucoup de grooves du monde silencent le pulse 0 ; le backbeat n'est pas forcément l'événement le plus fort.",
+      "Placer les accents selon la timeline choisie, pas selon la grille métrique occidentale."]},
+    {"step": "Humaniser par offset borné", "purpose": "injecter le feel = la tension off-beat", "guidelines": [
+      "Appliquer un offset microtiming par onset contre le beat implicite, BORNÉ (menacer sans détruire le métronome subjectif : trop = même effet que zéro).",
+      "Jamais re-quantifier : c'est l'offset, pas la position sur grille, qui porte le feel."]},
+    {"step": "Mesurer + écouter", "purpose": "gate honnête", "guidelines": [
+      "Évaluer par off-beatness / mesure de syncope et distance d'édition entre rythmes, PAS par un F d'alignement grille (angle mort).",
+      "Rendre l'audio et laisser l'OREILLE trancher — arbitre final."]}
+  ],
+  "checklist": [
+    "Squelette E(k,n) ou timeline canonique posé AVANT le feel ?",
+    "Plusieurs parties en apart-playing (pas une lane isolée) ?",
+    "Temps 1 non présumé (le downbeat peut être silencieux) ?",
+    "Feel = offset microtiming BORNÉ, aucune re-quantification ?",
+    "Mesuré par off-beatness (pas F-grille) ET validé à l'oreille ?"
+  ],
+  "vocabulary": [
+    {"term": "Rythme euclidien E(k,n)", "definition": "k onsets répartis aussi uniformément que possible sur n pulses (Bjorklund) ; génère les timelines du monde."},
+    {"term": "Tresillo / cinquillo", "definition": "E(3,8)=[3-3-2] / E(5,8) — cellules rythmiques afro-cubaines fondamentales."},
+    {"term": "Necklace (collier)", "definition": "rythme cyclique dont toutes les rotations sont considérées équivalentes."},
+    {"term": "Apart-playing", "definition": "parties séparées qui se croisent ; le beat vit à leur intersection, jamais à l'unisson (R.F. Thompson / A.M. Jones via Chernoff)."},
+    {"term": "Off-beatness", "definition": "mesure de combien un rythme s'écarte de la grille métrique (Toussaint)."},
+    {"term": "Métronome subjectif (Waterman)", "definition": "le beat interne de l'auditeur que l'off-beat doit menacer sans détruire."}
+  ],
+  "heuristics": [
+    "Structure d'abord (E(k,n)/timeline), feel ensuite (offset) — jamais l'inverse.",
+    "Si ça sonne mécanique : tu as quantifié → remets des offsets microtiming bornés.",
+    "Si ça sonne générique : il manque une 2e partie → ajoute la conversation (apart-playing).",
+    "Grooves caribéens/latins = souvent des rotations de timelines connues (le danmyé de Martinique = 2 rotations du tresillo)."
+  ],
+  "antipatterns": [
+    "Snapper les onsets à la grille (tue la tension off-beat = le feel).",
+    "Traiter une seule lane d'instrument comme le groove complet.",
+    "Supposer un hit sur le temps 1 / que l'événement le plus fort = le backbeat.",
+    "Juger la qualité par accuracy/F alignés à la grille.",
+    "Penser binaire OU ternaire au lieu du continuum de swing."
+  ],
+  "examples": [
+    {"context": "Une batterie transcrite d'un morceau zouk sonne générique/robotique.", "outcome": "Cause = quantification à la grille + lane isolée ; fix = offset microtiming borné + parties en apart-playing, sans présumer le temps 1 (retour terrain 2026-08-28)."},
+    {"context": "Générer un groove afro from scratch.", "outcome": "Squelette E(5,12) (cloche Aka) ou E(7,12) (ouest-africain) → apart-playing → humanisation par offset borné → mesure off-beatness + oreille."}
+  ]
+}

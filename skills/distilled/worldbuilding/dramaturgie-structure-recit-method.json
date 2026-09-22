@@ -1,0 +1,51 @@
+{
+  "skill": "Dramaturgie et structure du récit : conflit, mouvements, arbre de scènes",
+  "domain": "worldbuilding",
+  "description": "Construire une intrigue et structurer un récit : mettre du conflit à chaque unité (personnage motivé + obstacle + but), distinguer structure dramatique et narrative, poser un design en mouvements avec turning point et climax, choisir le narrateur depuis l'intention, et représenter un récit long comme un arbre hiérarchique de scènes traversable.",
+  "source": {"book": "How to Write a Damn Good Thriller (Frey) / Écrire une fiction (Eyrolles) / Storyline Trees (Ou & Lapata)", "author": "James N. Frey ; collectif Eyrolles ; Litu Ou & Mirella Lapata"},
+  "principles": [
+    "Unité de base du récit : un personnage bien motivé surmonte des obstacles vers un but, à chaque instant — sinon temps mort.",
+    "Conflit partout : les trois principes du drame sont conflit, conflit, conflit ; même le dialogue est une conversation en conflit.",
+    "Distinguer la structure dramatique (le conflit) de la structure narrative (qui raconte, d'où, dans quel ordre).",
+    "Le narrateur est un personnage conçu, choisi à partir de l'intention (« pourquoi cette histoire »).",
+    "Les paradigmes d'actes sont des outils d'analyse, pas des moules : les personnages conduisent l'histoire.",
+    "Un récit long se représente comme un arbre hiérarchique de scènes, calculable et traversable."
+  ],
+  "workflow": [
+    {"step": "Poser le moteur du conflit", "purpose": "Rendre chaque unité motrice", "guidelines": ["À chaque endroit : un personnage motivé, un obstacle, un but.", "Écrire le dialogue comme conversation EN conflit, pas comme échange plat.", "Traquer les temps morts (sag) : tout passage sans obstacle actif."], "pitfalls": ["Scènes d'ambiance sans enjeu → le récit s'affaisse."]},
+    {"step": "Fixer la terminologie", "purpose": "Éviter la confusion avant de plotter", "guidelines": ["hero (se sacrifie pour autrui, moral) ≠ protagonist (porte l'action).", "premise / idée directrice ≠ germinal idea (la graine).", "villain = auteur du complot derrière l'histoire."], "pitfalls": ["Mélanger hero/protagonist ou premise/theme → décisions structurelles floues."]},
+    {"step": "Structurer en mouvements", "purpose": "Donner un squelette d'intrigue", "guidelines": ["I opening avec story question ; II bataille défensive ; III turning point (mort/renaissance symboliques) → offensive ; IV confrontation et climax slam-bang ; V résolution.", "Repérer l'obligatory scene (fin du mouvement III).", "Calibrer les enjeux : Big Menace vs Small Menace."], "pitfalls": ["Plaquer le 3-actes comme un gabarit rigide (contre-exemples : Citizen Kane, Spartacus)."]},
+    {"step": "Choisir la voix narrative", "purpose": "Régler la structure narrative", "guidelines": ["Construire un personnage de narrateur (identité + libre arbitre).", "Extérieur (révélé ou non) ou intérieur à l'histoire.", "Dériver « qui parle ? » de l'intention ; tester le dialogue décalé."], "pitfalls": ["Traiter le narrateur en caméra neutre.", "Confondre l'ordre du récit avec l'ordre des événements."]},
+    {"step": "Représenter le récit en arbre de scènes", "purpose": "Rendre la structure calculable", "guidelines": ["Segmenter chaque chapitre en scènes (unités) via un LLM.", "Construire top-down (arc → sous-storylines) ou bottom-up (scènes → nœuds abstraits par clustering+résumé).", "Traverser l'arbre de façon adaptative pour interroger le récit ; réutiliser l'arbre sur plusieurs requêtes."], "pitfalls": ["Reconstruire l'arbre à chaque requête → coût LLM non amorti.", "Ignorer les relations locales (personnages/causalité/motifs/temps) qui fondent les nœuds."]}
+  ],
+  "checklist": [
+    "Chaque unité a un personnage motivé + un obstacle + un but ?",
+    "Le dialogue est-il en conflit (pas une conversation plate) ?",
+    "Structure dramatique et narrative distinguées ?",
+    "Termes hero/protagonist/premise/villain fixés ?",
+    "Design en mouvements avec turning point et climax posé ?",
+    "Narrateur conçu comme personnage, dérivé de l'intention ?",
+    "Récit représentable en arbre de scènes (top-down ou bottom-up) ?",
+    "Arbre réutilisé pour amortir le coût de traversée ?"
+  ],
+  "vocabulary": [
+    {"term": "Structure dramatique vs narrative", "definition": "Architecture du conflit (désir/obstacle/enjeu) vs architecture de la narration (narrateur, ordre, focalisation)."},
+    {"term": "Turning point", "definition": "Bascule au milieu du récit — mort et renaissance symboliques — où le héros passe de la défensive à l'offensive."},
+    {"term": "Obligatory scene", "definition": "Scène attendue par le lecteur, ici fin du mouvement III chez Frey."},
+    {"term": "Storyline tree", "definition": "Représentation hiérarchique d'un récit long : les scènes (feuilles) s'agrègent en storylines de plus en plus abstraites."},
+    {"term": "Traversée adaptative", "definition": "Descente guidée par requête dans l'arbre de storylines pour retrouver l'information pertinente."}
+  ],
+  "heuristics": [
+    "Si une scène n'a ni obstacle ni but → la couper ou lui ajouter un enjeu.",
+    "Si l'histoire semble plate → vérifier le conflit avant la prose.",
+    "Si on veut réutiliser la structure sur plusieurs questions → construire l'arbre une fois, le traverser N fois.",
+    "Si l'intrigue est fixe mais le récit fade → changer le narrateur/point de vue avant l'intrigue."
+  ],
+  "antipatterns": [
+    "Confondre structure dramatique et structure narrative.",
+    "Appliquer un paradigme d'actes comme un moule rigide.",
+    "Laisser des temps morts sans personnage motivé surmontant un obstacle.",
+    "Traiter le narrateur en caméra neutre.",
+    "Reconstruire un storyline tree à chaque requête (coût non amorti)."
+  ]
+}

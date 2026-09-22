@@ -1,0 +1,47 @@
+{
+  "skill": "DL audio musical : tagging, représentation et similarité",
+  "domain": "music",
+  "description": "Appliquer le deep learning à l'audio musical : classer et tagger avec des CNN sur mel-spectrogramme ou waveform brute (SampleCNN), réutiliser un modèle pré-entraîné comme représentation générale (transfer learning), et apprendre un espace de similarité contrôlable par dimension via metric learning disentanglé.",
+  "source": {"book": "Deep Learning for Audio-Based Music Classification and Tagging", "author": "Nam, Choi, Lee et al.", "year": 2019},
+  "principles": [
+    "Laisser le CNN apprendre les features plutôt que d'empiler des features faites main.",
+    "Choisir l'input selon les moyens : mel-spectrogramme (2D, moins cher) ou waveform brute (SampleCNN, plus flexible mais 3-7× plus lent).",
+    "Un CNN pré-entraîné multi-tags fournit une représentation musicale générale réutilisable.",
+    "Pour la similarité, apprendre un embedding par triplet loss.",
+    "Disentangler la similarité par dimension (genre/mood/instrument/tempo) rend le retrieval contrôlable.",
+    "Aligner l'espace sur la similarité perçue (track-regularization), valider par étude utilisateur."
+  ],
+  "workflow": [
+    {"step": "Choisir l'entrée et le modèle", "purpose": "Poser le backbone", "guidelines": ["2D-CNN sur mel-spectrogramme = standard robuste.", "SampleCNN 1D sur waveform : filtres 2-3 échantillons, striding ≈ dilation.", "On peut remplacer jusqu'à la moitié de la profondeur par du striding sans perte."], "pitfalls": ["Choisir SampleCNN sans anticiper le coût d'entraînement 3-7×.", "Remplacer plus de la moitié de la profondeur par du striding → chute."]},
+    {"step": "Réutiliser par transfer learning", "purpose": "Servir les tâches à peu de labels", "guidelines": ["Pré-entraîner sur beaucoup de tags (ex. 250k clips MSD, 50 tags).", "Concaténer les activations des feature maps = représentation générale.", "Réutiliser pour sous-genres, émotion, vocal/non-vocal, recommandation."], "pitfalls": ["Réentraîner de zéro pour chaque petite tâche."]},
+    {"step": "Apprendre la similarité disentanglée", "purpose": "Retrieval/reco contrôlable", "guidelines": ["Triplet loss sur (ancre, positif, négatif) → embedding f.", "Conditional Similarity Networks : masques m_s activant des sous-espaces par dimension.", "D(xi,xj;s)=||f(xi)∘m_s − f(xj)∘m_s|| ; l'utilisateur pondère les dimensions.", "Ajouter une track-regularization pour la similarité perçue globale."], "pitfalls": ["Embedding mono-dimensionnel quand l'usage demande de pondérer les dimensions."]},
+    {"step": "Évaluer", "purpose": "Mesurer honnêtement", "guidelines": ["Utiliser des datasets publics (MTAT, MSD, MTG-Jamendo) et MIREX.", "Réinjecter la connaissance du domaine musical dans l'architecture."], "pitfalls": ["Évaluer sur un seul petit dataset (non généralisable)."]}
+  ],
+  "checklist": [
+    "Features apprises par CNN plutôt que faites main ?",
+    "Input choisi selon les moyens (mel 2D vs SampleCNN) ?",
+    "SampleCNN : petits filtres, ≤ ½ profondeur en striding ?",
+    "CNN pré-entraîné réutilisé comme représentation générale ?",
+    "Similarité : triplet + disentanglement par dimension (masques) ?",
+    "Track-regularization pour la similarité perçue ?",
+    "Évaluation sur datasets publics + MIREX ?"
+  ],
+  "vocabulary": [
+    {"term": "SampleCNN", "definition": "CNN 1D sur waveform brute à très petits filtres (2-3 échantillons)."},
+    {"term": "Transfer learning", "definition": "Réutiliser les activations d'un CNN pré-entraîné comme représentation musicale générale."},
+    {"term": "Triplet loss", "definition": "Perte qui rapproche l'ancre du positif et l'éloigne du négatif dans l'embedding."},
+    {"term": "Conditional Similarity Network", "definition": "Réseau à masques activant des sous-espaces de similarité par dimension."}
+  ],
+  "heuristics": [
+    "Si l'entraînement SampleCNN est trop lent → sous-échantillonner la waveform.",
+    "Si peu de labels → partir d'un CNN pré-entraîné multi-tags.",
+    "Si l'utilisateur veut pondérer genre vs mood vs tempo → similarité disentanglée.",
+    "Si la similarité perçue est faible → ajouter une track-regularization."
+  ],
+  "antipatterns": [
+    "Sur-investir dans les features faites main.",
+    "Ignorer le coût d'entraînement de SampleCNN.",
+    "Un embedding mono-dimensionnel pour un besoin multi-critères.",
+    "Évaluer sur un unique petit dataset."
+  ]
+}

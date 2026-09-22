@@ -1,0 +1,51 @@
+{
+  "skill": "Modèles de diffusion : forward/reverse, denoiser U-Net/DiT, guidance CFG",
+  "domain": "machine-learning",
+  "description": "Construire et entraîner un modèle génératif par diffusion pour l'image, le langage ou l'audio : définir un processus forward de bruitage, entraîner un denoiser (U-Net ou Diffusion Transformer) à inverser le bruit, conditionner par Classifier-Free Guidance, et savoir quand préférer la diffusion (révisable, rollback) à l'autorégressif.",
+  "source": {"book": "Build a Text-to-Image Generator from Scratch / Archer (Diffusion LLM) / Decoupled Temporal-Depth Diffusion Transformers (audio)", "author": "Mark Liu ; divers (arXiv 2026)", "year": 2026},
+  "principles": [
+    "Un modèle de diffusion apprend à débruiter : forward ajoute du bruit, reverse l'enlève pas à pas.",
+    "Générer = partir de bruit pur et débruiter itérativement jusqu'à une donnée propre.",
+    "Le denoiser est entraîné par une simple MSE sur le bruit prédit.",
+    "La Classifier-Free Guidance est le bouton de contrôle du conditionnement, sans classifieur externe.",
+    "La diffusion est le paradigme dual de l'autorégressif : itératif et révisable vs gauche-à-droite irréversible.",
+    "Le Diffusion Transformer (DiT) scale la diffusion à l'image et à l'audio ; l'audio passe par des tokens (RVQ/sémantiques).",
+    "Le coût de la diffusion vient des multiples passes de débruitage."
+  ],
+  "workflow": [
+    {"step": "Définir le processus forward", "purpose": "Fabriquer les cibles d'entraînement", "guidelines": ["Choisir un noise schedule (β_t) menant à x_T = bruit pur sur T pas (~1000).", "Bruiter en un coup : x_t = √(ᾱ_t)·x_0 + √(1−ᾱ_t)·ε.", "Échantillonner t uniformément et ε ~ N(0,I) à chaque step d'entraînement."], "pitfalls": ["Schedule mal calibré (x_T pas assez bruité ou destruction trop brutale)."]},
+    {"step": "Entraîner le denoiser", "purpose": "Apprendre à inverser le bruit", "guidelines": ["Prédire le bruit ε (ou x_0) avec un U-Net (image) ou un DiT (scalable).", "Minimiser la MSE entre bruit prédit et bruit ajouté.", "Injecter le pas t (embedding temporel) dans le réseau."], "pitfalls": ["Oublier l'embedding de t.", "Réseau trop faible pour la résolution visée."]},
+    {"step": "Conditionner par CFG", "purpose": "Contrôler par prompt/classe", "guidelines": ["Entraîner avec ET sans conditionnement (drop du prompt ~10 %).", "À l'inférence combiner ε = ε_uncond + w·(ε_cond − ε_uncond).", "Régler w : haut = adhérence, bas = diversité."], "pitfalls": ["Ne jamais dropper le conditionnement → CFG impossible.", "w trop haut → artefacts/saturation."]},
+    {"step": "Choisir le régime (image/langage/audio)", "purpose": "Adapter la diffusion à la modalité", "guidelines": ["Image : U-Net/DiT + sampler (arbitrer le nombre de pas).", "Langage : diffusion LLM à rollback ; cache seulement le prompt-K/V, refresh state-aware (Archer).", "Audio : DiT détokeniseur sur tokens sémantiques/RVQ, viser le temps réel on-device."], "pitfalls": ["Croire le cache DLM réutilisable inchangé malgré le rollback.", "Trop de pas d'échantillonnage (lent) ou trop peu (qualité)."]}
+  ],
+  "checklist": [
+    "Noise schedule menant à un bruit pur en T pas ?",
+    "Bruitage en une étape x_t implémenté ?",
+    "Denoiser (U-Net/DiT) entraîné en MSE sur ε, avec embedding de t ?",
+    "Entraînement avec drop du conditionnement (pour CFG) ?",
+    "CFG à l'inférence avec w réglé ?",
+    "Nombre de pas d'échantillonnage arbitré (coût vs qualité) ?",
+    "Pour le langage : frontière de cache alignée sur le rollback ?",
+    "Pour l'audio : DiT détokeniseur à faible empreinte (tokens RVQ) ?"
+  ],
+  "vocabulary": [
+    {"term": "Forward / reverse diffusion", "definition": "Ajout progressif de bruit jusqu'au bruit pur (forward) ; débruitage pas à pas appris (reverse)."},
+    {"term": "Denoiser (U-Net / DiT)", "definition": "Réseau entraîné à prédire le bruit à chaque pas ; U-Net pour l'image, Diffusion Transformer pour scaler image et audio."},
+    {"term": "Classifier-Free Guidance (CFG)", "definition": "Guidage par combinaison des prédictions conditionnelle et inconditionnelle, sans classifieur, via un poids w."},
+    {"term": "Diffusion LLM (rollback)", "definition": "Décodage de langage par raffinement bidirectionnel où les tokens restent provisoires jusqu'à résolution du contexte."},
+    {"term": "Noise schedule", "definition": "Suite des variances β_t contrôlant la vitesse à laquelle la donnée est détruite en bruit."}
+  ],
+  "heuristics": [
+    "Si les échantillons ignorent le prompt → augmente w (CFG) ; s'ils saturent → baisse-le.",
+    "Si tu ne peux pas activer la CFG → tu as oublié de dropper le conditionnement à l'entraînement.",
+    "Si la génération est lente → réduis le nombre de pas (sampler rapide).",
+    "Si tu génères de l'audio/vidéo on-device → un DiT sur tokens est le bon véhicule."
+  ],
+  "antipatterns": [
+    "Noise schedule mal calibré.",
+    "Entraînement sans drop du conditionnement (pas de CFG).",
+    "w de CFG extrême (artefacts ou prompt ignoré).",
+    "Supposer le cache d'un diffusion-LLM réutilisable malgré le rollback.",
+    "Confondre diffusion (révisable, multi-passes) et autorégressif (irréversible, une passe)."
+  ]
+}

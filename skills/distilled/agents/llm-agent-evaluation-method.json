@@ -1,0 +1,51 @@
+{
+  "skill": "Évaluer LLM & agents : panels de juges, trajectoire step-level, juges outillés",
+  "domain": "agents",
+  "description": "Construire une évaluation fiable de LLM et d'agents : remplacer le juge en une passe par un panel divers pondéré, produire un signal de trajectoire step-level avec attribution, outiller le juge dans les domaines durs, tenir compte de la path-dependence, et se garder du biais de mesure corrélé et du confond modèle/harness.",
+  "source": {"book": "The Horizon Gap / Beyond a Single Judge (ESPP) / Long-Horizon Trajectory Attribution / PATH-Bench / SkillTV-Bench / Hallucinations on the Board", "author": "divers (arXiv 2026)", "year": 2026},
+  "principles": [
+    "Self-correction, benchmark scores et training signals ne veulent pas dire ce qu'on suppose : traiter la critique en première ligne.",
+    "Un panel de juges divers, délibérant et pondéré socialement, suit l'humain mieux qu'un juge en une passe.",
+    "Le gain d'un panel vient de la diversité + la délibération, pas du simple moyennage de N appels.",
+    "Un signal step-level de trajectoire est plus informatif qu'un pass/fail terminal.",
+    "Séparer la capacité du modèle de celle du harness qui l'enveloppe.",
+    "Éviter le biais de mesure corrélé : ne pas entraîner et évaluer sur les mêmes hypothèses de progrès.",
+    "Les agents lifelong sont path-dependent : l'ordre des tâches change la mesure."
+  ],
+  "workflow": [
+    {"step": "Choisir la granularité du signal", "purpose": "Sortir du pass/fail terminal", "guidelines": ["Instrumenter la trajectoire : un verdict par étape, pas seulement à la fin.", "Attribuer chaque comportement à un rôle de composant (instruction, observation récupérée, sortie d'outil, mémoire).", "Garder la trace du 'pourquoi' (ex. ce qui déclenche un refus)."], "pitfalls": ["Réduire un agent long-horizon à un pass/fail final.", "Ne pas distinguer les rôles des composants de la trajectoire."]},
+    {"step": "Construire un panel de juges", "purpose": "Remplacer le juge unique", "guidelines": ["Composer des personas divers, evidence-grounded, qui notent indépendamment.", "Faire délibérer sous bounded-confidence sémantique (ne réviser que vers des avis proches).", "Agréger par pondération sociale (Delphi) en un verdict."], "pitfalls": ["Confondre panel et simple moyenne de N appels identiques.", "Personas non divers → pas de gain."]},
+    {"step": "Outiller le juge dans les domaines durs", "purpose": "Éviter le juge à mains nues", "guidelines": ["Donner au juge des outils/vérificateurs (moteur, calcul, recherche).", "Doter le juge de skills : où trouver l'evidence, quand elle suffit pour un verdict.", "Améliorer itérativement les skills du juge."], "pitfalls": ["Juger un domaine spatial/long-horizon sans outils → hallucinations amplifiées."]},
+    {"step": "Contrôler les biais de mesure", "purpose": "Rendre le gate crédible", "guidelines": ["Séparer explicitement modèle et harness dans le report.", "Vérifier que les signaux d'entraînement et d'évaluation ne partagent pas les hypothèses.", "Évaluer les agents lifelong sur des séquences et mesurer la sensibilité au chemin."], "pitfalls": ["Circularité train/éval.", "Évaluer en i.i.d. un agent à mémoire persistante."]}
+  ],
+  "checklist": [
+    "Signal step-level de trajectoire (pas seulement pass/fail terminal) ?",
+    "Comportements attribués à des rôles de composants ?",
+    "Panel de personas divers, délibérant, pondéré (vs juge unique) ?",
+    "Gain du panel distingué d'un simple moyennage ?",
+    "Juge outillé/skillé dans les domaines durs ?",
+    "Capacité modèle vs harness séparée ?",
+    "Pas de biais corrélé train/éval ?",
+    "Path-dependence prise en compte pour les agents lifelong ?"
+  ],
+  "vocabulary": [
+    {"term": "Panel social-weighted (ESPP)", "definition": "Personas divers notant indépendamment puis délibérant sous bounded-confidence, agrégés par pondération de type Delphi."},
+    {"term": "Trajectory attribution", "definition": "Rattacher un comportement d'agent au rôle du composant responsable (instruction, observation, outil, mémoire)."},
+    {"term": "Path-dependence", "definition": "Dépendance du résultat à l'ordre des tâches : une tâche antérieure interfère durablement avec les suivantes."},
+    {"term": "Correlated measurement bias", "definition": "Biais quand les signaux servant à entraîner et à évaluer reposent sur les mêmes hypothèses de progrès (circularité)."},
+    {"term": "Model-vs-harness", "definition": "Confusion entre la capacité du modèle et celle du harness qui l'enveloppe."}
+  ],
+  "heuristics": [
+    "Si ton juge est en une passe → passe à un panel divers pondéré.",
+    "Si tu ne rapportes qu'un pass/fail → ajoute un signal step-level.",
+    "Si le domaine est dur (spatial/long-horizon) → outille le juge.",
+    "Si tu entraînes et évalues sur les mêmes hypothèses → ton gate est circulaire."
+  ],
+  "antipatterns": [
+    "Juge LLM en une passe comme seule mesure.",
+    "Pass/fail terminal pour un agent long-horizon.",
+    "Panel = moyenne de N appels identiques (sans diversité ni délibération).",
+    "Biais de mesure corrélé train/éval.",
+    "Évaluer un agent lifelong en i.i.d. (ignorer la path-dependence)."
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "skill": "Construire un agent IA ReAct from scratch (tools, loop, mémoire, planning)",
+  "domain": "agents",
+  "description": "Méthode pas-à-pas pour bâtir un agent LLM sans framework : boucle ReAct (reasoning+acting) sur tool-calling natif, schéma de tool auto-généré depuis une fonction, intégration MCP, structured output, RAG, mémoire + human-in-the-loop, puis planning & reflection pour les tâches complexes.",
+  "source": {
+    "book": "Build an AI Agent (From Scratch)",
+    "author": "Jungjun Hur and Younghee Song",
+    "year": 2026
+  },
+  "principles": [
+    "Un agent = LLM + tools + LOOP. C'est la boucle (assess→act→observe→repeat, le LLM décide quand s'arrêter) qui fait l'agent, pas le tool.",
+    "Prendre le pattern le plus simple qui marche : 1 appel < chain < router < agent ; boucle agentique seulement si le flux doit être dynamique.",
+    "Tout ajout de capacité est du Context Engineering — mapper une des 5 stratégies : Generation, Retrieval, Write, Reduce, Isolate.",
+    "Tool-calling structuré, jamais de parsing de texte d'action ; les schémas de tools se génèrent depuis la signature Python, pas à la main.",
+    "Une erreur de tool est une observation renvoyée au LLM (auto-correction), pas un crash ; toujours borner par max_steps.",
+    "Router les appels LLM via une couche provider-agnostique (LiteLLM) pour éviter le vendor lock-in.",
+    "Mesurer chaque capacité sur un benchmark vérifié (GAIA) avec un harness d'éval unique."
+  ],
+  "workflow": [
+    {
+      "step": "Poser la couche LLM + tools",
+      "purpose": "Découpler le code de l'API du provider et rendre tout tool uniforme",
+      "guidelines": [
+        "Faire passer chaque appel par LiteLLM (LlmRequest → LlmClient → LlmResponse) ; cette couche est là où se fait le context engineering.",
+        "Définir BaseTool (name=classe, description=docstring, tool_definition, execute) et FunctionTool qui adapte n'importe quelle fonction.",
+        "Générer le schéma via inspect : REQUIRED ⟺ param.default is inspect._empty ; mapper types Python→JSON Schema (string par défaut).",
+        "Fournir un decorator @tool pour wrapper une fonction en une ligne."
+      ],
+      "pitfalls": [
+        "Écrire les JSON Schema de tools à la main → dérive et bugs ; les dériver de la signature.",
+        "Coupler le code à un seul provider."
+      ]
+    },
+    {
+      "step": "Implémenter la boucle ReAct",
+      "purpose": "Enchaîner reasoning et acting jusqu'à résolution",
+      "guidelines": [
+        "Appeler le LLM avec la liste des tools ; s'il ne renvoie pas de tool_calls, c'est terminé → retourner le contenu.",
+        "Sinon, dans act(), exécuter chaque tool en try/except et renvoyer le résultat OU l'erreur comme message role=tool.",
+        "Centraliser l'état dans un ExecutionContext (events, step count, exec id, state dict) propagé à chaque tool.",
+        "Pour un output typé : créer dynamiquement un tool final_answer(output: PydanticModel) et forcer tool_choice='required'."
+      ],
+      "pitfalls": [
+        "Parser du texte 'Action: search[...]' (casse au moindre caractère).",
+        "Oublier max_steps → boucle infinie sur échec répété.",
+        "Attendre du structured output sans forcer tool_choice='required'."
+      ]
+    },
+    {
+      "step": "Brancher des tools externes via MCP",
+      "purpose": "Réutiliser des tools tiers sans les réécrire",
+      "guidelines": [
+        "load_mcp_tools(connection) : stdio_client + ClientSession + session.list_tools(), wrapper chaque tool distant en FunctionTool.",
+        "Réutiliser mcp_tool.inputSchema fourni par le serveur au lieu de régénérer le schéma.",
+        "Traiter tools locaux et distants de façon identique côté agent."
+      ],
+      "pitfalls": [
+        "Ouvrir une connexion MCP neuve à chaque appel en production → overhead ; garder une session persistante."
+      ]
+    },
+    {
+      "step": "Ajouter RAG et optimisation de contexte",
+      "purpose": "Fournir du savoir externe sans saturer la fenêtre",
+      "guidelines": [
+        "Vector search from scratch : embed → chunk avec overlap → similarité cosinus.",
+        "Budgéter avec tiktoken (len(enc.encode(text))) AVANT injection ; n'injecter que la portion pertinente.",
+        "Étendre l'agent par callbacks (before_llm_callback) plutôt qu'en modifiant le cœur."
+      ],
+      "pitfalls": [
+        "Dumper des résultats de recherche entiers → coût + bruit qui dégrade l'accuracy.",
+        "Chunker sans overlap → perte de contexte entre chunks."
+      ]
+    },
+    {
+      "step": "Donner de la mémoire (+ human-in-the-loop)",
+      "purpose": "Survivre à l'explosion de contexte et persister entre sessions",
+      "guidelines": [
+        "ContextOptimizer en before_llm_callback : déclencher au seuil, escalader compaction → summarization (garder keep_recent), sur un modèle moins cher que l'agent.",
+        "Session/SessionManager pour le multi-tour ; long-term memory partagée entre session_id, extraite/stockée à chaque run().",
+        "Tool irréversible : renvoyer un statut pending, sérialiser via model_dump(), reprendre au run() suivant avec ToolConfirmation(approved=True) + model_validate()."
+      ],
+      "pitfalls": [
+        "Laisser le contexte croître sans borne (problème de space → crash).",
+        "Oublier l'état cross-session (problème de time → l'utilisateur se re-présente)."
+      ]
+    },
+    {
+      "step": "Ajouter planning & reflection pour le complexe",
+      "purpose": "Donner à l'agent une métacognition (regarder devant / derrière)",
+      "guidelines": [
+        "Planning tool : décomposer en task list ordonnée écrite dans le contexte, avec critères de complétion.",
+        "Reflection tool reflection(analysis, need_replan=False) avec 4 déclencheurs documentés : PROGRESS REVIEW, ERROR ANALYSIS, RESULT SYNTHESIS, SELF CHECK.",
+        "Boucler : plan → exec → reflect → (need_replan ? re-plan : tâche suivante)."
+      ],
+      "pitfalls": [
+        "Réfléchir après chaque étape → overhead pur ; ne le faire qu'aux checkpoints.",
+        "Déclarer la complétion sur info partielle → exiger critères + SELF CHECK.",
+        "Répéter le même échec jusqu'à max_steps au lieu d'ERROR ANALYSIS."
+      ]
+    }
+  ],
+  "checklist": [
+    "Le besoin justifie-t-il un agent, ou un chain/router suffit-il ?",
+    "Tous les appels LLM passent-ils par LiteLLM (pas de lock-in) ?",
+    "Les schémas de tools sont-ils générés depuis les signatures (inspect/docstring) ?",
+    "L'agent utilise-t-il du tool-calling natif, sans parser de texte d'action ?",
+    "Les erreurs de tools reviennent-elles au LLM comme observations, avec max_steps ?",
+    "Le structured output force-t-il tool_choice='required' vers un modèle Pydantic ?",
+    "Les tools MCP réutilisent-ils inputSchema et une session persistante en prod ?",
+    "Le contexte est-il budgété (tiktoken) et optimisé (compaction/summarization) au seuil ?",
+    "Les tools irréversibles passent-ils par un human-in-the-loop reprenable ?",
+    "Les tâches complexes ont-elles planning + reflection reliés par need_replan ?",
+    "Le progrès est-il mesuré sur GAIA avec un harness unique ?"
+  ],
+  "vocabulary": [
+    {"term": "ReAct", "definition": "Reasoning + Acting : l'agent alterne Thought/Action/Observation au lieu de répondre d'un coup."},
+    {"term": "ExecutionContext", "definition": "État centralisé d'une exécution (events, step count, exec id, state dict) propagé à chaque tool."},
+    {"term": "Context Engineering", "definition": "Fournir la bonne info au bon moment ; 5 stratégies : Generation, Retrieval, Write, Reduce, Isolate."},
+    {"term": "MCP", "definition": "Model Context Protocol : standard pour équiper un agent de tools tiers."},
+    {"term": "A2A", "definition": "Agent-to-agent : protocole de délégation/handoff entre agents (multi-agent)."},
+    {"term": "need_replan", "definition": "Booléen du reflection tool qui relie reflection→planning quand le plan n'est plus valide."}
+  ],
+  "heuristics": [
+    "Si le flux de contrôle est connu d'avance → chain/router, pas un agent.",
+    "Si l'agent répète le même échec → il manque une reflection ERROR ANALYSIS.",
+    "Si le contexte approche la limite → compaction puis summarization sur modèle moins cher.",
+    "Si un tool est destructif → human-in-the-loop pending/resume.",
+    "Si tu écris un parseur de sortie LLM → tu devrais utiliser tool-calling + Pydantic."
+  ],
+  "antipatterns": [
+    "Construire un agent full-loop là où un simple chain suffisait.",
+    "Parser du texte libre pour extraire les actions.",
+    "Créer une connexion MCP par appel en production.",
+    "Injecter des résultats de recherche bruts sans budget de tokens.",
+    "Réfléchir (reflection) après chaque étape."
+  ]
+}

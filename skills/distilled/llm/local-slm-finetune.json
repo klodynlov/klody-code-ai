@@ -1,0 +1,125 @@
+{
+  "skill": "Adapter un petit LM en local (fine-tune gaté, Apple Silicon / MLX)",
+  "domain": "llm",
+  "description": "Methode gatee pour adapter un petit modele de langage (0.5B-35B) en local : decider si le fine-tune est necessaire (vs prompt/RAG), preparer les donnees proprement, choisir LoRA/QLoRA vs full SFT, aligner par DPO, poser des gates d'eval, puis deployer on-device (MLX fuse, GGUF/Ollama, quantization).",
+  "source": {
+    "book": "How to Build and Fine-Tune a Small Language Model + Enhancing LLM Performance",
+    "author": "J. Paul Liu ; Passban, Way, Rezagholizadeh (eds)",
+    "year": 2025
+  },
+  "principles": [
+    "Un ecart de comportement est d'abord un defaut de CONTRAT (prompt/schema de sortie/contexte), pas un deficit du modele : prouver que le fine-tune est necessaire avant d'en payer le cout.",
+    "Echelle d'adaptation : prompt -> few-shot -> RAG -> LoRA/QLoRA -> full SFT -> pretraining. Monter d'une marche seulement quand la marche du dessous echoue a une eval held-out.",
+    "Les faits vont dans le RAG, jamais dans les poids. Les poids apprennent des comportements/styles/formats, pas une base de connaissances.",
+    "Donnee > architecture > hyperparametres : 500 exemples propres battent 50000 bruites.",
+    "Pas de baseline mesuree + pas de jeu held-out = pas de preuve de gain. Toute montee est gatee par une metrique chiffree.",
+    "Plus petit modele qui passe l'eval baseline > gros modele. Mesurer avant d'agir."
+  ],
+  "workflow": [
+    {
+      "step": "Gate de decision : faut-il vraiment fine-tuner ?",
+      "purpose": "Eviter de payer le cout du fine-tune quand un fix de contrat/prompt/RAG suffit.",
+      "guidelines": [
+        "OUI si : format/style/comportement repetable requis ; contrainte offline/latence/cout/privacy ; tache etroite a fort volume ; >= quelques centaines d'exemples de qualite.",
+        "NON (-> RAG/prompt) si : injecter des faits ou des connaissances fraiches ; < ~200 exemples ; besoin qui change souvent ; pas d'eval pour juger."
+      ],
+      "pitfalls": [
+        "Fine-tuner par reflexe alors qu'un fix de contrat de 2 lignes corrigeait l'ecart.",
+        "Vouloir injecter des connaissances factuelles via le fine-tune."
+      ]
+    },
+    {
+      "step": "Choisir le modele de base et mesurer la baseline",
+      "purpose": "Partir du plus petit modele viable et disposer d'un point de comparaison.",
+      "guidelines": [
+        "Petit et Apple-Silicon-friendly : Qwen 0.5-7B, Llama-3.2-1B/3B, SmolLM, Phi, Gemma.",
+        "Verifier qu'un quant MLX existe (mlx-community) pour iterer vite et maitriser la RAM.",
+        "Mesurer la baseline (modele non-tune) sur le jeu d'eval AVANT toute modification."
+      ],
+      "pitfalls": ["Choisir un gros modele sans avoir prouve que le petit echoue."]
+    },
+    {
+      "step": "Preparer les donnees (le vrai travail)",
+      "purpose": "Un dataset propre, deduplique, decontamine determine 80% du resultat.",
+      "guidelines": [
+        "Format chat/instruction en JSONL (messages user/assistant), format de sortie explicite dans les cibles.",
+        "Dedup des quasi-doublons (fuzzy ratio > 0.9, ou MinHash/LSH a l'echelle).",
+        "Decontamination : aucun exemple d'eval ne fuit dans le train.",
+        "Reserver 5-10% en held-out pour la validation avant d'entrainer.",
+        "Diversite couvrant les cas reels ; qualite >> quantite."
+      ],
+      "pitfalls": [
+        "Entrainer sur des donnees d'eval (score gonfle, deception en prod).",
+        "Dataset minuscule ou bruite."
+      ]
+    },
+    {
+      "step": "Choisir la methode d'adaptation",
+      "purpose": "Prendre la methode la moins couteuse qui atteint l'objectif.",
+      "guidelines": [
+        "LoRA par defaut : r=8-16, alpha=2r, dropout 0.05, cibles = projections d'attention (q,k,v,o) +/- MLP.",
+        "QLoRA (base 4-bit + LoRA) pour tenir de gros modeles en RAM reduite.",
+        "Full SFT seulement si LoRA plafonne et donnees abondantes/propres.",
+        "LR de depart : LoRA ~1e-4 a 2e-4 ; full FT ~1e-5 a 2e-5."
+      ],
+      "pitfalls": ["LR trop eleve -> oubli catastrophique des capacites generales."]
+    },
+    {
+      "step": "Entrainer et surveiller",
+      "purpose": "Detecter l'overfit tot et garder des generations lisibles.",
+      "guidelines": [
+        "Suivre train loss ET val loss ; val qui remonte = overfit -> early-stop.",
+        "1-3 epochs sur petit dataset ; au-dela, memorisation.",
+        "Sur MLX : mlx_lm.lora --train, batch selon RAM disponible.",
+        "Logger un echantillon de generations a chaque checkpoint : la loss ment, la sortie non."
+      ],
+      "pitfalls": ["Trop d'epochs sur petit dataset -> memorisation au lieu de generalisation."]
+    },
+    {
+      "step": "Aligner si necessaire (DPO)",
+      "purpose": "Affiner preferences/ton/refus apres le SFT sans reward model.",
+      "guidelines": [
+        "DPO avec paires chosen/rejected sur tes cas reels : plus simple et stable que PPO.",
+        "Garder le modele SFT comme reference."
+      ],
+      "pitfalls": ["Faire du DPO avant un SFT correct."]
+    },
+    {
+      "step": "Gates d'eval (avant/apres)",
+      "purpose": "Decision go/no-go chiffree, pas une impression.",
+      "guidelines": [
+        "Comparer au baseline sur le held-out avec une metrique de tache.",
+        "Check de regression sur des capacites generales (ne pas devenir bete ailleurs).",
+        "Panel/juge outille plutot que score unique quand la tache est ouverte."
+      ],
+      "pitfalls": ["Conclure sur 'ca a l'air mieux' sans mesure."]
+    },
+    {
+      "step": "Deployer on-device",
+      "purpose": "Servir le modele adapte en local, rapide et leger.",
+      "guidelines": [
+        "MLX : fusionner l'adaptateur LoRA (mlx_lm.fuse) puis quantizer 4-bit pour l'inference.",
+        "Export GGUF -> Ollama / llama.cpp pour un runtime local simple.",
+        "Optimiser l'inference selon la contrainte : quantization, distillation vers plus petit, speculative decoding (draft model), pruning."
+      ],
+      "pitfalls": ["Deployer sans quantizer alors que la RAM/latence est la contrainte."]
+    }
+  ],
+  "checklist": [
+    "Ai-je prouve (eval) qu'un fix de prompt/contrat/RAG ne suffit pas ?",
+    "Baseline du modele non-tune mesuree et enregistree ?",
+    "Dataset JSONL dedupe, decontamine, avec held-out 5-10% ?",
+    "Methode = plus petite marche viable (LoRA avant full SFT) ?",
+    "Train ET val loss suivies ; early-stop sur overfit ?",
+    "Gate d'eval : gain sur la tache + pas de regression generale ?",
+    "Deploiement quantize/fuse adapte a la contrainte RAM/latence ?"
+  ],
+  "antipatterns": [
+    "Fine-tuner pour injecter des faits (utiliser le RAG).",
+    "Pas de baseline ni de held-out.",
+    "Contamination train/eval.",
+    "Dataset sale + trop d'epochs.",
+    "LR trop eleve (oubli catastrophique).",
+    "Monter l'echelle d'adaptation sans gate d'eval."
+  ]
+}

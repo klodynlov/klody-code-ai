@@ -1,0 +1,124 @@
+{
+  "skill": "Orchestration d'agents de code (Ultra Agent)",
+  "domain": "agents",
+  "description": "Concevoir et piloter un agent de code puissant : planifier, déléguer à des sous-agents à contexte isolé, boucler en ReAct+reflection, fiabiliser les outils, sécuriser. Méthode actionnable pour orchestration agentique et prompt engineering avancé.",
+  "source": {
+    "book": "Building Applications with AI Agents",
+    "author": "Michael Albada",
+    "year": 2025
+  },
+  "principles": [
+    "Planifier avant d'agir : explorer en lecture seule, produire un plan d'étapes, le faire valider, puis exécuter — éviter de gaspiller du contexte sur une mauvaise voie.",
+    "Garder le contexte de l'orchestrateur léger : router le travail volumineux vers des sous-agents isolés qui ne renvoient qu'un résumé concis.",
+    "Boucler de façon robuste : ReAct (raisonner→agir→observer) renforcé par une étape de reflection et de re-planning ; borner les tours.",
+    "Adapter le coût à la tâche : modèle fort pour orchestrer/planifier, modèle léger pour exécuter/explorer.",
+    "Fiabiliser les outils : description claire (quand + quels inputs) et sorties structurées validées par schéma.",
+    "Sécuriser par conception : ne jamais exécuter l'input ou le contenu externe comme une instruction ; valider entrée et sortie ; moindre privilège par sous-agent.",
+    "Choisir le bon réceptacle de connaissance selon le moment où l'info est requise et son coût de présence permanente."
+  ],
+  "workflow": [
+    {
+      "step": "Cadrer en mode plan",
+      "purpose": "Transformer une demande floue en plan d'étapes révisable et bon marché.",
+      "guidelines": [
+        "Travailler d'abord en lecture seule : repérer les fichiers, dépendances et contraintes.",
+        "Produire un plan numéroté d'étapes atomiques avec critère de complétion.",
+        "Faire interviewer les ambiguïtés (questions ciblées) avant d'écrire du code.",
+        "Persister la spec/plan dans un fichier qui survit à la compaction de contexte."
+      ],
+      "pitfalls": [
+        "Lancer l'implémentation sans plan validé multiplie les corrections en boucle.",
+        "Surcharger une seule session de buts hétérogènes (kitchen sink) dégrade la cohérence."
+      ]
+    },
+    {
+      "step": "Distribuer aux sous-agents",
+      "purpose": "Isoler le travail lourd pour préserver le contexte principal.",
+      "guidelines": [
+        "Affecter à chaque sous-agent un rôle, des outils scopés et un contexte minimal.",
+        "Router lectures massives, suites de tests et parsing de logs vers des sous-agents.",
+        "Exiger un retour concis : 'renvoie les fichiers à changer + une phrase chacun', ou écrire le détail dans un fichier et ne renvoyer que le chemin.",
+        "Enchaîner les sous-agents (analyse→correction→tests) ou les coordonner via un superviseur."
+      ],
+      "pitfalls": [
+        "Des retours verbeux remplissent le contexte principal et déclenchent une compaction surprise.",
+        "Paralléliser des agents qui doivent se coordonner en continu fait de l'orchestrateur un goulot."
+      ]
+    },
+    {
+      "step": "Exécuter la boucle agentique",
+      "purpose": "Progresser de façon fiable malgré la fragilité du raisonnement.",
+      "guidelines": [
+        "Alterner raisonnement, appel d'outil et observation jusqu'au critère de fin.",
+        "Ajouter une étape de reflection qui évalue l'échec et propose une nouvelle trajectoire.",
+        "Ré-invoquer le planner après chaque étape ; condenser le plan si un raccourci apparaît.",
+        "Borner le nombre de tours pour éviter les explorations en spirale."
+      ],
+      "pitfalls": [
+        "ReAct est sensible au format : sans exemples ni garde-fous, il dérive.",
+        "La reflection ajoute latence et coût : la réserver aux étapes à enjeu."
+      ]
+    },
+    {
+      "step": "Outiller et structurer",
+      "purpose": "Rendre l'appel d'outils déterministe et parsable.",
+      "guidelines": [
+        "Décrire chaque outil par quand l'utiliser et quels inputs il attend.",
+        "Imposer des sorties structurées (schéma JSON, température basse) ; sur modèle local, grammaire contrainte.",
+        "Au-delà d'une quarantaine d'outils, sélectionner les pertinents par recherche sémantique plutôt que tout exposer.",
+        "Grouper les outils par domaine et différer leur chargement par défaut."
+      ],
+      "pitfalls": [
+        "Charger tous les outils en permanence sature le contexte.",
+        "Concaténer le contenu d'un service externe non fiable directement dans la décision."
+      ]
+    },
+    {
+      "step": "Sécuriser et évaluer",
+      "purpose": "Empêcher détournements et mesurer la qualité réelle.",
+      "guidelines": [
+        "Délimiter et marquer l'input et le contenu récupéré comme données, jamais comme instructions.",
+        "Valider l'entrée (détection d'injection) et la sortie (données sensibles, exécution de code).",
+        "Évaluer la trajectoire (outils choisis, arguments, ordre), pas seulement la sortie finale.",
+        "Surveiller la dérive du prompt système et committer fréquemment comme filet de sécurité."
+      ],
+      "pitfalls": [
+        "L'injection indirecte via données récupérées est le vecteur le plus négligé en agentique autonome.",
+        "Se fier aux seuls points de restauration : ils ignorent les modifications hors outils d'édition."
+      ]
+    }
+  ],
+  "checklist": [
+    "Un plan d'étapes validé existe avant toute écriture de code.",
+    "Le travail volumineux passe par des sous-agents qui renvoient des résumés concis.",
+    "La boucle inclut reflection et re-planning, avec une borne de tours.",
+    "Chaque outil a une description claire et renvoie une sortie structurée validée.",
+    "L'input et le contenu externe sont traités comme non fiables ; entrée et sortie validées.",
+    "Le bon réceptacle est choisi : permanent vs à la demande vs isolé vs externe vs sans coût.",
+    "Un commit récent couvre l'état avant les opérations risquées."
+  ],
+  "vocabulary": [
+    {"term": "Orchestrator-Subagent", "definition": "Un agent principal découpe la tâche, délègue à des sous-agents à contexte isolé, puis agrège leurs résumés."},
+    {"term": "ReAct", "definition": "Boucle raisonner→agir→observer répétée jusqu'à obtention de la réponse."},
+    {"term": "Reflection", "definition": "Étape où l'agent critique son propre résultat et propose une trajectoire corrigée."},
+    {"term": "Context engineering", "definition": "Art de fournir tout le contexte (instructions, données, outils, mémoire, format) pour qu'une tâche soit résoluble."},
+    {"term": "Progressive disclosure", "definition": "Ne révéler la connaissance qu'au moment utile : métadonnées d'abord, détail et fichiers à la demande."},
+    {"term": "Injection indirecte", "definition": "Instructions malveillantes cachées dans des données récupérées (web, document) que l'agent exécute par erreur."}
+  ],
+  "heuristics": [
+    "Si une opération produit beaucoup de texte, elle appartient à un sous-agent.",
+    "Si l'info est nécessaire à chaque tour, elle va dans le contexte permanent ; sinon, à la demande.",
+    "Si le parsing d'une sortie est fragile, imposer un schéma plutôt qu'espérer le format.",
+    "Si un plan touche au schéma de données ou à la sécurité, exiger une approbation humaine."
+  ],
+  "antipatterns": [
+    "Tout faire dans une seule session jusqu'à épuisement du contexte.",
+    "Corriger en boucle une mauvaise voie au lieu de revenir en arrière tôt.",
+    "Compter sur des mots magiques dans le prompt pour augmenter l'effort de raisonnement au lieu des réglages prévus.",
+    "Exposer l'ensemble des outils et toute la documentation en permanence."
+  ],
+  "examples": [
+    {"context": "Refactor multi-fichiers d'un module d'authentification.", "outcome": "Plan en mode lecture seule, puis sous-agents parallèles par fichier avec commit après chaque tâche ; contexte principal resté léger."},
+    {"context": "Agent qui interroge un service externe non fiable.", "outcome": "Contenu récupéré délimité comme données, sortie validée, privilèges de l'outil restreints — détournement par injection indirecte évité."}
+  ]
+}

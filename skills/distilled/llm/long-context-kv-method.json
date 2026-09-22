@@ -1,0 +1,51 @@
+{
+  "skill": "Long-context & KV cache : bits/canal, éviction sûre, archi décisive",
+  "domain": "llm",
+  "description": "Servir des LLM en long-context sous budget mémoire : compresser le KV cache en traitant low-rank et quantization comme une allocation de bits par canal (après rotation spectrale), éviter le mode d'échec query-agnostic de l'éviction (anchor-résiduel, récupérable), et choisir/tester l'architecture pour le long-context au lieu de l'extrapoler du short-context.",
+  "source": {"book": "SPECTRA / AnchorKV / QEvict / Cracks in the Foundation / Position Encoding in Transformers / VoxZip", "author": "divers (arXiv/COLM 2026)", "year": 2026},
+  "principles": [
+    "Au long-context, le KV cache est le coût mémoire dominant : le compresser gouverne batch, latence et coût.",
+    "Low-rank et quantization sont une seule décision : combien de bits donner à chaque canal, de plusieurs à zéro.",
+    "Un canal supprimé n'est qu'un canal gardé à zéro bit.",
+    "Les canaux bruts sont corrélés : décorréler (base spectrale) avant d'allouer les bits.",
+    "L'éviction qui score avant de connaître les requêtes échoue précisément quand une requête ultérieure lit un token jeté.",
+    "Le short-context ne prédit pas le long-context : l'architecture décide, et des choix mineurs compound.",
+    "L'éviction devrait être récupérable, pas une décision dure et irréversible."
+  ],
+  "workflow": [
+    {"step": "Choisir l'axe de compression", "purpose": "Réduire le cache utilement", "guidelines": ["Éviction (garder attendus / premiers+récents), low-rank (sous-espace), ou quantization (précision réduite).", "Connaître le 2-bit cliff : sous ~2 bits l'accuracy chute sur canaux corrélés.", "Adapter le budget à l'importance réelle, ne pas le fixer d'avance."], "pitfalls": ["Fixer tokens/rang/bits d'avance sans adaptation.", "Quantizer bas sans décorréler."]},
+    {"step": "Allouer des bits par canal en base spectrale", "purpose": "Unifier low-rank et quantization", "guidelines": ["Estimer la base spectrale (directions principales) par une calibration ponctuelle.", "Roter le cache : canaux décorrélés, un petit sous-ensemble porte le signal.", "Donner plus de bits aux canaux dominants, zéro (=drop) au reste."], "pitfalls": ["Traiter rang et précision comme deux problèmes distincts."]},
+    {"step": "Rendre l'éviction sûre", "purpose": "Éviter l'échec query-agnostic", "guidelines": ["Préférer anchor-residual (AnchorKV) : plus de rétention à compression égale.", "Rendre l'éviction récupérable (QEvict) et robuste à l'attention-drift.", "Sinon offloader l'état évincé et refetcher les blocs nécessaires."], "pitfalls": ["Jeter un token que les dernières requêtes ont ignoré mais qu'une requête future lira.", "Éviction dure sans possibilité de re-fetch."]},
+    {"step": "Décider et tester l'architecture", "purpose": "Garantir le long-context", "guidelines": ["Peser normalisation, GQA, sliding-window, longueur de pré-entraînement selon leur impact long-context.", "Tester directement en long-context (RULER/LongBench/HELMET).", "Soigner l'encodage de position (RoPE + scaling)."], "pitfalls": ["Extrapoler le long-context depuis le short-context.", "Empiler des choix d'archi mineurs qui compound négativement."]}
+  ],
+  "checklist": [
+    "Axe de compression choisi selon la tâche (éviction/low-rank/quant) ?",
+    "Budget adapté à l'importance (pas fixé d'avance) ?",
+    "Canaux décorrélés (base spectrale) avant quantization basse ?",
+    "Bits alloués par canal (rang + précision unifiés) ?",
+    "Éviction anchor-résiduelle / récupérable (pas query-agnostic pur) ?",
+    "Long-context testé directement (RULER/HELMET) ?",
+    "Choix d'archi (norm/GQA/sliding-window/pretrain-len) pesés long-context ?",
+    "Encodage de position adapté (RoPE + scaling) ?"
+  ],
+  "vocabulary": [
+    {"term": "2-bit cliff", "definition": "Seuil sous lequel la quantization du KV cache fait chuter brutalement l'accuracy (petites valeurs noyées dans le bruit)."},
+    {"term": "Base spectrale", "definition": "Directions principales du cache, où les canaux sont décorrélés et un petit sous-ensemble porte le signal."},
+    {"term": "Bit allocation par canal", "definition": "Décision unifiée rang+précision : donner de plusieurs à zéro bits à chaque canal (zéro = supprimé)."},
+    {"term": "Éviction query-agnostic", "definition": "Scorer et jeter des tokens avant de connaître les requêtes de lecture ; mode d'échec dominant de l'éviction."},
+    {"term": "Éviction récupérable", "definition": "Éviction dont l'état écarté peut être re-récupéré (réversibilité) au lieu d'une décision dure irréversible."}
+  ],
+  "heuristics": [
+    "Si tu quantizes bas → décorrèle d'abord (base spectrale), sinon 2-bit cliff.",
+    "Si ton éviction score avant les requêtes → elle rate les lectures futures ; passe à anchor-résiduel/récupérable.",
+    "Si tu juges le long-context au short-context → tu te trompes ; teste RULER/HELMET.",
+    "Si la RAM limite le batch → compresser le KV cache est le premier levier."
+  ],
+  "antipatterns": [
+    "Fixer le budget de compression d'avance sans adaptation.",
+    "Traiter low-rank et quantization comme deux problèmes séparés.",
+    "Quantizer sous le 2-bit cliff sur canaux corrélés.",
+    "Éviction query-agnostic dure et irréversible.",
+    "Extrapoler le long-context depuis le short-context ; empiler des choix d'archi mineurs."
+  ]
+}
