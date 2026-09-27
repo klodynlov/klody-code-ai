@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -111,23 +112,22 @@ _MAX_FILE_BYTES = 1_000_000  # 1 Mo
 
 
 def _iter_source_files(root: Path):
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix not in _SOURCE_SUFFIXES:
-            continue
-        try:
-            parts = path.relative_to(root).parts
-        except ValueError:
-            continue
-        if any(p in _SKIP_DIRS for p in parts[:-1]):
-            continue
-        try:
-            if path.stat().st_size > _MAX_FILE_BYTES:
+    # Élagage PENDANT la descente, pas après : `rglob("*")` parcourait `.venv`
+    # (76 000 fichiers sur ce dépôt) pour les écarter ensuite un à un — 2,9 s
+    # contre 9 ms pour les mêmes 327 fichiers retenus (audit du 2026-09-27),
+    # le tout dans la coroutine WebSocket. Même idiome que code_search/code_index.
+    for dossier, sous_dossiers, fichiers in os.walk(root):
+        sous_dossiers[:] = sorted(d for d in sous_dossiers if d not in _SKIP_DIRS)
+        for nom in sorted(fichiers):
+            path = Path(dossier) / nom
+            if path.suffix not in _SOURCE_SUFFIXES:
                 continue
-        except OSError:
-            continue
-        yield path
+            try:
+                if not path.is_file() or path.stat().st_size > _MAX_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
+            yield path
 
 
 def _collect_stats(root: Path) -> dict:

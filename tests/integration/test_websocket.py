@@ -156,6 +156,14 @@ def test_ws_disconnect_sets_stop_flag(client):
             msg = ws.receive_json()
             if msg["type"] == "session_init":
                 break
+        # Attendre que le handler soit DANS sa boucle de réception : le
+        # chargement des conventions se fait désormais hors de la boucle
+        # d'événements (asyncio.to_thread), et le TestClient ANNULE l'app à la
+        # sortie du `with` — sans ce ping, la déconnexion tombait pendant ce
+        # chargement. Avant, il bloquait la boucle, ce qui masquait l'ordre.
+        ws.send_json({"type": "ping"})
+        while ws.receive_json()["type"] != "pong":
+            pass
 
     # Sortie du with → close → handler doit setter le stop_flag
     # Note: TestClient ferme proprement, peut prendre un tick.

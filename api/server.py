@@ -377,9 +377,28 @@ async def export_session(session_id: str):
         else:
             lines += ["**Klody :**", "", m["content"], "", "---", ""]
     md = "\n".join(lines)
-    filename = title[:40].replace("/", "-").replace(" ", "_").replace("—", "-") + ".md"
     return PlainTextResponse(md, media_type="text/markdown",
-                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                             headers={"Content-Disposition": _disposition_attachment(title)})
+
+
+def _disposition_attachment(titre: str) -> str:
+    """En-tête Content-Disposition sûr pour un titre quelconque (RFC 6266/5987).
+
+    Les en-têtes HTTP sont encodés en latin-1 : un titre avec « ’ », « œ » ou un
+    emoji levait UnicodeEncodeError ⇒ HTTP 500 à l'export (22 des 5 032
+    sessions réelles le 2026-09-27). Un `filename` ASCII de repli, et le vrai
+    nom en `filename*` UTF-8, que tous les navigateurs actuels préfèrent.
+    """
+    import unicodedata
+    from urllib.parse import quote
+
+    base = titre[:40].replace("/", "-").replace(" ", "_").replace("—", "-") or "session"
+    ascii_ = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode("ascii")
+    ascii_ = "".join(c for c in ascii_ if c.isalnum() or c in "-_.") or "session"
+    return (
+        f'attachment; filename="{ascii_}.md"; '
+        f"filename*=UTF-8''{quote(base + '.md', safe='')}"
+    )
 
 
 @app.get("/api/files/{name}")
@@ -738,7 +757,8 @@ async def websocket_endpoint(ws: WebSocket):
 
     # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
     try:
-        info = _load_project_info()
+        # Hors de la boucle d'événements : scan disque (conventions, erreurs).
+        info = await asyncio.to_thread(_load_project_info)
         if info["conventions"]:
             await ws.send_json({
                 "type": "conventions_loaded",
@@ -804,7 +824,15 @@ async def websocket_endpoint(ws: WebSocket):
 
                 _stop_flag[0] = False
                 run_model = pinned_model if pinned_model is not None else current_model
-                orch = _build_streaming_orchestrator(
+                # Dans un thread : au premier message du processus, construire
+                # l'orchestrateur déclenche la découverte MCP SYNCHRONE — mesurée
+                # à 8,7 s pour 15 serveurs (4,3 s pour ableton seul) le
+                # 2026-09-27. Dans la coroutine, elle gelait TOUTE la boucle :
+                # autres connexions, /health — au-delà des 5 s de la sonde du
+                # watchdog. Le constructeur ne parle à la boucle que par
+                # `run_coroutine_threadsafe`, donc sûr hors de son thread.
+                orch = await asyncio.to_thread(
+                    _build_streaming_orchestrator,
                     memory, run_model, queue, loop, _stop_flag,
                     pending_approvals, pending_questions,
                     pinned=pinned_model is not None,
