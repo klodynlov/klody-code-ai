@@ -1022,6 +1022,20 @@ installé, exactement la limite déjà écrite plus bas pour les MCP.
 
 ## Pièges qui coûtent du temps
 
+- ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
+  module qui lit ses réglages à l'import.** Trouvé le 2026-09-27 :
+  `vocalbrain_server` et `klody_music_server` importaient `song_structure`
+  (`KLODY_SONG_*`, `ACESTEP_*`, `ACE_STEP_VERSION`) avant leur `load_dotenv()`,
+  et six serveurs faisaient de même avec `_pathguard` (`KLODY_MCP_AUDIO_ROOTS`).
+  Toute valeur du `.env` était ignorée en silence — une racine audio RESTREINTE
+  dans le `.env` laissait le garde sur ses défauts, plus larges. Seul l'export
+  (plist, `start-*-mcp.sh`) comptait. Latent (aucune de ces variables n'était
+  dans le `.env`), invisible en test : `conftest` importe `config`, qui charge le
+  `.env` avant tout. Le `.env` est désormais chargé par `klody_mcp/__init__.py`,
+  qui précède tout module du paquet ; `tests/test_klody_mcp_dotenv.py` importe une
+  COPIE du paquet dans un processus neuf, `.env` posé à côté, et rougit si
+  l'ordre se réinverse (vérifié : 8 rouges sans le chargement, 1 avec
+  `override=True`).
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
   l'oubli ne se voit que des heures plus tard.** Incident du 2026-08-05
   ci-dessus. Réflexe : après toute mise à jour de `requirements.lock`,

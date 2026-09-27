@@ -56,6 +56,8 @@ import unicodedata
 from collections.abc import Mapping
 
 # ── Contrat du daemon local-suno (valeurs recopiées, cf. l'avertissement ci-dessus)
+# Tous les réglages de ce module sont lus À L'IMPORT : le `.env` de Klody doit être
+# chargé avant — c'est `klody_mcp/__init__.py` qui s'en charge, pas les serveurs.
 
 # storage/models.py::GenerationRequest.duration_sec — Field(ge=10, le=600)
 DUREE_MIN_SEC = int(os.getenv("KLODY_SONG_DUREE_MIN", "10"))
@@ -84,9 +86,14 @@ def plafond_segment(env: Mapping[str, str] | None = None) -> float:
     ⚠️ Les deux variables configurent le DAEMON : posées dans son ``.env`` seul,
     elles rendent ce calcul faux. ``tests/test_song_structure.py`` lit la valeur
     effective du daemon (``.env`` compris) sur cette machine et rougit. Pour que
-    Klody suive, il faut les EXPORTER dans l'environnement de ses serveurs MCP : le
-    ``.env`` de Klody est chargé par ``vocalbrain_server`` et ``klody_music_server``
-    APRÈS l'import de ce module, il n'y peut rien.
+    Klody suive, il faut les poser AUSSI de son côté : dans le ``.env`` de Klody,
+    ou exportées dans l'environnement de ses serveurs MCP (l'export gagne).
+
+    Le ``.env`` de Klody est chargé par ``klody_mcp/__init__.py``, donc AVANT ce
+    module. Jusqu'au 2026-09-27 il l'était par ``vocalbrain_server`` et
+    ``klody_music_server`` APRÈS l'import de ce module : seul l'export comptait,
+    le ``.env`` était ignoré en silence. Verrouillé par
+    ``tests/test_klody_mcp_dotenv.py``.
     """
     env = os.environ if env is None else env
     defaut = "600" if env.get("ACE_STEP_VERSION", "v15") == "v15" else "120"
