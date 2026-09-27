@@ -26,12 +26,23 @@ Usage :
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import time
-from datetime import UTC
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# ⚠️ Ce script tourne sous `/usr/bin/python3` (3.9, outils Xcode), PAS sous le
+# venv du projet : c'est ce que lance `com.klody.veille-nightly`, à dessein — une
+# veille doit survivre à un venv cassé. Il importait `datetime.UTC` (3.11+) :
+# ImportError AU CHARGEMENT, avant même le premier `log`. La veille censée
+# dénoncer un nightly muet ne pouvait donc ni interroger, ni notifier — et la
+# suite la testait sous 3.11, donc au vert. Constaté le 2026-09-27, après
+# 9 nightlies d'affilée sans un seul vert. `tests/test_scripts_python_systeme.py`
+# verrouille désormais la compatibilité de tout script lancé par cet interpréteur.
+PYTHON_SYSTEME = "/usr/bin/python3"
 
 MUETTE_JOURS = 3
 
@@ -68,12 +79,33 @@ def notifier(titre: str, corps: str) -> bool:
         return False
 
 
+# launchd ne lance ses agents qu'avec PATH=/usr/bin:/bin:/usr/sbin:/sbin — où `gh`
+# (Homebrew) n'est pas. Un `gh` nu y lève FileNotFoundError : la veille rendait 1
+# à chaque tick, « pas pu regarder », pour une raison qui n'avait rien à voir avec
+# GitHub. Même défaut que le `datetime.UTC` ci-dessus, empilé derrière lui.
+GH_CANDIDATS = ("/opt/homebrew/bin/gh", "/usr/local/bin/gh")
+
+
+def trouver_gh() -> str:
+    """Chemin de `gh` : le PATH d'abord, puis les emplacements Homebrew. Lève si
+    introuvable — c'est une panne de l'interrogation, pas un nightly vert."""
+    chemin = shutil.which("gh")
+    if chemin:
+        return chemin
+    for candidat in GH_CANDIDATS:
+        if Path(candidat).is_file():
+            return candidat
+    raise RuntimeError(
+        "gh introuvable (ni dans le PATH, ni dans " + ", ".join(GH_CANDIDATS) + ")"
+    )
+
+
 def lister_runs() -> list[dict[str, Any]]:
     """Interroge gh pour les derniers runs du nightly.  Lève sur tout échec —
     l'appelant DOIT distinguer « pas de run vert » de « pas pu regarder »."""
     result = subprocess.run(
         [
-            "gh", "run", "list",
+            trouver_gh(), "run", "list",
             f"--workflow={WORKFLOW}",
             f"--repo={REPO}",
             f"--limit={RUNS_A_EXAMINER}",
@@ -102,10 +134,9 @@ def diagnostiquer(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
     age_dernier_vert: float | None = None
     if verts:
-        from datetime import datetime
         dt_str = verts[0]["startedAt"]
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-        age_dernier_vert = (datetime.now(UTC) - dt).total_seconds() / 86400
+        age_dernier_vert = (datetime.now(timezone.utc) - dt).total_seconds() / 86400
 
     return {
         "total": total,

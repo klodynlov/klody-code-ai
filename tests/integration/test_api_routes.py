@@ -13,6 +13,11 @@ from typing import ClassVar
 
 import pytest
 
+# URL ABSOLUE : le client WS de Starlette force sinon `Host: testserver`, que le
+# garde d'hôte (api/garde_origine.py, anti-DNS-rebinding) refuse à juste titre.
+WS_URL = "ws://127.0.0.1:8000/api/ws"
+
+
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
@@ -33,7 +38,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     from api.server import app
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
         yield c, fake_mem_dir
 
 
@@ -511,7 +516,7 @@ class TestConfigEndpoints:
 class TestWebSocketRouting:
     def test_model_change(self, client):
         c, _ = client
-        with c.websocket_connect("/api/ws") as ws:
+        with c.websocket_connect(WS_URL) as ws:
             # consomme session_init et events de boot
             while True:
                 msg = ws.receive_json()
@@ -528,7 +533,7 @@ class TestWebSocketRouting:
 
     def test_session_load_missing(self, client):
         c, _ = client
-        with c.websocket_connect("/api/ws") as ws:
+        with c.websocket_connect(WS_URL) as ws:
             while True:
                 msg = ws.receive_json()
                 if msg["type"] == "session_init":
@@ -555,7 +560,7 @@ class TestWebSocketRouting:
             ],
         }))
 
-        with c.websocket_connect("/api/ws") as ws:
+        with c.websocket_connect(WS_URL) as ws:
             while True:
                 msg = ws.receive_json()
                 if msg["type"] == "session_init":

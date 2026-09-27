@@ -38,12 +38,15 @@ def arguments_dict(brut: Any) -> dict[str, Any]:
     return valeur if isinstance(valeur, dict) else {}
 
 
+def _est_objet_json(texte: str) -> bool:
+    try:
+        return isinstance(json.loads(texte), dict)
+    except (json.JSONDecodeError, ValueError):
+        return False  # JSON invalide ou tronqué : pas un objet, à normaliser
+
+
 def arguments_json(brut: Any) -> str:
     """Chaîne JSON d'un OBJET, sûre à renvoyer au serveur dans l'historique."""
-    if isinstance(brut, str):
-        try:
-            if isinstance(json.loads(brut), dict):
-                return brut
-        except (json.JSONDecodeError, ValueError):
-            pass
+    if isinstance(brut, str) and _est_objet_json(brut):
+        return brut
     return json.dumps(arguments_dict(brut), ensure_ascii=False)

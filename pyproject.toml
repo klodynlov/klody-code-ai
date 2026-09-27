@@ -13,6 +13,14 @@ src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts"]
 # le reformater ferait diverger l'addon de son .zip de distribution.
 extend-exclude = ["demos", "integrations"]
 force-exclude = true
+# Scripts lancés par launchd sous `/usr/bin/python3` (3.9, outils Xcode) et non
+# sous le venv : une veille doit survivre à un venv cassé. Avec la cible py311
+# globale, pyupgrade (UP017) RÉCLAMAIT `datetime.UTC` — 3.11+ — et c'est ainsi
+# que `veille_nightly.py` a planté à l'import sous launchd, silencieusement,
+# pendant tout le mois de septembre 2026. Dire au linter la vraie cible.
+# `tests/test_scripts_python_systeme.py` vérifie que cette liste couvre bien
+# chaque script qu'un plist lance sous `/usr/bin/python3`.
+per-file-target-version = { "scripts/veille_*.py" = "py39", "scripts/bench_dispatch.py" = "py39" }
 
 [tool.ruff.lint]
 # E/F = pyflakes+pycodestyle, I = isort, UP = pyupgrade, B = bugbear,
@@ -85,6 +93,7 @@ files = [
     "klody_mcp/song_structure.py",
     "klody_mcp/memory_server.py",
     "api/metrics.py",
+    "api/garde_origine.py",  # garde de sécurité : typé d'office
 ]
 # Adoption incrémentale : on ne reporte que les erreurs des modules listés
 # dans `files`. Les modules suivis par import mais pas encore typés (skills,

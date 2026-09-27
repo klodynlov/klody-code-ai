@@ -49,6 +49,7 @@ from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
 from api import metrics as _metrics
+from api.garde_origine import ORIGINES_UI, GardeOrigine
 from api.streaming import StopGeneration, make_stream_api
 
 logger = logging.getLogger(__name__)
@@ -126,20 +127,13 @@ app = FastAPI(title="KlodyAI API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:1420",  # Tauri dev
-        "http://localhost:1421",
-        "http://localhost:5173",  # Vite dev
-        "http://localhost:5174",
-        "http://localhost:3000",
-        "http://127.0.0.1",
-        "http://127.0.0.1:1420",
-        "tauri://localhost",       # Tauri production
-    ],
+    allow_origins=list(ORIGINES_UI),
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
+# Ajouté APRÈS CORS, donc EXTÉRIEUR : il juge avant tout le reste, WebSocket
+# compris (que CORS ne couvre pas). Détail et incident dans api/garde_origine.py.
+app.add_middleware(GardeOrigine)
 
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
@@ -389,9 +383,28 @@ async def export_session(session_id: str):
         else:
             lines += ["**Klody :**", "", m["content"], "", "---", ""]
     md = "\n".join(lines)
-    filename = title[:40].replace("/", "-").replace(" ", "_").replace("—", "-") + ".md"
     return PlainTextResponse(md, media_type="text/markdown",
-                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+                             headers={"Content-Disposition": _disposition_attachment(title)})
+
+
+def _disposition_attachment(titre: str) -> str:
+    """En-tête Content-Disposition sûr pour un titre quelconque (RFC 6266/5987).
+
+    Les en-têtes HTTP sont encodés en latin-1 : un titre avec « ’ », « œ » ou un
+    emoji levait UnicodeEncodeError ⇒ HTTP 500 à l'export (22 des 5 032
+    sessions réelles le 2026-09-27). Un `filename` ASCII de repli, et le vrai
+    nom en `filename*` UTF-8, que tous les navigateurs actuels préfèrent.
+    """
+    import unicodedata
+    from urllib.parse import quote
+
+    base = titre[:40].replace("/", "-").replace(" ", "_").replace("—", "-") or "session"
+    ascii_ = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode("ascii")
+    ascii_ = "".join(c for c in ascii_ if c.isalnum() or c in "-_.") or "session"
+    return (
+        f'attachment; filename="{ascii_}.md"; '
+        f"filename*=UTF-8''{quote(base + '.md', safe='')}"
+    )
 
 
 @app.get("/api/files/{name}")
@@ -755,7 +768,8 @@ async def websocket_endpoint(ws: WebSocket):
 
     # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
     try:
-        info = _load_project_info()
+        # Hors de la boucle d'événements : scan disque (conventions, erreurs).
+        info = await asyncio.to_thread(_load_project_info)
         if info["conventions"]:
             await ws.send_json({
                 "type": "conventions_loaded",
@@ -821,7 +835,15 @@ async def websocket_endpoint(ws: WebSocket):
 
                 stop_flag[0] = False
                 run_model = pinned_model if pinned_model is not None else current_model
-                orch = _build_streaming_orchestrator(
+                # Dans un thread : au premier message du processus, construire
+                # l'orchestrateur déclenche la découverte MCP SYNCHRONE — mesurée
+                # à 8,7 s pour 15 serveurs (4,3 s pour ableton seul) le
+                # 2026-09-27. Dans la coroutine, elle gelait TOUTE la boucle :
+                # autres connexions, /health — au-delà des 5 s de la sonde du
+                # watchdog. Le constructeur ne parle à la boucle que par
+                # `run_coroutine_threadsafe`, donc sûr hors de son thread.
+                orch = await asyncio.to_thread(
+                    _build_streaming_orchestrator,
                     memory, run_model, queue, loop, stop_flag,
                     pending_approvals, pending_questions,
                     pinned=pinned_model is not None,

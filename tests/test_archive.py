@@ -8,7 +8,6 @@ import json
 import zipfile
 
 import pytest
-
 from tools.archive import bundle_zip
 from tools.registry import get_tool_names
 
@@ -126,10 +125,9 @@ def test_execute_tool_et_event(orch, downloads):
 class TestEndpointSertLeZip:
     @pytest.fixture
     def client(self):
-        from fastapi.testclient import TestClient
-
         from api.server import app
-        return TestClient(app)
+        from fastapi.testclient import TestClient
+        return TestClient(app, base_url="http://127.0.0.1:8000")
 
     def test_telecharge_zip(self, client, downloads):
         bundle_zip("dl.zip", [{"name": "a.txt", "content": "hello"}])

@@ -162,7 +162,9 @@ class TestProfileForPrompt:
         text = prof.get_profile_for_prompt()
         assert "Profil utilisateur" in text
         assert "Python" in text
-        assert "Sessions" in text and "Requêtes" in text
+        # Plus de compteurs depuis le 2026-09-27 : incrémentés à chaque message,
+        # ils cassaient le cache de préfixe (tests/test_prompt_systeme_stable.py).
+        assert "Sessions" not in text and "Requêtes" not in text
 
 
 class TestDisplaySummary:

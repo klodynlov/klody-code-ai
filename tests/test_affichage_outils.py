@@ -14,7 +14,6 @@ import io
 import agent.orchestrator as mod
 import pytest
 from agent.orchestrateur.outils import _format_search_results
-from agent.orchestrator import Orchestrator
 from rich.console import Console
 
 PIEGE = 'agent/x.py:12:    console.print("[red]erreur[/] voir [/Users/klodynlov] et [/]")'
@@ -28,8 +27,8 @@ def ecran(monkeypatch):
     return tampon
 
 
-def _orch(resultat: str) -> Orchestrator:
-    o = Orchestrator.__new__(Orchestrator)
+def _orch(resultat: str) -> mod.Orchestrator:
+    o = mod.Orchestrator.__new__(mod.Orchestrator)
     o._execute_tool = lambda _nom, _args: resultat  # type: ignore[method-assign]
     o._sandbox_auto_exec = False
     return o

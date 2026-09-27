@@ -37,7 +37,7 @@ def client(monkeypatch):
     # Liste neuve à chaque test : le drapeau « déjà signalé » est un état de
     # module, et le partager entre tests ferait passer le second pour muet.
     monkeypatch.setattr(server, "_peremption_signalee", [False])
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1:8000")
 
 
 @pytest.fixture

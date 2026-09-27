@@ -16,6 +16,11 @@ from typing import ClassVar
 
 import pytest
 
+# URL ABSOLUE : le client WS de Starlette force sinon `Host: testserver`, que le
+# garde d'hôte (api/garde_origine.py, anti-DNS-rebinding) refuse à juste titre.
+WS_URL = "ws://127.0.0.1:8000/api/ws"
+
+
 # --------------------------------------------------------------------------- #
 # Faux client OpenAI : reproduit la forme des chunks de streaming attendue.     #
 # --------------------------------------------------------------------------- #
@@ -162,7 +167,7 @@ def chat_client(monkeypatch: pytest.MonkeyPatch):
     from api.server import app
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
         yield c
 
 
@@ -195,7 +200,7 @@ def _connect_ready(ws) -> None:
 class TestChatRoundTrip:
     def test_reponse_texte_emet_token_et_done(self, chat_client):
         FakeOpenAI._turns = [_text_turn("Bonjour je suis Klody")]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "dis bonjour"})
             events = _drain_until(ws, "done")
@@ -219,7 +224,7 @@ class TestChatRoundTrip:
             _tool_turn("call_1", "list_skills", "{}"),
             _text_turn("Voici tes skills disponibles"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "liste mes skills"})
             events = _drain_until(ws, "done")
@@ -246,7 +251,7 @@ class TestThinkingStream:
         FakeOpenAI._turns = [
             _thinking_turn("je pose le raisonnement", "Voici la reponse finale")
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "explique en raisonnant"})
             events = _drain_until(ws, "done")
@@ -285,7 +290,7 @@ class TestInteractiveQuestionRoundTrip:
             ),
             _text_turn("Parfait, on part sur un platformer"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "aide-moi à concevoir mon jeu"})
 
@@ -320,7 +325,7 @@ class TestInteractiveQuestionRoundTrip:
             _tool_turn("q3", "ask_user", json.dumps({"question": "Volume ?", "options": ["Petit", "Grand"]})),
             _text_turn("Fiche de besoin synthétisée"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "conçois mon algo pas à pas"})
 
@@ -352,7 +357,7 @@ class TestInteractiveQuestionRoundTrip:
             _tool_turn("q1", "ask_user", json.dumps({"question": "Nature ?", "options": ["Trier", "Chercher"]})),
             _text_turn("Compris, on trie"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "conçois mon algo"})
             ev = _drain_until(ws, "question_request")[-1]
@@ -377,7 +382,7 @@ class TestInteractiveQuestionRoundTrip:
             _tool_turn("q1", "ask_user", json.dumps({"question": "Choix ?", "options": ["A", "B"]})),
             _text_turn("ok"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "demande"})
             ev = _drain_until(ws, "question_request")[-1]
@@ -409,7 +414,7 @@ class TestApprovalInterrupt:
             _tool_turn("call_w", "write_file", json.dumps({"path": "x.txt", "content": "y"})),
             _text_turn("Je n'ai pas pu écrire le fichier, dis-moi quoi faire"),
         ]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "écris un fichier"})
 
@@ -457,7 +462,7 @@ class TestCycleDeVieOrchestrateur:
 
         monkeypatch.setattr(Orchestrator, "close", espion)
         FakeOpenAI._turns = [_text_turn("Bonjour")]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "dis bonjour"})
             _drain_until(ws, "done")
@@ -498,7 +503,7 @@ class TestErreurBackendLisible:
         # Pas de réessai : on juge le MESSAGE (le réessai est couvert plus bas).
         monkeypatch.setattr("config.LLM_503_ESSAIS", 0)
         FakeOpenAI._turns = [_erreur_503_ram()]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             with caplog.at_level("ERROR"):
                 ws.send_json({"type": "chat", "content": "faut-il une autorisation ?"})
@@ -518,7 +523,7 @@ class TestErreurBackendLisible:
         # suivant reçoit SA réponse, pas un `done`/`error` périmé.
         monkeypatch.setattr("config.LLM_503_ESSAIS", 0)
         FakeOpenAI._turns = [_erreur_503_ram()]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "premier"})
             _drain_until(ws, "error")
@@ -538,7 +543,7 @@ class TestErreurBackendLisible:
         monkeypatch.setattr("config.LLM_503_ESSAIS", 1)
         monkeypatch.setattr("config.LLM_503_ATTENTE_S", 0.0)
         FakeOpenAI._turns = [_erreur_503_ram(), _text_turn("Réponse après réessai")]
-        with chat_client.websocket_connect("/api/ws") as ws:
+        with chat_client.websocket_connect(WS_URL) as ws:
             _connect_ready(ws)
             ws.send_json({"type": "chat", "content": "salut"})
             events = _drain_until(ws, "done")

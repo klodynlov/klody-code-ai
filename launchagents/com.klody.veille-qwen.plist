@@ -15,11 +15,13 @@
         <string>/Users/klodynlov/Projets/klody-code-ai/scripts/veille_qwen.py</string>
     </array>
 
-    <!-- StartInterval, PAS StartCalendarInterval : `est_periodique()` de
-         scripts/install-launchagents.sh ne reconnaît que StartInterval pour
-         classer un job en « périodique ». Avec un calendrier, l'agent serait
-         compté comme chargé sans être ni résident ni périodique, et la ligne de
-         comptage de `--check` ne tomberait plus juste. 86400 s = 24 h. -->
+    <!-- 86400 s = 24 h. `est_periodique()` de scripts/install-launchagents.sh
+         ne reconnaissait que StartInterval ; il accepte aussi un calendrier
+         depuis le 2026-09-27 (com.klody.bench-dispatch).
+         ⚠️ Jamais deux tirets d'affilée dans un commentaire XML : launchd et
+         plutil le tolèrent, un analyseur strict (plistlib) refuse le fichier.
+         Ce commentaire-ci citait l'option check de l'installeur avec ses
+         tirets, et rendait le plist illisible à tout test qui le parse. -->
     <key>StartInterval</key>
     <integer>86400</integer>
 

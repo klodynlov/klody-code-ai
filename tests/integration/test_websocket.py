@@ -16,6 +16,11 @@ import json
 
 import pytest
 
+# URL ABSOLUE : le client WS de Starlette force sinon `Host: testserver`, que le
+# garde d'hôte (api/garde_origine.py, anti-DNS-rebinding) refuse à juste titre.
+WS_URL = "ws://127.0.0.1:8000/api/ws"
+
+
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch):
@@ -30,7 +35,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
     from api.server import app
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
         yield c
 
 
@@ -86,7 +91,7 @@ def test_status_endpoint(client):
 
 def test_ws_session_init_on_connect(client):
     """Le WS doit envoyer session_init dès l'accept."""
-    with client.websocket_connect("/api/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         msg = ws.receive_json()
         assert msg["type"] == "session_init"
         assert isinstance(msg["session_id"], str)
@@ -96,7 +101,7 @@ def test_ws_session_init_on_connect(client):
 
 def test_ws_ping_pong(client):
     """ping → pong."""
-    with client.websocket_connect("/api/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         # consomme session_init + tout event de boot (conventions_loaded, recurrent_errors)
         seen_init = False
         while not seen_init:
@@ -116,7 +121,7 @@ def test_ws_ping_pong(client):
 
 def test_ws_session_new_creates_fresh_session(client):
     """session_new → nouveau session_id différent."""
-    with client.websocket_connect("/api/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         first_init = None
         while first_init is None:
             msg = ws.receive_json()
@@ -143,7 +148,7 @@ def test_ws_disconnect_sets_stop_flag(client):
     from api import server
 
     avant = set(server._stop_flags_actifs)
-    with client.websocket_connect("/api/ws") as ws:
+    with client.websocket_connect(WS_URL) as ws:
         # Consomme session_init
         while True:
             msg = ws.receive_json()
@@ -152,6 +157,14 @@ def test_ws_disconnect_sets_stop_flag(client):
         # Le drapeau PROPRE à cette connexion (un par connexion depuis 2026-09-27).
         (cle,) = set(server._stop_flags_actifs) - avant
         drapeau = server._stop_flags_actifs[cle]
+        # Attendre que le handler soit DANS sa boucle de réception : le
+        # chargement des conventions se fait désormais hors de la boucle
+        # d'événements (asyncio.to_thread), et le TestClient ANNULE l'app à la
+        # sortie du `with` — sans ce ping, la déconnexion tombait pendant ce
+        # chargement. Avant, il bloquait la boucle, ce qui masquait l'ordre.
+        ws.send_json({"type": "ping"})
+        while ws.receive_json()["type"] != "pong":
+            pass
 
     # Sortie du with → close → handler doit setter le stop_flag
     # Note: TestClient ferme proprement, peut prendre un tick.
@@ -179,10 +192,10 @@ def test_deconnexion_de_b_n_arrete_pas_a(client):
 
     # Instantané AVANT d'ouvrir : la poignée de main enregistre déjà le drapeau.
     avant_a = set(server._stop_flags_actifs)
-    with client.websocket_connect("/api/ws") as ws_a:
+    with client.websocket_connect(WS_URL) as ws_a:
         drapeau_a = ouvrir_et_saisir(ws_a, avant_a)
         avant_b = set(server._stop_flags_actifs)
-        with client.websocket_connect("/api/ws") as ws_b:
+        with client.websocket_connect(WS_URL) as ws_b:
             drapeau_b = ouvrir_et_saisir(ws_b, avant_b)
         for _ in range(20):
             if drapeau_b[0]:
