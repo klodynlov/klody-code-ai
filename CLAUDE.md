@@ -1191,6 +1191,53 @@ de score. Le skill arrive en tête des how-to par la consigne commune du palier 
   minutes, banc arrêté, alors que le seul client restant envoyait un appel de
   ~3 s par minute.
 
+## État au 2026-09-27 — la mémoire longue terme du système est figée pour la session
+
+L'extraction de faits réparée écrit dans `LongTermMemory` après CHAQUE message
+WebSocket, et `format_for_prompt()` vit dans le prompt SYSTÈME — or le cache de
+préfixe de mlx_lm ne réutilise qu'un préfixe exact (#270). Mesuré, pas supposé
+(`scripts/mesure_stabilite_memoire.py`, rejeu des 45 sessions réelles les plus
+récentes avec la VRAIE extraction sur `brain` ; relevé complet :
+`bench/results/reference_2026-09-27_stabilite_memoire.md`) :
+
+| système (profil + mémoire) identique entre deux messages | 93 paires |
+|---|---|
+| sans extraction (production depuis le 2026-07-18) | 95 % |
+| **extraction à chaque message** | **83 %** |
+| **extraction + section figée** | **95 %** |
+
+11/53 extractions écrivent (21 %), et **chacune** change la section : une ligne
+de plus dans une petite catégorie (`user` 1, `preference` 2, `project` 6
+entrées), ou la fenêtre des 15 `context` les plus récents qui glisse. Un raté
+coûte 11,2 s contre 0,55 s à 69 outils (#270), ~120 s au régime de l'API de prod
+(297 outils MCP, prompt ~92 k tokens).
+
+- **Remède** : `agent/long_term_memory.py::section_de_session` rend la section
+  UNE fois par `ConversationMemory` (qui survit aux messages WS — l'Orchestrator,
+  non). Un fait extrait devient visible à la session suivante : il vient de la
+  conversation en cours, déjà sous les yeux du modèle.
+- Trois invalidations, parce que cette justification tombe : `remember_fact` et
+  `forget_fact` (demande EXPLICITE — un fait oublié ne doit pas rester affirmé ;
+  3 appels pour 1 359 réponses dans les sessions réelles), et
+  `ConversationMemory.clear()` (`/clear` efface l'historique d'où venaient les
+  faits).
+- ⚠️ **Aujourd'hui l'effet est masqué** : skills et retrieval, placés AVANT
+  `lt_section`, changent déjà le système sur ~91 % des paires. Le gain apparaît
+  quand ils sortent du prompt système (branche `claude/contexte-tour-utilisateur`).
+- ⚠️ **Le banc ne peut pas le voir** : une tâche = un état neuf (mémoire vide) et
+  un seul message. Il a tourné quand même : **34/35**, porte verte (`Δ −3,3 %`).
+  Seul échec, `discovery/config_precedence` (puis 0/3 rejouée) — alors que le
+  prompt système du fils du banc est **identique octet pour octet** à `main`
+  (sonde : même sha, 65 395 car.). Témoin `main` le même jour : 2/3, même
+  signature (`argparse type=int` ⇒ `SystemExit` au lieu de `ValueError`), déjà
+  relevée par #288. Même entrée, verdicts différents : de la variance, sur une
+  tâche instable partout ce jour-là (3/10 toutes branches confondues).
+- ⚠️ Les vrais tours utilisateur d'une session se reconnaissent à leur
+  `timestamp` : les relances de l'orchestrateur (« Ton budget d'itérations… »,
+  « STOP — ne conclus pas… ») sont AUSSI en rôle `user`, posées à `timestamp:
+  None` — 89 sur 659 messages `user` de `~/.klody/data`. Compter les rôles
+  compterait des tours qui n'existent pas.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
