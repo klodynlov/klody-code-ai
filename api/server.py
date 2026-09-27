@@ -726,12 +726,10 @@ async def set_config(request: Request):
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     _metrics.ws_connections_total.inc()
-    _metrics.ws_active.inc()
 
     memory = ConversationMemory()
     # Drapeau d'arrêt PROPRE à cette connexion (cf. `_stop_flags_actifs`).
     stop_flag: list[bool] = [False]
-    _stop_flags_actifs[id(stop_flag)] = stop_flag
     # Modèle de DÉPART du run (mode Auto) = celui résolu par config selon BACKEND.
     current_model = config.LLM_MODEL
     # Modèle ÉPINGLÉ par un choix manuel du sélecteur. None = mode « Auto » (le
@@ -749,41 +747,6 @@ async def websocket_endpoint(ws: WebSocket):
     # l'Event, la boucle WS le réveille à réception d'un question_response.
     pending_questions: dict[str, tuple] = {}
 
-    # Envoyer le statut initial. Le client (WebSocket natif WKWebView, app
-    # packagée) tombe parfois juste après le handshake : sans garde, le
-    # WebSocketDisconnect remonte HORS du endpoint en exception ASGI non gérée
-    # (le try/finally qui décrémente ws_active est porté par la boucle plus
-    # bas, pas par cet envoi) → traceback + fuite du gauge ws_active.
-    try:
-        await ws.send_json({
-            "type": "session_init",
-            "session_id": memory.session_id,
-            "model": pinned_model or "auto",
-        })
-    except WebSocketDisconnect:  # pragma: no cover - chemin d'erreur réseau
-        _stop_flags_actifs.pop(id(stop_flag), None)
-        _metrics.ws_active.dec()
-        return
-    journal_client.emit(kind="session", name="start", session_id=memory.session_id)
-
-    # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
-    try:
-        # Hors de la boucle d'événements : scan disque (conventions, erreurs).
-        info = await asyncio.to_thread(_load_project_info)
-        if info["conventions"]:
-            await ws.send_json({
-                "type": "conventions_loaded",
-                "workdir": info.get("workdir"),
-                "conventions": info["conventions"],
-            })
-        if info["recurrent_errors"]:
-            await ws.send_json({
-                "type": "recurrent_errors",
-                "errors": info["recurrent_errors"],
-            })
-    except Exception as exc:
-        logger.debug("Failed to push project info: %s", exc)
-
     async def send_status():
         non_sys = sum(1 for m in memory.messages if m["role"] != "system")
         await ws.send_json({
@@ -793,7 +756,52 @@ async def websocket_endpoint(ws: WebSocket):
             "messages": non_sys,
         })
 
+    # Ressources de la connexion : prises ICI, rendues par le `finally` du bas
+    # et par lui seul — le `try` suit, sans un `await` entre les deux. Il ne
+    # s'ouvrait qu'à la boucle de réception : le prologue (session_init,
+    # conventions) était à découvert. Un envoi raté y avait eu sa rustine
+    # locale (fuite de ws_active côté WKWebView) ; mais depuis que les
+    # conventions se chargent via `asyncio.to_thread` (#272), le prologue
+    # SUSPEND, et une ANNULATION de la tâche ASGI y tombait. `CancelledError`
+    # hérite de BaseException, contourne tous les `except` : sortie sans
+    # drapeau levé, entrée du registre et jauge en fuite. Le TestClient de
+    # Starlette annule à chaque fermeture (vécu le 2026-09-27 : test B/A rouge
+    # 11 fois sur 13 sur `main`) ; uvicorn, seulement à l'arrêt au-delà de
+    # `timeout_graceful_shutdown` (non réglé ici) — en production, une
+    # déconnexion client arrive en WebSocketDisconnect, déjà couvert.
+    _metrics.ws_active.inc()
+    _stop_flags_actifs[id(stop_flag)] = stop_flag
+    # Émis avant session_init pour que tout chemin de sortie ait son `end` :
+    # `emit` ne lève ni ne bloque jamais.
+    journal_client.emit(kind="session", name="start", session_id=memory.session_id)
     try:
+        # Statut initial. Le client (WebSocket natif WKWebView, app packagée)
+        # tombe parfois juste après le handshake : le WebSocketDisconnect est
+        # alors rattrapé plus bas, comme toute autre déconnexion.
+        await ws.send_json({
+            "type": "session_init",
+            "session_id": memory.session_id,
+            "model": pinned_model or "auto",
+        })
+
+        # Pousser les conventions + erreurs récurrentes en début de session (v2 #8)
+        try:
+            # Hors de la boucle d'événements : scan disque (conventions, erreurs).
+            info = await asyncio.to_thread(_load_project_info)
+            if info["conventions"]:
+                await ws.send_json({
+                    "type": "conventions_loaded",
+                    "workdir": info.get("workdir"),
+                    "conventions": info["conventions"],
+                })
+            if info["recurrent_errors"]:
+                await ws.send_json({
+                    "type": "recurrent_errors",
+                    "errors": info["recurrent_errors"],
+                })
+        except Exception as exc:
+            logger.debug("Failed to push project info: %s", exc)
+
         while True:
             raw = await ws.receive_text()
             msg = json.loads(raw)
@@ -1061,12 +1069,15 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("WebSocket déconnecté")
-        # Filet de sécurité : si une génération était en cours, stoppe-la.
-        stop_flag[0] = True
     except Exception as e:
         logger.error("WebSocket erreur: %s", e)
-        stop_flag[0] = True
     finally:
+        # Filet de sécurité contre le fil orchestrateur fantôme : connexion
+        # finie, PAR QUELQUE CHEMIN QUE CE SOIT ⇒ génération stoppée. Levé ici
+        # et non plus dans les `except` : une annulation n'en traverse aucun.
+        # Aucun `await` dans ce bloc — anyio relivre l'annulation à chaque
+        # `await` tant que sa portée n'est pas sortie : il doit courir d'un trait.
+        stop_flag[0] = True
         # Le fil orchestrateur garde sa référence au drapeau : il le verra levé
         # même une fois la connexion retirée du registre.
         _stop_flags_actifs.pop(id(stop_flag), None)
