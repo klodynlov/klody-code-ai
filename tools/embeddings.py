@@ -26,10 +26,22 @@ leurs replis existants (grep littéral, `select_skills`).
 from __future__ import annotations
 
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 _available: bool | None = None  # None = pas encore testé (cache process)
+
+# Panne CONSTATÉE (pas supposée) : le moteur a été configuré, mais un lot entier
+# de textes non vides n'a rendu aucun vecteur. Vécu du 2026-09-15 au 09-27 :
+# `scipy` du venv ne se chargeait plus sous macOS 27 (`__DATA/__thread_bss`),
+# sentence-transformers échouait à CHAQUE appel — 1 522 erreurs dans agent.log,
+# 1,5-1,8 s perdues par recherche, retrieval proactif muet — pendant que
+# `is_available()` continuait de rendre True, faute d'avoir jamais essayé.
+# On apprend de l'échec, et on ré-essaie de temps en temps : l'API vit des
+# semaines, une panne transitoire ne doit pas la priver d'embeddings à vie.
+REESSAI_APRES_PANNE_S = 600.0
+_reessai_apres: float = 0.0
 
 
 def _ensure_ready() -> bool:
@@ -49,6 +61,8 @@ def is_available() -> bool:
     Ne fait AUCUN appel réseau, contrairement à l'ancien ping `/api/tags`.
     """
     global _available
+    if _available is False and _reessai_apres and time.monotonic() >= _reessai_apres:
+        _available = None  # panne constatée ancienne : on retente
     if _available is not None:
         return _available
     try:
@@ -74,10 +88,27 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
 
         vecs = get_embeddings_batch(texts)
     except Exception as exc:
-        logger.warning("Embedding batch échoué : %s", exc)
+        _constater_panne(f"{type(exc).__name__}: {exc}")
         return [[] for _ in texts]
     # get_embeddings_batch rend None par texte échoué → [] pour l'appelant.
-    return [list(v) if v else [] for v in vecs]
+    out = [list(v) if v else [] for v in vecs]
+    pleins = [i for i, t in enumerate(texts) if (t or "").strip()]
+    if pleins and not any(out[i] for i in pleins):
+        _constater_panne(f"aucun vecteur pour {len(pleins)} texte(s) non vide(s)")
+    return out
+
+
+def _constater_panne(cause: str) -> None:
+    """Rend `is_available()` honnête après un échec réel, le dit UNE fois."""
+    global _available, _reessai_apres
+    _available = False
+    _reessai_apres = time.monotonic() + REESSAI_APRES_PANNE_S
+    logger.warning(
+        "Embeddings EN PANNE (%s) — replis actifs (grep, select_skills), nouvel "
+        "essai dans %d min. Cause fréquente : venv dérivé du lock "
+        "(pip install -r requirements-macos.lock, puis redémarrer les services).",
+        cause, int(REESSAI_APRES_PANNE_S // 60),
+    )
 
 
 def embed_one(text: str) -> list[float]:
@@ -90,5 +121,6 @@ def embed_one(text: str) -> list[float]:
 
 def _reset_cache() -> None:
     """Ré-arme la détection de disponibilité (tests)."""
-    global _available
+    global _available, _reessai_apres
     _available = None
+    _reessai_apres = 0.0
