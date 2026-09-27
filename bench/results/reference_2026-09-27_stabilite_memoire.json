@@ -1,0 +1,37 @@
+{
+  "sessions": 45,
+  "paires": 93,
+  "paires_apres_extraction": 53,
+  "appels_aboutis": 53,
+  "echecs": 0,
+  "duree_mediane_s": 0.45193312500123284,
+  "prompt_tokens_median": 557.0,
+  "modele": "brain",
+  "faits": {
+    "appels": 53,
+    "avec_faits": 11,
+    "nouvelles_cles": 22,
+    "contenu_modifie": 5,
+    "retouche_identique": 0
+  },
+  "faits_par_categorie": {
+    "user": 6,
+    "context": 4,
+    "project": 13,
+    "preference": 4
+  },
+  "section_memoire_changee": 11,
+  "blocs_changes": {
+    "Utilisateur": 6,
+    "Contexte général": 6,
+    "Projets en cours": 9,
+    "Préférences": 4
+  },
+  "section_memoire_figee_changee": 0,
+  "section_profil_changee": 5,
+  "systeme_identique": {
+    "sans extraction": 88,
+    "extraction": 77,
+    "extraction + figée": 88
+  }
+}

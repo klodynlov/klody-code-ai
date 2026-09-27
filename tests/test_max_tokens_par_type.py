@@ -73,6 +73,9 @@ def test_replay_explain_recoit_max_tokens_reduit(fake_orchestrator_fixture):
     orch, fake_llm = fake_orchestrator_fixture(fixture)
     orch.run(fixture["user_prompt"])
 
+    # Le retrieval coupé n'a pas été contourné : son premier geste est de
+    # construire l'index, avant même de demander si le moteur est là.
+    assert orch._embed_index is None, "le retrieval proactif a tourné pour de vrai"
     assert fake_llm.call_log, "aucun appel LLM enregistré"
     for call in fake_llm.call_log:
         assert call["max_tokens"] == 4096, (
@@ -100,6 +103,17 @@ def fake_orchestrator_fixture(tmp_path, monkeypatch):
         monkeypatch.setattr(orch_mod, "MAX_ITERATIONS", 6)
         monkeypatch.setattr(orch_mod, "SANDBOX_AUTO_EXEC", False)
         monkeypatch.setattr(orch_mod, "ROUTER_ENABLED", True)
+        # Copie de `tests/integration/conftest.py::fake_orchestrator`, SANS son
+        # voisin autouse `_no_live_retrieval` — oubli constaté le 2026-09-27 :
+        # le retrieval proactif tournait pour de vrai, le vrai
+        # `embeddings.is_available()` appelait `configure_memory()`, et le
+        # moteur restait branché pour les tests suivants. C'était LE pollueur de
+        # `test_retrieval_desactive_retourne_vide` dans l'ordre de la passe
+        # complète (3,07 s au lieu de < 0,1 s). Remettre le moteur à zéro entre
+        # tests (conftest) contient le dégât ; ceci retire la cause : le
+        # retrieval n'est pas le sujet ici, et il ne faisait pas le même travail
+        # sur le Mac (moteur installé) qu'en CI (moteur absent).
+        monkeypatch.setattr(orch_mod, "RETRIEVAL_INJECT_ENABLED", False)
 
         fake_llm = FakeLLMClient(fixture_dict)
         monkeypatch.setattr(orch_mod, "LLMClient", lambda *_a, **_kw: fake_llm)
