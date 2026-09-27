@@ -157,31 +157,61 @@ def test_ws_disconnect_sets_stop_flag(client):
         # Le drapeau PROPRE à cette connexion (un par connexion depuis 2026-09-27).
         (cle,) = set(server._stop_flags_actifs) - avant
         drapeau = server._stop_flags_actifs[cle]
-        # Attendre que le handler soit DANS sa boucle de réception : le
-        # chargement des conventions se fait désormais hors de la boucle
-        # d'événements (asyncio.to_thread), et le TestClient ANNULE l'app à la
-        # sortie du `with` — sans ce ping, la déconnexion tombait pendant ce
-        # chargement. Avant, il bloquait la boucle, ce qui masquait l'ordre.
+        # Le ping place le handler DANS sa boucle de réception : ce test vise
+        # le chemin de production, `WebSocketDisconnect` reçu dans la boucle.
+        # (Il a d'abord servi de RUSTINE : sans lui la fermeture tombait dans
+        # le prologue, alors hors du try/finally — cf. test suivant.)
         ws.send_json({"type": "ping"})
         while ws.receive_json()["type"] != "pong":
             pass
 
-    # Sortie du with → close → handler doit setter le stop_flag
-    # Note: TestClient ferme proprement, peut prendre un tick.
-    import time
-    for _ in range(20):
-        if drapeau[0]:
-            assert cle not in server._stop_flags_actifs, "registre non nettoyé"
-            return
-        time.sleep(0.05)
-    pytest.fail("stop_flag pas levé après disconnect")
+    # Pas d'attente : la sortie du `with` JOINT la tâche ASGI (le TestClient
+    # fait `fut.result()` après l'annulation), son `finally` a donc déjà couru.
+    assert drapeau[0] is True, "stop_flag pas levé après disconnect"
+    assert cle not in server._stop_flags_actifs, "registre non nettoyé"
+
+
+def test_fermeture_pendant_le_prologue_rend_tout(client, monkeypatch):
+    """Vécu le 2026-09-27 : fermée pendant le chargement des conventions, une
+    connexion sortait sans drapeau levé, avec son entrée de registre et la
+    jauge ws_active en fuite. Le TestClient ANNULE la tâche ASGI à la
+    fermeture ; `CancelledError` (BaseException) tombait dans le prologue,
+    alors hors du try/finally, et contournait tous les `except`."""
+    import threading
+
+    from api import server
+    from prometheus_client import REGISTRY
+
+    # Prologue bloqué EXPRÈS : la fermeture y tombe à coup sûr, là où la course
+    # ne l'y plaçait que 11 fois sur 13.
+    entre, libere = threading.Event(), threading.Event()
+
+    def conventions_bloquees():
+        entre.set()
+        libere.wait(10)
+        return {"conventions": [], "recurrent_errors": []}
+
+    monkeypatch.setattr(server, "_load_project_info", conventions_bloquees)
+    jauge_avant = REGISTRY.get_sample_value("klody_ws_active")
+    avant = set(server._stop_flags_actifs)
+    try:
+        with client.websocket_connect(WS_URL) as ws:
+            while ws.receive_json()["type"] != "session_init":
+                pass
+            (cle,) = set(server._stop_flags_actifs) - avant
+            drapeau = server._stop_flags_actifs[cle]
+            assert entre.wait(10), "le handler n'est jamais entré dans le prologue"
+    finally:
+        libere.set()
+
+    assert drapeau[0] is True, "fermée dans le prologue : drapeau non levé"
+    assert cle not in server._stop_flags_actifs, "registre non nettoyé"
+    assert REGISTRY.get_sample_value("klody_ws_active") == jauge_avant, "jauge ws_active en fuite"
 
 
 def test_deconnexion_de_b_n_arrete_pas_a(client):
     """Audit 2026-09-27 : le drapeau était GLOBAL — la fermeture d'une connexion
     B coupait la génération de A (0/30 tokens puis `done`)."""
-    import time
-
     from api import server
 
     def ouvrir_et_saisir(ws, avant):
@@ -197,9 +227,8 @@ def test_deconnexion_de_b_n_arrete_pas_a(client):
         avant_b = set(server._stop_flags_actifs)
         with client.websocket_connect(WS_URL) as ws_b:
             drapeau_b = ouvrir_et_saisir(ws_b, avant_b)
-        for _ in range(20):
-            if drapeau_b[0]:
-                break
-            time.sleep(0.05)
+        # Pas d'attente : la sortie du `with` a joint la tâche ASGI de B. Le
+        # sondage de 1 s qui était ici ne pouvait rien rattraper : fermée dans
+        # son prologue, B ne levait JAMAIS son drapeau (rouge 11 fois sur 13).
         assert drapeau_b[0] is True, "B fermée : son drapeau doit être levé"
         assert drapeau_a[0] is False, "A vivante : sa génération ne doit pas être coupée"
