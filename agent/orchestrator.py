@@ -1925,9 +1925,11 @@ class Orchestrator(GardesMixin):
                 # est classée `explain`, PAS `feature` — gater sur
                 # _CODE_TASK_TYPES privait justement le QCM de l'outil `ask_user`
                 # (questions déversées en texte au lieu de cartes cliquables,
-                # cf. session 04:46). Les faux positifs sont déjà écartés en
-                # amont par select_skills (filtre de pertinence IDF : un skill
-                # non pertinent n'atteint jamais la tête de liste).
+                # cf. session 04:46). ⚠️ select_skills NE suffit PAS à écarter
+                # les faux positifs : sur les tâches `discovery`, le QCM arrive en
+                # tête des how-to par des mots de consigne (`list_files` → « file »,
+                # « avant », « écrire »). C'est la garde d'IDENTITÉ de
+                # _detect_interactive_skill qui tranche — cf. « pas » (2026-09-27).
                 self._interactive_skill_active = self._detect_interactive_skill(
                     user_input
                 )
