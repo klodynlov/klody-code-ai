@@ -45,7 +45,6 @@ from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_and_save
 from agent.orchestrator import Orchestrator
-from services import get_librarybrain_status
 from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
@@ -125,10 +124,10 @@ async def lifespan(app: FastAPI):
     # indisponible » le temps que LibraryBrain se décide. Best-effort : ne doit
     # jamais tuer le boot de l'API.
     #
-    # Appelé PAR LE MODULE, jamais par un nom importé : sept fixtures de test
-    # patchent `services.ensure_librarybrain` pour « désactiver LibraryBrain »,
-    # et un `from services import ensure_librarybrain` les rendait toutes
-    # mortes. Mesuré le 2026-09-27 : 63 connexions réelles vers :8765 depuis
+    # Appelé PAR LE MODULE, jamais par un nom importé (`services.` partout dans
+    # ce fichier) : sept fixtures de test patchent `services.ensure_librarybrain`
+    # pour « désactiver LibraryBrain », et un `from services import
+    # ensure_librarybrain` les rendait toutes mortes. Mesuré le 2026-09-27 : 63 connexions réelles vers :8765 depuis
     # `lb-init` pendant tests/integration ; port libre et `LIBRARYBRAIN_DIR`
     # posé, la suite aurait lancé un vrai LibraryBrain après 8 s de sondes.
     def _init_librarybrain() -> None:
@@ -248,7 +247,7 @@ async def get_status():
         "model": config.LLM_MODEL,
         "models": models,
         "project": str(config.PROJECT_ROOT),
-        "librarybrain": get_librarybrain_status(),
+        "librarybrain": services.get_librarybrain_status(),
         # v2 fields
         "backend": config.BACKEND,
         "backend_active": mlx_ok if config.BACKEND == "mlx" else ollama_ok,
