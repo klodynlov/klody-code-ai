@@ -104,9 +104,10 @@ def _chanson_en_une_passe(monkeypatch):
 
     `song_structure.SEGMENT_MAX_SEC` est lu dans l'environnement à l'import : sans
     ce garde, un `ACE_STEP_VERSION` ou un `ACESTEP_MAX_SEGMENT_SEC` exporté dans
-    le shell du développeur basculerait la suite en mode découpé — même défaut que
-    `_voix_muette` ci-dessus. Le mode découpé se demande EXPLICITEMENT
-    (`chanson_decoupee`).
+    le shell du développeur — ou posé dans le `.env` du dépôt, chargé à l'import
+    par `config` comme par `klody_mcp` — basculerait la suite en mode découpé,
+    même défaut que `_voix_muette` ci-dessus. Le mode découpé se demande
+    EXPLICITEMENT (`chanson_decoupee`).
     """
     monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_UNE_PASSE)
 
