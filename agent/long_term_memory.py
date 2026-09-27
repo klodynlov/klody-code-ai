@@ -255,6 +255,49 @@ class LongTermMemory:
             self.prune()
 
 
+# --------------------------------------------------------------------------- #
+# Section du prompt système FIGÉE pour la durée d'une session                  #
+# --------------------------------------------------------------------------- #
+
+# Attribut runtime (NON sérialisé) posé sur la ConversationMemory — et pas sur
+# l'Orchestrator, reconstruit à chaque message WS : même raison que
+# `cmd_failure_streak`.
+_ATTR_SECTION_FIGEE = "memoire_longue_figee"
+
+
+def section_de_session(session: object, lt_memory: LongTermMemory) -> str:
+    """`format_for_prompt()` rendu UNE fois par session, puis resservi à l'identique.
+
+    Pourquoi : le cache de préfixe de mlx_lm (MoE, `ArraysCache` non rognable) ne
+    réutilise qu'un préfixe EXACT — un octet changé dans le prompt système refait
+    le prefill de tout ce qui suit, schémas d'outils compris (#270 : 11,2 s contre
+    0,55 s). Or l'extraction automatique écrit des faits après CHAQUE message
+    WebSocket (`api/server.py::_extract_memory_bg`), et la catégorie `context` est
+    fenêtrée aux 15 plus récents : un fait neuf, même redondant, change la fenêtre.
+    Mesuré le 2026-09-27 par `scripts/mesure_stabilite_memoire.py` sur les
+    sessions réelles (chiffres dans sa docstring).
+
+    Ce qu'on perd : un fait extrait pendant la session n'est visible dans le
+    système qu'à la session suivante. Il vient de CETTE conversation, que le
+    modèle a déjà sous les yeux — la redite dans le système n'apporte rien.
+
+    Une écriture EXPLICITE (`remember_fact` / `forget_fact`) invalide la section
+    (`invalider_section_de_session`) : c'est une demande de l'utilisateur, un fait
+    oublié ne doit pas rester affirmé par le système jusqu'à la fin de la session.
+    Rare en usage réel (3 appels pour 1 359 réponses dans les sessions gardées).
+    """
+    figee = getattr(session, _ATTR_SECTION_FIGEE, None)
+    if not isinstance(figee, str):
+        figee = lt_memory.format_for_prompt()
+        setattr(session, _ATTR_SECTION_FIGEE, figee)
+    return figee
+
+
+def invalider_section_de_session(session: object) -> None:
+    """Le prochain `section_de_session` relira la mémoire (écriture explicite)."""
+    setattr(session, _ATTR_SECTION_FIGEE, None)
+
+
 # Singleton partagé
 _instance: LongTermMemory | None = None
 
