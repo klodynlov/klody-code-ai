@@ -178,25 +178,33 @@ def _extraction_vide(**_kwargs):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
 
 
-@pytest.fixture(autouse=True)
-def _extraction_memoire_hors_ollama(monkeypatch):
-    """L'extraction de faits de fin de message n'interroge pas Ollama.
+@pytest.fixture(autouse=True, scope="package")
+def _extracteur_memoire_muet():
+    """L'extraction de faits de fin de message n'interroge aucun modèle réel.
 
     Après chaque message WebSocket, l'API lance le thread `mem-extractor`
-    (`api/server.py::_extract_memory_bg`). Il interroge `OLLAMA_BASE_URL` avec
-    le client de `agent/memory_extractor.py`, que le faux `agent.llm.OpenAI` des
-    tests WebSocket ne remplace pas. Mesuré le 2026-09-27 : 4 connexions vers
-    :11434 depuis test_websocket_chat.py. Ollama absent (cette machine, la CI) :
-    `APIConnectionError` avalée. Ollama présent : une vraie extraction, dont les
-    faits iraient en mémoire long terme. Le chemin dépendait de la machine.
+    (`api/server.py::_extract_memory_bg`). Il interroge le backend de
+    `agent/memory_extractor.py`, que le faux `agent.llm.OpenAI` des tests
+    WebSocket ne remplace pas : Ollama (`OLLAMA_BASE_URL`) au 2026-09-27, le
+    gateway en mode mlx depuis la PR #289, donc un vrai `brain` de 44 Go.
+    Mesuré le 2026-09-27 : 4 connexions vers :11434 depuis
+    test_websocket_chat.py. Backend absent (la CI) : `APIConnectionError`
+    avalée. Backend présent : une vraie extraction, dont les faits iraient en
+    mémoire long terme. Le chemin dépendait de la machine.
 
-    Le client rend une extraction vide : le thread tourne, rien ne sort.
-    L'extraction est testée dans tests/test_memory_extractor.py.
+    Le client rend une extraction vide : le thread tourne, rien ne sort. Portée
+    `package` et pas test : `mem-extractor` est un thread démon lancé APRÈS
+    l'événement `done`, il peut donc atteindre `_client_llm()` une fois le test
+    démonté. Portée `session`, en revanche, déborderait sur
+    tests/test_memory_extractor.py, qui a besoin du vrai `_client_llm`.
+    L'extraction est testée là-bas.
     """
     client = SimpleNamespace(
         chat=SimpleNamespace(completions=SimpleNamespace(create=_extraction_vide))
     )
-    monkeypatch.setattr("agent.memory_extractor._client_llm", lambda: client)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("agent.memory_extractor._client_llm", lambda: client)
+        yield
 
 
 class HttpxSansReseau:
