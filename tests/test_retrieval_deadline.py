@@ -16,7 +16,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import RETRIEVAL_BUILD_DEADLINE_S
+# `import config` et jamais `from config import …` : le garde `_echeance_intacte`
+# doit lire la valeur COURANTE de config, pas une copie figée à l'import de ce
+# fichier — et CodeQL refuse les deux formes dans un même module.
+import config
 
 # -- helpers ----------------------------------------------------------------- #
 
@@ -127,8 +130,6 @@ def _echeance_intacte():
     Lecture par `sys.modules`, jamais par import : importer ici ferait capturer
     la bonne valeur au module, et la garde masquerait le défaut qu'elle surveille.
     """
-    import config
-
     orch_mod = sys.modules.get("agent.orchestrator")
     if orch_mod is not None:
         assert orch_mod.RETRIEVAL_BUILD_DEADLINE_S == config.RETRIEVAL_BUILD_DEADLINE_S, (
@@ -142,8 +143,8 @@ def _echeance_intacte():
 class TestRetrievalDeadline:
 
     def test_deadline_config_existe(self):
-        assert isinstance(RETRIEVAL_BUILD_DEADLINE_S, float)
-        assert RETRIEVAL_BUILD_DEADLINE_S > 0
+        assert isinstance(config.RETRIEVAL_BUILD_DEADLINE_S, float)
+        assert config.RETRIEVAL_BUILD_DEADLINE_S > 0
 
     def test_embed_lent_ne_bloque_pas(self, monkeypatch, tmp_path):
         """Un _embed_batch qui dort 10 s ne bloque pas le tour."""
