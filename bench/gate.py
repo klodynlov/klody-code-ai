@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -68,6 +69,32 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # signale — le mode de défaillance dominant du dépôt (« un garde-fou qui ne peut
 # pas rougir est indiscernable d'un garde-fou vert »). Le tableau se reproduit
 # avec `tests/test_bench_gate.py::TestSensibiliteSelonTaille`.
+#
+# ── Avec N passes (`bench.run --repeat N`) — ajouté le 2026-09-27 ──────────────
+#
+# Le tableau ci-dessus suppose UNE passe. Depuis que `compare()` juge toutes les
+# passes (moyenne des taux par tâche, cf. son docstring), une passe en échec vaut
+# 1/N de tâche cassée. Première rouge, comptée en PASSES en échec, pour un run
+# courant à N passes face à une baseline à une passe — MESURÉE, et identique
+# quelle que soit la place des échecs (tests/test_gate_sensibilite.py,
+# `TABLEAU_PASSES`) :
+#
+#   seuil 0.09         N=1   N=3   N=5
+#   baseline 30/30      3     9    14
+#   baseline 29/30      4    12    19
+#   baseline 20/20      2     6    10
+#   intersection 5/5    1     2     3      (`--category discovery`, par ex.)
+#
+# Lecture : en tâches ENTIÈREMENT cassées, rien ne change — 3 sur 30 à N=1
+# comme à N=3 (9 passes), c'est un seuil sur un taux. Ce qui change, c'est qu'un
+# échec ÉPARS pèse sa fraction : une passe ratée sur 3 = un tiers de tâche. Le
+# cas vécu (discovery × 3, une passe ratée sur 15) rend Δ −6,7 % : VERT sous
+# 0.09, et c'est voulu — un échec sur trois passes n'est pas une tâche cassée.
+# Mais il n'est plus invisible : `compare()` nomme en `::notice::` toute tâche
+# en baisse sous le seuil. Il en faut 2 pour rougir.
+#
+# ⚠️ À N=5 et 30 tâches, 14 passes = 2,8 tâches : la granularité devient plus
+# fine que la tâche, la porte n'est donc PAS desserrée par la répétition.
 DEFAULT_MAX_DROP = 0.09
 
 
@@ -103,11 +130,54 @@ def load_results(path: Path) -> list[dict]:
     return load_run(path)[1]
 
 
-def success_rate(results: list[dict]) -> float:
-    """Taux de succès sur l'ensemble fourni. 0.0 si vide."""
+def success_rate(results: list[dict]) -> Fraction:
+    """Taux de succès EXACT sur l'ensemble fourni. 0 si vide.
+
+    Exact, et non flottant, depuis que des taux fractionnaires (2/3, 4/5) sont
+    additionnés — cf. `_taux_moyen`.
+    """
     if not results:
-        return 0.0
-    return sum(1 for r in results if r.get("success")) / len(results)
+        return Fraction(0)
+    return Fraction(sum(1 for r in results if r.get("success")), len(results))
+
+
+def passes_par_tache(results: list[dict]) -> dict[str, list[dict]]:
+    """Regroupe les résultats par `task_id` en gardant TOUTES les passes.
+
+    `bench.run --repeat N` écrit N entrées par tâche dans le même fichier. Un dict
+    `{task_id: résultat}` n'en garde que la dernière : c'est exactement ce que
+    faisait `compare()` jusqu'au 2026-09-27 (cf. son docstring).
+    """
+    par_tache: dict[str, list[dict]] = {}
+    for r in results:
+        par_tache.setdefault(r["task_id"], []).append(r)
+    return par_tache
+
+
+def _taux_moyen(par_tache: dict[str, list[dict]], taches: list[str]) -> Fraction:
+    """Moyenne des taux PAR TÂCHE — chaque tâche pèse 1, quel que soit son nombre
+    de passes. Un taux poolé (succès / passes, toutes tâches confondues) ferait
+    peser davantage une tâche plus répétée que les autres.
+
+    ⚠️ En arithmétique EXACTE, arrondie une seule fois (dans `compare`). Sommer
+    des flottants 0,8 fait dériver le dernier bit, et sur la frontière du seuil le
+    verdict dépendait alors de QUELLES passes avaient échoué, à taux identique —
+    mesuré le 2026-09-27 : baseline 29/30, seuil 0.06, 5 passes ⇒ rouge à 14 ou à
+    15 passes en échec selon leur place.
+    """
+    return sum((success_rate(par_tache[t]) for t in taches), Fraction(0)) / len(taches)
+
+
+def _passes(par_tache: dict[str, list[dict]], taches: list[str]) -> str:
+    """« 1 passe », « 3 passes », ou « 1 à 3 passes » si elles diffèrent."""
+    n = sorted({len(par_tache[t]) for t in taches})
+    if len(n) > 1:
+        return f"{n[0]} à {n[-1]} passes"
+    return f"{n[0]} passe" + ("s" if n[0] > 1 else "")
+
+
+def _compte(entries: list[dict]) -> str:
+    return f"{sum(1 for e in entries if e.get('success'))}/{len(entries)}"
 
 
 def compare(
@@ -115,51 +185,84 @@ def compare(
     latest: list[dict],
     max_drop: float = DEFAULT_MAX_DROP,
 ) -> tuple[bool, str]:
-    """Compare deux runs sur l'INTERSECTION de leurs task_id.
+    """Compare deux runs sur l'INTERSECTION de leurs task_id, TOUTES passes jugées.
 
     Comparer les taux globaux serait trompeur : le nightly accepte un filtre
     `--category`, donc un run partiel (5 tâches easy) face à une baseline complète
     (20 tâches) produirait un delta qui ne mesure que la différence de périmètre.
     On ne compare donc que les tâches présentes des deux côtés.
 
+    Le taux d'un côté est la moyenne des taux par tâche (succès / passes), des
+    DEUX côtés : la baseline peut elle-même avoir été promue depuis un run répété.
+
+    ⚠️ Jusqu'au 2026-09-27, les deux côtés étaient indexés `{task_id: résultat}` :
+    sur un run `--repeat N`, seule la DERNIÈRE passe de chaque tâche était jugée,
+    et les N−1 autres étaient comptées comme « hors baseline, non jugée(s) ».
+    Vécu : `--category discovery --repeat 3` = 14/15, `config_precedence` ❌ en
+    passe 1 ; la porte a rendu « courant=100.0% Δ=+0.0% (5 tâche(s) commune(s) —
+    10 hors baseline, non jugée(s)) ✓ ». L'échec était invisible et le message
+    affirmait un fait faux. Même écrasement rejoué sur
+    `reference_2026-07-30_garde_arret_apres.json` (24/25 lu 100 %) et
+    `reference_2026-07-30_lot_trace_ouverture_docs.json` (68 % lu 80 %, deux
+    tâches en baisse non nommées).
+
     Retourne (ok, message). ok=False ⇒ régression au-delà du seuil.
     """
-    base_by_id = {r["task_id"]: r for r in baseline}
-    latest_by_id = {r["task_id"]: r for r in latest}
-    common = sorted(base_by_id.keys() & latest_by_id.keys())
+    base = passes_par_tache(baseline)
+    cour = passes_par_tache(latest)
+    common = sorted(base.keys() & cour.keys())
 
     if not common:
         return True, (
-            f"::warning::Aucune tâche commune entre baseline ({len(baseline)}) et "
-            f"run courant ({len(latest)}) — rien de comparable, gate neutre."
+            f"::warning::Aucune tâche commune entre baseline ({len(base)} tâche(s)) et "
+            f"run courant ({len(cour)} tâche(s)) — rien de comparable, gate neutre."
         )
 
-    base_rate = success_rate([base_by_id[t] for t in common])
-    new_rate = success_rate([latest_by_id[t] for t in common])
-    delta = new_rate - base_rate
+    base_exact = _taux_moyen(base, common)
+    new_exact = _taux_moyen(cour, common)
+    # UN seul arrondi, sur l'écart exact : un écart qui vaut exactement le seuil
+    # tombe alors sur le même flottant que `max_drop` et PASSE, comme documenté.
+    # L'ancien `succès/n − succès/n` en flottants rougissait sur 853 égalités
+    # exactes (n ≤ 100, dix seuils de 0.05 à 0.25) — 20/20 → 19/20 sous
+    # `--max-drop 0.05`, par exemple. Aucune à 0.09 sous 100 tâches : le nightly
+    # (30 tâches) ne voit pas la différence.
+    delta = float(new_exact - base_exact)
+    base_rate, new_rate = float(base_exact), float(new_exact)
 
     scope = f"{len(common)} tâche(s) commune(s)"
-    if len(common) < len(latest):
-        scope += f" — {len(latest) - len(common)} hors baseline, non jugée(s)"
+    passes_base, passes_cour = _passes(base, common), _passes(cour, common)
+    if (passes_base, passes_cour) != ("1 passe", "1 passe"):
+        # Des passes ne sont PAS des tâches : les nommer à part, sans quoi un
+        # `--repeat 3` se lirait « 10 hors baseline ».
+        scope += f", courant {passes_cour}, baseline {passes_base}"
+    hors = len(cour.keys() - base.keys())
+    if hors:
+        scope += f" — {hors} tâche(s) hors baseline, non jugée(s)"
 
     header = (
         f"Succès baseline={base_rate:.1%}  courant={new_rate:.1%}  "
         f"Δ={delta:+.1%}  ({scope})"
     )
 
+    en_baisse = [
+        f"{t} ({_compte(base[t])} → {_compte(cour[t])})"
+        for t in common
+        if success_rate(cour[t]) < success_rate(base[t])
+    ]
+
     if delta < -max_drop:
-        broken = [
-            t
-            for t in common
-            if base_by_id[t].get("success") and not latest_by_id[t].get("success")
-        ]
-        detail = f" Tâches passées au rouge : {', '.join(broken)}." if broken else ""
+        detail = f" Tâches en baisse : {', '.join(en_baisse)}." if en_baisse else ""
         return False, (
             f"{header}\n::error::Régression : le taux de succès chute de "
             f"{delta:+.1%} (seuil {-max_drop:+.1%}).{detail}"
         )
 
-    return True, f"{header}\n✓ Pas de régression significative."
+    message = f"{header}\n✓ Pas de régression significative."
+    if en_baisse:
+        # Sous le seuil, donc pas rouge — mais NOMMÉ : un échec en passe 1 sur 3
+        # ne doit plus pouvoir disparaître derrière un ✓.
+        message += f"\n::notice::En baisse sous le seuil : {', '.join(en_baisse)}."
+    return True, message
 
 
 def main(argv: list[str] | None = None) -> int:

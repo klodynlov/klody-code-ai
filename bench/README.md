@@ -90,7 +90,8 @@ déjà promues ne sont pas invalidées.
 ## Gate de non-régression
 
 `bench/gate.py` compare `results/latest.json` à `results/baseline.json` et sort en
-erreur si le taux de succès chute de plus de 10 points. C'est ce que lance le
+erreur si le taux de succès chute de plus de 9 points (`DEFAULT_MAX_DROP`, dont le
+commentaire donne la sensibilité en nombre de tâches). C'est ce que lance le
 workflow `bench-nightly`.
 
 ```bash
@@ -101,6 +102,13 @@ python -m bench.gate --max-drop 0.05    # seuil plus strict
 La comparaison se fait sur l'**intersection des `task_id`** : un run filtré
 (`--category easy`) reste jugeable face à une baseline complète sans que la
 différence de périmètre soit lue comme une régression.
+
+**Toutes les passes sont jugées**, des deux côtés : le taux est la moyenne des taux
+par tâche (succès / passes). Un run `--repeat 3` où une tâche rate une passe sur
+trois compte pour un tiers de tâche cassée — sous le seuil, il reste vert, mais la
+tâche est nommée (`::notice::En baisse sous le seuil`). Jusqu'au 2026-09-27, seule
+la dernière passe de chaque tâche était lue et les autres étaient annoncées « hors
+baseline » : un échec en passe 1 disparaissait derrière un ✓.
 
 **La baseline est versionnée** (exception explicite dans `.gitignore`). Sans elle,
 le gate se neutralise avec un `::warning::` — il ne peut donc jamais échouer, ce qui
