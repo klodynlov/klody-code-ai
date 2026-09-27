@@ -11,6 +11,7 @@ import json
 import re
 from pathlib import Path
 
+from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree
@@ -267,15 +268,19 @@ def _format_search_results(result: str, pattern: str) -> Panel:
             title="[yellow]search_in_files[/yellow]",
             border_style="yellow",
         )
+    # Les lignes trouvées sont du CONTENU de fichier : échappées avant d'être
+    # habillées de markup. Chercher dans ce dépôt, qui écrit du markup Rich
+    # partout, faisait lever MarkupError et tombait tout le tour (2026-09-27).
+    motif = escape(pattern)
     lines = []
     for line in result.splitlines()[:50]:
         parts = line.split(":", 2)
         if len(parts) >= 3:
-            file_part = f"[dim]{parts[0]}[/dim]"
-            line_part = f"[cyan]{parts[1]}[/cyan]"
-            content = parts[2].replace(pattern, f"[bold yellow]{pattern}[/bold yellow]")
+            file_part = f"[dim]{escape(parts[0])}[/dim]"
+            line_part = f"[cyan]{escape(parts[1])}[/cyan]"
+            content = escape(parts[2]).replace(motif, f"[bold yellow]{motif}[/bold yellow]") if motif else escape(parts[2])
             lines.append(f"{file_part}:[dim]{line_part}[/dim]: {content}")
         else:
-            lines.append(line)
+            lines.append(escape(line))
     text = Text.from_markup("\n".join(lines))
-    return Panel(text, title=f"[green]🔍 Résultats: {pattern}[/green]", border_style="green")
+    return Panel(text, title=f"[green]🔍 Résultats: {motif}[/green]", border_style="green")

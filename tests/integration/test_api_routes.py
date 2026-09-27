@@ -427,11 +427,17 @@ class TestStopGeneration:
     def test_sets_stop_flag(self, client):
         c, _ = client
         from api import server
-        server._stop_flag[0] = False
-        r = c.post("/api/stop")
+        a, b = [False], [False]
+        server._stop_flags_actifs.update({id(a): a, id(b): b})
+        try:
+            r = c.post("/api/stop")
+        finally:
+            server._stop_flags_actifs.pop(id(a), None)
+            server._stop_flags_actifs.pop(id(b), None)
         assert r.status_code == 200
         assert r.json() == {"ok": True}
-        assert server._stop_flag[0] is True
+        # Le bouton stop de l'UI arrête TOUTES les générations vivantes.
+        assert a[0] is True and b[0] is True
 
 
 class TestConfigEndpoints:

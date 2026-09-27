@@ -147,15 +147,16 @@ def test_ws_disconnect_sets_stop_flag(client):
     """Filet de sécurité : disconnect → _stop_flag levé (évite MLX zombie)."""
     from api import server
 
-    # Reset flag avant le test
-    server._stop_flag[0] = False
-
+    avant = set(server._stop_flags_actifs)
     with client.websocket_connect(WS_URL) as ws:
         # Consomme session_init
         while True:
             msg = ws.receive_json()
             if msg["type"] == "session_init":
                 break
+        # Le drapeau PROPRE à cette connexion (un par connexion depuis 2026-09-27).
+        (cle,) = set(server._stop_flags_actifs) - avant
+        drapeau = server._stop_flags_actifs[cle]
         # Attendre que le handler soit DANS sa boucle de réception : le
         # chargement des conventions se fait désormais hors de la boucle
         # d'événements (asyncio.to_thread), et le TestClient ANNULE l'app à la
@@ -169,7 +170,36 @@ def test_ws_disconnect_sets_stop_flag(client):
     # Note: TestClient ferme proprement, peut prendre un tick.
     import time
     for _ in range(20):
-        if server._stop_flag[0]:
+        if drapeau[0]:
+            assert cle not in server._stop_flags_actifs, "registre non nettoyé"
             return
         time.sleep(0.05)
-    pytest.fail("_stop_flag pas levé après disconnect")
+    pytest.fail("stop_flag pas levé après disconnect")
+
+
+def test_deconnexion_de_b_n_arrete_pas_a(client):
+    """Audit 2026-09-27 : le drapeau était GLOBAL — la fermeture d'une connexion
+    B coupait la génération de A (0/30 tokens puis `done`)."""
+    import time
+
+    from api import server
+
+    def ouvrir_et_saisir(ws, avant):
+        while ws.receive_json()["type"] != "session_init":
+            pass
+        (cle,) = set(server._stop_flags_actifs) - avant
+        return server._stop_flags_actifs[cle]
+
+    # Instantané AVANT d'ouvrir : la poignée de main enregistre déjà le drapeau.
+    avant_a = set(server._stop_flags_actifs)
+    with client.websocket_connect(WS_URL) as ws_a:
+        drapeau_a = ouvrir_et_saisir(ws_a, avant_a)
+        avant_b = set(server._stop_flags_actifs)
+        with client.websocket_connect(WS_URL) as ws_b:
+            drapeau_b = ouvrir_et_saisir(ws_b, avant_b)
+        for _ in range(20):
+            if drapeau_b[0]:
+                break
+            time.sleep(0.05)
+        assert drapeau_b[0] is True, "B fermée : son drapeau doit être levé"
+        assert drapeau_a[0] is False, "A vivante : sa génération ne doit pas être coupée"

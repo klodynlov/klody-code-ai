@@ -138,8 +138,14 @@ app.add_middleware(GardeOrigine)
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
 
-# Stop flag partagé — interrompt le streaming en cours
-_stop_flag: list[bool] = [False]
+# Drapeaux d'arrêt des connexions WebSocket VIVANTES, un par connexion (clé :
+# id du drapeau). Il était GLOBAL jusqu'au 2026-09-27, partagé par toutes les
+# connexions : la déconnexion (ou une exception) d'une connexion B coupait la
+# génération de A — mesuré : A reçoit 0/30 tokens puis `done` — et, à
+# l'inverse, un chat démarré sur B remettait le drapeau à False et ressuscitait
+# le fil fantôme d'une connexion morte, qui reprenait ses outils.
+# `/api/stop` (bouton de l'UI) les lève TOUS : comportement inchangé pour l'UI.
+_stop_flags_actifs: dict[int, list[bool]] = {}
 
 # Le LaunchAgent qui sert CE process — sert à composer la commande de remède
 # exacte (`launchctl kickstart -k …`) plutôt qu'un conseil générique.
@@ -151,7 +157,7 @@ _LABEL_SERVICE = "com.klody.api"
 # pas mieux que pas d'avertissement du tout.
 #
 # Liste d'un élément plutôt que variable de module + `global` — même idiome que
-# `_stop_flag` quatre lignes plus haut. La première version passait par `global`
+# les drapeaux d'arrêt plus haut. La première version passait par `global`
 # et CodeQL la signalait « unused global variable » (alerte 250 sur la PR #208) :
 # le drapeau était bel et bien lu, mais l'analyse ne le voyait pas. Un
 # avertissement d'outil qu'on apprend à ignorer coûte autant qu'un vrai.
@@ -650,7 +656,8 @@ async def archive_session(session_id: str, request: Request):
 
 @app.post("/api/stop")
 async def stop_generation():
-    _stop_flag[0] = True
+    for drapeau in list(_stop_flags_actifs.values()):
+        drapeau[0] = True
     return {"ok": True}
 
 
@@ -722,6 +729,9 @@ async def websocket_endpoint(ws: WebSocket):
     _metrics.ws_active.inc()
 
     memory = ConversationMemory()
+    # Drapeau d'arrêt PROPRE à cette connexion (cf. `_stop_flags_actifs`).
+    stop_flag: list[bool] = [False]
+    _stop_flags_actifs[id(stop_flag)] = stop_flag
     # Modèle de DÉPART du run (mode Auto) = celui résolu par config selon BACKEND.
     current_model = config.LLM_MODEL
     # Modèle ÉPINGLÉ par un choix manuel du sélecteur. None = mode « Auto » (le
@@ -751,6 +761,7 @@ async def websocket_endpoint(ws: WebSocket):
             "model": pinned_model or "auto",
         })
     except WebSocketDisconnect:  # pragma: no cover - chemin d'erreur réseau
+        _stop_flags_actifs.pop(id(stop_flag), None)
         _metrics.ws_active.dec()
         return
     journal_client.emit(kind="session", name="start", session_id=memory.session_id)
@@ -822,7 +833,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if perimes:
                     logger.warning("WS : %d event(s) périmé(s) purgé(s) avant le run", perimes)
 
-                _stop_flag[0] = False
+                stop_flag[0] = False
                 run_model = pinned_model if pinned_model is not None else current_model
                 # Dans un thread : au premier message du processus, construire
                 # l'orchestrateur déclenche la découverte MCP SYNCHRONE — mesurée
@@ -833,7 +844,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # `run_coroutine_threadsafe`, donc sûr hors de son thread.
                 orch = await asyncio.to_thread(
                     _build_streaming_orchestrator,
-                    memory, run_model, queue, loop, _stop_flag,
+                    memory, run_model, queue, loop, stop_flag,
                     pending_approvals, pending_questions,
                     pinned=pinned_model is not None,
                 )
@@ -984,12 +995,12 @@ async def websocket_endpoint(ws: WebSocket):
                                                 await queue.put({"type": "approval_interrupted", "id": _aid})
                                                 break
                             elif ctype == "stop":
-                                _stop_flag[0] = True
+                                stop_flag[0] = True
                             # ping / autres : ignorés tant qu'un run est en cours
                             recv_task = asyncio.ensure_future(ws.receive_text())
                 except WebSocketDisconnect:
                     logger.info("WS déconnectée pendant génération → stop_flag set")
-                    _stop_flag[0] = True
+                    stop_flag[0] = True
                     _chat_status = "stopped"
                     _metrics.chat_requests_total.labels(status=_chat_status).inc()
                     _metrics.chat_duration_seconds.observe(_time.monotonic() - _chat_t0)
@@ -1051,11 +1062,14 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         logger.info("WebSocket déconnecté")
         # Filet de sécurité : si une génération était en cours, stoppe-la.
-        _stop_flag[0] = True
+        stop_flag[0] = True
     except Exception as e:
         logger.error("WebSocket erreur: %s", e)
-        _stop_flag[0] = True
+        stop_flag[0] = True
     finally:
+        # Le fil orchestrateur garde sa référence au drapeau : il le verra levé
+        # même une fois la connexion retirée du registre.
+        _stop_flags_actifs.pop(id(stop_flag), None)
         _metrics.ws_active.dec()
         journal_client.emit(kind="session", name="end", session_id=memory.session_id)
 

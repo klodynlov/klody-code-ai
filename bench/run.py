@@ -154,8 +154,12 @@ def _run_one_inprocess(task_cls: type[Task]) -> Result:
         doc_guard_fired: bool | None = None
         doc_consulte: bool | None = None
         if orch is not None:
-            doc_guard_fired = getattr(orch, "_doc_guard_fired", None)
-            doc_consulte = getattr(orch, "_doc_consulte", None)
+            # La TRACE du tour, pas les drapeaux : ceux-ci sont remis à zéro à la
+            # sortie de run(). Les lire ici rendait toujours False (corrigé le
+            # 2026-09-27 — aucun résultat antérieur n'a jamais vu le garde tirer).
+            trace = getattr(orch, "trace_dernier_tour", None) or {}
+            doc_guard_fired = trace.get("doc_guard_fired")
+            doc_consulte = trace.get("doc_consulte")
 
         try:
             success, detail = task.validate(workdir)
