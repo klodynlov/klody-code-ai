@@ -3,22 +3,34 @@ Extraction automatique de mémoire longue terme depuis une conversation.
 
 Après chaque session, analyse les messages et extrait les faits importants
 (préférences, projets, profil utilisateur) via un appel LLM léger.
+
+⚠️ Vécu le 2026-09-27 : l'extraction était MORTE en production depuis le
+2026-07-18 02:20, sans que rien ne le signale. Le client visait `OLLAMA_BASE_URL`
+avec `MODEL_FALLBACK` (`mistral:latest`, un nom Ollama) QUEL QUE SOIT `BACKEND` ;
+or en `BACKEND=mlx` — le nominal — Ollama n'est même pas installé (:11434
+fermé). Relevé dans `logs/agent.log` : 164 « Erreur LLM » (127 en fin de
+session, 37 en mi-session), toutes en WARNING, que personne ne lisait. D'où :
+
+- la cible suit `BACKEND` (`_cible()`), comme la boucle principale ;
+- chaque échec NOMME la cible et le remède, et au-delà de
+  `SEUIL_HORS_SERVICE` échecs consécutifs le log passe en ERROR ;
+- `etat_extraction()` distingue « jamais tentée », « opérationnelle » et
+  « en échec » — la CLI et `/api/status` le lisent.
 """
 from __future__ import annotations
 
 import json
 import logging
 import threading
-from typing import TYPE_CHECKING
+from datetime import datetime
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
-from config import (
-    LLM_HTTP_TIMEOUT,
-    LLM_MAX_RETRIES,
-    MODEL_FALLBACK,
-    OLLAMA_API_KEY,
-    OLLAMA_BASE_URL,
-)
+import config
 from openai import OpenAI
+
+from agent.erreurs_llm import expliquer_erreur_llm, pour_journal
+from agent.journal_client import APP as _APP_JOURNAL
 
 if TYPE_CHECKING:
     from agent.long_term_memory import LongTermMemory
@@ -46,10 +58,61 @@ Réponds UNIQUEMENT avec du JSON valide, aucun autre texte :
 Si rien d'important à retenir : []
 """
 
-# Utilise le modèle fallback (plus rapide) pour l'extraction
 _MIN_USER_MESSAGES = 2  # Ne pas extraire pour les sessions trop courtes
 _MID_SESSION_INTERVAL = 8  # Extraire tous les N messages user mid-session
 _last_mid_extraction_count: int = 0
+
+
+def _cible() -> tuple[str, str, str]:
+    """(base_url, api_key, modèle) de l'extraction — la cible suit `BACKEND`.
+
+    Les URL et clés sont celles de la boucle principale (`config.LLM_*`, résolues
+    UNE fois dans config.py selon `BACKEND`) : l'extraction ne décide pas seule
+    de parler à un autre serveur que l'agent.
+
+    Modèle, par ordre de priorité :
+    - `MEMORY_EXTRACTOR_MODEL` s'il est posé (une entrée dédiée du registre, un
+      jour — jamais une surcharge de `brain`) ;
+    - en `mlx` : `LLM_MODEL`, l'alias du gateway (`brain`). ⚠️ JAMAIS
+      `MODEL_FALLBACK` : c'est un nom OLLAMA, que le gateway rejette en 404
+      « modèle inconnu » — même piège que `LLMClient._fallback_model_utilisable`
+      (2026-09-20) ;
+    - en `ollama` : `MODEL_FALLBACK`, le choix historique (un modèle plus léger
+      que le principal), sinon `LLM_MODEL`.
+
+    Coût mesuré sur `brain` le 2026-09-27 (conversation maximale, 30 messages
+    tronqués à 400 caractères ⇒ 2 775 tokens de prompt, 161 générés) : 3,0 s.
+    C'est le chiffre réel : la conversation change d'un appel à l'autre, et le
+    cache du MoE ne sert qu'un préfixe EXACT (#270) — les 2,1 s d'un rejeu à
+    l'identique ne se produisent pas en usage. Le cache de préfixe du chat
+    (69 schémas d'outils) SURVIT à une extraction : 0,18 s avant, 0,18 s après
+    — le worker garde plusieurs préfixes (`--prompt-cache-bytes 8G`). Un tour
+    de chat lancé PENDANT une extraction paie +0,56 s, pas 3 s : le worker sert
+    en parallèle (`--decode-concurrency 8`).
+
+    ⚠️ Coût INDIRECT, non mesuré : un fait nouveau change `lt_section` du prompt
+    système (`Orchestrator`, `LongTermMemory.format_for_prompt`), donc le tour
+    suivant rate le cache depuis le token 0. Aujourd'hui masqué — skills et
+    retrieval, placés AVANT, varient déjà sur 91 % des paires de messages
+    (#270) — mais il deviendra visible le jour où ils sortiront du prompt
+    système. Le juge est `grep -F '[cache]' logs/agent.log`.
+    """
+    if config.MEMORY_EXTRACTOR_MODEL:
+        modele = config.MEMORY_EXTRACTOR_MODEL
+    elif config.BACKEND == "mlx":
+        modele = config.LLM_MODEL
+    else:
+        modele = config.MODEL_FALLBACK or config.LLM_MODEL
+    return config.LLM_BASE_URL, config.LLM_API_KEY, modele
+
+
+# Identité vue par le journal d'usage du gateway (klody-core
+# `docs/JOURNAL-USAGE-SPEC.md` §3.5-3.6). `X-Klody-Source: system` est
+# indispensable : sans lui, `app=klody-ai` est classé `user`, et chaque
+# extraction — une par message WebSocket — deviendrait un « tour utilisateur »
+# pour le miner d'habitudes, qui fabrique alors de fausses habitudes (le bug que
+# l'amendement du 2026-09-22 a corrigé ailleurs).
+_EN_TETES = {"X-Klody-App": _APP_JOURNAL, "X-Klody-Source": "system"}
 
 # Client OpenAI PARTAGÉ du module, créé paresseusement et jamais fermé (durée de
 # vie = process). Avant : un client (pool httpx) NEUF par appel, jamais fermé —
@@ -57,30 +120,164 @@ _last_mid_extraction_count: int = 0
 # fuite ~5-6 Gio/jour de com.klody.api (audit 2026-08-09). Les clients OpenAI
 # sont thread-safe : le partage entre threads d'extraction est sûr.
 #
-# La paire (classe, client) vit dans UNE variable : la classe qui a fabriqué le
-# client voyage avec lui, et le client est reconstruit si elle a changé. Cela
-# n'arrive QUE sous les tests (`@patch("agent.memory_extractor.OpenAI")` pose
-# une classe fraîche par test) — sans cette garde, le client d'un test fuirait
-# dans le suivant. En production la classe ne change jamais ⇒ un seul client.
-_client_partage: tuple[type, OpenAI] | None = None
+# La clé (classe, base_url, api_key) voyage avec le client, qui est reconstruit
+# si elle a changé. En production aucun des trois ne change ⇒ un seul client.
+# Sous les tests, `@patch("agent.memory_extractor.OpenAI")` pose une classe
+# fraîche par test et `monkeypatch` peut changer la config — sans cette garde,
+# le client d'un test fuirait dans le suivant, pointé sur la cible d'avant.
+_client_partage: tuple[tuple[type, str, str], OpenAI] | None = None
 _verrou_client = threading.Lock()
 
 
 def _client_llm() -> OpenAI:
     """Client OpenAI du module, RÉUTILISÉ entre les appels d'extraction."""
     global _client_partage
+    base_url, api_key, _ = _cible()
+    cle = (OpenAI, base_url, api_key)
     with _verrou_client:
-        if _client_partage is None or _client_partage[0] is not OpenAI:
+        if _client_partage is None or _client_partage[0] != cle:
+            ancien = _client_partage[1] if _client_partage is not None else None
             _client_partage = (
-                OpenAI,
+                cle,
                 OpenAI(
-                    base_url=OLLAMA_BASE_URL,
-                    api_key=OLLAMA_API_KEY,
-                    timeout=LLM_HTTP_TIMEOUT,
-                    max_retries=LLM_MAX_RETRIES,
+                    base_url=base_url,
+                    api_key=api_key,
+                    timeout=config.LLM_HTTP_TIMEOUT,
+                    max_retries=config.LLM_MAX_RETRIES,
+                    default_headers=dict(_EN_TETES),
                 ),
             )
+            # Le remplacé est FERMÉ (cf. LLMClient.set_session) : n'arrive que si
+            # la cible change, donc jamais en production — mais un pool orphelin
+            # par changement serait la fuite de 2026-08-09 par une autre porte.
+            if ancien is not None:
+                try:
+                    ancien.close()
+                except Exception as exc:  # pragma: no cover - défense
+                    logger.debug("[Extractor] fermeture de l'ancien client KO : %s", exc)
         return _client_partage[1]
+
+
+# --------------------------------------------------------------------------- #
+# État de l'extraction — « jamais tentée » n'est pas « ça marche »             #
+# --------------------------------------------------------------------------- #
+
+# Au-delà, un échec n'est plus un incident mais une panne : le log passe en
+# ERROR. Trois, parce qu'un 503 RAM transitoire (réessayé côté boucle principale,
+# pas ici) peut en rendre un ou deux d'affilée sans que rien ne soit cassé.
+SEUIL_HORS_SERVICE = 3
+
+NON_TENTEE = "non_tentee"
+OPERATIONNELLE = "operationnelle"
+EN_ECHEC = "en_echec"
+
+_verrou_etat = threading.Lock()
+_etat: dict[str, Any] = {
+    "echecs_consecutifs": 0,
+    "derniere_reussite": None,
+    "premier_echec": None,
+    "derniere_erreur": None,
+}
+
+
+def _maintenant() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _noter_reussite() -> None:
+    with _verrou_etat:
+        echecs = _etat["echecs_consecutifs"]
+        _etat.update(
+            echecs_consecutifs=0,
+            derniere_reussite=_maintenant(),
+            premier_echec=None,
+            derniere_erreur=None,
+        )
+    if echecs >= SEUIL_HORS_SERVICE:
+        logger.warning("[Extractor] extraction RÉTABLIE après %d échec(s) consécutif(s)", echecs)
+
+
+def _noter_echec(prefixe: str, exc: BaseException, modele: str) -> None:
+    """Journalise un échec en NOMMANT la cible et le remède, et l'escalade.
+
+    Le message d'origine était « Erreur LLM : Connection error. » — sans URL ni
+    modèle, il ne disait ni quoi ni où. `expliquer_erreur_llm` est la même
+    formulation que la CLI et l'UI : « Impossible de joindre le gateway Klody
+    Core (http://localhost:8090/v1) — le démarrer… ».
+    """
+    base_url, _, _ = _cible()
+    cible = SimpleNamespace(model=modele, _backend=config.BACKEND, _base_url=base_url)
+    cause = pour_journal(expliquer_erreur_llm(exc, cible), max_len=400)
+    with _verrou_etat:
+        _etat["echecs_consecutifs"] += 1
+        echecs = _etat["echecs_consecutifs"]
+        if _etat["premier_echec"] is None:
+            _etat["premier_echec"] = _maintenant()
+        _etat["derniere_erreur"] = cause
+        depuis = _etat["premier_echec"]
+        reussite = _etat["derniere_reussite"]
+    if echecs < SEUIL_HORS_SERVICE:
+        logger.warning("%s Erreur LLM (%d/%d) : %s", prefixe, echecs, SEUIL_HORS_SERVICE, cause)
+        return
+    logger.error(
+        "%s HORS SERVICE — %d échecs consécutifs depuis %s (dernière réussite de ce "
+        "processus : %s). L'extraction automatique de faits ne mémorise plus rien. "
+        "Cause : %s",
+        prefixe, echecs, depuis, reussite or "aucune", cause,
+    )
+
+
+def etat_extraction() -> dict[str, Any]:
+    """État de l'extraction dans CE processus, pour la CLI et `/api/status`.
+
+    Trois verdicts, pas deux : `non_tentee` (aucun appel LLM depuis le démarrage
+    — session trop courte, ou API fraîchement relancée) ne doit pas se lire
+    « tout va bien », et `en_echec` porte le nombre d'échecs consécutifs et la
+    cause. Ne lève jamais.
+    """
+    base_url, _, modele = _cible()
+    with _verrou_etat:
+        etat = dict(_etat)
+    if etat["echecs_consecutifs"]:
+        verdict = EN_ECHEC
+    elif etat["derniere_reussite"]:
+        verdict = OPERATIONNELLE
+    else:
+        verdict = NON_TENTEE
+    return {
+        "verdict": verdict,
+        "hors_service": etat["echecs_consecutifs"] >= SEUIL_HORS_SERVICE,
+        "cible": {"backend": config.BACKEND, "base_url": base_url, "modele": modele},
+        **etat,
+    }
+
+
+def _appeler_llm(
+    prefixe: str, consigne: str, model: str | None, session_id: str | None
+) -> str | None:
+    """Un appel d'extraction. Rend le texte brut, ou None si l'appel a échoué
+    (l'échec est alors déjà journalisé et compté)."""
+    modele = model or _cible()[2]
+    # Session posée PAR REQUÊTE : le client est partagé entre toutes les
+    # sessions, ses en-têtes par défaut ne peuvent porter que l'identité fixe.
+    extra = {"X-Klody-Session": session_id} if session_id else None
+    try:
+        response = _client_llm().chat.completions.create(
+            model=modele,
+            messages=[
+                {"role": "system", "content": _EXTRACTION_PROMPT},
+                {"role": "user", "content": consigne},
+            ],
+            temperature=0.1,
+            stream=False,
+            extra_headers=extra,
+        )
+        raw = response.choices[0].message.content or "[]"
+    except Exception as e:
+        _noter_echec(prefixe, e, modele)
+        return None
+    _noter_reussite()
+    return raw
 
 _VALID_CATEGORIES = ("user", "project", "preference", "context")
 
@@ -128,7 +325,8 @@ def _save_facts(facts: list, lt_memory: LongTermMemory, log_prefix: str) -> list
 def extract_mid_session(
     messages: list[dict],
     lt_memory: LongTermMemory,
-    model: str = MODEL_FALLBACK,
+    model: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict]:
     """Extraction proactive mid-session : tourne toutes les _MID_SESSION_INTERVAL
     requêtes utilisateur pour capturer les préférences en temps réel.
@@ -158,19 +356,13 @@ def extract_mid_session(
         convo_lines.append(f"{role}: {str(m['content'])[:300]}")
     conversation = "\n".join(convo_lines)
 
-    try:
-        response = _client_llm().chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": _EXTRACTION_PROMPT},
-                {"role": "user", "content": f"Conversation récente à analyser :\n\n{conversation}"},
-            ],
-            temperature=0.1,
-            stream=False,
-        )
-        raw = response.choices[0].message.content or "[]"
-    except Exception as e:
-        logger.warning("[Extractor-mid] Erreur LLM : %s", e)
+    raw = _appeler_llm(
+        "[Extractor-mid]",
+        f"Conversation récente à analyser :\n\n{conversation}",
+        model,
+        session_id,
+    )
+    if raw is None:
         return []
 
     facts = _parse_json_facts(raw)
@@ -183,7 +375,8 @@ def extract_mid_session(
 def extract_and_save(
     messages: list[dict],
     lt_memory: LongTermMemory,
-    model: str = MODEL_FALLBACK,
+    model: str | None = None,
+    session_id: str | None = None,
 ) -> list[dict]:
     """
     Extrait les faits importants d'une liste de messages et les sauvegarde.
@@ -191,7 +384,8 @@ def extract_and_save(
     Args:
         messages: Messages de la session (tous rôles confondus)
         lt_memory: Instance LongTermMemory à mettre à jour
-        model: Modèle LLM à utiliser (défaut: MODEL_FALLBACK)
+        model: Modèle LLM à utiliser (défaut : celui de `_cible()`, selon BACKEND)
+        session_id: Session à attribuer dans le journal d'usage du gateway
 
     Returns:
         Liste des faits extraits et sauvegardés
@@ -217,21 +411,12 @@ def extract_and_save(
         convo_lines.append(f"{role}: {content}")
     conversation = "\n".join(convo_lines)
 
-    try:
-        response = _client_llm().chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": _EXTRACTION_PROMPT},
-                {"role": "user", "content": f"Conversation à analyser :\n\n{conversation}"},
-            ],
-            temperature=0.1,
-            stream=False,
-        )
-        raw = response.choices[0].message.content or "[]"
-        logger.debug("[Extractor] Réponse brute : %s", raw[:200])
-    except Exception as e:
-        logger.warning("[Extractor] Erreur LLM : %s", e)
+    raw = _appeler_llm(
+        "[Extractor]", f"Conversation à analyser :\n\n{conversation}", model, session_id
+    )
+    if raw is None:
         return []
+    logger.debug("[Extractor] Réponse brute : %s", raw[:200])
 
     # Parser le JSON — robuste aux réponses avec du texte autour
     facts = _parse_json_facts(raw)

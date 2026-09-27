@@ -1077,6 +1077,54 @@ KlodyAI noyé, `klody --continue` capable de rouvrir un test, et `user_profile.j
 - ⚠️ Tout worktree dont la branche n'a pas ce correctif continue d'écrire dans le
   vrai dossier à chaque `pytest` (vu en direct pendant l'enquête).
 
+## État au 2026-09-27 — l'extraction de faits était morte depuis 2,5 mois
+
+`agent/memory_extractor.py::_client_llm` visait `OLLAMA_BASE_URL` avec
+`MODEL_FALLBACK` (`mistral:latest`, un nom Ollama) **quel que soit `BACKEND`**.
+En mlx, Ollama n'est même pas installé (`lsof -iTCP:11434` vide). Relevé dans
+`logs/agent.log` : dernière extraction réussie le **2026-07-18 02:20**, puis
+**164** « Erreur LLM » (127 fin de session, 37 mi-session ; timeouts en juin,
+`Connection error.` depuis juillet), toutes en WARNING, sans URL ni modèle.
+L'extraction de fin de message WebSocket (`mem-extractor`) et la mi-session
+n'apprenaient plus rien, et rien ne le disait.
+
+- **Cible** : `config.LLM_*` + alias `LLM_MODEL` (`brain`) en mlx ;
+  `MODEL_FALLBACK` reste réservé au mode ollama — même piège que
+  `_fallback_model_utilisable` (2026-09-20). `MEMORY_EXTRACTOR_MODEL` surcharge
+  (une entrée dédiée du registre un jour, jamais une surcharge de `brain`).
+- **Coût mesuré sur `brain`** (conversation maximale, 2 775 tokens de prompt) :
+  **3,0 s** (2,1 s en rejeu exact, ce qui n'arrive pas en usage). Le cache de
+  préfixe du chat (69 schémas) **survit** à une extraction (0,18 s avant et
+  après, `--prompt-cache-bytes 8G`) ; un tour lancé pendant une extraction paie
+  **+0,56 s**, pas 3 s (`--decode-concurrency 8`).
+- ⚠️ **Coût INDIRECT, non mesuré** : un fait nouveau change `lt_section` du
+  prompt système, donc le tour suivant rate le cache depuis le token 0 (préfixe
+  EXACT seulement, #270). Masqué aujourd'hui — skills et retrieval, placés
+  avant, varient déjà sur 91 % des paires — mais il **deviendra visible** le
+  jour où ils sortiront du prompt système. `long_term.json` a 59 faits
+  `context` pour un plafond d'injection de 15 : chaque fait neuf change la
+  fenêtre affichée. À suivre sur `grep -F '[cache]' logs/agent.log`.
+- **Journal d'usage** : `X-Klody-App: klody-ai` + **`X-Klody-Source: system`** —
+  sans lui, chaque extraction (une par message) serait classée `user` et
+  nourrirait le miner d'habitudes. Session posée par requête (`extra_headers`),
+  le client étant partagé. Vérifié en base : `klody-ai | system | <session>`.
+- **La panne se voit** : la cause nomme la cible (`expliquer_erreur_llm`), le 3ᵉ
+  échec consécutif passe en **ERROR** « HORS SERVICE », `etat_extraction()` rend
+  trois verdicts (`non_tentee` / `operationnelle` / `en_echec`), lus par
+  `/api/status` (`extraction_memoire`, informatif, jamais un 503), `/status` et
+  la fin de session CLI. 12 mutations rejouées, 12 rouges.
+- ⚠️ **Réparer la cible a rendu RÉELLE une fuite de la suite.** Le thread
+  `mem-extractor` des tests WebSocket tapait :11434 (refusé, invisible) ; il
+  tapait désormais `brain` — **2 appels par passe** de
+  `tests/integration/test_websocket_chat.py`, lus dans `journal.db`. Garde de
+  **session** dans `tests/conftest.py` (`_extraction_memoire_hors_reseau`) : le
+  thread est un démon qui peut partir APRÈS le teardown, une garde par test
+  serait déjà restaurée. Contre-épreuve : garde retirée ⇒ +3 appels réels.
+- ⚠️ **Mesurer contre le gateway sans `X-Klody-Source: system` pollue le miner** :
+  ma propre mesure (app `mesure-extracteur`) a posé 17 événements `user` dans
+  `journal.db` — une app inconnue n'est PAS dans `_SYSTEM_APPS`. Tout script de
+  mesure doit poser l'en-tête.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

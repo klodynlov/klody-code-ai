@@ -2578,7 +2578,10 @@ class Orchestrator(GardesMixin):
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
         try:
-            facts = extract_mid_session(self.memory.messages, self.lt_memory)
+            facts = extract_mid_session(
+                self.memory.messages, self.lt_memory,
+                session_id=getattr(self.memory, "session_id", None),
+            )
             if facts:
                 logger.info("[Orchestrator] Mid-session: %d fait(s) extraits", len(facts))
         except Exception as e:
