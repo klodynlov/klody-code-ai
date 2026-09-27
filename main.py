@@ -12,7 +12,7 @@ from agent.erreurs_llm import expliquer_erreur_llm
 from agent.greeting import INVITE_PROPOSITIONS, AccueilEnTacheDeFond
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
-from agent.memory_extractor import extract_and_save
+from agent.memory_extractor import EN_ECHEC, NON_TENTEE, etat_extraction, extract_and_save
 from agent.orchestrator import Orchestrator
 from config import (
     BACKEND,
@@ -37,6 +37,7 @@ from prompt_toolkit.styles import Style
 from rich import box
 from rich.align import Align
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
@@ -154,6 +155,26 @@ def _ligne_embeddings() -> tuple[str, str, str]:
     except Exception:
         return "Embeddings", "[red]✗ Ollama hors ligne[/red]", "ollama serve"
     return "Embeddings", "[green]✓ Ollama en ligne[/green]", "fournisseur « ollama »"
+
+
+def _ligne_extraction() -> tuple[str, str, str]:
+    """Ligne « Mémoire auto » — l'extraction de faits, telle que CE processus l'a vue.
+
+    Morte du 2026-07-18 au 2026-09-27 (elle visait Ollama en mode mlx) sans
+    qu'aucune surface ne le dise. Rien n'est sondé ici : on rapporte les appels
+    réels, et « non tentée » reste distinct de « opérationnelle ».
+    """
+    etat = etat_extraction()
+    cible = f"{etat['cible']['modele']} @ {etat['cible']['base_url']}"
+    if etat["verdict"] == EN_ECHEC:
+        return (
+            "Mémoire auto",
+            f"[red]✗ {etat['echecs_consecutifs']} échec(s)[/red]",
+            escape(str(etat["derniere_erreur"])),
+        )
+    if etat["verdict"] == NON_TENTEE:
+        return "Mémoire auto", "[dim]non tentée[/dim]", cible
+    return "Mémoire auto", "[green]✓ opérationnelle[/green]", cible
 
 
 def print_banner(memory: ConversationMemory) -> None:
@@ -546,6 +567,7 @@ def handle_special_command(cmd: str, orchestrator: Orchestrator) -> bool:
         # Backend LLM réellement actif (et non « Ollama » quoi qu'il arrive)
         tbl.add_row(*_sonde_backend_llm())
         tbl.add_row(*_ligne_embeddings())
+        tbl.add_row(*_ligne_extraction())
 
         # Modèle
         tbl.add_row("Modèle", f"[cyan]{orchestrator.llm.model}[/cyan]", f"~{orchestrator.llm.total_tokens:,} tokens")
@@ -604,10 +626,22 @@ def _run_extraction(orchestrator: Orchestrator) -> None:
         logger.debug("note de reprise non écrite : %s", exc)
 
     lt = get_long_term_memory()
-    facts = extract_and_save(orchestrator.memory.messages, lt)
+    facts = extract_and_save(
+        orchestrator.memory.messages, lt,
+        session_id=getattr(orchestrator.memory, "session_id", None),
+    )
     if facts:
         console.print(
             f"  [dim magenta]◆ {len(facts)} fait(s) mémorisé(s) automatiquement[/dim magenta]\n"
+        )
+        return
+    # Une liste vide disait aussi bien « rien à retenir » que « le LLM est
+    # injoignable » : 2,5 mois de panne sont passés ainsi (2026-07-18 → 09-27).
+    etat = etat_extraction()
+    if etat["verdict"] == EN_ECHEC:
+        console.print(
+            "  [yellow]⚠  Mémoire automatique en panne :[/yellow] "
+            f"[dim]{escape(str(etat['derniere_erreur']))}[/dim]\n"
         )
 
 

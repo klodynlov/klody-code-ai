@@ -511,6 +511,13 @@ SEMANTIC_MEMORY_DB: Path = Path(os.getenv("SEMANTIC_MEMORY_DB", str(MEMORY_DIR /
 # "ollama" reste possible (daemon requis).
 SEMANTIC_MEMORY_PROVIDER: str = os.getenv("SEMANTIC_MEMORY_PROVIDER", "st")
 
+# --- Extraction automatique de faits (agent/memory_extractor.py) ---
+# Vide (défaut) = dérivé de BACKEND : l'alias du gateway (LLM_MODEL) en mlx,
+# MODEL_FALLBACK en ollama. Jusqu'au 2026-09-27 l'extraction visait Ollama et
+# MODEL_FALLBACK QUEL QUE SOIT le backend : morte en mlx depuis le 2026-07-18.
+# ⚠️ En mlx, un ALIAS du registre du gateway — jamais un nom Ollama (404).
+MEMORY_EXTRACTOR_MODEL: str = os.getenv("MEMORY_EXTRACTOR_MODEL", "")
+
 # --- Voix parlée de Klody (outil speak → CLI VocalBrain + afplay) ---
 # Pont léger : la synthèse vit dans le venv local-suno (mlx-audio), Klody ne
 # l'importe jamais — il appelle la CLI en subprocess. Le projet/personnage
