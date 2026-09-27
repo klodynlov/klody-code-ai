@@ -29,9 +29,9 @@ fusion qui inventerait un fichier que personne n'a lu.
 
 Le JSON produit (`--json`) ne porte que des comptes, jamais une signature.
 
-Mesuré le 2026-09-27, 116 sessions, 305 paires (2026-06-09 → 2026-09-22) :
-section changée par le COMPTEUR sur **0/305** paires, quelle que soit la source ;
-1/305 par une APPARITION (seuil franchi), que retirer le compteur ne corrigerait
+Mesuré le 2026-09-27, 113 sessions, 302 paires (2026-06-09 → 2026-09-22) :
+section changée par le COMPTEUR sur **0/302** paires, quelle que soit la source ;
+1/302 par une APPARITION (seuil franchi), que retirer le compteur ne corrigerait
 pas. Les deux `errors.json` n'ont reçu que 23 échecs en quatre mois, dont 2
 seulement étaient des récidives d'une erreur déjà récurrente. Témoin
 synthétique (une récidive posée entre deux vrais messages) : `compteur: 1` —

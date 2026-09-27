@@ -134,7 +134,7 @@ class ErrorMemory:
 
         Le `(N×)` ci-dessous est le motif de compteur que #270 a retiré du profil
         (un octet changé dans le système ⇒ prefill de tous les schémas d'outils).
-        Il est GARDÉ, sur mesure : rejoué sur 305 paires de vrais messages
+        Il est GARDÉ, sur mesure : rejoué sur 302 paires de vrais messages
         consécutifs, il n'a changé le système sur AUCUNE (23 échecs sandbox en
         quatre mois, 2 récidives d'une erreur déjà récurrente).
         `scripts/mesure_stabilite_erreurs.py` le recompte — à rejouer avant d'y

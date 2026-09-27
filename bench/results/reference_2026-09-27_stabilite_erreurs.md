@@ -15,9 +15,12 @@ retiré du profil. Combien de paires de vrais messages consécutifs cela touche-
 ## Protocole
 
 - Sessions : celles que `scripts/etat_pollue.py` **garde** dans `~/.klody/data`
-  (257), dont 116 ont au moins deux VRAIS messages utilisateur (`timestamp` non
-  nul — les relances de l'orchestrateur ont `timestamp: None`). **305 paires**,
+  (251), dont 113 ont au moins deux VRAIS messages utilisateur (`timestamp` non
+  nul — les relances de l'orchestrateur ont `timestamp: None`). **302 paires**,
   du 2026-06-09 au 2026-09-22.
+  Un premier run du même jour en comptait 305 : 6 sessions de test résiduelles
+  que `etat_pollue` gardait encore, déplacées depuis en quarantaine
+  (`test-residuels`, 3 paires, section vide). Même verdict sur les deux runs.
 - Erreurs : les deux seuls `.klody/errors.json` de la machine (`find ~ -maxdepth 6`) —
   `~/Projets/` (PROJECT_ROOT en dur jusqu'en juillet) et `~/Projets/klody-code-ai/`
   (cwd du service API depuis). Aucun n'a atteint la rotation à 100 entrées :
@@ -32,8 +35,8 @@ retiré du profil. Combien de paires de vrais messages consécutifs cela touche-
 
 | source | entrées | section non vide | section **changée** | dont compteur | dont apparition/sortie |
 |---|---|---|---|---|---|
-| `~/Projets/.klody/errors.json` | 20 | 18/305 | 1/305 | **0** | 1 |
-| `~/Projets/klody-code-ai/.klody/errors.json` | 3 | 2/305 | 0/305 | **0** | 0 |
+| `~/Projets/.klody/errors.json` | 20 | 18/302 | 1/302 | **0** | 1 |
+| `~/Projets/klody-code-ai/.klody/errors.json` | 3 | 2/302 | 0/302 | **0** | 0 |
 
 À chaque échec enregistré (indépendamment des sessions), la section juste après
 diffère de celle juste avant : 23 échecs ⇒ **2 changements de compteur**, 3
@@ -53,8 +56,8 @@ instrument aveugle.
 ## Décision
 
 **Le compteur reste.** Principe directeur n°2 : aucune modification sans gain
-chiffré, et le gain mesurable ici est de 0 paire sur 305. Le seul changement
-réel (1/305) est une apparition de signature ; figer la section pour la session
+chiffré, et le gain mesurable ici est de 0 paire sur 302. Le seul changement
+réel (1/302) est une apparition de signature ; figer la section pour la session
 la corrigerait, mais masquerait l'erreur devenue récurrente PENDANT la session —
 c'est-à-dire exactement quand l'avertissement sert.
 
