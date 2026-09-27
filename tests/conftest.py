@@ -90,3 +90,28 @@ def _voix_muette(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(config, "VOICE_CLI", str(tmp_path / "vocalbrain-absent"))
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
+
+
+# Plafonds de segment du daemon local-suno, en LITTÉRAUX (cf. song_structure.
+# plafond_segment) : 600 s en v1.5 depuis le 2026-09-09, 120 s en v1 ou surchargé.
+_PLAFOND_UNE_PASSE = 600.0
+_PLAFOND_DECOUPE = 120.0
+
+
+@pytest.fixture(autouse=True)
+def _chanson_en_une_passe(monkeypatch):
+    """Le contrôle de couverture des chansons se teste en mode NOMINAL par défaut.
+
+    `song_structure.SEGMENT_MAX_SEC` est lu dans l'environnement à l'import : sans
+    ce garde, un `ACE_STEP_VERSION` ou un `ACESTEP_MAX_SEGMENT_SEC` exporté dans
+    le shell du développeur basculerait la suite en mode découpé — même défaut que
+    `_voix_muette` ci-dessus. Le mode découpé se demande EXPLICITEMENT
+    (`chanson_decoupee`).
+    """
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_UNE_PASSE)
+
+
+@pytest.fixture
+def chanson_decoupee(monkeypatch):
+    """Mode découpé : segments de ≤ 120 s recollés en cross-fade (v1, ou surcharge)."""
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_DECOUPE)
