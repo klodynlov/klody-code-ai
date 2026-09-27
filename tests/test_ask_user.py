@@ -215,6 +215,16 @@ class TestDetectInteractiveSkill:
             o, "liste les fichiers du projet"
         ) is False
 
+    def test_inactif_quand_seule_la_negation_recoupe_le_nom(self, monkeypatch):
+        """Régression du 2026-09-27 : le nom contient « pas » (« pas à pas »),
+        et toute négation française passait la garde d'identité — même avec le
+        skill QCM en tête de sélection, comme sur les tâches `discovery`."""
+        self._patch(monkeypatch, [_QCM_SKILL])
+        o = SimpleNamespace()
+        assert Orchestrator._detect_interactive_skill(
+            o, "ces contraintes ne sont pas écrites dans l'énoncé"
+        ) is False
+
     def test_inactif_quand_skill_de_tete_non_interactif(self, monkeypatch):
         howto = {
             "name": "Garde-fou anti-SSRF pour un fetch web",
