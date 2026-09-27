@@ -124,6 +124,12 @@ def fake_orchestrator(project_root: Path, monkeypatch: pytest.MonkeyPatch):
         # Force le file_manager sur tmp_path (PROJECT_ROOT n'est résolu qu'au boot config)
         from tools.file_manager import FileManager
         orch.file_manager = FileManager(root=project_root)
+        # Même raison pour la recherche texte : sans ça, `search_in_files('.')`
+        # fouillait le VRAI dépôt. Vu le 2026-09-27 en écrivant le scénario 22 :
+        # un grep qui ramène un document du dépôt désarme le garde doc, le
+        # scénario aurait mesuré le dépôt de travail au lieu de son projet.
+        from tools.search import Search
+        orch.search = Search(root=project_root)
         return orch, fake_llm
 
     return _make

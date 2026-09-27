@@ -35,6 +35,7 @@ SCENARIOS = [
     "19_empty_after_reasoning_recovery",
     "20_empty_after_reasoning_forced_synthesis",
     "21_library_guard_forces_content_search",
+    "22_doc_guard_derniere_iteration",
 ]
 
 
@@ -301,6 +302,46 @@ def _assert_expectations(
         # On ne relit PAS `orch._content_searched` : comme les flags anti-stall,
         # il est remis à zéro en fin de run. C'est `tool_calls_invoked` de la
         # fixture qui prouve que search_books a bien fini par être appelé.
+
+    # 14. Garde « décisions jamais ouvertes » (#22) — conclusion posée à la
+    # DERNIÈRE itération après une écriture, sans avoir ouvert docs/ (vécu le
+    # 2026-09-27). Le garde exigeait une itération de marge et laissait passer.
+    # `trace_dernier_tour` survit à la remise à zéro des drapeaux de fin de run.
+    if exp.get("doc_guard_fired"):
+        relance_vue = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "ne conclus pas encore" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert relance_vue, (
+            "Le garde doc n'a PAS refusé la conclusion. "
+            f"Messages: {[m.get('role') for m in orch.memory.messages]}"
+        )
+        assert orch.trace_dernier_tour.get("doc_guard_fired") is True
+
+    # La relance doit disposer d'un budget réel : si elle tombait sur le cap,
+    # c'est la synthèse forcée SANS outils qui conclurait — sans lecture.
+    if exp.get("no_forced_synthesis"):
+        synthese_forcee = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "Tu as atteint la limite d'outils" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert not synthese_forcee, "La relance est morte sur le cap (synthèse forcée)."
+
+    # Le garde garantit SON budget : s'il s'en remettait à l'auto-continue, le
+    # nudge « lis la doc » serait suivi de « … puis conclus dès que c'est fait »,
+    # et la relance mourrait sur le cap une fois les extensions épuisées.
+    if exp.get("no_auto_extension"):
+        extension = any(
+            m.get("role") == "user"
+            and isinstance(m.get("content"), str)
+            and "Ton budget d'itérations vient d'être prolongé" in m["content"]
+            for m in orch.memory.messages
+        )
+        assert not extension, "La relance du garde a consommé une auto-extension."
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)

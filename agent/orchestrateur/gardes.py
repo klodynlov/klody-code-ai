@@ -16,6 +16,7 @@ from rich.console import Console
 __all__ = [
     "_CMD_EXEC_TOOLS",
     "_CMD_FAIL_STREAK_BREAK",
+    "_DOC_GUARD_MARGE",
     "_DOC_NUDGE_MAX",
     "_DOC_SCAN_DEPTH",
     "_DOC_SCAN_MAX",
@@ -196,6 +197,13 @@ _DOC_SCAN_MAX = 40
 # DANS le document, qu'il faut encore lire et appliquer. C'est l'exact pendant du
 # garde LibraryBrain, qui nomme `search_books` sans répondre à la question.
 _DOC_NUDGE_MAX = 6
+# Itérations garanties à l'agent APRÈS la relance du garde doc. MESURÉ le
+# 2026-09-27 : les 3 déclenchements du banc (hidden_invariant) tirent à l'index 4
+# et finissent à 10 itérations — 5 après la relance (lire, corriger, relancer les
+# tests, conclure). Dans les deux runs journalisés, c'est l'auto-continue
+# (6 → 14) qui leur a donné ce budget : la marge d'UNE itération qu'exigeait le
+# garde n'aurait jamais suffi, elle ne faisait que le faire taire au pire moment.
+_DOC_GUARD_MARGE = 5
 # Outils qui modifient le dépôt. Volontairement plus étroit que _PRODUCING_TOOLS :
 # un `preview_code` ou un `run_in_sandbox` fabrique un artefact jetable, il
 # n'engage pas le projet et ne justifie pas d'exiger la lecture de ses décisions.
@@ -437,16 +445,33 @@ class GardesMixin:
 
         Une seule relance par run (`_doc_guard_fired`) : si l'agent lit le document
         et conclut quand même de travers, la 2e conclusion passe — le garde force
-        une consultation, il ne juge pas le code. Marge d'une itération, sinon la
-        relance meurt sur le cap sans réponse.
+        une consultation, il ne juge pas le code.
+
+        ⚠️ AUCUNE condition sur l'itération. Le garde exigeait `iteration <
+        max_iter - 1` (« sinon la relance meurt sur le cap ») et se taisait donc
+        exactement quand l'agent concluait à la dernière itération. Vécu le
+        2026-09-27 sur `hidden_invariant` (easy · feature · max_iter=6) : list,
+        2 lectures, grep, écriture, conclusion à 6/6, docs/ jamais ouvert,
+        invariant violé — et aucune relance. Le budget de la relance est garanti
+        par l'appelant (`_budget_pour_relance_doc`), pas en renonçant à relancer.
+        `iteration` et `max_iter` restent dans la signature, homogène avec le
+        garde LibraryBrain.
         """
+        del iteration, max_iter
         return (
             self._code_ecrit
             and not self._doc_consulte
             and not self._doc_guard_fired
-            and iteration < max_iter - 1
             and bool(self._documentation_du_projet())
         )
+
+    def _budget_pour_relance_doc(self, iteration: int, max_iter: int) -> int:
+        """Budget d'itérations à appliquer quand le garde doc relance.
+
+        Garantit `_DOC_GUARD_MARGE` itérations après celle-ci ; ne réduit jamais
+        un budget déjà suffisant. Borné : le garde ne tire qu'une fois par run.
+        """
+        return max(max_iter, iteration + 1 + _DOC_GUARD_MARGE)
 
     def _doc_guard_nudge(self, documents: list[str]) -> str:
         """Message injecté quand le garde se déclenche. Nomme les documents, comme

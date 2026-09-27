@@ -124,6 +124,7 @@ from agent.orchestrateur.critique import (
 from agent.orchestrateur.gardes import (
     _CMD_EXEC_TOOLS,
     _CMD_FAIL_STREAK_BREAK,
+    _DOC_GUARD_MARGE,  # noqa: F401 — ré-export pour tests
     _DOC_NUDGE_MAX,  # noqa: F401 — ré-export pour scripts/tests
     _DOC_SCAN_DEPTH,  # noqa: F401 — ré-export pour scripts
     _DOC_SCAN_MAX,  # noqa: F401 — ré-export pour scripts/tests
@@ -2508,6 +2509,14 @@ class Orchestrator(GardesMixin):
                     logger.info(
                         "[doc-guard] conclusion après écriture sans lecture de doc "
                         "→ relance forcée (iter=%d, %d doc(s))", iteration, len(_docs))
+                    # La relance doit pouvoir LIRE puis corriger : sur une
+                    # conclusion posée à la dernière itération, elle tomberait
+                    # sinon sur le cap (synthèse forcée sans outils).
+                    _budget = self._budget_pour_relance_doc(iteration, max_iter)
+                    if _budget > max_iter:
+                        logger.info("[doc-guard] budget porté de %d à %d itérations",
+                                    max_iter, _budget)
+                        max_iter = _budget
                     console.print(
                         "[dim yellow]  ⤵  Tu as modifié le projet sans ouvrir sa "
                         "documentation — je vais la lire avant de conclure[/dim yellow]"
