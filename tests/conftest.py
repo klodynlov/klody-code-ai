@@ -1,14 +1,24 @@
 """Fixtures globales de la suite Klody."""
 import logging
+import sys
 
 import config
 import pytest
 from agent import semantic_memory
+from tools import embeddings
 
 # Capturé AVANT toute redirection : le garde-fou de tests/test_hermeticite_voix.py
 # doit pouvoir vérifier que le vrai dossier reste intact, et il ne le peut plus si
 # la seule référence qui subsiste est celle qu'on vient de détourner.
 _VRAI_VOICE_AUDIO_DIR = config.VOICE_AUDIO_DIR
+
+# Le VRAI moteur mémoire, s'il est installé — capturé ici, une fois. Le relire
+# via `semantic_memory.MEMORY_AVAILABLE` au teardown ne tient pas : des tests le
+# forcent à True sans moteur (`test_memory_server.py`, où `klody-memory` est
+# absent en CI), et `tests/fake_klody_memory.py` évince le vrai de sys.modules.
+_KM_RUNTIME = (
+    sys.modules.get("klody_memory.runtime") if semantic_memory.MEMORY_AVAILABLE else None
+)
 
 
 @pytest.fixture
@@ -50,12 +60,30 @@ def _semantic_memory_isolee(monkeypatch, tmp_path):
     et configurent explicitement une base tmp_path. La db par défaut est de
     toute façon détournée vers tmp_path (ceinture + bretelles), et l'état
     process du module est remis à zéro entre tests.
+
+    ⚠️ « L'état process » est à TROIS étages, pas un. `configure_memory()` pose
+    les singletons GLOBAUX du moteur (`klody_memory.configure`), et
+    `tools.embeddings` met en cache sa disponibilité. Ne remettre à zéro que
+    `semantic_memory` laissait le moteur branché sur la base tmp_path d'un
+    AUTRE test, pendant que `is_ready()` disait « non ». Vécu le 2026-09-27 :
+    `test_max_tokens_par_type.py::test_replay_explain_recoit_max_tokens_reduit`
+    exécute un vrai tour d'orchestrateur, donc le retrieval réel, donc
+    `embeddings.is_available()` → `configure_memory()`. Tout test suivant qui
+    atteignait un embed réel chargeait bge-m3 — isolé, le même appel levait
+    `NotConfiguredError` en quelques ms. `test_retrieval_desactive_retourne_vide`
+    rougissait ainsi en suite (2,004 s contre 0,1) et passait seul.
+    Verrouillé par `tests/test_hermeticite_moteur_memoire.py`.
     """
     monkeypatch.setattr(config, "SEMANTIC_MEMORY_ENABLED", False)
     monkeypatch.setattr(config, "SEMANTIC_MEMORY_DB", tmp_path / "semantic_memory.db")
     yield
     semantic_memory._provider = None
     semantic_memory._configured_db = None
+    if _KM_RUNTIME is not None:
+        # API publique : `configure` pose ce qu'on lui donne, None compris, et
+        # `is_configured()` redevient False — l'état d'un process neuf.
+        _KM_RUNTIME.configure(settings=None, connection=None)
+    embeddings._reset_cache()
 
 
 @pytest.fixture(autouse=True)
