@@ -1111,7 +1111,13 @@ coûte 11,2 s contre 0,55 s à 69 outils (#270), ~120 s au régime de l'API de p
   `lt_section`, changent déjà le système sur ~91 % des paires. Le gain apparaît
   quand ils sortent du prompt système (branche `claude/contexte-tour-utilisateur`).
 - ⚠️ **Le banc ne peut pas le voir** : une tâche = un état neuf (mémoire vide) et
-  un seul message. Il a tourné quand même, pour la non-régression.
+  un seul message. Il a tourné quand même : **34/35**, porte verte (`Δ −3,3 %`).
+  Seul échec, `discovery/config_precedence` (puis 0/3 rejouée) — alors que le
+  prompt système du fils du banc est **identique octet pour octet** à `main`
+  (sonde : même sha, 65 395 car.). Témoin `main` le même jour : 2/3, même
+  signature (`argparse type=int` ⇒ `SystemExit` au lieu de `ValueError`), déjà
+  relevée par #288. Même entrée, verdicts différents : de la variance, sur une
+  tâche instable partout ce jour-là (3/10 toutes branches confondues).
 - ⚠️ Les vrais tours utilisateur d'une session se reconnaissent à leur
   `timestamp` : les relances de l'orchestrateur (« Ton budget d'itérations… »,
   « STOP — ne conclus pas… ») sont AUSSI en rôle `user`, posées à `timestamp:

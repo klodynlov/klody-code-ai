@@ -79,3 +79,27 @@ Pas re-mesuré ici — deux mesures intra-run existantes :
   lue sur un gateway partagé avec un banc concurrent : non comparable (CLAUDE.md).
 - Le banc ne peut PAS voir ce changement : chaque tâche tourne dans un état neuf
   (`--child-data-dir`), donc `long_term.json` vide, et un seul message.
+
+## Banc de non-régression
+
+`python -m bench.run --repeat 1 --label memoire_figee` : **34/35**.
+`python -m bench.gate` : `Δ −3,3 %`, pas de régression significative, notice
+`discovery/config_precedence (1/1 → 0/1)`.
+
+| `config_precedence` | |
+|---|---|
+| cette branche, run complet + rejeu `--repeat 3` | 0/4 |
+| `origin/main` (`a87f5d2`), même `.env`, même jour | 2/3 |
+| branche de #288 (sans ce changement), même jour | 1/3 |
+
+Même signature partout : `argparse type=int` ⇒ `SystemExit` là où le README
+exige `ValueError`. Le taux seul ne tranche pas (Fisher unilatéral p ≈ 0,17) ;
+le mécanisme, si : rejoué dans les conditions du fils du banc (état jetable,
+`PROJECT_ROOT` = fixture, retrieval neutralisé), le prompt système est
+**identique octet pour octet** entre `main` et cette branche — même sha
+`69a2529b72e5`, 65 395 caractères, 0 fait chargé, mêmes 12 skills. Même entrée,
+verdicts différents : variance d'échantillonnage sur une tâche instable ce jour.
+
+⚠️ Premier témoin raté, à ne pas refaire : un worktree créé HORS de
+`~/Projets/klody-code-ai` ne trouve aucun `.env` (`load_dotenv()` remonte
+l'arborescence) ⇒ `BACKEND=ollama` ⇒ ❌ en 3,5 s par tâche, agent jamais lancé.
