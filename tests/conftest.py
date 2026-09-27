@@ -92,26 +92,26 @@ def _voix_muette(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
 
 
-# Plafond de segment du daemon local-suno : une RÈGLE qui dépend du moteur depuis
-# local-suno 3fddc2c (cf. `song_structure.plafond_segment`). `SEGMENT_MAX_SEC` est
-# lu dans l'environnement à l'import : un test qui en dépend sans le poser jugerait
-# le `.env` du développeur, pas le code. Valeurs en LITTÉRAUX — les recalculer
-# depuis `plafond_segment` ferait suivre la règle au lieu de la juger.
-@pytest.fixture
-def plafond_une_passe(monkeypatch):
-    """Défaut du daemon (ACE-Step 1.5) : la chanson part en UNE passe jusqu'à 600 s."""
-    from klody_mcp import song_structure
-
-    monkeypatch.setattr(song_structure, "SEGMENT_MAX_SEC", 600.0)
+# Plafonds de segment du daemon local-suno, en LITTÉRAUX (cf. song_structure.
+# plafond_segment) : 600 s en v1.5 depuis le 2026-09-09, 120 s en v1 ou surchargé.
+_PLAFOND_UNE_PASSE = 600.0
+_PLAFOND_DECOUPE = 120.0
 
 
-@pytest.fixture
-def plafond_decoupe(plafond_une_passe, monkeypatch):
-    """Mode découpé (v1, ou `ACESTEP_MAX_SEGMENT_SEC=120`) : segments de ≤ 120 s.
+@pytest.fixture(autouse=True)
+def _chanson_en_une_passe(monkeypatch):
+    """Le contrôle de couverture des chansons se teste en mode NOMINAL par défaut.
 
-    Dépend de `plafond_une_passe` pour s'appliquer APRÈS lui quand un module pose
-    le défaut pour tous ses tests.
+    `song_structure.SEGMENT_MAX_SEC` est lu dans l'environnement à l'import : sans
+    ce garde, un `ACE_STEP_VERSION` ou un `ACESTEP_MAX_SEGMENT_SEC` exporté dans
+    le shell du développeur basculerait la suite en mode découpé — même défaut que
+    `_voix_muette` ci-dessus. Le mode découpé se demande EXPLICITEMENT
+    (`chanson_decoupee`).
     """
-    from klody_mcp import song_structure
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_UNE_PASSE)
 
-    monkeypatch.setattr(song_structure, "SEGMENT_MAX_SEC", 120.0)
+
+@pytest.fixture
+def chanson_decoupee(monkeypatch):
+    """Mode découpé : segments de ≤ 120 s recollés en cross-fade (v1, ou surcharge)."""
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_DECOUPE)

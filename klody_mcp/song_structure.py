@@ -12,17 +12,16 @@ que Klody ENVOIE, et toutes vérifiables avant de dépenser une génération :
    moteur ne peut PAS tout chanter : il coupe. Le défaut ``duree_sec=30`` de
    ``generer_chanson`` avec des paroles complètes produisait exactement ça.
 
-2. **Pas assez de sections pour les segments — en mode DÉCOUPÉ seulement.** Au-delà
-   de ``ACESTEP_MAX_SEGMENT_SEC``, le daemon génère la chanson en N segments
+2. **Pas assez de sections pour les segments.** Au-delà de
+   ``ACESTEP_MAX_SEGMENT_SEC``, le daemon génère la chanson en N segments
    recollés et répartit l'arrangement entre eux (``split_arrangement_text``). S'il
    y a MOINS de sections que de segments, ``generate_song_long`` fait
    ``chunks.append(chunks[-1])`` : **les segments de fin re-chantent le même
    texte**. Un texte sans ligne vide ni en-tête = 1 seule section = tous les
    segments identiques. Mesuré : 17 des 78 chansons n'avaient qu'une section.
-   ⚠️ Depuis local-suno ``3fddc2c`` (2026-09-09), ce plafond DÉPEND DU MOTEUR :
-   ACE-Step 1.5, le défaut, compose en une passe jusqu'à 600 s — soit toute la
-   plage de durées acceptée. Ce mécanisme ne mord donc plus qu'en v1 ou sous
-   ``ACESTEP_MAX_SEGMENT_SEC=120`` explicite (cf. ``plafond_segment``).
+   ⚠️ Ce mécanisme ne mord plus qu'en MODE DÉCOUPÉ : depuis local-suno
+   ``3fddc2c`` (2026-09-09), ACE-Step v1.5 compose la chanson en UNE passe
+   jusqu'à 600 s — soit toute la plage de durées du contrat. Cf. ``plafond_segment``.
 
 3. **Rôles de section perdus.** ``_build_lyrics_from_custom`` nomme
    ``section_2``, ``section_3``… tout bloc séparé par une simple ligne vide, et
@@ -54,6 +53,7 @@ import math
 import os
 import re
 import unicodedata
+from collections.abc import Mapping
 
 # ── Contrat du daemon local-suno (valeurs recopiées, cf. l'avertissement ci-dessus)
 
@@ -62,39 +62,39 @@ DUREE_MIN_SEC = int(os.getenv("KLODY_SONG_DUREE_MIN", "10"))
 DUREE_MAX_SEC = int(os.getenv("KLODY_SONG_DUREE_MAX", "600"))
 # storage/models.py::GenerationRequest.bpm — Field(ge=60, le=180)
 BPM_MIN, BPM_MAX = 60, 180
-# config.py — ACESTEP_MAX_SEGMENT_SEC / ACESTEP_SEGMENT_OVERLAP_SEC
 
 
-def plafond_segment(version: str = "v15", surcharge: str | None = None) -> float:
-    """Plafond de segment du daemon : réplique de la RÈGLE de ``local-suno/config.py``.
+def plafond_segment(env: Mapping[str, str] | None = None) -> float:
+    """Durée au-delà de laquelle le daemon découpe la chanson en segments.
 
-    Ce n'est plus une valeur mais une règle depuis local-suno ``3fddc2c``
-    (2026-09-09) : ACE-Step 1.5 compose nativement jusqu'à 600 s, et le découpage
-    à 120 s faisait perdre des paroles — WER du rendu final 77-81 % en segments
-    contre 17-39 % en une passe, sur deux chansons de 4-5 min (mesure local-suno du
-    2026-09-06, ``docs/qualite-2026-09-06.md``). v1 garde 120 s ; une surcharge
-    explicite de ``ACESTEP_MAX_SEGMENT_SEC`` gagne toujours.
+    Réplique de ``config.py::ACESTEP_MAX_SEGMENT_SEC``, dont le DÉFAUT dépend de la
+    version du moteur depuis local-suno ``3fddc2c`` (2026-09-09) : **600 s en
+    v1.5** (chanson en une passe), 120 s en v1. Motif côté daemon, mesuré sur deux
+    chansons de 4:03 et 5:23 à texte, style et graine identiques : taux d'erreur
+    de transcription ~68 % en segments contre 2,7 % et 19,1 % en une passe. Une
+    surcharge explicite (``ACESTEP_MAX_SEGMENT_SEC=120``, mode découpé) reste
+    prioritaire.
 
-    Vécu le 2026-09-27 : la copie figée à 120 s a survécu dix-huit jours à ce
-    changement. Klody refusait donc « les segments de fin RE-CHANTERONT » des
-    chansons que le daemon chantait en une seule passe, et allongeait la durée
-    déduite pour désaturer des segments qui n'existaient plus. Le garde anti-dérive
-    compare désormais la règle entière, pas une valeur sous un seul environnement.
+    Resté sur l'ancien ``"120"`` du 2026-09-09 au 2026-09-27, ce module calculait
+    contre un découpage que le daemon ne faisait plus : durée déduite gonflée pour
+    désaturer un segment fantôme (témoin à 9 sections : 218 s au lieu de 169 s,
+    donc un chant étiré), et refus « RE-CHANTERONT » de textes que le daemon
+    aurait rendus intégraux.
+
+    ⚠️ Les deux variables configurent le DAEMON : posées dans son ``.env`` seul,
+    elles rendent ce calcul faux. ``tests/test_song_structure.py`` lit la valeur
+    effective du daemon (``.env`` compris) sur cette machine et rougit. Pour que
+    Klody suive, il faut les EXPORTER dans l'environnement de ses serveurs MCP : le
+    ``.env`` de Klody est chargé par ``vocalbrain_server`` et ``klody_music_server``
+    APRÈS l'import de ce module, il n'y peut rien.
     """
-    if surcharge is not None:
-        return float(surcharge)
-    return 600.0 if version == "v15" else 120.0
+    env = os.environ if env is None else env
+    defaut = "600" if env.get("ACE_STEP_VERSION", "v15") == "v15" else "120"
+    return float(env.get("ACESTEP_MAX_SEGMENT_SEC", defaut))
 
 
-# ⚠️ Ces variables sont lues dans l'environnement de KLODY (les serveurs MCP), pas
-# dans celui du daemon (son plist + ``~/local-suno/.env``). Mêmes noms, même règle,
-# mais deux processus : passer le daemon en mode découpé exige de le déclarer des
-# deux côtés, sinon Klody contrôle une chanson en une passe que le daemon découpe.
-# Le rapport de couverture expose ``plafond_segment_sec`` pour que l'hypothèse se
-# lise au lieu de se deviner.
-SEGMENT_MAX_SEC = plafond_segment(
-    os.getenv("ACE_STEP_VERSION", "v15"), os.getenv("ACESTEP_MAX_SEGMENT_SEC")
-)
+# config.py — ACESTEP_MAX_SEGMENT_SEC / ACESTEP_SEGMENT_OVERLAP_SEC
+SEGMENT_MAX_SEC = plafond_segment()
 SEGMENT_OVERLAP_SEC = float(os.getenv("ACESTEP_SEGMENT_OVERLAP_SEC", "4"))
 
 # ── Débit de chant ────────────────────────────────────────────────────────────
@@ -287,6 +287,10 @@ def nb_segments(duree_sec: float) -> int:
     Réplique exacte de ``plan_segment_durations`` : le chevauchement peut pousser
     un segment au-dessus du plafond, ce qui en ajoute un — reproduire la boucle
     plutôt que le seul ``ceil`` évite de sous-estimer d'un segment à la charnière.
+
+    En nominal (v1.5, plafond 600 s = ``DUREE_MAX_SEC``) le résultat vaut 1 sur
+    toute la plage du contrat : les calculs par segment ci-dessous se réduisent
+    alors au débit global, et le refus « sections < segments » ne peut pas mordre.
     """
     if duree_sec <= SEGMENT_MAX_SEC:
         return 1
@@ -331,15 +335,13 @@ def _groupes_equilibres(n_items: int, k: int) -> list[tuple[int, int]]:
 def debit_par_segment(arrangement: str, duree_sec: float) -> list[tuple[int, float]]:
     """``(mots, mots/s)`` de chaque segment, tels que le daemon les répartira.
 
+    Ne diffère du débit global qu'en mode découpé (cf. ``plafond_segment``).
+
     Le daemon découpe l'arrangement en groupes de sections contigus de tailles
     égales EN NOMBRE (``split_arrangement_text`` → ``_balanced_groups``), puis
     donne à chacun un segment de durée identique (``plan_segment_durations``
     renvoie des durées égales). Deux sections courtes et deux longues dans le même
     morceau produisent donc deux segments de débits très différents.
-
-    En une passe (défaut ACE-Step 1.5, cf. ``plafond_segment``), il n'y a qu'un
-    segment : son débit EST le débit global. Le reste de cette docstring décrit
-    le mode découpé, le seul où la répartition compte.
 
     Mesuré in vivo le 2026-08-07 (session ``be133ea1``, 358 mots sur 180 s) :
     débit global 1,99 mots/s — conforme — mais **2,52** sur le segment 1 (5
@@ -453,9 +455,9 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         )
 
     # (2) Moins de sections que de segments → les derniers segments se répètent.
-    # Mode découpé seulement : en une passe (défaut ACE-Step 1.5), segments == 1.
-    # Le plafond est NOMMÉ dans le refus : c'est l'hypothèse sur la config du
-    # daemon qui le fonde, et elle vit dans un autre processus (cf. plus haut).
+    # Mode découpé seulement. Le plafond est NOMMÉ dans le refus : c'est une
+    # hypothèse sur la config du daemon, qui vit dans un autre processus (cf.
+    # `plafond_segment`) — un refus qui la tait ne se laisse pas contester.
     if segments > 1 and structure["sections"] < besoin:
         problemes.append(
             f"{duree} s = {segments} segments générés séparément (plafond de "
@@ -482,6 +484,7 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         "duree_demandee_sec": duree_demandee,
         "duree_conseillee_sec": conseillee,
         "segments": segments,
+        # L'hypothèse sur le mode du daemon, lisible au lieu d'être devinée.
         "plafond_segment_sec": SEGMENT_MAX_SEC,
         "sections_min": besoin,
         "debit_mots_s": round(debit, 2),

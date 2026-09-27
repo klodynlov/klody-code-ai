@@ -754,29 +754,39 @@ levier « mieux le lui dire » est déjà mesuré épuisé sur trois canaux (enc
 plus haut). La docstring de l'outil porte la règle — c'est ce que le modèle lit
 au moment de choisir ses arguments — et le **refus de l'outil** est le garde-fou.
 
-> ### ⚠️ MIS À JOUR LE 2026-09-27 — le mécanisme n°2 ne mord plus par défaut
+> ### ✅ 2026-09-27 — le daemon chante en UNE passe, et le garde anti-dérive l'a vu
 >
-> local-suno `3fddc2c` (2026-09-09) a fait du plafond de segment une **règle** :
-> ACE-Step 1.5, le défaut, compose en **une passe jusqu'à 600 s** (WER final
-> 77-81 % en segments → 17-39 % en une passe, mesure local-suno du 2026-09-06) ;
-> v1 garde 120 s ; `ACESTEP_MAX_SEGMENT_SEC` explicite gagne. 600 = borne haute
-> des durées : **plus aucune chanson n'est découpée**, donc plus de refus
-> « RE-CHANTERONT » ni de durée allongée pour désaturer un segment.
+> `TestPasDeDerive` a rougi (`600.0 == 120.0`) : local-suno `3fddc2c`
+> (2026-09-09) a passé `ACESTEP_MAX_SEGMENT_SEC` à **600 s en v1.5** (défaut),
+> 120 s en v1. Motif côté daemon : WER ~68 % en segments contre 2,7 % / 19,1 % en
+> une passe. `split_arrangement_text` et `plan_segment_durations` n'ont pas
+> bougé ; seul le plafond a changé. Vérifié in vivo dans `daemon.log` : les
+> 3 rendus > 120 s depuis le 09-09 (165, 165, 180 s) sont partis en un seul appel
+> ACE-Step, et la dernière ligne « Long-format » précède le changement.
 >
-> La copie figée à 120 s a survécu **18 jours** : Klody refusait des chansons que
-> le daemon chantait entières. `TestPasDeDerive` a rougi — il a fait son travail
-> — mais ne comparait qu'une valeur sous un seul environnement. Il compare
-> désormais la **règle** (6 variantes d'env) et le circuit dans les **deux modes**,
-> à travers le vrai `generate_song_long` (moteur remplacé par un enregistreur), et
-> exige que Klody refuse **SSI** le daemon re-chante. Capacité à rougir vérifiée
-> par mutation des deux côtés (Klody, et un miroir de local-suno à `config.py`
-> muté ou `.env` posé).
+> Resté à 120, `song_structure` calculait contre un découpage disparu : durée
+> déduite gonflée (témoin à 9 sections : **218 s au lieu de 169**, chant étiré),
+> avertissements sur un segment fantôme, refus « RE-CHANTERONT » de textes que le
+> daemon rend intégraux. Aucune génération de Klody n'en a pâti — 0 session à
+> marqueurs numérotés dans `library.db` depuis le 09-09 — mais c'était faux.
 >
-> ⚠️ **Reste ouvert** : `SEGMENT_MAX_SEC` est lu dans l'env de Klody, le daemon lit
-> le sien (plist + `~/local-suno/.env`). Passer le daemon en mode découpé exige de
-> le déclarer des deux côtés. Le vrai remède serait que le daemon EXPOSE son
-> plafond effectif (ex. dans `/health`) — changement côté local-suno, non fait.
-
+> - **Le mécanisme n° 2 (sections < segments) ne mord plus qu'en mode DÉCOUPÉ**
+>   (v1, ou `ACESTEP_MAX_SEGMENT_SEC=120` côté daemon). En nominal, le plafond
+>   (600) égale la durée maximale du contrat : jamais plus d'un segment. Le code
+>   reste, il reste testé — sous la fixture explicite `chanson_decoupee`.
+> - `plafond_segment()` réplique la **règle** (défaut selon `ACE_STEP_VERSION`,
+>   surcharge prioritaire), confrontée au vrai `config.py` sur la même matrice que
+>   local-suno, `.env` neutralisé. Un second test, `.env` compris, dit si le daemon
+>   de CETTE machine est surchargé : deux tests, deux diagnostics.
+> - ⚠️ Les sondes tournent avec les deux variables PURGÉES : le daemon tourne sous
+>   launchd, qui ne les pose pas. Les hériter du shell rendait la suite
+>   dépendante de l'environnement du développeur — attrapé en l'exportant exprès.
+> - La sonde passe par le **vrai** `generate_song_long` (moteur remplacé par un
+>   enregistreur) au lieu de recopier sa boucle `chunks.append(chunks[-1])`, et
+>   `test_le_verdict_de_repetition_est_celui_du_daemon` exige que Klody refuse
+>   « RE-CHANTERONT » **SSI** le daemon re-chante, dans les deux modes. Mutation
+>   de cette boucle dans un miroir de local-suno : seul ce test rougit — la copie
+>   recopiée l'aurait laissé passer.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :

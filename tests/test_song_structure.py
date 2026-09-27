@@ -6,34 +6,38 @@ local-suno, pas à des heuristiques de prudence :
 
 - trop de mots pour la durée ⇒ le moteur coupe ;
 - moins de sections que de segments ⇒ ``generate_song_long`` recopie la dernière
-  section dans les segments restants (ils re-chantent la même chose). En mode
-  DÉCOUPÉ seulement : depuis local-suno ``3fddc2c`` (2026-09-09), ACE-Step 1.5
-  compose en une passe jusqu'à 600 s.
+  section dans les segments restants (ils re-chantent la même chose).
 
-Chaque test qui dépend du plafond de segment le POSE (``plafond_une_passe`` par
-défaut, ``plafond_decoupe`` explicitement) : lu dans l'environnement, il ferait
-juger le ``.env`` du développeur.
+La dernière classe (`TestPasDeDerive`) relit les vraies constantes de
+``~/local-suno`` et rejoue le circuit complet à travers SON parseur. Elle se saute
+si le dépôt est absent de la machine — elle ne peut alors pas juger, et le dit.
 
-La dernière classe (`TestPasDeDerive`) relit la vraie règle de ``~/local-suno`` et
-rejoue le circuit complet à travers SON parseur et SON ``generate_song_long``, dans
-les deux modes. Elle se saute si le dépôt est absent de la machine — elle ne peut
-alors pas juger, et le dit.
+Deux modes, depuis local-suno ``3fddc2c`` (2026-09-09) :
+
+- **une passe** (nominal, v1.5) : plafond de segment 600 s = durée maximale du
+  contrat, donc jamais plus d'un segment ;
+- **découpé** (v1, ou ``ACESTEP_MAX_SEGMENT_SEC=120`` posé côté daemon) : le
+  chemin historique, où le second mécanisme mord. Toujours vivant chez le daemon,
+  donc toujours testé ici — mais sous une fixture explicite (`chanson_decoupee`),
+  jamais en comptant sur l'environnement de la machine qui lance la suite.
 """
 from __future__ import annotations
 
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 from klody_mcp import song_structure as ss
 
 _LOCALSUNO = Path.home() / "local-suno"
-_RACINE = Path(__file__).resolve().parents[1]
 
-pytestmark = pytest.mark.usefixtures("plafond_une_passe")
+# Plafond du mode découpé passé à la sonde, en LITTÉRAL : un test qui se
+# recalcule à partir du réglage qu'il protège ne peut pas rougir (mutation
+# échappée de la veille Qwen, CLAUDE.md 2026-08-10). Le mode lui-même se règle
+# par les fixtures de conftest (`_chanson_en_une_passe`, `chanson_decoupee`).
+_PLAFOND_DECOUPE = 120.0
 
 
 # --------------------------------------------------------------------------- #
@@ -121,57 +125,46 @@ class TestComptage:
         assert ss.duree_conseillee(100_000) == ss.DUREE_MAX_SEC
 
 
-class TestPlafondDeSegment:
-    """La règle du daemon, verrouillée sur des LITTÉRAUX.
+class TestPlafond:
+    """Le défaut du plafond suit la version du moteur, comme `config.py` du daemon.
 
-    Un attendu recalculé depuis `plafond_segment` suivrait la règle au lieu de la
-    juger — la mutation `MUETTE_JOURS → 99999` a échappé exactement comme ça.
+    Même matrice que local-suno/tests/test_acestep_long.py, en littéraux.
     """
-
-    @pytest.mark.parametrize(
-        ("version", "surcharge", "attendu"),
-        [("v15", None, 600.0), ("v1", None, 120.0), ("v15", "120", 120.0), ("v1", "600", 600.0)],
-    )
-    def test_regle(self, version, surcharge, attendu):
-        assert ss.plafond_segment(version, surcharge) == attendu
 
     @pytest.mark.parametrize(
         ("env", "attendu"),
         [
-            ({}, 600.0),
-            ({"ACE_STEP_VERSION": "v1"}, 120.0),
-            ({"ACESTEP_MAX_SEGMENT_SEC": "120"}, 120.0),
+            ({}, 600.0),  # défaut du daemon : v1.5
+            ({"ACE_STEP_VERSION": "v15"}, 600.0),
+            ({"ACE_STEP_VERSION": "v1"}, 120.0),  # v1 garde son plafond historique
+            ({"ACE_STEP_VERSION": "v15", "ACESTEP_MAX_SEGMENT_SEC": "120"}, 120.0),
         ],
     )
-    def test_la_constante_du_module_suit_lenvironnement(self, env, attendu):
-        # Sous-processus : recharger le module en cours de suite recréerait ses
-        # objets (piège `importlib.reload`), et le monkeypatch des fixtures masque
-        # justement la valeur calculée à l'import — celle qu'on veut juger ici.
-        base = {
-            k: v for k, v in os.environ.items()
-            if k not in ("ACE_STEP_VERSION", "ACESTEP_MAX_SEGMENT_SEC")
-        }
-        proc = subprocess.run(
-            [sys.executable, "-c",
-             "from klody_mcp import song_structure as ss; print(ss.SEGMENT_MAX_SEC)"],
-            env={**base, **env}, cwd=str(_RACINE),
-            capture_output=True, text=True, check=True, timeout=60,
-        )
-        assert float(proc.stdout.strip()) == attendu
+    def test_defaut_selon_la_version_et_surcharge_prioritaire(self, env, attendu):
+        assert ss.plafond_segment(env) == attendu
+
+    def test_le_plafond_nominal_couvre_toute_la_plage_du_contrat(self):
+        # C'est ce qui rend le second mécanisme inopérant en nominal : aucune
+        # durée acceptée par le daemon ne dépasse le plafond.
+        assert ss.plafond_segment({}) >= ss.DUREE_MAX_SEC
 
 
-@pytest.mark.usefixtures("plafond_decoupe")
 class TestSegments:
+    @pytest.mark.usefixtures("chanson_decoupee")
     @pytest.mark.parametrize(
         ("duree", "attendu"), [(30, 1), (120, 1), (121, 2), (180, 2), (240, 3), (360, 4)]
     )
-    def test_nombre_de_segments(self, duree, attendu):
+    def test_nombre_de_segments_en_mode_decoupe(self, duree, attendu):
         assert ss.nb_segments(duree) == attendu
 
+    @pytest.mark.usefixtures("chanson_decoupee")
     def test_le_chevauchement_peut_ajouter_un_segment(self):
         # 240 s : ceil(240/120) = 2 donnerait des segments de 122 s > plafond.
         # Reproduire la seule division ferait sous-estimer d'un segment.
         assert ss.nb_segments(240) == 3
+
+    def test_en_une_passe_jamais_plus_dun_segment(self):
+        assert {ss.nb_segments(d) for d in range(ss.DUREE_MIN_SEC, ss.DUREE_MAX_SEC + 1)} == {1}
 
 
 # Chanson RÉELLE générée le 2026-08-07 (session be133ea1) : 9 sections de
@@ -194,7 +187,7 @@ _SECTIONS_INEGALES = "\n\n".join(
 )
 
 
-@pytest.mark.usefixtures("plafond_decoupe")
+@pytest.mark.usefixtures("chanson_decoupee")
 class TestDebitParSegment:
     def test_le_debit_global_peut_masquer_un_segment_sature(self):
         r = ss.controler_couverture(_SECTIONS_INEGALES, 180)
@@ -237,46 +230,35 @@ class TestDebitParSegment:
 
 
 class TestUnePasse:
-    """Défaut du daemon depuis local-suno 3fddc2c : ACE-Step 1.5 compose d'un bloc.
+    """Le mode nominal depuis 2026-09-09 : aucun segment fantôme.
 
-    Le plafond (600 s) égale la borne haute des durées acceptées : aucune chanson
-    n'est découpée, donc ni répartition des sections ni segment à désaturer.
+    Chaque test est le miroir d'un verdict du mode découpé qui, appliqué à un
+    daemon en une passe, était FAUX — c'est ce que ce module rendait tant qu'il
+    recopiait l'ancien plafond de 120 s.
     """
 
-    @pytest.mark.parametrize("duree", [30, 120, 121, 180, 240, 360, 600])
-    def test_un_seul_segment_sur_toute_la_plage(self, duree):
-        assert ss.nb_segments(duree) == 1
-
-    def test_un_texte_dun_seul_bloc_nest_plus_refuse(self):
-        # Le faux refus vécu du 2026-09-09 au 2026-09-27 : 240 s sur un bloc
-        # unique « RE-CHANTERAIT » en mode découpé. En une passe, le moteur reçoit
-        # tout le texte d'un coup — il n'y a rien à répéter.
-        r = ss.controler_couverture(" ".join(["mot"] * 480), 240)
-        assert r["couvrable"] is True, r["problemes"]
-        assert r["segments"] == 1
-        # L'hypothèse sur la config du daemon se LIT dans le rapport.
-        assert r["plafond_segment_sec"] == 600
-
-    def test_le_debit_du_segment_est_le_debit_global(self):
-        # Ces sections inégales saturaient le 1ᵉʳ segment en mode découpé
-        # (TestDebitParSegment). D'un bloc, 338 mots sur 180 s = 1,9 mots/s.
+    def test_le_temoin_inegal_ne_sature_plus_rien(self):
+        # En découpé : 2,4 mots/s sur le segment 1 et un avertissement. En une
+        # passe il n'y a qu'un débit, le global, et il est conforme.
         r = ss.controler_couverture(_SECTIONS_INEGALES, 180)
-        assert r["mots_par_segment"] == [r["mots"]]
-        assert r["debit_pire_segment"] == r["debit_mots_s"]
+        assert r["segments"] == 1
+        assert r["debit_pire_segment"] == r["debit_mots_s"] <= ss.DEBIT_CIBLE
         assert r["avertissements"] == []
 
-    def test_la_duree_deduite_ne_paie_plus_le_desequilibre(self):
-        # En mode découpé, ce texte impose une durée au-delà du plancher global
-        # (test_la_duree_deduite_desature_le_pire_segment). En une passe, non :
-        # l'allonger étirerait le chant pour désaturer un segment qui n'existe pas.
+    def test_la_duree_deduite_nest_plus_gonflee(self):
+        # En découpé : 218 s, pour désaturer un segment que le daemon ne fait plus
+        # — soit un chant étiré à ~1,55 mot/s. En une passe : le plancher global.
         r = ss.controler_couverture(_SECTIONS_INEGALES, None)
-        assert r["duree_sec"] == ss.duree_conseillee(r["mots"])
+        assert r["duree_sec"] == ss.duree_conseillee(r["mots"]) == 169
 
-    def test_la_densite_reste_refusee(self):
-        # Le mécanisme n°1 ne dépend pas du découpage : trop de mots, le moteur coupe.
-        r = ss.controler_couverture(_paroles(4, 100), 30)
-        assert r["couvrable"] is False
-        assert "coupera des sections" in r["problemes"][0]
+    def test_peu_de_sections_nest_plus_refuse(self):
+        # En découpé : 240 s = 3 segments pour 2 sections ⇒ refus RE-CHANTERONT.
+        # En une passe, tout le texte part dans l'unique appel : rien à re-chanter.
+        r = ss.controler_couverture(_paroles(2, 240), 240)
+        assert r["couvrable"] is True
+        assert r["problemes"] == []
+        # L'hypothèse sur le mode du daemon se LIT dans le rapport.
+        assert r["plafond_segment_sec"] == 600
 
 
 # --------------------------------------------------------------------------- #
@@ -301,16 +283,19 @@ class TestCouverture:
         # Le refus DIT la durée qui marcherait, sinon il n'est pas actionnable.
         assert str(r["duree_conseillee_sec"]) in r["problemes"][0]
 
-    def test_moins_de_sections_que_de_segments_est_refuse(self, plafond_decoupe):
+    @pytest.mark.usefixtures("chanson_decoupee")
+    def test_moins_de_sections_que_de_segments_est_refuse(self):
         # 240 s = 3 segments ; 2 sections ⇒ le 3ᵉ segment re-chante le 2ᵉ.
         r = ss.controler_couverture(_paroles(2, 240), 240)
         assert r["couvrable"] is False
         assert "RE-CHANTERONT" in r["problemes"][0]
         # Le refus nomme l'hypothèse qui le fonde : elle vit dans un autre processus.
         assert "plafond de segment 120 s" in r["problemes"][0]
+        assert r["plafond_segment_sec"] == 120
         assert r["sections_min"] == 3
 
-    def test_chanson_complete_de_plus_de_120s_passe(self, plafond_decoupe):
+    @pytest.mark.usefixtures("chanson_decoupee")
+    def test_chanson_complete_de_plus_de_120s_passe(self):
         # Le cas visé : > 120 s, texte complet, rien de tronqué.
         r = ss.controler_couverture(_paroles(6, 60), 180)
         assert r["couvrable"] is True
@@ -364,14 +349,14 @@ _PAROLES_TEMOIN = (
 )
 
 # Sonde exécutée DANS local-suno, avec son interpréteur et son cwd. Elle rejoue le
-# circuit réel de `custom_lyrics` : parseur de paroles custom → reconstruction de
-# l'arrangement → `generate_song_long`, le VRAI, moteur remplacé par un
-# enregistreur. `appels` est donc exactement le texte que chaque appel ACE-Step
-# recevrait — une passe ou N segments, selon la config du daemon.
+# circuit réel : parseur de paroles custom → reconstruction de l'arrangement →
+# `generate_song_long`, le VRAI, moteur remplacé par un enregistreur. Chaque liste
+# de morceaux est donc exactement le texte que chaque appel ACE-Step recevrait.
 #
-# ⚠️ La sonde recopiait auparavant la boucle `chunks.append(chunks[-1])` et
-# appelait `split_arrangement_text` elle-même : une copie de plus, qui aurait pu
-# dériver comme les constantes. Passer par la vraie fonction la fait disparaître.
+# ⚠️ La sonde recopiait la boucle `chunks.append(chunks[-1])` et appelait
+# `split_arrangement_text` elle-même : une copie de plus dans un garde contre les
+# copies, capable de dériver en silence comme les constantes. Passer par la vraie
+# fonction la fait disparaître.
 #
 # ⚠️ Pourquoi un sous-processus et pas un `sys.path.append` : les DEUX dépôts ont
 # un module `config` (et un `main`). Importé en cours de suite, `config` est déjà
@@ -390,81 +375,135 @@ from main import _build_lyrics_from_custom
 from pipeline.acestep_generator import generate_song_long, plan_segment_durations
 from pipeline.song_format import build_arrangement
 
-def chante(arrangement, duree):
+entree = json.loads(sys.stdin.read())
+arrangement = entree["arrangement"]
+# Le plafond du mode découpé est passé EXPLICITEMENT : le défaut du daemon est
+# désormais 600 s, et ce chemin n'est plus exercé qu'en surcharge (ou en v1).
+decoupe = entree["plafond_decoupe"]
+
+def plan(d, plafond=None):
+    if plafond is None:
+        return plan_segment_durations(d)  # le défaut effectif du daemon
+    return plan_segment_durations(d, plafond, ACESTEP_SEGMENT_OVERLAP_SEC)
+
+def chante(texte, duree, plafond=None):
+    # Le texte que generate_song_long envoie à CHAQUE appel du moteur.
     appels = []
-    def moteur(prompt, texte, sortie, dur, graine):
-        appels.append(texte)
+    def moteur(prompt, paroles, sortie, dur, graine):
+        appels.append(paroles)
         sf.write(str(sortie), np.zeros(int(dur * 100) + 1, dtype=np.float32), 100)
         return sortie
+    options = {} if plafond is None else {"max_segment_sec": plafond}
     with tempfile.TemporaryDirectory() as d:
-        generate_song_long("t", arrangement, Path(d) / "chanson.wav", duree,
-                           segment_generator=moteur)
+        generate_song_long("t", texte, Path(d) / "chanson.wav", duree,
+                           segment_generator=moteur, **options)
     return appels
 
-entree = json.loads(sys.stdin.read())
+def reconstruire(texte):
+    # Ce que le daemon fait de `custom_lyrics` avant de chanter.
+    ly = _build_lyrics_from_custom(texte, "t", "pop", 90, "Am")
+    return ly, build_arrangement(ly.structure, ly.lyrics)
+
+# Répartition réelle d'un arrangement à sections INÉGALES : c'est elle qui décide
+# du débit de chaque segment, et donc de ce qui sera tronqué.
+mots_par_segment = [
+    sum(len(l.split()) for l in c.splitlines() if not l.strip().startswith("["))
+    for c in chante(entree["inegal"], 180, decoupe)
+]
+
+ly, reconstruit = reconstruire(arrangement)
+durees = (30, 120, 121, 180, 240, 300, 360, 600)
+
+# Ce que chaque cas fait chanter, dans les deux modes : juge des refus de Klody.
 cas = {}
-for nom, (paroles, duree) in entree.items():
-    ly = _build_lyrics_from_custom(paroles, "t", "pop", 90, "Am")
-    reconstruit = build_arrangement(ly.structure, ly.lyrics)
-    cas[nom] = {"sections_gardees": list(ly.lyrics), "reconstruit": reconstruit,
-                "appels": chante(reconstruit, duree)}
+for nom, (texte, duree) in entree["cas"].items():
+    _, rec = reconstruire(texte)
+    cas[nom] = {"nominal": chante(rec, duree), "decoupe": chante(rec, duree, decoupe)}
 
 print(json.dumps({
     "segment_max": ACESTEP_MAX_SEGMENT_SEC,
     "overlap": ACESTEP_SEGMENT_OVERLAP_SEC,
-    "segments_par_duree": {str(d): len(plan_segment_durations(d))
-                           for d in (30, 120, 121, 180, 240, 300, 360, 600)},
+    "segments_par_duree": {str(d): len(plan(d)) for d in durees},
+    "segments_par_duree_decoupe": {str(d): len(plan(d, decoupe)) for d in durees},
+    "sections_gardees": list(ly.lyrics),
+    "reconstruit": reconstruit,
+    "morceaux": chante(reconstruit, 180),
+    "morceaux_decoupe": chante(reconstruit, 180, decoupe),
+    "mots_par_segment_inegal": mots_par_segment,
     "cas": cas,
 }))
 """
 
-_SONDE_REGLE = (
-    "import json, sys; sys.path.insert(0, '.'); "
-    "from config import ACESTEP_MAX_SEGMENT_SEC as m, ACESTEP_SEGMENT_OVERLAP_SEC as o; "
-    "print(json.dumps([m, o]))"
-)
-
-# Un texte d'un seul bloc : le cas que le mode découpé re-chante, et que la passe
-# unique chante entier. C'est lui qui prouve que le verdict de Klody suit le daemon.
+# Un texte d'un seul bloc : le mode découpé le re-chante, la passe unique le chante
+# entier. C'est lui qui prouve que le refus de Klody suit le daemon dans les DEUX
+# sens — et non seulement qu'il refuse quelque chose.
 _UN_BLOC = " ".join(["mot"] * 480)
 
 # Cas rejoués dans le daemon : (paroles BRUTES, durée). La sonde reçoit
 # l'arrangement canonique, c'est-à-dire ce que Klody envoie vraiment.
-_CAS = {
+_CAS_VERDICT = {
     "temoin": (_PAROLES_TEMOIN, 180),
     "inegal": (_SECTIONS_INEGALES, 180),
     "un_bloc": (_UN_BLOC, 240),
 }
 
-# Les deux modes du daemon, tels qu'on les obtient de SON environnement, et la
-# config équivalente côté Klody. « une_passe » tourne SANS les deux variables :
-# un `~/local-suno/.env` qui les poserait fait donc rougir ces tests — voulu, le
-# daemon réel serait alors dans un mode que Klody ignore.
-_MODES = {
-    "une_passe": ({}, ("v15", None)),
-    "decoupe": ({"ACE_STEP_VERSION": "v1"}, ("v1", None)),
-}
+# Sonde minimale : la valeur que `config.py` du daemon calcule pour un
+# environnement donné. Sert à confronter la RÈGLE de `ss.plafond_segment` (défaut
+# selon la version, surcharge prioritaire), pas seulement sa valeur du jour.
+# `load_dotenv` est neutralisé : le `.env` de la machine est un RÉGLAGE, pas la
+# règle — il est jugé à part, par `test_le_plafond_de_segment_na_pas_bouge`.
+# Sans ça, une surcharge locale rougirait les deux tests et le diagnostic
+# « règle changée » vs « machine surchargée » serait impossible.
+_SONDE_PLAFOND = r"""
+import sys
+sys.path.insert(0, ".")
+import dotenv
+dotenv.load_dotenv = lambda *a, **k: False
+from config import ACESTEP_MAX_SEGMENT_SEC
+print(ACESTEP_MAX_SEGMENT_SEC)
+"""
 
-# (ACE_STEP_VERSION, ACESTEP_MAX_SEGMENT_SEC) — None = variable absente.
-_VARIANTES_REGLE = [
-    (None, None), ("v15", None), ("v1", None),
-    ("v15", "120"), ("v1", "600"), ("v15", "300"),
-]
-
-
-def _env_daemon(**poser: str) -> dict:
-    env = {
-        k: v for k, v in os.environ.items()
-        if k not in ("ACE_STEP_VERSION", "ACESTEP_MAX_SEGMENT_SEC")
-    }
-    env.update(poser)
-    return env
+_VARIABLES_PLAFOND = ("ACE_STEP_VERSION", "ACESTEP_MAX_SEGMENT_SEC")
 
 
-def _sonder(python: Path, code: str, env: dict, entree: str = "") -> dict | list:
+def _env_sans_plafond(**surcharges: str) -> dict[str, str]:
+    """Environnement des sondes, purgé des variables du plafond.
+
+    Le daemon tourne sous launchd (`com.klody.localsuno-daemon`), qui ne les pose
+    pas : une valeur exportée dans le shell qui lance la suite ne décrit pas la
+    production, elle ferait juste diverger la sonde du mode figé par conftest.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _VARIABLES_PLAFOND}
+    return {**env, **surcharges}
+
+
+def _python_localsuno() -> Path:
+    if not _LOCALSUNO.is_dir():
+        pytest.skip("local-suno absent de cette machine — rien à confronter")
+    python = _LOCALSUNO / ".venv" / "bin" / "python"
+    if not python.exists():
+        pytest.skip(f"venv local-suno absent ({python})")
+    return python
+
+
+@pytest.fixture(scope="module")
+def daemon_reel() -> dict:
+    """Faits relevés dans le VRAI local-suno, ou skip explicite s'il est absent."""
+    python = _python_localsuno()
+    arrangement, _ = ss.canonicaliser_paroles(_PAROLES_TEMOIN)
+    inegal, _ = ss.canonicaliser_paroles(_SECTIONS_INEGALES)
     proc = subprocess.run(
-        [str(python), "-c", code], input=entree, env=env,
+        [str(python), "-c", _SONDE],
+        input=json.dumps({
+            "arrangement": arrangement, "inegal": inegal,
+            "plafond_decoupe": _PLAFOND_DECOUPE,
+            "cas": {
+                nom: [ss.canonicaliser_paroles(paroles)[0], duree]
+                for nom, (paroles, duree) in _CAS_VERDICT.items()
+            },
+        }),
         capture_output=True, text=True, cwd=str(_LOCALSUNO), timeout=120,
+        env=_env_sans_plafond(),
     )
     if proc.returncode != 0:
         pytest.fail(
@@ -472,48 +511,6 @@ def _sonder(python: Path, code: str, env: dict, entree: str = "") -> dict | list
             + proc.stderr[-1500:]
         )
     return json.loads(proc.stdout.strip().splitlines()[-1])
-
-
-@pytest.fixture(scope="module")
-def daemon_reel() -> dict:
-    """Faits relevés dans le VRAI local-suno, ou skip explicite s'il est absent."""
-    if not _LOCALSUNO.is_dir():
-        pytest.skip("local-suno absent de cette machine — rien à confronter")
-    python = _LOCALSUNO / ".venv" / "bin" / "python"
-    if not python.exists():
-        pytest.skip(f"venv local-suno absent ({python})")
-
-    regle = []
-    for version, surcharge in _VARIANTES_REGLE:
-        poser = {}
-        if version is not None:
-            poser["ACE_STEP_VERSION"] = version
-        if surcharge is not None:
-            poser["ACESTEP_MAX_SEGMENT_SEC"] = surcharge
-        plafond, overlap = _sonder(python, _SONDE_REGLE, _env_daemon(**poser))
-        regle.append((version, surcharge, plafond, overlap))
-
-    entree = json.dumps({
-        nom: [ss.canonicaliser_paroles(paroles)[0], duree]
-        for nom, (paroles, duree) in _CAS.items()
-    })
-    modes = {
-        mode: _sonder(python, _SONDE, _env_daemon(**env), entree)
-        for mode, (env, _) in _MODES.items()
-    }
-    return {"regle": regle, "modes": modes}
-
-
-@pytest.fixture(params=list(_MODES))
-def mode(request, plafond_une_passe, monkeypatch) -> str:
-    """Configure Klody comme le daemon de ce mode — par SA règle, pas un littéral.
-
-    C'est l'affirmation de bout en bout : « Klody, réglé comme le daemon, prédit ce
-    que le daemon fait ». Une règle fausse côté Klody rougit donc ici aussi.
-    """
-    _, (version, surcharge) = _MODES[request.param]
-    monkeypatch.setattr(ss, "SEGMENT_MAX_SEC", ss.plafond_segment(version, surcharge))
-    return request.param
 
 
 @pytest.mark.slow
@@ -525,12 +522,6 @@ class TestPasDeDerive:
     Toute démo au-delà de 2 min était donc silencieusement coupée de moitié, et
     rien ne pouvait rougir. Une constante recopiée sans test qui la relit est une
     constante qui ment tôt ou tard.
-
-    Deuxième morsure, le 2026-09-27 : le plafond de segment est devenu une RÈGLE
-    (600 s en v1.5, 120 s en v1) dans local-suno 3fddc2c. Ce garde a rougi — il a
-    fait son travail — mais il ne comparait qu'une valeur sous un seul
-    environnement. Il compare maintenant la règle entière et le circuit dans les
-    deux modes.
     """
 
     def test_les_bornes_de_duree_et_de_bpm_nont_pas_bouge(self):
@@ -544,59 +535,110 @@ class TestPasDeDerive:
             "bpm a changé de bornes côté daemon — mets à jour song_structure"
         )
 
-    def test_la_regle_du_plafond_est_celle_du_daemon(self, daemon_reel):
-        for version, surcharge, plafond, overlap in daemon_reel["regle"]:
-            attendu = (
-                ss.plafond_segment(surcharge=surcharge) if version is None
-                else ss.plafond_segment(version, surcharge)
-            )
-            assert attendu == plafond, (
-                f"ACE_STEP_VERSION={version} ACESTEP_MAX_SEGMENT_SEC={surcharge} : "
-                f"le daemon découpe à {plafond} s, Klody croit {attendu} s"
-            )
-            assert overlap == ss.SEGMENT_OVERLAP_SEC
+    def test_le_plafond_de_segment_na_pas_bouge(self, daemon_reel):
+        # Rougi le 2026-09-27 (600.0 == 120.0) : local-suno 3fddc2c avait passé le
+        # défaut v1.5 à 600 s dix-huit jours plus tôt. C'est ce test qui l'a vu.
+        # Klody est comparé dans l'environnement de ses serveurs MCP (launchd, sans
+        # ces variables), le daemon dans le sien, `.env` compris.
+        # ⚠️ Rouge ici alors que la règle ci-dessous est verte = le `.env` de
+        # local-suno surcharge le plafond sur CETTE machine : la couverture se
+        # calcule alors contre un autre mode que celui du daemon.
+        assert daemon_reel["segment_max"] == ss.plafond_segment({}), (
+            "le daemon n'est pas dans le mode que Klody suppose"
+        )
+        assert daemon_reel["overlap"] == ss.SEGMENT_OVERLAP_SEC
 
-    def test_le_compte_de_segments_est_celui_du_daemon(self, daemon_reel, mode):
-        reel = daemon_reel["modes"][mode]
-        assert reel["segment_max"] == ss.SEGMENT_MAX_SEC
-        calcule = {d: ss.nb_segments(int(d)) for d in reel["segments_par_duree"]}
-        assert calcule == reel["segments_par_duree"]
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {},
+            {"ACE_STEP_VERSION": "v15"},
+            {"ACE_STEP_VERSION": "v1"},
+            {"ACE_STEP_VERSION": "v15", "ACESTEP_MAX_SEGMENT_SEC": "120"},
+        ],
+        ids=["defaut", "v15", "v1", "surcharge"],
+    )
+    def test_la_regle_du_plafond_est_celle_du_daemon(self, env):
+        """`plafond_segment` réplique la RÈGLE du daemon, pas sa valeur du jour.
 
-    def test_le_daemon_garde_TOUTES_les_sections(self, daemon_reel, mode):
+        Sans ce test, un changement du défaut v1 (ou de la version par défaut)
+        passerait inaperçu tant que la machine tourne en v1.5.
+        """
+        python = _python_localsuno()
+        proc = subprocess.run(
+            [str(python), "-c", _SONDE_PLAFOND],
+            env=_env_sans_plafond(**env), capture_output=True, text=True,
+            cwd=str(_LOCALSUNO), timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr[-1500:]
+        assert float(proc.stdout.strip().splitlines()[-1]) == ss.plafond_segment(env), (
+            "la règle du plafond a changé côté daemon (config.py) — "
+            "réaligne song_structure.plafond_segment"
+        )
+
+    def test_le_compte_de_segments_est_celui_du_daemon(self, daemon_reel):
+        calcule = {d: ss.nb_segments(int(d)) for d in daemon_reel["segments_par_duree"]}
+        assert calcule == {d: n for d, n in daemon_reel["segments_par_duree"].items()}
+
+    @pytest.mark.usefixtures("chanson_decoupee")
+    def test_le_compte_de_segments_decoupe_est_celui_du_daemon(self, daemon_reel):
+        attendu = daemon_reel["segments_par_duree_decoupe"]
+        assert {d: ss.nb_segments(int(d)) for d in attendu} == attendu
+        assert attendu["180"] == 2, "le témoin découpé doit rester multi-segment"
+
+    def test_le_daemon_garde_TOUTES_les_sections(self, daemon_reel):
         # Sans la numérotation des marqueurs, le 2ᵉ [Refrain] écrase le 1ᵉʳ dans le
         # dict de sections du daemon : un refrain disparaît de la chanson.
-        gardees = daemon_reel["modes"][mode]["cas"]["temoin"]["sections_gardees"]
-        assert len(gardees) == 5, f"sections écrasées : {gardees}"
+        assert len(daemon_reel["sections_gardees"]) == 5, (
+            f"sections écrasées : {daemon_reel['sections_gardees']}"
+        )
 
-    def test_la_repartition_des_mots_est_celle_du_daemon(self, daemon_reel, mode):
+    @pytest.mark.usefixtures("chanson_decoupee")
+    def test_la_repartition_des_mots_est_celle_du_daemon(self, daemon_reel):
         """`debit_par_segment` doit prédire le VRAI découpage, pas une approximation.
 
-        C'est ce chiffre qui décide de la durée déduite : s'il diverge de ce que
-        `generate_song_long` envoie réellement, la durée choisie ne désature rien
-        (ou allonge le chant pour rien) et le garde-fou devient décoratif.
+        En mode découpé, c'est ce chiffre qui décide de la durée déduite : s'il
+        diverge de ce que `split_arrangement_text` fait réellement, la durée
+        choisie ne désature rien et le garde-fou devient décoratif.
         """
         arrangement, _ = ss.canonicaliser_paroles(_SECTIONS_INEGALES)
         predit = [m for m, _ in ss.debit_par_segment(arrangement, 180)]
-        appels = daemon_reel["modes"][mode]["cas"]["inegal"]["appels"]
-        assert predit == [ss.mots_chantes(t) for t in appels]
-        if mode == "decoupe":
-            assert predit[0] > predit[1], "le témoin doit rester déséquilibré"
-        else:
-            assert len(predit) == 1, "une passe : tout le texte dans un seul appel"
+        assert predit == daemon_reel["mots_par_segment_inegal"]
+        assert predit[0] > predit[1], "le témoin doit rester déséquilibré"
 
-    def test_le_verdict_de_repetition_est_celui_du_daemon(self, daemon_reel, mode):
-        """Le test qui porte la conclusion : Klody refuse SSI le daemon re-chante.
+    @pytest.mark.usefixtures("chanson_decoupee")
+    def test_circuit_decoupe_chaque_segment_chante_autre_chose(self, daemon_reel):
+        """Le test qui porte la conclusion du mode découpé : > 120 s sans texte re-chanté."""
+        morceaux = daemon_reel["morceaux_decoupe"]
+        assert len(morceaux) == ss.nb_segments(180) == 2, "180 s = 2 segments"
+        assert len(set(morceaux)) == len(morceaux), (
+            "des segments chanteraient le même texte"
+        )
+
+    def test_circuit_nominal_tout_le_texte_part_dans_un_appel(self, daemon_reel):
+        # En une passe, rien n'est réparti : l'arrangement reconstruit ENTIER est
+        # ce que le moteur reçoit. Klody doit annoncer le même nombre de segments.
+        morceaux = daemon_reel["morceaux"]
+        assert len(morceaux) == ss.nb_segments(180)
+        if len(morceaux) == 1:
+            assert morceaux[0] == daemon_reel["reconstruit"]
+
+    @pytest.mark.parametrize("mode", ["nominal", "decoupe"])
+    def test_le_verdict_de_repetition_est_celui_du_daemon(self, daemon_reel, mode, request):
+        """Klody refuse « RE-CHANTERONT » SSI le daemon re-chante vraiment.
 
         Un refus que le daemon ne justifie pas est aussi faux qu'un refus manquant
         — c'est ce que Klody rendait du 2026-09-09 au 2026-09-27, en une passe.
         """
-        cas = daemon_reel["modes"][mode]["cas"]
-        repete = {nom: len(set(c["appels"])) < len(c["appels"]) for nom, c in cas.items()}
+        if mode == "decoupe":
+            request.getfixturevalue("chanson_decoupee")
+        cas = {nom: c[mode] for nom, c in daemon_reel["cas"].items()}
+        repete = {nom: len(set(appels)) < len(appels) for nom, appels in cas.items()}
         # Le témoin doit garder son pouvoir de discrimination dans les deux sens.
         assert repete["un_bloc"] is (mode == "decoupe")
         assert repete["temoin"] is False and repete["inegal"] is False
 
-        for nom, (paroles, duree) in _CAS.items():
+        for nom, (paroles, duree) in _CAS_VERDICT.items():
             r = ss.controler_couverture(paroles, duree)
             refuse = any("RE-CHANTERONT" in p for p in r["problemes"])
             assert refuse is repete[nom], (
@@ -604,22 +646,11 @@ class TestPasDeDerive:
                 f"{'re-chante' if repete[nom] else 'chante tout'}, "
                 f"Klody {'refuse' if refuse else 'accepte'}"
             )
-            assert r["segments"] == len(cas[nom]["appels"])
+            assert r["segments"] == len(cas[nom])
 
-    def test_circuit_complet_chaque_segment_chante_autre_chose(self, daemon_reel, mode):
-        """> 120 s sans texte re-chanté, dans les deux modes."""
-        c = daemon_reel["modes"][mode]["cas"]["temoin"]
-        attendu = 2 if mode == "decoupe" else 1
-        assert len(c["appels"]) == attendu, f"180 s = {attendu} appel(s) en {mode}"
-        assert len(set(c["appels"])) == len(c["appels"]), (
-            "des segments chanteraient le même texte"
-        )
-        if mode == "une_passe":
-            assert c["appels"] == [c["reconstruit"]]
-
-    def test_aucune_parole_perdue_en_route(self, daemon_reel, mode):
-        chante = "\n".join(daemon_reel["modes"][mode]["cas"]["temoin"]["appels"])
+    def test_aucune_parole_perdue_en_route(self, daemon_reel):
+        reconstruit = daemon_reel["reconstruit"]
         for ligne in _PAROLES_TEMOIN.splitlines():
             t = ligne.strip()
             if t and not t.startswith("[") and not t.lower().startswith("refrain"):
-                assert t in chante, f"parole perdue : {t!r}"
+                assert t in reconstruit, f"parole perdue : {t!r}"
