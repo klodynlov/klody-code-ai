@@ -85,6 +85,7 @@ files = [
     "klody_mcp/song_structure.py",
     "klody_mcp/memory_server.py",
     "api/metrics.py",
+    "api/garde_origine.py",  # garde de sécurité : typé d'office
 ]
 # Adoption incrémentale : on ne reporte que les erreurs des modules listés
 # dans `files`. Les modules suivis par import mais pas encore typés (skills,

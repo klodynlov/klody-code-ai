@@ -95,7 +95,7 @@ class TestStore:
 class TestBeaconEndpoint:
     def setup_method(self):
         preview_errors.clear()
-        self.client = TestClient(app)
+        self.client = TestClient(app, base_url="http://127.0.0.1:8000")
 
     def test_post_text_plain_bufferise(self):
         body = json.dumps({

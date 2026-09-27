@@ -9,7 +9,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from tools.excel import generate_excel
 from tools.registry import get_tool_names
 
@@ -190,10 +189,9 @@ def test_pas_d_event_sans_emit_cli(orch, downloads):
 class TestDownloadEndpoint:
     @pytest.fixture
     def client(self):
-        from fastapi.testclient import TestClient
-
         from api.server import app
-        return TestClient(app)
+        from fastapi.testclient import TestClient
+        return TestClient(app, base_url="http://127.0.0.1:8000")
 
     def test_telecharge_un_xlsx(self, client, downloads):
         (downloads / "served.xlsx").write_bytes(b"PK\x03\x04fake-xlsx")

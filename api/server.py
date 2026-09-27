@@ -49,6 +49,7 @@ from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
 from api import metrics as _metrics
+from api.garde_origine import ORIGINES_UI, GardeOrigine
 from api.streaming import StopGeneration, make_stream_api
 
 logger = logging.getLogger(__name__)
@@ -126,20 +127,13 @@ app = FastAPI(title="KlodyAI API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:1420",  # Tauri dev
-        "http://localhost:1421",
-        "http://localhost:5173",  # Vite dev
-        "http://localhost:5174",
-        "http://localhost:3000",
-        "http://127.0.0.1",
-        "http://127.0.0.1:1420",
-        "tauri://localhost",       # Tauri production
-    ],
+    allow_origins=list(ORIGINES_UI),
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
+# Ajouté APRÈS CORS, donc EXTÉRIEUR : il juge avant tout le reste, WebSocket
+# compris (que CORS ne couvre pas). Détail et incident dans api/garde_origine.py.
+app.add_middleware(GardeOrigine)
 
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
