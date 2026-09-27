@@ -73,7 +73,9 @@ est_periodique() {
     # sert donc toujours le code du disque, et la notion de « démarré avant une
     # modification » n'a aucun sens pour lui. Il est écarté du critère de
     # péremption par cette raison-là, pas par accident d'absence de PID.
-    grep -q '<key>StartInterval</key>' "$1" 2>/dev/null
+    # `StartCalendarInterval` (créneaux horaires, `bench-dispatch`) est de la
+    # même nature : compté jusqu'ici comme « résident », à tort.
+    grep -qE '<key>Start(Calendar)?Interval</key>' "$1" 2>/dev/null
 }
 
 demarrage_epoch() {

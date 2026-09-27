@@ -5,7 +5,7 @@ GitHub Actions.
 
 ## 1. Figer la baseline bench
 
-Le workflow `.github/workflows/bench-nightly.yml` (cron 03:00 UTC) lance le
+Le workflow `.github/workflows/bench-nightly.yml` (déclenché depuis le Mac, §« Déclenchement du nightly ») lance le
 bench sur le runner self-hosted Mac et compare `bench/results/latest.json` à
 `bench/results/baseline.json`. Tant que `baseline.json` n'existe pas, le
 workflow accepte le run sans gate.
@@ -98,33 +98,45 @@ serveurs — et le workflow doit alors pointer `MLX_BASE_URL` sur `:8080`.
 > `verify-runner` annule le run après 15 min avec un message explicite. Un historique
 > de runs « annulés » sans autre trace, c'est ça.
 
-### Réveil planifié pour le nightly bench
+### Déclenchement du nightly (depuis le Mac)
 
-Le cron GitHub tire à **03:00 UTC** — soit 05:00 heure locale en été (CEST) et
-04:00 en hiver (CET). Le Mac dort la nuit (`sleep 1`) et le runner self-hosted ne
-peut pas prendre le job quand la machine est endormie. En août 2026, ça a causé
-**11 annulations sur 20 runs**.
+Le workflow n'a **plus de `schedule:`** depuis le 2026-09-27. Le cron GitHub
+`0 3 * * *` tirait entre **03:37 et 14:55 UTC** (90 runs planifiés mesurés), et
+chaque jour de septembre entre 07:26 et 08:36 UTC — sur un portable endormi, la
+sentinelle annulait le run 15 min plus tard. Le réveil `pmset` de 03:50 et son
+`caffeinate` tombaient systématiquement à côté.
 
-Deux pièces, toutes deux nécessaires :
+Le runner est le Mac, donc le déclencheur aussi :
 
-1. **`pmset repeat wakeorpoweron`** (matériel, une fois, requiert `sudo`) :
+1. **`com.klody.bench-dispatch`** (`scripts/bench_dispatch.py`, `/usr/bin/python3`) :
+   créneaux 03:52, 09:00, 13:00, 18:00, 22:00. Un créneau manqué pendant le
+   sommeil est rattrapé au réveil. Déclenche `gh workflow run` **seulement** si
+   aucun run créé depuis 20 h n'est en vol ou jugé (vert OU rouge) — un run
+   annulé n'a rien mesuré et se rattrape au créneau suivant. Tient le Mac éveillé
+   15 min (le délai de la sentinelle), puis le job `bench` prend le relais avec
+   son propre `caffeinate`.
+
+   ```bash
+   /usr/bin/python3 scripts/bench_dispatch.py --check
+   ```
+
+   ```bash
+   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.bench-dispatch.plist
+   ```
+
+2. **`pmset repeat wakeorpoweron`** (optionnel, `sudo`, une fois) : donne au
+   créneau de 03:52 une chance de tomber sur un Mac éveillé. Sur batterie le
+   réveil est un DarkWake de quelques secondes ; le rattrapage au réveil suivant
+   reste le filet.
 
    ```bash
    sudo pmset repeat wakeorpoweron MTWRFSU 03:50:00
    ```
 
-   Réveille le Mac à **03:50 local** chaque nuit. C'est assez tôt pour les deux
-   changements d'heure : le cron tombe à 04:00 (hiver) ou 05:00 (été), les deux
-   sont après 03:50. Vérification : `pmset -g sched | grep wakeorpoweron`.
-
-2. **`com.klody.bench-wake`** (anti-re-sommeil, `launchagents/`) : le Mac se
-   rendort après 1 min d'inactivité. Le LaunchAgent lance `caffeinate -u -t 5400`
-   à 03:52 local — 90 min de maintien éveillé, ce qui couvre l'écart été (70 min)
-   et hiver (10 min). Installer :
-
-   ```bash
-   launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.bench-wake.plist
-   ```
+⚠️ Les deux agents s'installent avec `scripts/install-launchagents.sh` ; un plist
+versionné mais jamais chargé ne tourne JAMAIS. `bench-wake` et `veille-nightly`
+étaient `ABSENT` de launchd tout septembre — `--check` le disait, personne ne le
+lisait.
 
 ### Veille de santé du nightly
 
@@ -133,12 +145,16 @@ Deux pièces, toutes deux nécessaires :
 « rien à signaler » / « pas pu interroger » — la mutation `MUETTE_JOURS → 99999`
 est verrouillée par un test sur un littéral.
 
+Contrôle à la main (sous le MÊME interpréteur que l'agent — c'est lui qui juge) :
+
 ```bash
-# Contrôle à la main
 /usr/bin/python3 scripts/veille_nightly.py --check
-# Installer l'agent
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.klody.veille-nightly.plist
 ```
+
+⚠️ Jusqu'au 2026-09-27 cette commande plantait à l'import (`datetime.UTC`, 3.11+,
+sous un Python 3.9) et `gh` était introuvable sous le PATH de launchd : la veille
+n'a jamais pu notifier. `tests/test_scripts_python_systeme.py` verrouille
+désormais tout script lancé par `/usr/bin/python3`.
 
 ### Démarrage automatique de MLX (LaunchAgent)
 

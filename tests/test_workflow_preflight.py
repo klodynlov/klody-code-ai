@@ -238,3 +238,66 @@ class TestEtapeLaunchAgents:
     def test_appelle_check(self):
         bloc = extraire_run(ETAPE_LAUNCHAGENTS)
         assert "install-launchagents.sh --check" in bloc
+
+
+# --- Déclenchement, lock macOS, éveil (2026-09-27) ------------------------------
+#
+# Neuf nightlies d'affilée sans un vert, du 18 au 26 septembre 2026, pour deux
+# causes que rien ne remontait : le cron GitHub tirait avec ~5 h de retard sur un
+# Mac endormi (annulé), et le venv du contrôle de lock, laissé dans `/tmp` d'un
+# run à l'autre, avait été purgé par macOS (rouge, bench sauté).
+
+
+def _donnees() -> dict:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def _run_brut(nom: str) -> str:
+    """Bloc `run:` SANS neutraliser les `${{ … }}` — pour juger ce qui est collé."""
+    for job in _donnees()["jobs"].values():
+        for etape in job.get("steps", []):
+            if etape.get("name") == nom:
+                return etape["run"]
+    raise AssertionError(f"étape « {nom} » introuvable")
+
+
+class TestDeclenchement:
+    def test_pas_de_cron_github(self):
+        """Le déclencheur vit sur le Mac (`scripts/bench_dispatch.py`). Remettre
+        un `schedule:` doublerait le bench les jours où le Mac est éveillé aux
+        deux moments."""
+        donnees = _donnees()
+        declencheurs = donnees.get("on", donnees.get(True))
+        assert "schedule" not in declencheurs
+        assert "workflow_dispatch" in declencheurs
+
+
+class TestLockMacos:
+    def test_venv_neuf_hors_de_tmp(self):
+        # Commentaires écartés : ils racontent l'incident et citent donc `/tmp`.
+        code = "\n".join(
+            ligne for ligne in _run_brut("Recompiler et comparer").splitlines()
+            if not ligne.lstrip().startswith("#")
+        )
+        assert "-m venv --clear" in code
+        assert "$RUNNER_TEMP" in code
+        assert "/tmp/" not in code, "macOS purge /tmp (tmp_cleaner) : venv amputé au run suivant"
+
+
+class TestEveil:
+    def test_premiere_etape_du_bench_tient_le_mac_eveille(self):
+        etapes = _donnees()["jobs"]["bench"]["steps"]
+        assert etapes[0]["name"] == "Garder le Mac éveillé"
+        assert "caffeinate" in etapes[0]["run"] and "-t " in etapes[0]["run"]
+
+
+def test_aucune_entree_de_dispatch_collee_dans_un_script():
+    """`${{ inputs.* }}` est substitué dans le texte du script AVANT bash :
+    injection de commande sur le runner self-hosted. Passer par `env:`."""
+    fautifs = [
+        etape["name"]
+        for job in _donnees()["jobs"].values()
+        for etape in job.get("steps", [])
+        if "${{ inputs." in etape.get("run", "")
+    ]
+    assert not fautifs, f"entrées interpolées dans run: {fautifs}"
