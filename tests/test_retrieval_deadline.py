@@ -111,6 +111,32 @@ def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None, *, retrieval_
     return orch
 
 
+@pytest.fixture(autouse=True)
+def _echeance_intacte():
+    """L'échéance vue par l'orchestrateur est celle de `config` au début de CHAQUE test.
+
+    Vécu le 2026-09-27 (trouvé par une session voisine, reproduit ici) : les
+    tests patchaient `config.RETRIEVAL_BUILD_DEADLINE_S` AVANT
+    `agent.orchestrator.RETRIEVAL_BUILD_DEADLINE_S`. Or la cible en chaîne
+    IMPORTE `agent.orchestrator` si personne ne l'a fait : quand ce fichier
+    ouvre le processus, le module copiait donc 0,3 à l'import, et monkeypatch
+    « restaurait » 0,3. Sonde : orchestrateur 0,3 / config 2,0 pour tous les
+    tests suivants. Patcher `config` était de toute façon inopérant —
+    l'orchestrateur lit SA copie.
+
+    Lecture par `sys.modules`, jamais par import : importer ici ferait capturer
+    la bonne valeur au module, et la garde masquerait le défaut qu'elle surveille.
+    """
+    import config
+
+    orch_mod = sys.modules.get("agent.orchestrator")
+    if orch_mod is not None:
+        assert orch_mod.RETRIEVAL_BUILD_DEADLINE_S == config.RETRIEVAL_BUILD_DEADLINE_S, (
+            f"échéance empoisonnée par un test précédent : orchestrateur "
+            f"{orch_mod.RETRIEVAL_BUILD_DEADLINE_S} s, config {config.RETRIEVAL_BUILD_DEADLINE_S} s"
+        )
+
+
 # -- tests ------------------------------------------------------------------- #
 
 class TestRetrievalDeadline:
@@ -121,9 +147,6 @@ class TestRetrievalDeadline:
 
     def test_embed_lent_ne_bloque_pas(self, monkeypatch, tmp_path):
         """Un _embed_batch qui dort 10 s ne bloque pas le tour."""
-        monkeypatch.setattr(
-            "config.RETRIEVAL_BUILD_DEADLINE_S", 0.3,
-        )
         monkeypatch.setattr(
             "agent.orchestrator.RETRIEVAL_BUILD_DEADLINE_S", 0.3,
         )
@@ -138,9 +161,6 @@ class TestRetrievalDeadline:
 
     def test_embed_rapide_rend_des_pistes(self, monkeypatch, tmp_path):
         """Un retrieval rapide rend des pistes normalement."""
-        monkeypatch.setattr(
-            "config.RETRIEVAL_BUILD_DEADLINE_S", 5.0,
-        )
         monkeypatch.setattr(
             "agent.orchestrator.RETRIEVAL_BUILD_DEADLINE_S", 5.0,
         )
@@ -195,9 +215,6 @@ class TestRetrievalDeadline:
         """Un warning est loggé quand l'échéance est dépassée."""
         import logging
 
-        monkeypatch.setattr(
-            "config.RETRIEVAL_BUILD_DEADLINE_S", 0.1,
-        )
         monkeypatch.setattr(
             "agent.orchestrator.RETRIEVAL_BUILD_DEADLINE_S", 0.1,
         )
