@@ -68,7 +68,9 @@ VRAIS_DOSSIERS: tuple[Path, ...] = tuple(
 _racines: list[str] = [str(p) for p in VRAIS_DOSSIERS]
 _violations: list[str] = []
 _verrou = threading.Lock()
-_installe = False
+# Hook posé ? Un conteneur plutôt qu'un booléen `global` : un addaudithook est
+# définitif (PEP 578), un second appel doublerait chaque refus.
+_hooks_poses: list[object] = []
 
 # Ouverture en écriture : `open()` passe un mode texte, `os.open` des drapeaux.
 _DRAPEAUX_ECRITURE = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
@@ -142,12 +144,11 @@ def _hook(evenement: str, args: tuple) -> None:
 
 
 def installer_garde() -> None:
-    """Pose le hook d'audit. Définitif pour le processus (PEP 578) — d'où le drapeau."""
-    global _installe
-    if _installe:
+    """Pose le hook d'audit, une seule fois par processus."""
+    if _hooks_poses:
         return
     sys.addaudithook(_hook)
-    _installe = True
+    _hooks_poses.append(_hook)
 
 
 def marque() -> int:

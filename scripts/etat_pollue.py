@@ -176,7 +176,9 @@ def premier_message(f: Path) -> str:
                     texte = texte.split("\n\n", 1)[1]
                 return texte.split("\n", 1)[0][:60]
     except (ValueError, OSError, AttributeError):
-        pass
+        # Libellé d'affichage seulement : le CLASSEMENT d'un fichier illisible
+        # est décidé par `inventaire` (« illisible », donc gardé), pas ici.
+        return "?"
     return "?"
 
 
