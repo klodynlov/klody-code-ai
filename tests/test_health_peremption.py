@@ -150,7 +150,7 @@ class TestLeWatchdogNeBouclePasSurUn503:
 class TestApiStatus:
     def test_status_expose_le_verdict(self, client, deps_a_jour, monkeypatch):
         monkeypatch.setattr(server, "_load_project_info", lambda: {"workdir": "/tmp"})
-        monkeypatch.setattr(server, "get_librarybrain_status", lambda: {"up": False})
+        monkeypatch.setattr("services.get_librarybrain_status", lambda: {"up": False})
         r = client.get("/api/status")
         assert r.status_code == 200
         deps = r.json()["dependances"]
@@ -160,7 +160,7 @@ class TestApiStatus:
     def test_status_nomme_le_remede_quand_c_est_perime(self, client, deps_perimees,
                                                        monkeypatch):
         monkeypatch.setattr(server, "_load_project_info", lambda: {"workdir": "/tmp"})
-        monkeypatch.setattr(server, "get_librarybrain_status", lambda: {"up": False})
+        monkeypatch.setattr("services.get_librarybrain_status", lambda: {"up": False})
         deps = client.get("/api/status").json()["dependances"]
         assert deps["statut"] == peremption.PERIMEES
         assert "com.klody.api" in deps["remede"]
