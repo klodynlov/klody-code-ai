@@ -32,6 +32,15 @@ Sont considérés comme vulnérabilités :
 - **Désérialisation non sûre** dans les imports d'historique LLM.
 - **MCP server** : qu'un client MCP puisse provoquer une exécution
   hors-périmètre via les 8 outils exposés.
+- **Pilotage de l'API locale depuis une page web** (CSRF, WebSocket
+  inter-origines, DNS rebinding). L'API n'écoute que sur 127.0.0.1, mais le
+  navigateur de l'utilisateur l'atteint depuis n'importe quel site ouvert.
+  Tout passe par [`api/garde_origine.py`](api/garde_origine.py) : `Host`
+  local, `Origin` dans la liste de l'UI, et pas de requête à effet de bord
+  inter-sites sans origine. Corrigé le 2026-09-27 — avant, `GET /api/siri?q=…`
+  lançait l'agent sur un simple `<img>`, un POST `text/plain` modifiait la
+  configuration et la mémoire, et le WebSocket acceptait toute origine.
+  Tests : `tests/test_garde_origine.py` (chaque vecteur rejoué contre l'app).
 
 Ne sont **pas** considérés comme vulnérabilités :
 

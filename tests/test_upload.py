@@ -42,7 +42,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     from api.server import app
     from fastapi.testclient import TestClient
 
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as c:
         yield c, uploads
 
 
