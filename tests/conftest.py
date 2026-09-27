@@ -2,12 +2,30 @@
 import logging
 import sys
 
+# ⚠️ AVANT `import config` : config fige MEMORY_DIR dès l'import, et trois modules
+# le recopient à leur tour. Rediriger après coup laisserait ces copies sur le vrai
+# ~/.klody/data. Cf. tests/garde_etat.py.
+from tests import garde_etat
+
+garde_etat.rediriger()
+garde_etat.installer_garde()
+
 import config
 import pytest
 from agent import semantic_memory
 from tools import embeddings
 
 from tests import journal_figeage
+
+# Si `config` avait été importé avant ce fichier (plugin, `tests/__init__.py`…),
+# la redirection arriverait trop tard et TOUTE la suite écrirait dans le vrai
+# dossier. On refuse de démarrer plutôt que de le découvrir à 6 000 sessions.
+if garde_etat.est_protege(config.MEMORY_DIR):
+    raise RuntimeError(
+        f"config.MEMORY_DIR = {config.MEMORY_DIR} : l'état persistant n'a pas été "
+        "redirigé avant le premier `import config` (import anticipé par un plugin "
+        "ou `tests/__init__.py`, ou `garde_etat.rediriger()` retiré)."
+    )
 
 # Capturé AVANT toute redirection : le garde-fou de tests/test_hermeticite_voix.py
 # doit pouvoir vérifier que le vrai dossier reste intact, et il ne le peut plus si
@@ -56,6 +74,41 @@ def _pas_de_pollution_du_log_prod():
     yield
     for h in detached:
         root.addHandler(h)
+
+
+@pytest.fixture(autouse=True)
+def _etat_persistant_isole(monkeypatch, tmp_path_factory):
+    """Chaque test a SON dossier d'état, et le vrai n'est jamais touché.
+
+    Au-delà de la redirection de session (tests/garde_etat.py), un dossier PAR
+    test : sans lui, une session créée par un test apparaît dans la liste d'un
+    autre (`/api/sessions`, `load_latest`), et un test de listage dépend de
+    l'ordre d'exécution. `tmp_path_factory` et pas `tmp_path` : un dossier de
+    plus dans `tmp_path` fausserait les tests qui en listent le contenu.
+
+    L'environnement suit, pour les `importlib.reload(config)` et les
+    sous-processus lancés par le test.
+
+    Après le test, toute écriture REFUSÉE par le garde fait rougir le test — y
+    compris quand le code l'a avalée (`ConversationMemory.save` rattrape
+    l'`OSError` et se contente de journaliser : sans cette relecture, le test
+    resterait vert).
+    """
+    dossier = tmp_path_factory.mktemp("klody-data")
+    monkeypatch.setattr(config, "MEMORY_DIR", dossier)
+    # setenv mémorise la valeur d'avant : même un code qui réécrit ces variables
+    # (le mode fils de bench.run le fait, délibérément) les rend à la sortie.
+    monkeypatch.setenv("KLODY_DATA_DIR", str(dossier))
+    monkeypatch.setenv("SEMANTIC_MEMORY_DB", str(dossier / "semantic_memory.db"))
+    position = garde_etat.marque()
+    yield dossier
+    fuites = garde_etat.violations_depuis(position)
+    if fuites:
+        pytest.fail(
+            "écriture dans l'état persistant RÉEL (refusée, mais le test l'a tentée) :\n  "
+            + "\n  ".join(fuites),
+            pytrace=False,
+        )
 
 
 @pytest.fixture(autouse=True)

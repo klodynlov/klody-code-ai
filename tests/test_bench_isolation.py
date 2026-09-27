@@ -18,12 +18,17 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
+import textwrap
+from pathlib import Path
 
 import pytest
 from bench import run as bench_run
 from bench.framework import Result
+
+from tests import garde_etat
 
 
 class TacheFactice:
@@ -199,7 +204,8 @@ def test_le_mode_fils_ecrit_tous_les_champs_de_result(monkeypatch, tmp_path):
     sortie = tmp_path / "result.json"
 
     code = bench_run.main(
-        ["--child-task", "easy/rename_var", "--child-out", str(sortie)]
+        ["--child-task", "easy/rename_var", "--child-out", str(sortie),
+         "--child-data-dir", str(tmp_path / "etat")]
     )
 
     assert code == 0
@@ -217,10 +223,13 @@ def test_le_mode_fils_n_ecrit_rien_dans_results(monkeypatch, tmp_path):
     resultats.mkdir()
     monkeypatch.setattr(bench_run, "RESULTS_DIR", resultats)
 
-    bench_run.main(
-        ["--child-task", "easy/rename_var", "--child-out", str(tmp_path / "r.json")]
+    code = bench_run.main(
+        ["--child-task", "easy/rename_var", "--child-out", str(tmp_path / "r.json"),
+         "--child-data-dir", str(tmp_path / "etat")]
     )
 
+    # Sans ce code, un fils qui refuserait d'emblée rendrait ce test vert à vide.
+    assert code == 0
     assert list(resultats.iterdir()) == []
 
 
@@ -233,7 +242,8 @@ def test_le_mode_fils_refuse_une_tache_inconnue(monkeypatch, tmp_path):
     )
 
     code = bench_run.main(
-        ["--child-task", "easy/inexistante", "--child-out", str(tmp_path / "r.json")]
+        ["--child-task", "easy/inexistante", "--child-out", str(tmp_path / "r.json"),
+         "--child-data-dir", str(tmp_path / "etat")]
     )
 
     assert code == 1
@@ -241,3 +251,127 @@ def test_le_mode_fils_refuse_une_tache_inconnue(monkeypatch, tmp_path):
 
 def test_le_mode_fils_exige_un_chemin_de_sortie():
     assert bench_run.main(["--child-task", "easy/rename_var"]) == 1
+
+
+# --- une tâche = un état neuf ---------------------------------------------------
+#
+# Constaté le 2026-09-27 : 1 236 sessions du banc dans ~/.klody/data, le vrai
+# dossier d'état de l'utilisateur, et un prompt de banc qui injectait SON profil
+# et SA mémoire long terme. Cf. le commentaire de `_isoler_etat`.
+
+
+def test_chaque_fils_recoit_un_dossier_d_etat_jetable_et_distinct(monkeypatch):
+    vus = []
+
+    def faux_run(cmd, **kwargs):
+        etat = _arg(cmd, "--child-data-dir")
+        vus.append((etat, os.path.isdir(etat), os.listdir(etat)))
+        with open(_arg(cmd, "--child-out"), "w", encoding="utf-8") as f:
+            json.dump(_result().__dict__, f)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bench_run.subprocess, "run", faux_run)
+    bench_run._run_one(TacheFactice)
+    bench_run._run_one(TacheFactice)
+
+    (etat_1, existe_1, contenu_1), (etat_2, _, _) = vus
+    assert existe_1 and contenu_1 == [], "le fils doit trouver un dossier VIDE"
+    assert etat_1 != etat_2, "deux tâches ne partagent pas leur état"
+    assert not garde_etat.est_protege(etat_1)
+    # Dans le dossier jetable de la tâche : il part avec elle.
+    assert not os.path.exists(etat_1)
+
+
+def test_le_mode_fils_exige_un_dossier_d_etat(monkeypatch, tmp_path):
+    """Refuser plutôt que retomber sur ~/.klody/data : un parent qui oublierait
+    l'argument rendrait des tâches en échec, pas une pollution muette."""
+    monkeypatch.setattr(bench_run.metrics, "install_patches", lambda: True)
+    monkeypatch.setattr(
+        bench_run,
+        "_run_one_inprocess",
+        lambda _: pytest.fail("la tâche a tourné sans dossier d'état"),
+    )
+
+    code = bench_run.main(
+        ["--child-task", "easy/rename_var", "--child-out", str(tmp_path / "r.json")]
+    )
+
+    assert code == 1
+
+
+def test_le_mode_fils_redirige_l_etat_avant_la_tache(monkeypatch, tmp_path):
+    vu = {}
+
+    def espion_patches():
+        # install_patches importe config : la redirection doit la PRÉCÉDER.
+        vu["patches"] = os.environ["KLODY_DATA_DIR"]
+        return True
+
+    def espion_tache(_):
+        vu["tache"] = (os.environ["KLODY_DATA_DIR"], os.environ["SEMANTIC_MEMORY_DB"])
+        return _result(task_id="easy/rename_var")
+
+    monkeypatch.setattr(bench_run.metrics, "install_patches", espion_patches)
+    monkeypatch.setattr(bench_run, "_run_one_inprocess", espion_tache)
+    etat = tmp_path / "etat"
+
+    bench_run.main(
+        ["--child-task", "easy/rename_var", "--child-out", str(tmp_path / "r.json"),
+         "--child-data-dir", str(etat)]
+    )
+
+    assert vu["patches"] == str(etat)
+    assert vu["tache"] == (str(etat), str(etat / "semantic_memory.db"))
+
+
+def test_un_vrai_fils_ne_voit_aucun_chemin_d_etat_hors_de_son_dossier(tmp_path):
+    """Dans un interpréteur NEUF, comme le vrai fils : les modules qui figent
+    leur chemin à l'import (`_STORAGE`, `_PROFILE_FILE`) doivent le prendre
+    dans le dossier de la tâche. Un monkeypatch de config.MEMORY_DIR ne les
+    aurait pas atteints — d'où la redirection par l'environnement."""
+    etat = tmp_path / "etat"
+    etat.mkdir()
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("KLODY_DATA_DIR", "SEMANTIC_MEMORY_DB")}
+    env["HOME"] = str(tmp_path / "home")  # le défaut ne pointe jamais sur le vrai
+    code = textwrap.dedent(f"""
+        import json, sys
+        from pathlib import Path
+        from bench import run
+        run._isoler_etat(Path({str(etat)!r}))
+        import config, agent.long_term_memory as ltm, agent.profiler as prof
+        print(json.dumps([str(config.MEMORY_DIR), str(config.SEMANTIC_MEMORY_DB),
+                          str(ltm._STORAGE), str(prof._PROFILE_FILE)]))
+    """)
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=bench_run.REPO_ROOT, env=env,
+        capture_output=True, text=True, timeout=120, check=True,
+    )
+
+    chemins = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert all(c.startswith(str(etat)) for c in chemins), chemins
+
+
+def test_bench_isolation_0_isole_aussi_l_etat(monkeypatch, tmp_path):
+    """Le mode de débogage exécute l'agent dans le parent : sans ce dossier,
+    c'est là que les sessions rejoindraient l'historique de l'utilisateur."""
+    monkeypatch.setenv("BENCH_ISOLATION", "0")
+    monkeypatch.setattr(bench_run, "_TMP_ROOT", str(tmp_path))
+    monkeypatch.setattr(bench_run, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(bench_run.provenance, "describe_config", lambda: {})
+    monkeypatch.setattr(bench_run.provenance, "describe_short", lambda _m: "")
+    vu = {}
+
+    def espion_patches():
+        vu["etat"] = os.environ["KLODY_DATA_DIR"]
+        return True
+
+    monkeypatch.setattr(bench_run.metrics, "install_patches", espion_patches)
+    monkeypatch.setattr(bench_run, "_run_one", lambda cls: _result(task_id=cls.id))
+
+    bench_run.main(["--task", "easy/rename_var", "--label", "t"])
+
+    etat = Path(vu["etat"])
+    assert etat.parent == tmp_path and etat.name.startswith("kb-etat-")
+    assert not garde_etat.est_protege(etat)
