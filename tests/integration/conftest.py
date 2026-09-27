@@ -4,9 +4,14 @@ Wire un Orchestrator dont le LLM/Router sont stubés. Test = scénario figé.
 """
 from __future__ import annotations
 
+import errno
+import functools
 import json
+import socket
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -39,6 +44,174 @@ def _no_live_retrieval(monkeypatch):
     retrieval est best-effort et n'est pas le sujet de ces tests ; ses tests dédiés
     (tests/test_retrieval_inject.py) stubent l'index. Défaut prod = activé."""
     monkeypatch.setattr("agent.orchestrator.RETRIEVAL_INJECT_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_preview_feedback_wait(monkeypatch):
+    """Ramène l'attente du retour d'erreurs de preview à son défaut hors live (0).
+
+    `PREVIEW_FEEDBACK_TIMEOUT_S` vaut 0 dans `config.py`, mais le `.env` du
+    checkout principal le pose à 6,0 — et un worktree en hérite, `load_dotenv()`
+    remontant l'arborescence jusqu'à lui. Chaque `preview_code` attendait alors
+    6 s un beacon que le navigateur, bouchonné par `_no_preview_bind`, ne peut
+    PAS envoyer : mesuré le 2026-09-27, rejeu #18 (5 previews) à 30,6 s et #06
+    (1 preview) à 6,1 s, dans les deux passes — sur la machine de dev seulement,
+    la CI n'ayant pas de `.env` : deux chemins de code selon la machine.
+    La boucle de feedback a ses tests dédiés (`tests/test_preview_feedback.py`,
+    `test_preview_feedback_loop.py`), qui posent leur propre délai après celui-ci.
+    """
+    monkeypatch.setattr("agent.orchestrator.PREVIEW_FEEDBACK_TIMEOUT_S", 0.0)
+
+
+class LibraryBrainBouchon:
+    """Réponses déterministes des deux ponts LibraryBrain, et journal des appels.
+
+    Le catalogue rend TOUJOURS un miss, formaté par le vrai `_catalog_miss` : c'est
+    la condition du scénario #21 (le modèle interroge le catalogue, ne trouve rien,
+    conclut « aucune source »). La recherche de contenu rend un passage sourcé,
+    formaté par le vrai `_parse_result`. Le texte vient donc du code de production ;
+    seules la base et le serveur sont remplacés.
+
+    `via` distingue l'appel d'OUTIL (nom importé par l'orchestrateur) de l'appel
+    INTERNE au module (`learn_from_books` appelle `search_books`) : seul le premier
+    correspond à un tool_call du rejeu, le second ne doit pas le faire rougir.
+    """
+
+    TOTAL_CATALOGUE = 3
+
+    def __init__(self) -> None:
+        self.appels: list[tuple[str, str, str]] = []  # (via, outil, requête)
+
+    def appels_d_outil(self) -> list[str]:
+        return [nom for via, nom, _ in self.appels if via == "outil"]
+
+    def catalogue(self, query: str, limit: int = 5, *, via: str = "outil") -> str:
+        from tools.mcp_client import _catalog_miss
+
+        self.appels.append((via, "library_catalog", query))
+        return _catalog_miss(query, self.TOTAL_CATALOGUE)
+
+    def recherche(self, query: str, limit: int = 3, *, via: str = "outil") -> str:
+        from tools.mcp_client import _parse_result
+
+        self.appels.append((via, "search_books", query))
+        return _parse_result(
+            {
+                "found": True,
+                "answer": f"(bouchon des rejeux) Passage trouvé pour « {query} ».",
+                "sources": [{"title": "Livre factice", "author": "Auteur factice", "page": 1}],
+            },
+            limit,
+        )
+
+
+@pytest.fixture(autouse=True)
+def librarybrain_bouchon(monkeypatch) -> LibraryBrainBouchon:
+    """Coupe les deux ponts LibraryBrain de TOUS les tests d'intégration.
+
+    Rien ne les bouchonnait. Mesuré le 2026-09-27 : le rejeu #21 a pris 120,06 s
+    dans une passe (timeout HTTP de `search_books`) et 33,2 s dans la suivante —
+    `search_books` faisait un vrai POST vers le RAG génératif (`:8765/api/ask`), et
+    `library_catalog` lisait la vraie `library_brain.db` (25 823 livres). Le
+    verdict dépendait donc de la machine : en CI, `ConnectError` immédiat et base
+    absente, un autre chemin ; en local, le contenu du catalogue — le jour où un
+    titre contient « puériculture », le hit exact désarme le garde et #21 rougit
+    sans que le code ait bougé.
+
+    Les deux niveaux sont remplacés : les noms importés par l'orchestrateur, et ceux
+    du module (`learn_from_books` et la sonde catalogue de `search_books` passent
+    par eux). Le journal `appels` permet au rejeu de vérifier que chaque appel
+    d'outil LibraryBrain a bien été servi ICI — sans quoi un nouvel import qui
+    contournerait le bouchon referait des appels réels sans que rien ne rougisse.
+    """
+    bouchon = LibraryBrainBouchon()
+    monkeypatch.setattr("agent.orchestrator.mcp_catalog", bouchon.catalogue)
+    monkeypatch.setattr("agent.orchestrator.mcp_search_books", bouchon.recherche)
+    monkeypatch.setattr(
+        "tools.mcp_client.catalog_lookup", functools.partial(bouchon.catalogue, via="module")
+    )
+    monkeypatch.setattr(
+        "tools.mcp_client.search_books", functools.partial(bouchon.recherche, via="module")
+    )
+    return bouchon
+
+
+@pytest.fixture(autouse=True)
+def _librarybrain_jamais_demarre(monkeypatch):
+    """Le lifespan de l'API ne sonde ni ne lance LibraryBrain pendant les tests.
+
+    `TestClient(app)` déclenche le lifespan, qui démarre le thread `lb-init` :
+    jusqu'à 8 sondes de :8765, puis, port libre et `LIBRARYBRAIN_DIR` posé (il
+    l'est dans le `.env` principal), le SPAWN d'un vrai LibraryBrain. Les fixtures
+    `client` le « désactivaient » en patchant `services.ensure_librarybrain`,
+    mais `api/server.py` l'importait par nom : mesuré le 2026-09-27, 63 connexions
+    réelles vers :8765 pendant tests/integration. Le lifespan passe désormais par
+    le module ; ce patch le garantit pour TOUT test du dossier, fixture ou pas.
+    """
+    monkeypatch.setattr("services.ensure_librarybrain", lambda *_a, **_kw: True)
+
+
+@pytest.fixture(autouse=True)
+def _librarybrain_hors_reseau(monkeypatch):
+    """Garde : un test d'intégration qui joint LibraryBrain ou le lance ROUGIT.
+
+    Les bouchons ci-dessus préviennent ; ce garde constate. Toute connexion vers
+    l'hôte:port de `LIBRARYBRAIN_URL`, et toute tentative de lancer le processus
+    (`services._start_process`), est REFUSÉE — aucune requête n'atteint le vrai
+    serveur, même via un chemin que personne n'a bouchonné — puis journalisée, et
+    le test échoue au démontage. Journaliser plutôt que lever sur place : l'appel
+    fautif part souvent d'un thread démon (`lb-init`), dont l'exception
+    n'atteindrait jamais pytest.
+
+    Limite connue : un thread démon lancé par le test N qui se connecte pendant le
+    test N+1 est imputé à N+1. Le nom du thread figure dans le message.
+    """
+    import config
+
+    cible = urlsplit(config.LIBRARYBRAIN_URL)
+    port = cible.port or (443 if cible.scheme == "https" else 80)
+    hotes = {cible.hostname, "127.0.0.1", "localhost", "::1"}
+    tentatives: list[str] = []
+
+    def _vers_librarybrain(adresse) -> bool:
+        return (
+            isinstance(adresse, tuple)
+            and len(adresse) >= 2
+            and adresse[1] == port
+            and adresse[0] in hotes
+        )
+
+    def _noter(quoi: str) -> None:
+        tentatives.append(f"{quoi} (thread {threading.current_thread().name})")
+
+    connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
+
+    def _connect(self, adresse):
+        if _vers_librarybrain(adresse):
+            _noter(f"connexion vers {adresse[0]}:{adresse[1]}")
+            raise ConnectionRefusedError(
+                errno.ECONNREFUSED, "LibraryBrain interdit pendant les tests d'intégration"
+            )
+        return connect(self, adresse)
+
+    def _connect_ex(self, adresse):
+        if _vers_librarybrain(adresse):
+            _noter(f"connexion vers {adresse[0]}:{adresse[1]}")
+            return errno.ECONNREFUSED
+        return connect_ex(self, adresse)
+
+    def _lancement(lb_path):
+        _noter(f"lancement de LibraryBrain depuis {lb_path}")
+        return None
+
+    monkeypatch.setattr(socket.socket, "connect", _connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _connect_ex)
+    monkeypatch.setattr("services._start_process", _lancement)
+    yield
+    assert not tentatives, (
+        "Un test d'intégration a tenté de joindre ou de lancer le VRAI LibraryBrain "
+        f"({config.LIBRARYBRAIN_URL}) : {tentatives}"
+    )
 
 
 @pytest.fixture

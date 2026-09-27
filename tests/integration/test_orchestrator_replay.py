@@ -64,7 +64,7 @@ def _final_assistant_content(orch) -> str:
 
 
 def _assert_expectations(
-    orch, fake_llm, fixture: dict, project_root: Path
+    orch, fake_llm, fixture: dict, project_root: Path, librarybrain=None
 ) -> None:
     exp = fixture.get("expectations", {})
 
@@ -303,7 +303,20 @@ def _assert_expectations(
         # il est remis à zéro en fin de run. C'est `tool_calls_invoked` de la
         # fixture qui prouve que search_books a bien fini par être appelé.
 
-    # 14. Garde « décisions jamais ouvertes » (#22) — conclusion posée à la
+    # 14. Hermétisme LibraryBrain (tous scénarios) — chaque appel d'outil
+    # LibraryBrain doit avoir été servi par le bouchon de `conftest.py`, jamais
+    # par le serveur ni la base de la machine. Le 2026-09-27, #21 faisait un vrai
+    # POST (`:8765/api/ask`) : 120 s dans une passe, 33 s dans l'autre, et un
+    # verdict lié au contenu du catalogue local.
+    if librarybrain is not None:
+        attendus = [n for n in invoked if n in ("library_catalog", "search_books")]
+        servis = librarybrain.appels_d_outil()
+        assert servis == attendus, (
+            f"Appels LibraryBrain invoqués {attendus}, servis par le bouchon {servis} "
+            "— un appel a contourné le bouchon (appel réel vers la machine ?)."
+        )
+
+    # 15. Garde « décisions jamais ouvertes » (#22) — conclusion posée à la
     # DERNIÈRE itération après une écriture, sans avoir ouvert docs/ (vécu le
     # 2026-09-27). Le garde exigeait une itération de marge et laissait passer.
     # `trace_dernier_tour` survit à la remise à zéro des drapeaux de fin de run.
@@ -345,7 +358,9 @@ def _assert_expectations(
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
-def test_replay_scenario(scenario, fake_orchestrator, fixture_loader, project_root):
+def test_replay_scenario(
+    scenario, fake_orchestrator, fixture_loader, project_root, librarybrain_bouchon
+):
     """Joue chaque fixture en bout-en-bout et vérifie ses expectations."""
     fixture = fixture_loader(scenario)
 
@@ -361,4 +376,6 @@ def test_replay_scenario(scenario, fake_orchestrator, fixture_loader, project_ro
     # Le scénario #5 ne doit PAS crasher malgré un tool_args JSON tronqué
     orch.run(fixture["user_prompt"])
 
-    _assert_expectations(orch, fake_llm, fixture, project_root)
+    _assert_expectations(
+        orch, fake_llm, fixture, project_root, librarybrain=librarybrain_bouchon
+    )
