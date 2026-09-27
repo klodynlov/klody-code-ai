@@ -56,6 +56,8 @@ import unicodedata
 from collections.abc import Mapping
 
 # ── Contrat du daemon local-suno (valeurs recopiées, cf. l'avertissement ci-dessus)
+# Tous les réglages de ce module sont lus À L'IMPORT : le `.env` de Klody doit être
+# chargé avant — c'est `klody_mcp/__init__.py` qui s'en charge, pas les serveurs.
 
 # storage/models.py::GenerationRequest.duration_sec — Field(ge=10, le=600)
 DUREE_MIN_SEC = int(os.getenv("KLODY_SONG_DUREE_MIN", "10"))
@@ -84,9 +86,14 @@ def plafond_segment(env: Mapping[str, str] | None = None) -> float:
     ⚠️ Les deux variables configurent le DAEMON : posées dans son ``.env`` seul,
     elles rendent ce calcul faux. ``tests/test_song_structure.py`` lit la valeur
     effective du daemon (``.env`` compris) sur cette machine et rougit. Pour que
-    Klody suive, il faut les EXPORTER dans l'environnement de ses serveurs MCP : le
-    ``.env`` de Klody est chargé par ``vocalbrain_server`` et ``klody_music_server``
-    APRÈS l'import de ce module, il n'y peut rien.
+    Klody suive, il faut les poser AUSSI de son côté : dans le ``.env`` de Klody,
+    ou exportées dans l'environnement de ses serveurs MCP (l'export gagne).
+
+    Le ``.env`` de Klody est chargé par ``klody_mcp/__init__.py``, donc AVANT ce
+    module. Jusqu'au 2026-09-27 il l'était par ``vocalbrain_server`` et
+    ``klody_music_server`` APRÈS l'import de ce module : seul l'export comptait,
+    le ``.env`` était ignoré en silence. Verrouillé par
+    ``tests/test_klody_mcp_dotenv.py``.
     """
     env = os.environ if env is None else env
     defaut = "600" if env.get("ACE_STEP_VERSION", "v15") == "v15" else "120"
@@ -416,8 +423,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
     Returns:
         Un rapport complet, toujours de la même forme :
         ``{"arrangement", "mots", "sections", "duree_sec", "duree_conseillee_sec",
-        "segments", "sections_min", "debit_mots_s", "couvrable", "problemes",
-        "avertissements", "structure": {...}}``.
+        "segments", "plafond_segment_sec", "sections_min", "debit_mots_s",
+        "couvrable", "problemes", "avertissements", "structure": {...}}``.
 
         ``couvrable=False`` signale un rendu TRONQUÉ ou RÉPÉTÉ garanti, pas un
         risque : chaque entrée de ``problemes`` nomme le mécanisme et le remède.
@@ -477,9 +484,13 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         )
 
     # (2) Moins de sections que de segments → les derniers segments se répètent.
+    # Mode découpé seulement. Le plafond est NOMMÉ dans le refus : c'est une
+    # hypothèse sur la config du daemon, qui vit dans un autre processus (cf.
+    # `plafond_segment`) — un refus qui la tait ne se laisse pas contester.
     if segments > 1 and structure["sections"] < besoin:
         problemes.append(
-            f"{duree} s = {segments} segments générés séparément, mais le texte "
+            f"{duree} s = {segments} segments générés séparément (plafond de "
+            f"segment {SEGMENT_MAX_SEC:g} s, mode découpé), mais le texte "
             f"n'a que {structure['sections']} section(s) : les "
             f"{segments - structure['sections']} derniers segments RE-CHANTERONT "
             f"le même texte. Découpe les paroles en au moins {besoin} sections "
@@ -502,6 +513,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         "duree_demandee_sec": duree_demandee,
         "duree_conseillee_sec": conseillee,
         "segments": segments,
+        # L'hypothèse sur le mode du daemon, lisible au lieu d'être devinée.
+        "plafond_segment_sec": SEGMENT_MAX_SEC,
         "sections_min": besoin,
         "debit_mots_s": round(debit, 2),
         "debit_pire_segment": round(debit_pire, 2),

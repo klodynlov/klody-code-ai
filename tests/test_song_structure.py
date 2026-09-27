@@ -257,6 +257,8 @@ class TestUnePasse:
         r = ss.controler_couverture(_paroles(2, 240), 240)
         assert r["couvrable"] is True
         assert r["problemes"] == []
+        # L'hypothèse sur le mode du daemon se LIT dans le rapport.
+        assert r["plafond_segment_sec"] == 600
 
 
 # --------------------------------------------------------------------------- #
@@ -287,6 +289,9 @@ class TestCouverture:
         r = ss.controler_couverture(_paroles(2, 240), 240)
         assert r["couvrable"] is False
         assert "RE-CHANTERONT" in r["problemes"][0]
+        # Le refus nomme l'hypothèse qui le fonde : elle vit dans un autre processus.
+        assert "plafond de segment 120 s" in r["problemes"][0]
+        assert r["plafond_segment_sec"] == 120
         assert r["sections_min"] == 3
 
     @pytest.mark.usefixtures("chanson_decoupee")
@@ -345,7 +350,13 @@ _PAROLES_TEMOIN = (
 
 # Sonde exécutée DANS local-suno, avec son interpréteur et son cwd. Elle rejoue le
 # circuit réel : parseur de paroles custom → reconstruction de l'arrangement →
-# répartition entre segments. C'est ce que `generate_song_long` chanterait.
+# `generate_song_long`, le VRAI, moteur remplacé par un enregistreur. Chaque liste
+# de morceaux est donc exactement le texte que chaque appel ACE-Step recevrait.
+#
+# ⚠️ La sonde recopiait la boucle `chunks.append(chunks[-1])` et appelait
+# `split_arrangement_text` elle-même : une copie de plus dans un garde contre les
+# copies, capable de dériver en silence comme les constantes. Passer par la vraie
+# fonction la fait disparaître.
 #
 # ⚠️ Pourquoi un sous-processus et pas un `sys.path.append` : les DEUX dépôts ont
 # un module `config` (et un `main`). Importé en cours de suite, `config` est déjà
@@ -354,12 +365,15 @@ _PAROLES_TEMOIN = (
 # silence sur la machine même où il devait mordre — un test sauté est
 # indiscernable d'un test vert.
 _SONDE = r"""
-import json, sys
+import json, sys, tempfile
+from pathlib import Path
 sys.path.insert(0, ".")
+import numpy as np
+import soundfile as sf
 from config import ACESTEP_MAX_SEGMENT_SEC, ACESTEP_SEGMENT_OVERLAP_SEC
 from main import _build_lyrics_from_custom
-from pipeline.acestep_generator import plan_segment_durations
-from pipeline.song_format import build_arrangement, split_arrangement_text
+from pipeline.acestep_generator import generate_song_long, plan_segment_durations
+from pipeline.song_format import build_arrangement
 
 entree = json.loads(sys.stdin.read())
 arrangement = entree["arrangement"]
@@ -372,25 +386,39 @@ def plan(d, plafond=None):
         return plan_segment_durations(d)  # le défaut effectif du daemon
     return plan_segment_durations(d, plafond, ACESTEP_SEGMENT_OVERLAP_SEC)
 
-def repartir(texte, n):
-    # Ce que fait generate_song_long : moins de sections que de segments ⇒ les
-    # segments de fin reprennent la dernière section.
-    morceaux = split_arrangement_text(texte, n) if n > 1 else [texte]
-    while len(morceaux) < n:
-        morceaux.append(morceaux[-1])
-    return morceaux
+def chante(texte, duree, plafond=None):
+    # Le texte que generate_song_long envoie à CHAQUE appel du moteur.
+    appels = []
+    def moteur(prompt, paroles, sortie, dur, graine):
+        appels.append(paroles)
+        sf.write(str(sortie), np.zeros(int(dur * 100) + 1, dtype=np.float32), 100)
+        return sortie
+    options = {} if plafond is None else {"max_segment_sec": plafond}
+    with tempfile.TemporaryDirectory() as d:
+        generate_song_long("t", texte, Path(d) / "chanson.wav", duree,
+                           segment_generator=moteur, **options)
+    return appels
+
+def reconstruire(texte):
+    # Ce que le daemon fait de `custom_lyrics` avant de chanter.
+    ly = _build_lyrics_from_custom(texte, "t", "pop", 90, "Am")
+    return ly, build_arrangement(ly.structure, ly.lyrics)
 
 # Répartition réelle d'un arrangement à sections INÉGALES : c'est elle qui décide
 # du débit de chaque segment, et donc de ce qui sera tronqué.
-inegal = entree["inegal"]
 mots_par_segment = [
     sum(len(l.split()) for l in c.splitlines() if not l.strip().startswith("["))
-    for c in split_arrangement_text(inegal, len(plan(180, decoupe)))
+    for c in chante(entree["inegal"], 180, decoupe)
 ]
 
-ly = _build_lyrics_from_custom(arrangement, "t", "pop", 90, "Am")
-reconstruit = build_arrangement(ly.structure, ly.lyrics)
+ly, reconstruit = reconstruire(arrangement)
 durees = (30, 120, 121, 180, 240, 300, 360, 600)
+
+# Ce que chaque cas fait chanter, dans les deux modes : juge des refus de Klody.
+cas = {}
+for nom, (texte, duree) in entree["cas"].items():
+    _, rec = reconstruire(texte)
+    cas[nom] = {"nominal": chante(rec, duree), "decoupe": chante(rec, duree, decoupe)}
 
 print(json.dumps({
     "segment_max": ACESTEP_MAX_SEGMENT_SEC,
@@ -399,11 +427,25 @@ print(json.dumps({
     "segments_par_duree_decoupe": {str(d): len(plan(d, decoupe)) for d in durees},
     "sections_gardees": list(ly.lyrics),
     "reconstruit": reconstruit,
-    "morceaux": repartir(reconstruit, len(plan(180))),
-    "morceaux_decoupe": repartir(reconstruit, len(plan(180, decoupe))),
+    "morceaux": chante(reconstruit, 180),
+    "morceaux_decoupe": chante(reconstruit, 180, decoupe),
     "mots_par_segment_inegal": mots_par_segment,
+    "cas": cas,
 }))
 """
+
+# Un texte d'un seul bloc : le mode découpé le re-chante, la passe unique le chante
+# entier. C'est lui qui prouve que le refus de Klody suit le daemon dans les DEUX
+# sens — et non seulement qu'il refuse quelque chose.
+_UN_BLOC = " ".join(["mot"] * 480)
+
+# Cas rejoués dans le daemon : (paroles BRUTES, durée). La sonde reçoit
+# l'arrangement canonique, c'est-à-dire ce que Klody envoie vraiment.
+_CAS_VERDICT = {
+    "temoin": (_PAROLES_TEMOIN, 180),
+    "inegal": (_SECTIONS_INEGALES, 180),
+    "un_bloc": (_UN_BLOC, 240),
+}
 
 # Sonde minimale : la valeur que `config.py` du daemon calcule pour un
 # environnement donné. Sert à confronter la RÈGLE de `ss.plafond_segment` (défaut
@@ -455,6 +497,10 @@ def daemon_reel() -> dict:
         input=json.dumps({
             "arrangement": arrangement, "inegal": inegal,
             "plafond_decoupe": _PLAFOND_DECOUPE,
+            "cas": {
+                nom: [ss.canonicaliser_paroles(paroles)[0], duree]
+                for nom, (paroles, duree) in _CAS_VERDICT.items()
+            },
         }),
         capture_output=True, text=True, cwd=str(_LOCALSUNO), timeout=120,
         env=_env_sans_plafond(),
@@ -645,6 +691,31 @@ class TestPasDeDerive:
         assert len(morceaux) == ss.nb_segments(180)
         if len(morceaux) == 1:
             assert morceaux[0] == daemon_reel["reconstruit"]
+
+    @pytest.mark.parametrize("mode", ["nominal", "decoupe"])
+    def test_le_verdict_de_repetition_est_celui_du_daemon(self, daemon_reel, mode, request):
+        """Klody refuse « RE-CHANTERONT » SSI le daemon re-chante vraiment.
+
+        Un refus que le daemon ne justifie pas est aussi faux qu'un refus manquant
+        — c'est ce que Klody rendait du 2026-09-09 au 2026-09-27, en une passe.
+        """
+        if mode == "decoupe":
+            request.getfixturevalue("chanson_decoupee")
+        cas = {nom: c[mode] for nom, c in daemon_reel["cas"].items()}
+        repete = {nom: len(set(appels)) < len(appels) for nom, appels in cas.items()}
+        # Le témoin doit garder son pouvoir de discrimination dans les deux sens.
+        assert repete["un_bloc"] is (mode == "decoupe")
+        assert repete["temoin"] is False and repete["inegal"] is False
+
+        for nom, (paroles, duree) in _CAS_VERDICT.items():
+            r = ss.controler_couverture(paroles, duree)
+            refuse = any("RE-CHANTERONT" in p for p in r["problemes"])
+            assert refuse is repete[nom], (
+                f"{nom} ({duree} s, mode {mode}) : le daemon "
+                f"{'re-chante' if repete[nom] else 'chante tout'}, "
+                f"Klody {'refuse' if refuse else 'accepte'}"
+            )
+            assert r["segments"] == len(cas[nom])
 
     def test_aucune_parole_perdue_en_route(self, daemon_reel):
         reconstruit = daemon_reel["reconstruit"]

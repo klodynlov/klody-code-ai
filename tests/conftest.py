@@ -104,9 +104,10 @@ def _chanson_en_une_passe(monkeypatch):
 
     `song_structure.SEGMENT_MAX_SEC` est lu dans l'environnement à l'import : sans
     ce garde, un `ACE_STEP_VERSION` ou un `ACESTEP_MAX_SEGMENT_SEC` exporté dans
-    le shell du développeur basculerait la suite en mode découpé — même défaut que
-    `_voix_muette` ci-dessus. Le mode découpé se demande EXPLICITEMENT
-    (`chanson_decoupee`).
+    le shell du développeur — ou posé dans le `.env` du dépôt, chargé à l'import
+    par `config` comme par `klody_mcp` — basculerait la suite en mode découpé,
+    même défaut que `_voix_muette` ci-dessus. Le mode découpé se demande
+    EXPLICITEMENT (`chanson_decoupee`).
     """
     monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_UNE_PASSE)
 
@@ -115,3 +116,24 @@ def _chanson_en_une_passe(monkeypatch):
 def chanson_decoupee(monkeypatch):
     """Mode découpé : segments de ≤ 120 s recollés en cross-fade (v1, ou surcharge)."""
     monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_DECOUPE)
+
+
+@pytest.fixture(autouse=True)
+def _pas_de_decouverte_mcp(monkeypatch):
+    """La suite ne DOIT JAMAIS découvrir les VRAIS serveurs MCP de l'atelier.
+
+    Même défaut que les fixtures ci-dessus : `config.MCP_SERVERS` est lu dans
+    le `.env` du développeur (`load_dotenv()` remonte jusqu'au checkout
+    principal, même depuis un worktree), et `Orchestrator.__init__`
+    interroge ces serveurs (cache process ensuite). Mesuré le 2026-09-27 sur le
+    Mac : **314 outils** sur 15 serveurs déclarés, **7,7 s** de réseau au
+    premier orchestrateur du processus — dans des tests qui ne parlent pas de
+    MCP. La CI, sans ces serveurs, ne voit qu'une liste vide : le même test ne
+    faisait pas le même travail selon la machine.
+
+    `/api/status` sonde aussi `config.MCP_SERVERS` : coupé du même geste.
+    Les tests MCP construisent leur `MCPManager` avec une config explicite
+    (`tests/test_mcp_bridge.py`) et ne dépendent pas de ce réglage ; un test
+    qui en aurait besoin le repose chez lui, l'autouse passe avant.
+    """
+    monkeypatch.setattr(config, "MCP_SERVERS", {})

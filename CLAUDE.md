@@ -61,9 +61,20 @@ l'alias par une complétion d'un token).
 
 Cinq paliers, 30 tâches : `easy`, `medium`, `hard` (les 20 de la baseline),
 `expert` (le réflexe est faux), `discovery` (la contrainte n'est pas dans
-l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N hors
-baseline, non jugée(s) » — les 10 tâches des deux nouveaux paliers ne sont donc
-pas jugées tant qu'une baseline ne les inclut pas.
+l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N tâche(s)
+hors baseline, non jugée(s) » — des tâches absentes de la baseline ne sont pas
+jugées tant qu'une baseline ne les inclut pas.
+
+⚠️ **Jusqu'au 2026-09-27, le gate ne jugeait que la DERNIÈRE passe d'un run
+`--repeat N`** (`{task_id: résultat}` écrase), et comptait les N−1 autres comme
+« hors baseline ». Vécu : `--category discovery --repeat 3` = 14/15,
+`config_precedence` ❌ en passe 1 ⇒ « courant=100.0 % … 10 hors baseline ✓ ». Le
+même écrasement lisait `reference_2026-07-30_garde_arret_apres.json` (24/25) à
+100 %. Il juge désormais toutes les passes, des deux côtés (moyenne des taux par
+tâche, en arithmétique exacte), et nomme en `::notice::` toute tâche en baisse
+sous le seuil. Sensibilité à N passes : tableau dans `bench/gate.py`, verrouillé
+par `tests/test_gate_sensibilite.py::TABLEAU_PASSES`. À une passe (le nightly),
+verdict inchangé — vérifié exhaustivement sur 5 à 30 tâches.
 
 ### ⚠️ `bench.run` MESURE, `bench.gate` JUGE — deux codes de sortie, un seul verdict
 
@@ -796,6 +807,12 @@ au moment de choisir ses arguments — et le **refus de l'outil** est le garde-f
 > - ⚠️ Les sondes tournent avec les deux variables PURGÉES : le daemon tourne sous
 >   launchd, qui ne les pose pas. Les hériter du shell rendait la suite
 >   dépendante de l'environnement du développeur — attrapé en l'exportant exprès.
+> - La sonde passe par le **vrai** `generate_song_long` (moteur remplacé par un
+>   enregistreur) au lieu de recopier sa boucle `chunks.append(chunks[-1])`, et
+>   `test_le_verdict_de_repetition_est_celui_du_daemon` exige que Klody refuse
+>   « RE-CHANTERONT » **SSI** le daemon re-chante, dans les deux modes. Mutation
+>   de cette boucle dans un miroir de local-suno : seul ce test rougit — la copie
+>   recopiée l'aurait laissé passer.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :
@@ -1031,6 +1048,20 @@ installé, exactement la limite déjà écrite plus bas pour les MCP.
 
 ## Pièges qui coûtent du temps
 
+- ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
+  module qui lit ses réglages à l'import.** Trouvé le 2026-09-27 :
+  `vocalbrain_server` et `klody_music_server` importaient `song_structure`
+  (`KLODY_SONG_*`, `ACESTEP_*`, `ACE_STEP_VERSION`) avant leur `load_dotenv()`,
+  et six serveurs faisaient de même avec `_pathguard` (`KLODY_MCP_AUDIO_ROOTS`).
+  Toute valeur du `.env` était ignorée en silence — une racine audio RESTREINTE
+  dans le `.env` laissait le garde sur ses défauts, plus larges. Seul l'export
+  (plist, `start-*-mcp.sh`) comptait. Latent (aucune de ces variables n'était
+  dans le `.env`), invisible en test : `conftest` importe `config`, qui charge le
+  `.env` avant tout. Le `.env` est désormais chargé par `klody_mcp/__init__.py`,
+  qui précède tout module du paquet ; `tests/test_klody_mcp_dotenv.py` importe une
+  COPIE du paquet dans un processus neuf, `.env` posé à côté, et rougit si
+  l'ordre se réinverse (vérifié : 8 rouges sans le chargement, 1 avec
+  `override=True`).
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
   l'oubli ne se voit que des heures plus tard.** Incident du 2026-08-05
   ci-dessus. Réflexe : après toute mise à jour de `requirements.lock`,
