@@ -120,9 +120,12 @@ def test_les_vraies_demandes_de_conception_activent_le_qcm(requete):
 
 @pytest.mark.parametrize("requete", [
     # Message réel (session KlodyAI), chemins raccourcis : lecture de code
-    # détournée en questionnaire par « N'utilise PAS ».
-    "Lis le code source de LibraryBrain dans ~/library-brain (list_files puis "
-    "read_file). N'utilise PAS ~/Downloads/library-brain-main.",
+    # détournée en questionnaire par « N'utilise PAS ». Une seule requête sur
+    # deux lignes : la parenthèse rend la concaténation explicite (CodeQL).
+    (
+        "Lis le code source de LibraryBrain dans ~/library-brain (list_files puis "
+        "read_file). N'utilise PAS ~/Downloads/library-brain-main."
+    ),
     # « pas à pas » décrit une MANIÈRE de faire, pas le sujet du skill.
     "corrige ce bug pas à pas",
     "explique-moi pas à pas comment marche ce code",
