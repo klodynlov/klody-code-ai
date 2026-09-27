@@ -753,6 +753,34 @@ ici en écrivant le garde-fou censé le prévenir.
 levier « mieux le lui dire » est déjà mesuré épuisé sur trois canaux (encadré ❌
 plus haut). La docstring de l'outil porte la règle — c'est ce que le modèle lit
 au moment de choisir ses arguments — et le **refus de l'outil** est le garde-fou.
+
+> ### ✅ 2026-09-27 — le daemon chante en UNE passe, et le garde anti-dérive l'a vu
+>
+> `TestPasDeDerive` a rougi (`600.0 == 120.0`) : local-suno `3fddc2c`
+> (2026-09-09) a passé `ACESTEP_MAX_SEGMENT_SEC` à **600 s en v1.5** (défaut),
+> 120 s en v1. Motif côté daemon : WER ~68 % en segments contre 2,7 % / 19,1 % en
+> une passe. `split_arrangement_text` et `plan_segment_durations` n'ont pas
+> bougé ; seul le plafond a changé. Vérifié in vivo dans `daemon.log` : les
+> 3 rendus > 120 s depuis le 09-09 (165, 165, 180 s) sont partis en un seul appel
+> ACE-Step, et la dernière ligne « Long-format » précède le changement.
+>
+> Resté à 120, `song_structure` calculait contre un découpage disparu : durée
+> déduite gonflée (témoin à 9 sections : **218 s au lieu de 169**, chant étiré),
+> avertissements sur un segment fantôme, refus « RE-CHANTERONT » de textes que le
+> daemon rend intégraux. Aucune génération de Klody n'en a pâti — 0 session à
+> marqueurs numérotés dans `library.db` depuis le 09-09 — mais c'était faux.
+>
+> - **Le mécanisme n° 2 (sections < segments) ne mord plus qu'en mode DÉCOUPÉ**
+>   (v1, ou `ACESTEP_MAX_SEGMENT_SEC=120` côté daemon). En nominal, le plafond
+>   (600) égale la durée maximale du contrat : jamais plus d'un segment. Le code
+>   reste, il reste testé — sous la fixture explicite `chanson_decoupee`.
+> - `plafond_segment()` réplique la **règle** (défaut selon `ACE_STEP_VERSION`,
+>   surcharge prioritaire), confrontée au vrai `config.py` sur la même matrice que
+>   local-suno, `.env` neutralisé. Un second test, `.env` compris, dit si le daemon
+>   de CETTE machine est surchargé : deux tests, deux diagnostics.
+> - ⚠️ Les sondes tournent avec les deux variables PURGÉES : le daemon tourne sous
+>   launchd, qui ne les pose pas. Les hériter du shell rendait la suite
+>   dépendante de l'environnement du développeur — attrapé en l'exportant exprès.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :
