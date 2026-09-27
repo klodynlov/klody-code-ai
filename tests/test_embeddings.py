@@ -176,3 +176,56 @@ def test_embed_one_court_circuite_le_vide(emb, texte, monkeypatch):
 def test_embed_one_rend_vide_si_indisponible(emb, monkeypatch):
     monkeypatch.setattr(emb, "is_available", lambda: False)
     assert emb.embed_one("python") == []
+
+
+# --- panne constatée (2026-09-27) -------------------------------------------
+#
+# scipy du venv illoadable sous macOS 27 : sentence-transformers échouait à CHAQUE
+# appel pendant 12 jours, `is_available()` rendait True, et chaque recherche
+# payait 1,5-1,8 s de chargement raté.
+
+
+def _moteur_muet(monkeypatch, appels):
+    import sys
+
+    def muet(textes, *a, **kw):
+        appels.append(len(textes))
+        return [None for _ in textes]
+
+    monkeypatch.setattr(sys.modules["klody_memory.embedder"], "get_embeddings_batch", muet)
+
+
+def test_une_panne_constatee_rend_is_available_honnete(emb, monkeypatch):
+    appels: list[int] = []
+    _moteur_muet(monkeypatch, appels)
+    assert emb.embed_batch(["python", "fastapi"]) == [[], []]
+    assert emb.is_available() is False
+    emb.embed_batch(["encore"])
+    assert appels == [2], "après la panne, plus aucun appel au moteur"
+
+
+def test_la_panne_se_reteste_apres_le_delai(emb, monkeypatch):
+    appels: list[int] = []
+    _moteur_muet(monkeypatch, appels)
+    emb.embed_batch(["python"])
+    horloge = emb.time.monotonic() + emb.REESSAI_APRES_PANNE_S + 1
+    monkeypatch.setattr(emb.time, "monotonic", lambda: horloge)
+    assert emb.is_available() is True, "une panne ancienne doit être retentée"
+
+
+def test_des_textes_vides_ne_font_pas_croire_a_une_panne(emb, monkeypatch):
+    appels: list[int] = []
+    _moteur_muet(monkeypatch, appels)
+    emb.embed_batch(["   ", ""])
+    assert emb.is_available() is True
+
+
+def test_l_exception_du_moteur_est_une_panne_constatee(emb, monkeypatch):
+    import sys
+
+    def boom(*a, **kw):
+        raise ImportError("dlopen(_spropack…): __thread_bss")
+
+    monkeypatch.setattr(sys.modules["klody_memory.embedder"], "get_embeddings_batch", boom)
+    emb.embed_batch(["a"])
+    assert emb.is_available() is False
