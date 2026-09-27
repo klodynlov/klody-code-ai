@@ -1077,6 +1077,120 @@ KlodyAI noyé, `klody --continue` capable de rouvrir un test, et `user_profile.j
 - ⚠️ Tout worktree dont la branche n'a pas ce correctif continue d'écrire dans le
   vrai dossier à chaque `pytest` (vu en direct pendant l'enquête).
 
+## État au 2026-09-27 — le palier `discovery` tournait en mode QCM, sur brain
+
+`Orchestrator._detect_interactive_skill` n'active le mode « skill interactif »
+(QCM) que si la requête recoupe l'IDENTITÉ (nom + slug) du how-to de tête. Le
+seul skill interactif s'appelle « Concevoir un algorithme **pas** à pas », et
+`_STOP` ne contenait pas « pas » : toute négation française passait la garde.
+Conséquence : tâche `feature` forcée sur le **généraliste** (brain) au lieu du
+coder, anti-stall et text-to-action coupés, `ask_user` exposé. Présent depuis
+#27. Correctif : « pas » dans les mots vides, apocope `algo` → `algorithme`
+(`tools/skills.py`), verrouillé par `tests/test_qcm_negation_pas.py` sur les
+VRAIS énoncés du banc.
+
+> ### ⚠️ Toutes les mesures `discovery` de ce fichier ont été faites en mode QCM
+>
+> Rejoué par `git archive` à chaque commit (détection réelle, corpus réel) :
+>
+> | depuis | tâches en QCM |
+> |---|---|
+> | #175 (07-30) | `hidden_invariant`, `data_contract` |
+> | #177 (07-30) | + `first_write_method` |
+> | #259 (09-20) | + `config_precedence`, `error_contract` (le radical a changé les classements) |
+> | + | `real_repo/fix_from_known_issue` |
+>
+> **Ce qui tient** : les deux jumeaux étaient TOUS DEUX en QCM le 2026-07-30,
+> l'appariement de l'encadré « l'ouverture de `docs/` décide de tout » reste
+> valide. **Ce qui était faux** : « routent tous deux en `easy · feature` »
+> n'impliquait PAS le coder — ils tournaient sur brain, anti-stall coupé. Le
+> garde « décisions jamais ouvertes » (0/5 → 5/5) a été mesuré dans ce mode.
+
+**Le mécanisme réel n'est pas celui qu'on croyait en ouvrant le chantier.**
+« pas » n'a PAS df = 1 : df = 10 sur nom+desc+slug, et ne pèse que 2,05 sur ~30
+de score. Le skill arrive en tête des how-to par la consigne commune du palier —
+`list_files` → « file » (la file FIFO de sa description), « liste », « avant »,
+« écrire », « sera ». « pas » ne sert qu'à franchir la garde d'identité.
+
+- ⚠️ **Le seuil « df faible » pour l'identité est RÉFUTÉ, ne pas y revenir.**
+  df(« pas ») = 10 quand « structure » = 20, « méthodes » = 31, « digest » = 45 :
+  tout seuil de df rejetterait des mots d'identité légitimes avant « pas ». La
+  df sur le contenu complet sépare (92 % contre 68 % au suivant, « livre »), mais
+  sur un point unique, et elle grimpe avec chaque digest de livre. La
+  distinction utile est grammaticale : un mot vide.
+- ⚠️ **La locution « pas à pas » comme terme : écartée.** Elle sauvait « conçois
+  mon algo pas à pas », mais décrit une MANIÈRE : « corrige ce bug pas à pas »
+  basculait en QCM. C'est l'apocope `algo` qui nomme le sujet.
+- **Rayon de souffle en prod** (1 787 messages utilisateur distincts de
+  `~/.klody/data`) : 319 activaient le QCM, 3 après — toutes des demandes de
+  conception. Sur les 319, 311 étaient… des runs du banc, et 1 vrai faux positif
+  humain (« Lis le code source de LibraryBrain… N'utilise PAS … »).
+  `bench.skill_routing_eval` (IDF) inchangé, hit@1 13/18, hit@3 14/18.
+- ⚠️ `select_skills` N'écarte PAS ce skill des tâches `discovery` : il reste en
+  tête des how-to injectés au brain. Le commentaire du routeur qui affirmait le
+  contraire (« un skill non pertinent n'atteint jamais la tête de liste ») était
+  faux — corrigé. C'est la garde d'identité qui tranche.
+
+> ### ✅ MESURÉ — le coder ne régresse pas sur `discovery` (A/B du jour même)
+>
+> `bench/results/reference_2026-09-27_discovery_qcm_contre_coder.json`. Avant =
+> `origin/main` (QCM, brain) ; après = correctif (coder). 3 passes par tâche.
+>
+> | tâche | avant : succès · `docs/` spont. · garde | après : succès · `docs/` spont. · garde |
+> |---|---|---|
+> | `hidden_invariant` | 3/3 · 2/3 · 1/3 | 3/3 · 1/3 · 2/3 |
+> | `first_write_method` | 3/3 · 3/3 · 0/3 | 3/3 · 3/3 · 0/3 |
+> | `config_precedence` | **0/3** · 3/3 · 0/3 | **2/3** · 3/3 · 0/3 |
+> | `error_contract` | 3/3 · 3/3 · 0/3 | 3/3 · 3/3 · 0/3 |
+> | `data_contract` | 3/3 · 0/3 · 0/3 | 3/3 · 0/3 · 0/3 |
+> | **total** | **12/15** | **14/15** |
+> | `real_repo/fix_from_known_issue` | 3/3 | 3/3 |
+>
+> **Aucune régression, amélioration NON établie** : Fisher p = 0,60 sur le
+> total, 0,40 sur `config_precedence` (0,14 avec le premier essai avant, 0/4).
+> `tool_calls_cassés` = 0 partout.
+>
+> Les deux bras échouent `config_precedence` en LISANT le README (3/3 des deux
+> côtés) — « a cherché sans comprendre », pas « n'a pas cherché » :
+> - brain : `argparse` `type=int` → `SystemExit` au lieu de `ValueError` sur une
+>   valeur CLI illisible, **reproductible** (4/4 avec le premier essai) ;
+> - coder, passe 1 : « option mal formée → ignorée » au lieu de `ValueError`.
+>
+> ⚠️ `hidden_invariant` sur brain ouvre désormais `docs/` spontanément 2/3 (la
+> référence du 07-30 disait 0/8 puis 0/5). Non expliqué ici — le retrieval, muet
+> 12 jours jusqu'à #271, et #269 ont changé depuis. À re-mesurer avant d'en
+> tirer quoi que ce soit.
+>
+> ⚠️ Le premier essai du bras avant (dans l'ordre, un seul `--repeat 3`) avait
+> 8 instances sur 15 perdues par l'infra (encadré suivant) : il a été REJOUÉ
+> tâche par tâche plutôt que comparé tel quel. Parmi ses 7 instances propres,
+> un `hidden_invariant` ❌ montre un trou du garde : écriture sans ouvrir
+> `docs/`, conclusion à l'itération 6/6 — or le garde exige
+> `iteration < max_iter - 1`. Avec `max_iter = 6` (`easy · feature`), un agent
+> qui explore 4 appels avant d'écrire sort de la fenêtre du garde.
+
+- ⚠️ **`bench.gate` ne jugeait que la DERNIÈRE passe d'un run `--repeat N`**,
+  et annonçait les passes précédentes comme « N hors baseline, non jugée(s) ».
+  Vécu sur ce run : 14/15 lu « 100 %, Δ +0,0 % » — l'échec de la passe 1 lui
+  était invisible. Corrigé le jour même (#280) ; rejouée sur le même JSON, la
+  porte rend `Δ −6,7 %` (93,3 %, sous le seuil de 9 points) et nomme
+  `config_precedence (1/1 → 2/3)`.
+- Les deux bras ont tourné AVANT #279 : le banc injectait encore le profil et la
+  mémoire long terme de l'utilisateur dans le prompt. À égalité entre les bras,
+  mais les chiffres ne sont pas ceux d'un banc isolé.
+- ⚠️ **brain (52 Go) + coder (40 Go) = 92 > 80** : ils ne sont plus
+  co-résidents. Sur le coder, chaque tâche paie brain (routeur LLM) PUIS coder —
+  deux chargements. C'est désormais le coût de TOUTE tâche de code routée.
+- ⚠️ **Le banc partage brain avec le reste de la machine**, et ce jour-là tout
+  tapait dessus : `klody-core-tests` (suite de tests d'une autre session contre
+  le gateway VIVANT, qui l'a redémarré à 16:09:55), KlodyAI, Library Brain.
+  Résultat : `RemoteProtocolError`, `APIConnectionError`, puis des timeouts 600 s
+  en cascade — un enfant tué laisse sa génération tourner sur brain, la suivante
+  fait la queue. Le juge des requêtes en vol est `~/klody-core/state/journal.db`
+  (colonne `app`), pas `/health` : son `inflight` est resté à 2 pendant des
+  minutes, banc arrêté, alors que le seul client restant envoyait un appel de
+  ~3 s par minute.
+
 ## État au 2026-09-27 — la mémoire longue terme du système est figée pour la session
 
 L'extraction de faits réparée écrit dans `LongTermMemory` après CHAQUE message
@@ -1340,6 +1454,9 @@ coûte 11,2 s contre 0,55 s à 69 outils (#270), ~120 s au régime de l'API de p
   en une commande — la donnée dormait dans les logs de #177 depuis le début.
   Corollaire utile : le résultat du témoin en sort RENFORCÉ, puisqu'une variable
   candidate de plus est éliminée entre les jumeaux.
+  ⚠️ Revu le 2026-09-27 : « même prompt » tient, mais c'était le prompt du mode
+  QCM, sur brain — les deux jumeaux basculaient en skill interactif par le
+  « pas » de leur énoncé (section « le palier `discovery` tournait en mode QCM »).
 
 ## Le mode de défaillance dominant du dépôt
 
