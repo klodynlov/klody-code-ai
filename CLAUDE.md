@@ -753,6 +753,20 @@ ici en écrivant le garde-fou censé le prévenir.
 levier « mieux le lui dire » est déjà mesuré épuisé sur trois canaux (encadré ❌
 plus haut). La docstring de l'outil porte la règle — c'est ce que le modèle lit
 au moment de choisir ses arguments — et le **refus de l'outil** est le garde-fou.
+
+> ### ⚠️ 2026-09-27 — le garde anti-dérive a mordu : le plafond de segment vaut 600 s
+>
+> local-suno `3fddc2c` (2026-09-09) : `ACESTEP_MAX_SEGMENT_SEC` = **600 en v1.5**
+> (moteur par défaut), 120 en v1, surcharge prioritaire. C'est bien un plafond de
+> SEGMENT (`plan_segment_durations(total, max_seg_sec)`), qui égale la borne haute
+> du contrat : en v1.5, **toute durée admise tient en une passe** — le mécanisme 2
+> du tableau ne mord plus qu'en v1. Motif côté daemon : WER final 77,3 → 16,8 %
+> (R&B), 81,5 → 38,6 % (zouk) sans découpage. `song_structure` recopie désormais la
+> CONDITION (`ACE_STEP_VERSION`), pas un nombre ; un rollback v1 se pose donc des
+> deux côtés. `TestPasDeDerive` confronte les **deux régimes** : juger le seul
+> défaut rend `nb_segments` = 1 partout — mesuré, **3 mutations sur 6** passaient
+> alors au vert du garde (600 en dur, boucle de chevauchement retirée, équilibrage
+> inversé), et la dernière n'est attrapée par AUCUN autre test. Avec v1 : 6/6.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :

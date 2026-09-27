@@ -8,6 +8,12 @@ sert à rien : la génération de 3 minutes est déjà en file.
 Le défaut corrigé, en une phrase : Klody demandait une chanson complète sur 30 s
 et envoyait les paroles en bloc, ce qui donne au moteur le choix entre tronquer
 et répéter. Il fait les deux.
+
+Le refus « re-chanté » n'existe que si le daemon DÉCOUPE en segments : ACE-Step
+v1 au-delà de 120 s, jamais v1.5 (une passe jusqu'à 600 s, moteur par défaut
+depuis le 2026-09-09). Ces tests-là se placent donc explicitement dans le régime
+qu'ils décrivent — ils ne passaient avant le 2026-09-27 que parce que la
+constante recopiée était restée à 120 s.
 """
 from __future__ import annotations
 
@@ -28,6 +34,18 @@ class _Resp:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise httpx.HTTPStatusError("boom", request=None, response=None)  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def moteur_v1(monkeypatch):
+    """Régime DÉCOUPÉ (ACE-Step v1, plafond de segment 120 s)."""
+    monkeypatch.setattr(ss, "SEGMENT_MAX_SEC", 120.0)
+
+
+@pytest.fixture
+def moteur_v15(monkeypatch):
+    """Régime par défaut du daemon : une passe jusqu'à 600 s."""
+    monkeypatch.setattr(ss, "SEGMENT_MAX_SEC", 600.0)
 
 
 def _capture(monkeypatch, module, nom_post: str, resp: _Resp | None = None) -> dict:
@@ -65,7 +83,8 @@ class TestParolesEnvoyees:
     async def test_les_marqueurs_sont_canonises(self, monkeypatch):
         # « [Couplet 1] » et « Refrain : » ne sont pas le format du moteur. C'est
         # la balise qui porte la structure : sans elle le refrain n'est pas un
-        # refrain, et au-delà de 120 s les segments ne savent pas se partager.
+        # refrain, et quand le daemon découpe, les segments ne savent pas se
+        # partager le texte.
         vu = _capture(monkeypatch, vb, "_post")
         await vb.generer_chanson(_CHANSON, duree_sec=180)
 
@@ -85,7 +104,7 @@ class TestParolesEnvoyees:
         # puisque la règle de comptage ne saute que les lignes entre crochets.
         assert ss.mots_chantes(vu["body"]["custom_lyrics"]) == 180
 
-    async def test_chanson_de_plus_de_120s_part_bien(self, monkeypatch):
+    async def test_chanson_de_plus_de_120s_part_bien(self, monkeypatch, moteur_v1):
         # Le cas visé : une chanson complète, multi-segment, non tronquée.
         vu = _capture(monkeypatch, vb, "_post")
         r = await vb.generer_chanson(_CHANSON, duree_sec=180)
@@ -94,6 +113,15 @@ class TestParolesEnvoyees:
         assert r["session_id"] == "abc12345"
         assert r["parametres"]["segments"] == 2
         assert r["parametres"]["sections"] == 6
+        assert r["couverture"]["couvrable"] is True
+
+    async def test_en_une_passe_le_rapport_dit_un_segment(self, monkeypatch, moteur_v15):
+        # Le rapport rendu au modèle ne doit pas annoncer un découpage que le
+        # daemon ne fera pas : c'est ce qu'il disait avant le 2026-09-27.
+        _capture(monkeypatch, vb, "_post")
+        r = await vb.generer_chanson(_CHANSON, duree_sec=180)
+
+        assert r["parametres"]["segments"] == 1
         assert r["couverture"]["couvrable"] is True
 
 
@@ -108,7 +136,7 @@ class TestRefusAvantEnvoi:
         # Actionnable : la durée qui marcherait est dans le message.
         assert str(r["couverture"]["duree_conseillee_sec"]) in r["error"]
 
-    async def test_pas_assez_de_sections_pour_les_segments(self, monkeypatch):
+    async def test_pas_assez_de_sections_pour_les_segments(self, monkeypatch, moteur_v1):
         # 240 s = 3 segments ; un texte d'un seul bloc = 1 section ⇒ les 2 derniers
         # segments re-chantent le même texte (generate_song_long recopie le dernier).
         vu = _capture(monkeypatch, vb, "_post")
@@ -116,6 +144,17 @@ class TestRefusAvantEnvoi:
 
         assert "error" in r and vu == {}
         assert "RE-CHANTERONT" in r["error"]
+
+    async def test_un_bloc_unique_part_en_une_passe(self, monkeypatch, moteur_v15):
+        # Même texte, moteur par défaut : chanté une fois en entier. Le refuser
+        # bloquerait une génération que le daemon rend correctement — et le bloc
+        # sans en-tête reste SIGNALÉ, pas passé sous silence.
+        vu = _capture(monkeypatch, vb, "_post")
+        r = await vb.generer_chanson(" ".join(["mot"] * 480), duree_sec=240)
+
+        assert "error" not in r
+        assert vu["body"]["duration_sec"] == 240
+        assert "sans en-tête" in r["note"]
 
     async def test_forcer_passe_outre_et_le_dit(self, monkeypatch):
         vu = _capture(monkeypatch, vb, "_post")
@@ -230,7 +269,7 @@ class TestComposerDemo:
         assert rapport is None
         assert body["custom_lyrics"] == "[Instrumental]"
 
-    async def test_demo_refusee_avant_le_post(self, monkeypatch):
+    async def test_demo_refusee_avant_le_post(self, monkeypatch, moteur_v1):
         vu = _capture(monkeypatch, km, "_ls_post")
         idee = dict(_IDEE, amorce_paroles=[" ".join(["mot"] * 400)])
         r = await km.composer_demo(idee, duree_sec=240)

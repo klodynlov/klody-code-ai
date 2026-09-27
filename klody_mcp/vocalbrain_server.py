@@ -185,11 +185,12 @@ async def generer_chanson(
     resultat_generation(session_id) une fois le statut "done".
 
     ⚠️ Les paroles sont CONTRÔLÉES avant l'envoi : le moteur ne chante pas plus
-    vite que ~2 mots/s, et au-delà de 120 s il génère la chanson en plusieurs
-    segments qui se partagent les sections. Un texte trop dense pour la durée est
-    tronqué ; un texte qui a moins de sections que de segments est re-chanté à
-    l'identique dans les segments de fin. Les deux cas sont REFUSÉS ici plutôt
-    que découverts à l'écoute d'une génération de plusieurs minutes.
+    vite que ~2 mots/s, et un texte trop dense pour la durée est tronqué. Le
+    moteur par défaut (ACE-Step v1.5) chante toute la chanson en une passe
+    jusqu'à 600 s ; en v1, au-delà de 120 s, il la découpe en segments qui se
+    partagent les sections, et un texte qui a moins de sections que de segments
+    est re-chanté à l'identique dans les segments de fin. Ces cas sont REFUSÉS
+    ici plutôt que découverts à l'écoute d'une génération de plusieurs minutes.
 
     Pour une chanson complète, écris les paroles avec des en-têtes de section —
     [Couplet 1] / [Refrain] / [Couplet 2] / [Pont] / [Refrain] — ou au minimum une

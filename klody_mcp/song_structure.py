@@ -13,12 +13,16 @@ que Klody ENVOIE, et toutes vérifiables avant de dépenser une génération :
    ``generer_chanson`` avec des paroles complètes produisait exactement ça.
 
 2. **Pas assez de sections pour les segments.** Au-delà de
-   ``ACESTEP_MAX_SEGMENT_SEC`` (120 s), le daemon génère la chanson en N segments
+   ``ACESTEP_MAX_SEGMENT_SEC``, le daemon génère la chanson en N segments
    recollés et répartit l'arrangement entre eux (``split_arrangement_text``). S'il
    y a MOINS de sections que de segments, ``generate_song_long`` fait
    ``chunks.append(chunks[-1])`` : **les segments de fin re-chantent le même
    texte**. Un texte sans ligne vide ni en-tête = 1 seule section = tous les
    segments identiques. Mesuré : 17 des 78 chansons n'avaient qu'une section.
+   ⚠️ Depuis le 2026-09-09, ce plafond vaut **600 s en ACE-Step v1.5** (le moteur
+   par défaut) : toute durée que le contrat accepte tient en UNE passe, et ce
+   mécanisme ne mord plus qu'en v1 (120 s) ou sous surcharge explicite. Il reste
+   codé ici parce que ces deux régimes existent encore côté daemon.
 
 3. **Rôles de section perdus.** ``_build_lyrics_from_custom`` nomme
    ``section_2``, ``section_3``… tout bloc séparé par une simple ligne vide, et
@@ -42,6 +46,9 @@ durée à 120 s en citant « bornes daemon (ge=10 le=120) » alors que le daemon
 passé à 600 depuis. ``tests/test_song_structure.py`` relit donc les vraies valeurs
 dans ``~/local-suno`` quand il est présent sur la machine, et rougit si elles ont
 bougé. Absent, le test se saute — il ne peut pas juger, il le dit.
+Il a mordu le 2026-09-27 : le plafond de segment était passé à 600 s en v1.5
+côté daemon dix-huit jours plus tôt, et valait encore 120 s ici — Klody refusait
+comme « re-chantée » une chanson de 240 s que le daemon rendait en une passe.
 """
 
 from __future__ import annotations
@@ -58,8 +65,25 @@ DUREE_MIN_SEC = int(os.getenv("KLODY_SONG_DUREE_MIN", "10"))
 DUREE_MAX_SEC = int(os.getenv("KLODY_SONG_DUREE_MAX", "600"))
 # storage/models.py::GenerationRequest.bpm — Field(ge=60, le=180)
 BPM_MIN, BPM_MAX = 60, 180
-# config.py — ACESTEP_MAX_SEGMENT_SEC / ACESTEP_SEGMENT_OVERLAP_SEC
-SEGMENT_MAX_SEC = float(os.getenv("ACESTEP_MAX_SEGMENT_SEC", "120"))
+# config.py — ACE_STEP_VERSION, ACESTEP_MAX_SEGMENT_SEC / ACESTEP_SEGMENT_OVERLAP_SEC
+#
+# Le plafond d'un SEGMENT (pas de la chanson : la durée totale est bornée par
+# DUREE_MAX_SEC) dépend du moteur depuis local-suno 3fddc2c (2026-09-09) : v1.5
+# compose nativement jusqu'à 600 s, v1 garde son plafond historique de 120 s.
+# Motif mesuré côté daemon (docs/qualite-2026-09-06.md) : à texte, style et graine
+# identiques, le découpage à 120 s faisait perdre des paroles et recommencer des
+# sections — WER final 77,3 → 16,8 % (R&B) et 81,5 → 38,6 % (zouk) en une passe.
+# Recopié à l'identique, condition comprise : un « 600 » en dur aurait menti au
+# premier rollback `ACE_STEP_VERSION=v1`, comme « 120 » a menti au passage à 600.
+#
+# ⚠️ Ces variables se lisent dans l'environnement de CE processus (serveur MCP),
+# pas dans celui du daemon. Un rollback posé côté daemon seul laisse Klody
+# prédire une passe unique là où le daemon découpe : le rollback se pose des
+# deux côtés.
+ACE_STEP_VERSION = os.getenv("ACE_STEP_VERSION", "v15")
+SEGMENT_MAX_SEC = float(os.getenv(
+    "ACESTEP_MAX_SEGMENT_SEC", "600" if ACE_STEP_VERSION == "v15" else "120"
+))
 SEGMENT_OVERLAP_SEC = float(os.getenv("ACESTEP_SEGMENT_OVERLAP_SEC", "4"))
 
 # ── Débit de chant ────────────────────────────────────────────────────────────
