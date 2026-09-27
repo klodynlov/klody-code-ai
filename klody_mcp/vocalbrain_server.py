@@ -185,11 +185,12 @@ async def generer_chanson(
     resultat_generation(session_id) une fois le statut "done".
 
     ⚠️ Les paroles sont CONTRÔLÉES avant l'envoi : le moteur ne chante pas plus
-    vite que ~2 mots/s, et au-delà de 120 s il génère la chanson en plusieurs
-    segments qui se partagent les sections. Un texte trop dense pour la durée est
-    tronqué ; un texte qui a moins de sections que de segments est re-chanté à
-    l'identique dans les segments de fin. Les deux cas sont REFUSÉS ici plutôt
-    que découverts à l'écoute d'une génération de plusieurs minutes.
+    vite que ~2 mots/s, et un texte trop dense pour la durée est tronqué. Le
+    moteur compose la chanson en une seule passe jusqu'à 600 s ; seul un daemon
+    en mode découpé (plafond de segment abaissé, cf. couverture.plafond_segment_sec)
+    répartit les sections entre segments, et re-chante alors à l'identique les
+    segments de fin s'il manque de sections. Ces cas sont REFUSÉS ici plutôt que
+    découverts à l'écoute d'une génération de plusieurs minutes.
 
     Pour une chanson complète, écris les paroles avec des en-têtes de section —
     [Couplet 1] / [Refrain] / [Couplet 2] / [Pont] / [Refrain] — ou au minimum une

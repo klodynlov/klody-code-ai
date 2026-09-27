@@ -15,6 +15,10 @@ import httpx
 import pytest
 from klody_mcp import klody_music_server as km, song_structure as ss, vocalbrain_server as vb
 
+# Plafond de segment POSÉ, jamais lu dans le `.env` : c'est une règle qui dépend du
+# moteur du daemon (cf. `song_structure.plafond_segment`). Défaut = une passe.
+pytestmark = pytest.mark.usefixtures("plafond_une_passe")
+
 
 class _Resp:
     def __init__(self, payload: dict, status_code: int = 200, text: str = ""):
@@ -65,7 +69,7 @@ class TestParolesEnvoyees:
     async def test_les_marqueurs_sont_canonises(self, monkeypatch):
         # « [Couplet 1] » et « Refrain : » ne sont pas le format du moteur. C'est
         # la balise qui porte la structure : sans elle le refrain n'est pas un
-        # refrain, et au-delà de 120 s les segments ne savent pas se partager.
+        # refrain, et en mode découpé les segments ne savent pas se partager.
         vu = _capture(monkeypatch, vb, "_post")
         await vb.generer_chanson(_CHANSON, duree_sec=180)
 
@@ -86,14 +90,26 @@ class TestParolesEnvoyees:
         assert ss.mots_chantes(vu["body"]["custom_lyrics"]) == 180
 
     async def test_chanson_de_plus_de_120s_part_bien(self, monkeypatch):
-        # Le cas visé : une chanson complète, multi-segment, non tronquée.
+        # Le cas visé : une chanson complète de plus de 2 min, non tronquée. En
+        # une passe (défaut ACE-Step 1.5), le moteur la reçoit d'un seul bloc.
         vu = _capture(monkeypatch, vb, "_post")
         r = await vb.generer_chanson(_CHANSON, duree_sec=180)
 
         assert vu["body"]["duration_sec"] == 180
         assert r["session_id"] == "abc12345"
-        assert r["parametres"]["segments"] == 2
+        assert r["parametres"]["segments"] == 1
         assert r["parametres"]["sections"] == 6
+        assert r["couverture"]["couvrable"] is True
+        assert r["couverture"]["plafond_segment_sec"] == 600
+
+    async def test_chanson_de_plus_de_120s_en_mode_decoupe(self, monkeypatch, plafond_decoupe):
+        # Même chanson, daemon en v1 ou ACESTEP_MAX_SEGMENT_SEC=120 : deux
+        # segments qui se partagent six sections — rien de re-chanté.
+        vu = _capture(monkeypatch, vb, "_post")
+        r = await vb.generer_chanson(_CHANSON, duree_sec=180)
+
+        assert vu["body"]["duration_sec"] == 180
+        assert r["parametres"]["segments"] == 2
         assert r["couverture"]["couvrable"] is True
 
 
@@ -108,14 +124,26 @@ class TestRefusAvantEnvoi:
         # Actionnable : la durée qui marcherait est dans le message.
         assert str(r["couverture"]["duree_conseillee_sec"]) in r["error"]
 
-    async def test_pas_assez_de_sections_pour_les_segments(self, monkeypatch):
-        # 240 s = 3 segments ; un texte d'un seul bloc = 1 section ⇒ les 2 derniers
-        # segments re-chantent le même texte (generate_song_long recopie le dernier).
+    async def test_pas_assez_de_sections_pour_les_segments(self, monkeypatch, plafond_decoupe):
+        # Mode découpé : 240 s = 3 segments ; un texte d'un seul bloc = 1 section
+        # ⇒ les 2 derniers segments re-chantent le même texte (generate_song_long
+        # recopie le dernier).
         vu = _capture(monkeypatch, vb, "_post")
         r = await vb.generer_chanson(" ".join(["mot"] * 480), duree_sec=240)
 
         assert "error" in r and vu == {}
         assert "RE-CHANTERONT" in r["error"]
+
+    async def test_un_seul_bloc_part_en_une_passe(self, monkeypatch):
+        # Le faux refus vécu du 2026-09-09 au 2026-09-27 : même texte, même durée,
+        # mais le daemon (ACE-Step 1.5) le chante d'un bloc. Le refuser privait
+        # l'utilisateur d'une chanson que le moteur aurait rendue entière.
+        vu = _capture(monkeypatch, vb, "_post")
+        r = await vb.generer_chanson(" ".join(["mot"] * 480), duree_sec=240)
+
+        assert "error" not in r, r.get("error")
+        assert vu["body"]["duration_sec"] == 240
+        assert r["parametres"]["segments"] == 1
 
     async def test_forcer_passe_outre_et_le_dit(self, monkeypatch):
         vu = _capture(monkeypatch, vb, "_post")
@@ -231,9 +259,12 @@ class TestComposerDemo:
         assert body["custom_lyrics"] == "[Instrumental]"
 
     async def test_demo_refusee_avant_le_post(self, monkeypatch):
+        # 400 mots sur 60 s = 6,7 mots/s : refus de DENSITÉ, valable dans les deux
+        # modes. (Ce test demandait 240 s, dont le refus ne tenait qu'au découpage
+        # à 120 s — une passe chante ce bloc entier à 1,7 mots/s.)
         vu = _capture(monkeypatch, km, "_ls_post")
         idee = dict(_IDEE, amorce_paroles=[" ".join(["mot"] * 400)])
-        r = await km.composer_demo(idee, duree_sec=240)
+        r = await km.composer_demo(idee, duree_sec=60)
 
         assert "error" in r and vu == {}
 

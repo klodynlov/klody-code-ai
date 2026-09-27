@@ -90,3 +90,28 @@ def _voix_muette(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(config, "VOICE_CLI", str(tmp_path / "vocalbrain-absent"))
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
+
+
+# Plafond de segment du daemon local-suno : une RÈGLE qui dépend du moteur depuis
+# local-suno 3fddc2c (cf. `song_structure.plafond_segment`). `SEGMENT_MAX_SEC` est
+# lu dans l'environnement à l'import : un test qui en dépend sans le poser jugerait
+# le `.env` du développeur, pas le code. Valeurs en LITTÉRAUX — les recalculer
+# depuis `plafond_segment` ferait suivre la règle au lieu de la juger.
+@pytest.fixture
+def plafond_une_passe(monkeypatch):
+    """Défaut du daemon (ACE-Step 1.5) : la chanson part en UNE passe jusqu'à 600 s."""
+    from klody_mcp import song_structure
+
+    monkeypatch.setattr(song_structure, "SEGMENT_MAX_SEC", 600.0)
+
+
+@pytest.fixture
+def plafond_decoupe(plafond_une_passe, monkeypatch):
+    """Mode découpé (v1, ou `ACESTEP_MAX_SEGMENT_SEC=120`) : segments de ≤ 120 s.
+
+    Dépend de `plafond_une_passe` pour s'appliquer APRÈS lui quand un module pose
+    le défaut pour tous ses tests.
+    """
+    from klody_mcp import song_structure
+
+    monkeypatch.setattr(song_structure, "SEGMENT_MAX_SEC", 120.0)

@@ -753,6 +753,30 @@ ici en écrivant le garde-fou censé le prévenir.
 levier « mieux le lui dire » est déjà mesuré épuisé sur trois canaux (encadré ❌
 plus haut). La docstring de l'outil porte la règle — c'est ce que le modèle lit
 au moment de choisir ses arguments — et le **refus de l'outil** est le garde-fou.
+
+> ### ⚠️ MIS À JOUR LE 2026-09-27 — le mécanisme n°2 ne mord plus par défaut
+>
+> local-suno `3fddc2c` (2026-09-09) a fait du plafond de segment une **règle** :
+> ACE-Step 1.5, le défaut, compose en **une passe jusqu'à 600 s** (WER final
+> 77-81 % en segments → 17-39 % en une passe, mesure local-suno du 2026-09-06) ;
+> v1 garde 120 s ; `ACESTEP_MAX_SEGMENT_SEC` explicite gagne. 600 = borne haute
+> des durées : **plus aucune chanson n'est découpée**, donc plus de refus
+> « RE-CHANTERONT » ni de durée allongée pour désaturer un segment.
+>
+> La copie figée à 120 s a survécu **18 jours** : Klody refusait des chansons que
+> le daemon chantait entières. `TestPasDeDerive` a rougi — il a fait son travail
+> — mais ne comparait qu'une valeur sous un seul environnement. Il compare
+> désormais la **règle** (6 variantes d'env) et le circuit dans les **deux modes**,
+> à travers le vrai `generate_song_long` (moteur remplacé par un enregistreur), et
+> exige que Klody refuse **SSI** le daemon re-chante. Capacité à rougir vérifiée
+> par mutation des deux côtés (Klody, et un miroir de local-suno à `config.py`
+> muté ou `.env` posé).
+>
+> ⚠️ **Reste ouvert** : `SEGMENT_MAX_SEC` est lu dans l'env de Klody, le daemon lit
+> le sien (plist + `~/local-suno/.env`). Passer le daemon en mode découpé exige de
+> le déclarer des deux côtés. Le vrai remède serait que le daemon EXPOSE son
+> plafond effectif (ex. dans `/health`) — changement côté local-suno, non fait.
+
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :
