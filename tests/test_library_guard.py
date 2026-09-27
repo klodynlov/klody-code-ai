@@ -8,7 +8,12 @@ Faux : le catalogue n'indexe que titre+auteur, il ne voit pas le contenu.
 
 `_claims_no_library_source` est le détecteur pur qui arme la relance forcée.
 """
-from agent.orchestrator import Orchestrator, _claims_no_library_source
+from agent.orchestrator import (
+    _LIBRARY_GUARD_MARGE,
+    Orchestrator,
+    _budget_pour_relance,
+    _claims_no_library_source,
+)
 from tools.mcp_client import _catalog_miss
 
 
@@ -144,12 +149,32 @@ class TestDeclenchementRelance:
         o._library_guard_fired = True
         assert o._should_force_content_search(self._ABSENCE, 2, 6) is False
 
-    def test_pas_de_relance_sans_marge_d_iteration(self):
-        # Relancer au dernier tour = mourir sur le cap sans réponse.
+    def test_relance_meme_a_la_derniere_iteration(self):
+        # Ce test verrouillait le TROU jusqu'au 2026-09-27 (il exigeait False) :
+        # 5 `library_catalog` séquentiels en easy · explain — l'incident même du
+        # 27/07 — placent la conclusion à 6/6, et le garde se taisait. Le budget de
+        # la relance est garanti à part (TestBudgetDeRelance).
         o = _orch()
         o._note_library_probe("library_catalog", _catalog_miss("x", 10))
-        assert o._should_force_content_search(self._ABSENCE, 5, 6) is False
+        assert o._should_force_content_search(self._ABSENCE, 5, 6) is True
 
     def test_pas_de_relance_si_catalogue_jamais_interroge(self):
         o = _orch()
         assert o._should_force_content_search(self._ABSENCE, 1, 6) is False
+
+
+class TestBudgetDeRelance:
+    """`explain` n'a pas d'auto-continue : sans budget garanti, une relance posée
+    à la dernière itération finirait en synthèse forcée SANS outils."""
+
+    def test_marge_mesuree(self):
+        # Littéral : 123 tours réels, ≤ 4 itérations du 1er search_books à la
+        # conclusion dans 98 % des cas. Un test qui se recalcule à partir du
+        # réglage qu'il protège ne peut pas rougir.
+        assert _LIBRARY_GUARD_MARGE == 4
+
+    def test_derniere_iteration_prolonge(self):
+        assert _budget_pour_relance(5, 6, _LIBRARY_GUARD_MARGE) == 10
+
+    def test_budget_suffisant_intact(self):
+        assert _budget_pour_relance(1, 6, _LIBRARY_GUARD_MARGE) == 6

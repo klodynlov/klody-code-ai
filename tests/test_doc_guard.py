@@ -19,6 +19,7 @@ from agent.orchestrator import (
     _DOC_NUDGE_MAX,
     _DOC_SCAN_MAX,
     Orchestrator,
+    _budget_pour_relance,
     _est_documentation,
 )
 
@@ -228,18 +229,15 @@ class TestBudgetDeRelance:
         # partir du réglage qu'il protège ne peut pas rougir (veille Qwen, 08-10).
         assert _DOC_GUARD_MARGE == 5
 
-    def test_derniere_iteration_prolonge(self, tmp_path):
-        o = _orch(tmp_path)
-        assert o._budget_pour_relance_doc(5, 6) == 11  # itérations 6..10 garanties
+    def test_derniere_iteration_prolonge(self):
+        assert _budget_pour_relance(5, 6, _DOC_GUARD_MARGE) == 11  # itérations 6..10 garanties
 
-    def test_marge_insuffisante_completee(self, tmp_path):
-        o = _orch(tmp_path)
-        assert o._budget_pour_relance_doc(8, 12) == 14
+    def test_marge_insuffisante_completee(self):
+        assert _budget_pour_relance(8, 12, _DOC_GUARD_MARGE) == 14
 
-    def test_budget_suffisant_intact(self, tmp_path):
+    def test_budget_suffisant_intact(self):
         # Ne réduit jamais : une relance en début de run garde tout son budget.
-        o = _orch(tmp_path)
-        assert o._budget_pour_relance_doc(4, 12) == 12
+        assert _budget_pour_relance(4, 12, _DOC_GUARD_MARGE) == 12
 
 
 class TestDocumentEcritParLAgent:

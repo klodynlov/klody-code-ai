@@ -297,8 +297,14 @@ verte, `Δ +0,0 %`.
 > itérations** (mesuré, 3/3 déclenchements), que seule l'auto-continue
 > fournissait — en injectant « … puis conclus dès que c'est fait » juste après
 > le nudge. Le garde tire désormais à toute itération et se garantit son budget
-> (`_DOC_GUARD_MARGE = 5`). Scénario de rejeu 22. Le garde LibraryBrain garde,
-> lui, la même marge d'une itération : même trou, non traité.
+> (`_DOC_GUARD_MARGE = 5`). Scénario de rejeu 22.
+> **Même trou, même jour, dans le garde LibraryBrain — et sur l'incident même qui
+> l'a fait écrire** : 5 `library_catalog` séquentiels en `easy · explain`
+> (max_iter=6) placent « pas de sources » à 6/6, le garde se taisait. Pire qu'ici :
+> `explain` n'a pas d'auto-continue, une relance sans budget garanti finit en
+> synthèse forcée SANS outils. Fermé pareil (`_LIBRARY_GUARD_MARGE = 4` : sur 123
+> tours réels, ≤ 4 itérations du premier `search_books` à la conclusion dans
+> 98 % des cas ; 0 déclenchement réel à mesurer). Scénario de rejeu 23.
 > Banc du jour, même config (QCM/brain), `discovery --repeat 3` : **13/15** avec
 > le correctif contre 12/15 sans — aucune régression, mais le cas « dernière
 > itération » ne s'est PAS reproduit dans ce run (garde tiré 2× à l'index 4) :

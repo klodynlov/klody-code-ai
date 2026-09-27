@@ -36,6 +36,7 @@ SCENARIOS = [
     "20_empty_after_reasoning_forced_synthesis",
     "21_library_guard_forces_content_search",
     "22_doc_guard_derniere_iteration",
+    "23_library_guard_derniere_iteration",
 ]
 
 
