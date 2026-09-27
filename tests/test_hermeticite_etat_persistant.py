@@ -105,10 +105,9 @@ def test_chaque_test_a_son_propre_dossier():
 def _vrais_dossiers_d_un_processus(env: dict[str, str]) -> list[Path]:
     """`garde_etat.VRAIS_DOSSIERS` tel que le calcule un processus NEUF sous `env`
     — la liste est figée à l'import, seul un interpréteur frais la recalcule."""
+    script = "from tests import garde_etat\nfor p in garde_etat.VRAIS_DOSSIERS: print(p)"
     proc = subprocess.run(
-        [sys.executable, "-c",
-         "from tests import garde_etat\n"
-         "for p in garde_etat.VRAIS_DOSSIERS: print(p)"],
+        [sys.executable, "-c", script],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=60, check=True,
     )
     return [Path(ligne) for ligne in proc.stdout.splitlines()]
