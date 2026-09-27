@@ -467,6 +467,75 @@ def daemon_reel() -> dict:
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
+# Sonde des DÉBITS de chant. `song_structure` recopie deux nombres du daemon — la
+# cible (2 mots/s) et le seuil d'alerte « texte trop court » (1 mot/s) — et le
+# commentaire qui l'affirmait n'était relu par aucun test : si local-suno les
+# changeait, Klody conseillerait des durées et lèverait des alertes pour un autre
+# moteur, sans que rien ne rougisse. Le seuil est confronté par COMPORTEMENT : on
+# rejoue le vrai `_warn_if_lyrics_too_short` sur une grille de débits et on
+# regarde s'il avertit, plutôt que de chercher « 1.0 » dans son source.
+#
+# La console du daemon est remplacée APRÈS le parseur : seul ce que
+# `_warn_if_lyrics_too_short` écrit est jugé.
+_SONDE_DEBIT = r"""
+import json, sys
+sys.path.insert(0, ".")
+import main
+from main import _build_lyrics_from_custom, _warn_if_lyrics_too_short
+from pipeline.lyrics_generator import _WORDS_PER_SEC
+
+class Enregistreur:
+    def __init__(self):
+        self.lignes = []
+    def print(self, *a, **k):
+        self.lignes.append(" ".join(map(str, a)))
+    log = print
+
+cas = []
+for arrangement, duree in json.loads(sys.stdin.read()):
+    ly = _build_lyrics_from_custom(arrangement, "t", "pop", 90, "Am")
+    main.console = Enregistreur()
+    debit = _warn_if_lyrics_too_short(ly, duree)
+    lignes = main.console.lignes
+    cas.append({"debit": debit, "lignes": lignes,
+                "averti": any("⚠" in l for l in lignes)})
+print(json.dumps({"cible": _WORDS_PER_SEC, "cas": cas}))
+"""
+
+# Grille LITTÉRALE, jamais dérivée de `ss.DEBIT_MIN` : une grille recalculée à
+# partir du seuil qu'elle surveille le suivrait dans sa dérive au lieu de la juger.
+# 100 s rend le débit lisible (mots = centièmes de mot/s) et encadre le seuil
+# actuel de part et d'autre, égalité stricte comprise.
+_DUREE_GRILLE_DEBIT = 100
+_MOTS_GRILLE_DEBIT = (50, 99, 100, 101, 120, 150)
+
+
+def _texte_de(mots: int) -> str:
+    return "[Couplet]\n" + " ".join(["la"] * mots)
+
+
+@pytest.fixture(scope="module")
+def debits_daemon() -> dict:
+    """Cible et verdicts d'alerte relevés dans le VRAI local-suno."""
+    python = _python_localsuno()
+    cas = [
+        [ss.canonicaliser_paroles(_texte_de(m))[0], _DUREE_GRILLE_DEBIT]
+        for m in _MOTS_GRILLE_DEBIT
+    ]
+    cas.append([ss.canonicaliser_paroles(_PAROLES_TEMOIN)[0], 180])
+    proc = subprocess.run(
+        [str(python), "-c", _SONDE_DEBIT],
+        input=json.dumps(cas), capture_output=True, text=True,
+        cwd=str(_LOCALSUNO), timeout=120, env=_env_sans_plafond(),
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            "la sonde des débits a échoué — le contrat a peut-être changé :\n"
+            + proc.stderr[-1500:]
+        )
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
 @pytest.mark.slow
 class TestPasDeDerive:
     """Confronte les constantes et le circuit au VRAI dépôt local-suno.
@@ -583,3 +652,45 @@ class TestPasDeDerive:
             t = ligne.strip()
             if t and not t.startswith("[") and not t.lower().startswith("refrain"):
                 assert t in reconstruit, f"parole perdue : {t!r}"
+
+    def test_la_cible_de_debit_est_celle_du_daemon(self, debits_daemon):
+        # `duree_conseillee`, `duree_sans_saturation` et l'alerte « débit serré »
+        # reposent sur ce nombre. Côté daemon, c'est `_WORDS_PER_SEC` qui
+        # dimensionne les paroles qu'il écrit lui-même.
+        assert debits_daemon["cible"] == ss.DEBIT_CIBLE, (
+            "la cible de débit a changé côté daemon (pipeline/lyrics_generator.py) "
+            "— réaligne song_structure.DEBIT_CIBLE"
+        )
+
+    def test_le_seuil_de_texte_clairseme_est_celui_du_daemon(self, debits_daemon):
+        """Klody avertit « texte clairsemé » exactement là où le daemon avertit.
+
+        L'alerte du daemon est un `print` dans un sous-processus worker que
+        personne ne lit : Klody la remonte avant le POST. Deux seuils différents
+        feraient deux diagnostics contradictoires sur la même demande.
+        """
+        cas = debits_daemon["cas"][: len(_MOTS_GRILLE_DEBIT)]
+        # « Rien entendu » n'est pas « pas d'alerte » : la sonde doit avoir capté
+        # la sortie du daemon à chaque cas, sinon elle n'a rien jugé.
+        assert all(c["lignes"] for c in cas), "la console du daemon n'a rien rendu"
+        # Sans les deux verdicts sur la grille, la confrontation serait triviale.
+        assert {c["averti"] for c in cas} == {True, False}, (
+            "la grille n'encadre plus le seuil du daemon"
+        )
+        for mots, c in zip(_MOTS_GRILLE_DEBIT, cas, strict=True):
+            rapport = ss.controler_couverture(_texte_de(mots), _DUREE_GRILLE_DEBIT)
+            klody = any(a.startswith("texte clairsemé") for a in rapport["avertissements"])
+            assert klody == c["averti"], (
+                f"{mots} mots / {_DUREE_GRILLE_DEBIT} s : daemon "
+                f"{'averti' if c['averti'] else 'muet'}, Klody "
+                f"{'averti' if klody else 'muet'} — réaligne song_structure.DEBIT_MIN"
+            )
+
+    def test_le_compte_de_mots_est_celui_du_daemon(self, debits_daemon):
+        # `TestComptage` affirme « même règle que _warn_if_lyrics_too_short » :
+        # ici on le vérifie, sur la grille et sur le témoin à en-têtes multiples.
+        durees = [_DUREE_GRILLE_DEBIT] * len(_MOTS_GRILLE_DEBIT) + [180]
+        textes = [_texte_de(m) for m in _MOTS_GRILLE_DEBIT] + [_PAROLES_TEMOIN]
+        for texte, duree, c in zip(textes, durees, debits_daemon["cas"], strict=True):
+            arrangement, _ = ss.canonicaliser_paroles(texte)
+            assert round(c["debit"] * duree) == ss.mots_chantes(arrangement)

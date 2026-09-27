@@ -729,6 +729,21 @@ déterministes, tous vérifiés sur le code réel de local-suno et sur les
 le daemon écrit lui-même, et il avertit déjà sous 1 mot/s — mais dans un `print`
 de sous-processus worker que **ni l'utilisateur ni Klody ne voient jamais**. Le
 contrôle remonte ce que le daemon savait déjà, au seul endroit où ça peut servir.
+- ⚠️ **Ces deux nombres n'étaient relus par AUCUN test** jusqu'au 2026-09-27 —
+  angle mort resté ouvert quand #275 a réaligné le plafond. La vraie source de la
+  cible est `pipeline/lyrics_generator.py::_WORDS_PER_SEC` (le message de `main.py`
+  ne fait que la répéter). `TestPasDeDerive` la relit désormais, et confronte le
+  seuil par COMPORTEMENT : il rejoue le vrai `_warn_if_lyrics_too_short` sur une
+  grille LITTÉRALE de débits. Mutations rejouées des deux côtés (Klody et miroir du
+  daemon) : 6/6 rouges.
+- ⚠️ **La mesure « 65 % → 94 % » est celle du mode DÉCOUPÉ** (v1.5, deux segments
+  de ~92 s) : en une passe, le pire segment EST le débit global, le même texte y
+  partirait en un seul appel à 1,99 mot/s. **En une passe, la cible n'est
+  corroborée que jusqu'à 1,8 mot/s** — banc local-suno du 2026-09-06, compté par
+  `mots_chantes` : 1,66 ⇒ WER 5,7 %, 1,81 ⇒ 14,0 % (mêmes textes découpés : 68,7
+  et 149,6 %). Le rapport du banc annonce 1,84 et 2,02 : son tokeniseur scinde les
+  apostrophes. Au-delà de 1,8, l'alerte « débit serré » est une prudence, pas un
+  constat.
 
 ⚠️ **Un TTS/chant cassé CHANTE quand même** — piège déjà écrit plus bas pour la
 voix parlée, revécu ici : à 180 s le morceau sonnait complet, structure entière,

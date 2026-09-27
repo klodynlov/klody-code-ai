@@ -98,13 +98,28 @@ SEGMENT_MAX_SEC = plafond_segment()
 SEGMENT_OVERLAP_SEC = float(os.getenv("ACESTEP_SEGMENT_OVERLAP_SEC", "4"))
 
 # ── Débit de chant ────────────────────────────────────────────────────────────
-# La cible vient du daemon lui-même (main.py::_warn_if_lyrics_too_short : « vise
-# ~2 mots/s »), pas d'une estimation maison. Les deux bornes l'encadrent :
+# La cible vient du daemon lui-même, pas d'une estimation maison : c'est
+# `pipeline/lyrics_generator.py::_WORDS_PER_SEC`, qui dimensionne les paroles
+# qu'il écrit (`main.py::_warn_if_lyrics_too_short` ne fait que la répéter dans
+# son message). Les deux bornes l'encadrent :
 #   - sous DEBIT_MIN, c'est le seuil où le daemon avertit déjà « chant étiré et
 #     peu intelligible » — sauf que son avertissement est un print dans un
 #     sous-processus worker : ni l'utilisateur ni Klody ne le voient jamais ;
 #   - au-dessus de DEBIT_MAX (cible + 50 %), le moteur doit couper du texte.
 #     Volontairement permissif : on ne refuse que le flagrant, pas le serré.
+# Cible et seuil sont confrontés au vrai daemon par `TestPasDeDerive` (le seuil
+# par comportement, sur une grille de débits) — ce commentaire l'affirmait depuis
+# le 2026-08-07 sans qu'aucun test le relise.
+#
+# ⚠️ En UNE passe (v1.5, plafond 600 s), la cible n'est corroborée que JUSQU'À
+# 1,8 mot/s. Banc local-suno du 2026-09-06 (`output/benchmark_2026-09-06`),
+# moteur turbo, texte, style et graine identiques, comptés comme ici
+# (`mots_chantes`) : 1,66 mot/s sur 323 s ⇒ WER 5,7 %, 1,81 sur 243 s ⇒ 14,0 %
+# (Suno sur les mêmes paroles : 1,0 et 10,2 %) ; les MÊMES textes en mode
+# découpé : 68,7 et 149,6 %. Le rapport du banc annonce 1,84 et 2,02 : son
+# tokeniseur scinde les apostrophes (« J'ai » = 2 mots), pas `mots_chantes`.
+# Entre 1,8 et 2,0, et au-delà, rien n'est mesuré en une passe : que le moteur y
+# tronque comme le segment à 2,52 du 2026-08-07 reste une hypothèse.
 DEBIT_CIBLE = float(os.getenv("KLODY_SONG_DEBIT_CIBLE", "2.0"))
 DEBIT_MIN = float(os.getenv("KLODY_SONG_DEBIT_MIN", "1.0"))
 DEBIT_MAX = float(os.getenv("KLODY_SONG_DEBIT_MAX", "3.0"))
@@ -349,6 +364,11 @@ def debit_par_segment(arrangement: str, duree_sec: float) -> list[tuple[int, flo
     couplet amputé de 5 vers sur 8, un pré-refrain réduit à des onomatopées), le
     segment 2 est sorti intégral. Le débit global masquait exactement le seul
     chiffre qui décidait.
+
+    ⚠️ Cette mesure est celle du mode DÉCOUPÉ (moteur v1.5, plafond encore à
+    120 s à l'époque, deux segments de ~92 s) : elle ne se transpose pas en une
+    passe, où le pire segment EST le débit global. Le même texte partirait
+    aujourd'hui en un seul appel à 1,99 mot/s.
     """
     blocs = [b for b in arrangement.split("\n\n") if b.strip()]
     if not blocs:
@@ -436,6 +456,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
     elif debit_pire > DEBIT_CIBLE:
         # ⚠️ Seuil à la CIBLE, pas au-dessus : mesuré, un segment à 2,52 mots/s a
         # tronqué (session be133ea1). C'était sous l'ancien seuil d'alerte à 2,5.
+        # Mesure faite en mode découpé ; en une passe, aucun point au-delà de
+        # 1,81 mot/s — l'alerte y reste une prudence, pas un constat.
         detail = (
             "" if segments == 1
             else f" — les segments sont équilibrés en NOMBRE de sections, pas en mots"
