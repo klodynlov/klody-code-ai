@@ -5,6 +5,8 @@ import config
 import pytest
 from agent import semantic_memory
 
+from tests import journal_figeage
+
 # Capturé AVANT toute redirection : le garde-fou de tests/test_hermeticite_voix.py
 # doit pouvoir vérifier que le vrai dossier reste intact, et il ne le peut plus si
 # la seule référence qui subsiste est celle qu'on vient de détourner.
@@ -15,6 +17,13 @@ _VRAI_VOICE_AUDIO_DIR = config.VOICE_AUDIO_DIR
 def vrai_dossier_audio():
     """Le dossier audio RÉEL de l'utilisateur, tel qu'avant `_voix_muette`."""
     return _VRAI_VOICE_AUDIO_DIR
+
+
+# Le journal de figeage de l'API est ouvert en append À L'IMPORT d'api.server,
+# donc pendant la collecte : aucune fixture n'arrive à temps. Détourné ici, au
+# chargement du conftest, avant que le moindre module de test n'importe l'API.
+# Cf. tests/journal_figeage.py ; verrouillé par test_hermeticite_journal_figeage.
+journal_figeage.detourner()
 
 
 @pytest.fixture(scope="session", autouse=True)

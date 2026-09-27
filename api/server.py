@@ -69,7 +69,17 @@ logger = logging.getLogger(__name__)
 #
 # SIGUSR1 est inutilisé par ailleurs et ne perturbe pas un serveur sain — le
 # dump est purement observationnel : il n'interrompt ni ne modifie rien.
-_HANG_DUMP_PATH = Path.home() / "Library" / "Logs" / "klody-api-hang.log"
+#
+# Surchargeable par KLODY_API_HANG_LOG, pour la suite de tests : l'armement a
+# lieu À L'IMPORT de ce module (cf. plus bas), donc chaque session pytest qui
+# importait l'API écrivait « dumper armé » dans le VRAI journal — constaté le
+# 2026-09-27, cf. tests/journal_figeage.py. ⚠️ Ce n'est pas un réglage de prod :
+# scripts/api-watchdog.sh écrit son bloc d'état au chemin PAR DÉFAUT, en dur ;
+# déplacer le dump côté API le séparerait de l'état qui l'accompagne.
+_HANG_DUMP_PATH = Path(
+    os.getenv("KLODY_API_HANG_LOG")
+    or Path.home() / "Library" / "Logs" / "klody-api-hang.log"
+)
 
 
 def _install_hang_dumper() -> None:
@@ -89,6 +99,9 @@ def _install_hang_dumper() -> None:
         logger.warning("[Diag] dumper de figeage non armé: %s", exc)
 
 
+# Armé à l'import du module, pas dans `lifespan` : IMPORTER l'API écrit donc
+# dans le journal, serveur lancé ou non — d'où le détournement que
+# tests/conftest.py pose avant toute collecte.
 _install_hang_dumper()
 
 
