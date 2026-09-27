@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import agent.orchestrator as orch_mod
 import pytest
 from agent.long_term_memory import (
     LongTermMemory,
@@ -94,8 +93,8 @@ def _orch(lt: LongTermMemory, memoire: ConversationMemory) -> MagicMock:
 class TestPromptSysteme:
     @pytest.fixture(autouse=True)
     def _sans_skills(self, monkeypatch):
-        monkeypatch.setattr(orch_mod, "SKILLS_ROUTER_ENABLED", False)
-        monkeypatch.setattr(orch_mod, "load_skills", lambda: [])
+        monkeypatch.setattr("agent.orchestrator.SKILLS_ROUTER_ENABLED", False)
+        monkeypatch.setattr("agent.orchestrator.load_skills", lambda: [])
 
     def test_extraction_entre_deux_messages_systeme_identique(self, lt):
         memoire = ConversationMemory()
