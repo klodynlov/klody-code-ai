@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+import httpx
 import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -152,34 +153,157 @@ def _librarybrain_jamais_demarre(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _librarybrain_hors_reseau(monkeypatch):
-    """Garde : un test d'intégration qui joint LibraryBrain ou le lance ROUGIT.
+def _journal_d_usage_coupe(monkeypatch):
+    """Aucun événement du journal d'usage ne part vers le VRAI gateway.
 
-    Les bouchons ci-dessus préviennent ; ce garde constate. Toute connexion vers
-    l'hôte:port de `LIBRARYBRAIN_URL`, et toute tentative de lancer le processus
-    (`services._start_process`), est REFUSÉE — aucune requête n'atteint le vrai
-    serveur, même via un chemin que personne n'a bouchonné — puis journalisée, et
-    le test échoue au démontage. Journaliser plutôt que lever sur place : l'appel
-    fautif part souvent d'un thread démon (`lb-init`), dont l'exception
-    n'atteindrait jamais pytest.
+    `agent/journal_client.py` pousse chaque appel d'outil et chaque borne de
+    session sur `POST /journal/event` du gateway :8090, depuis le thread démon
+    `klody-journal-client`. Mesuré le 2026-09-27 : 119 connexions pendant
+    tests/integration, et 119 événements écrits dans `state/journal.db` de
+    klody-core, tous `app='klody-ai'`, `source='user'` : pour le miner
+    d'habitudes, c'était l'utilisateur. Chaque run y laisse une empreinte,
+    l'appel à l'outil bidon `i_dont_exist` du rejeu 09 : 144 dans le journal
+    depuis le 2026-07-15. Suivi de l'échec de `preview_file`, ce trafic a
+    produit la proposition « Réparer ou contourner preview_file »
+    (`tool:preview_file-flaky`, créée le 2026-09-17, invalidée le 2026-09-22)
+    pour un outil qui n'était pas cassé.
 
-    Limite connue : un thread démon lancé par le test N qui se connecte pendant le
-    test N+1 est imputé à N+1. Le nom du thread figure dans le message.
+    `KLODY_JOURNAL=0` est l'interrupteur du module, relu à chaque émission.
+    L'émission elle-même est testée dans tests/test_journal_client.py.
+    """
+    monkeypatch.setenv("KLODY_JOURNAL", "0")
+
+
+def _extraction_vide(**_kwargs):
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
+
+
+@pytest.fixture(autouse=True)
+def _extraction_memoire_hors_ollama(monkeypatch):
+    """L'extraction de faits de fin de message n'interroge pas Ollama.
+
+    Après chaque message WebSocket, l'API lance le thread `mem-extractor`
+    (`api/server.py::_extract_memory_bg`). Il interroge `OLLAMA_BASE_URL` avec
+    le client de `agent/memory_extractor.py`, que le faux `agent.llm.OpenAI` des
+    tests WebSocket ne remplace pas. Mesuré le 2026-09-27 : 4 connexions vers
+    :11434 depuis test_websocket_chat.py. Ollama absent (cette machine, la CI) :
+    `APIConnectionError` avalée. Ollama présent : une vraie extraction, dont les
+    faits iraient en mémoire long terme. Le chemin dépendait de la machine.
+
+    Le client rend une extraction vide : le thread tourne, rien ne sort.
+    L'extraction est testée dans tests/test_memory_extractor.py.
+    """
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_extraction_vide))
+    )
+    monkeypatch.setattr("agent.memory_extractor._client_llm", lambda: client)
+
+
+class HttpxSansReseau:
+    """`httpx` tel que le voit `api/server.py` : ses `AsyncClient` ne sortent pas.
+
+    Tout le reste est le vrai module. Chaque requête lève `httpx.ConnectError`,
+    ce que rend un service absent (le chemin de la CI), et son URL est gardée
+    dans `requetes`.
+    """
+
+    def __init__(self) -> None:
+        self.requetes: list[str] = []
+
+    def __getattr__(self, nom: str):
+        return getattr(httpx, nom)
+
+    # Même nom que dans httpx : c'est `httpx.AsyncClient(...)` qu'appelle l'API.
+    def AsyncClient(self, *args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(self._refuser)
+        return httpx.AsyncClient(*args, **kwargs)
+
+    def _refuser(self, request: httpx.Request) -> httpx.Response:
+        self.requetes.append(f"{request.method} {request.url}")
+        raise httpx.ConnectError(
+            "service de la machine coupé pendant les tests d'intégration", request=request
+        )
+
+
+@pytest.fixture(autouse=True)
+def api_sans_services_machine(monkeypatch) -> HttpxSansReseau:
+    """`/api/status`, `/health` et `/api/proposals` ne joignent aucun service réel.
+
+    Ces routes ouvrent leur propre `httpx.AsyncClient` vers Ollama, le gateway
+    et le MCP Klody. Mesuré le 2026-09-27 : `test_status_endpoint` joignait
+    :11434, :8090 et :8087 (5 connexions), et son verdict (`ollama`,
+    `backend_active`, `mcp_server_active`) dépendait de ce qui tournait sur la
+    machine. Pire : un test de `POST /api/proposals/{id}/status` aurait modifié
+    l'état du vrai gateway. Tous les services sont absents, comme en CI.
+    """
+    faux = HttpxSansReseau()
+    monkeypatch.setattr("api.server.httpx", faux)
+    return faux
+
+
+_BOUCLE_LOCALE = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def services_de_la_machine() -> dict[int, tuple[str, frozenset[str]]]:
+    """Port → (services, hôtes) de ce qui tourne sur la machine de dev.
+
+    Dérivé de la configuration, pas écrit en dur : un `.env` qui déplace le
+    gateway déplace le garde avec lui. Plusieurs services peuvent partager un
+    port (en mode gateway, le modèle code et le worker VL passent par :8090).
     """
     import config
+    from agent import journal_client
 
-    cible = urlsplit(config.LIBRARYBRAIN_URL)
-    port = cible.port or (443 if cible.scheme == "https" else 80)
-    hotes = {cible.hostname, "127.0.0.1", "localhost", "::1"}
+    urls = {
+        "LibraryBrain": config.LIBRARYBRAIN_URL,
+        "gateway klody-core": config.MLX_BASE_URL,
+        "journal d'usage": journal_client.gateway_root(),
+        "modèle code": config.MLX_CODE_BASE_URL,
+        "worker VL": config.VL_BASE_URL,
+        "Ollama": config.OLLAMA_BASE_URL,
+        "MCP Klody": config.KLODY_MCP_URL,
+    }
+    services: dict[int, tuple[list[str], set[str]]] = {}
+    for nom, url in urls.items():
+        cible = urlsplit(url)
+        if not cible.hostname:
+            continue
+        port = cible.port or (443 if cible.scheme == "https" else 80)
+        noms, hotes = services.setdefault(port, ([], set(_BOUCLE_LOCALE)))
+        if nom not in noms:
+            noms.append(nom)
+        hotes.add(cible.hostname)
+    return {port: (" / ".join(noms), frozenset(hotes)) for port, (noms, hotes) in services.items()}
+
+
+@pytest.fixture(autouse=True)
+def _services_machine_hors_reseau(monkeypatch):
+    """Garde : un test d'intégration qui joint un service de la machine ROUGIT.
+
+    Les bouchons ci-dessus préviennent ; ce garde constate. Toute connexion
+    vers un service de `services_de_la_machine()` (LibraryBrain, gateway et
+    journal d'usage, Ollama, MCP Klody), et toute tentative de lancer
+    LibraryBrain (`services._start_process`), est REFUSÉE — aucune requête
+    n'atteint le vrai serveur, même par un chemin que personne n'a bouchonné —
+    puis journalisée, et le test échoue au démontage. Journaliser plutôt que
+    lever sur place : l'appel fautif part presque toujours d'un thread démon
+    (`lb-init`, `klody-journal-client`, `mem-extractor`), dont l'exception
+    n'atteindrait jamais pytest. Rend la liste des tentatives, pour les tests
+    du garde lui-même.
+
+    Limites connues : un thread démon lancé par le test N qui se connecte
+    pendant le test N+1 est imputé à N+1 (le nom du thread figure dans le
+    message), et une connexion partie après le démontage du DERNIER test
+    n'est vue par personne.
+    """
+    services = services_de_la_machine()
     tentatives: list[str] = []
 
-    def _vers_librarybrain(adresse) -> bool:
-        return (
-            isinstance(adresse, tuple)
-            and len(adresse) >= 2
-            and adresse[1] == port
-            and adresse[0] in hotes
-        )
+    def _service_vise(adresse) -> str | None:
+        if not (isinstance(adresse, tuple) and len(adresse) >= 2):
+            return None
+        nom, hotes = services.get(adresse[1], (None, frozenset()))
+        return nom if adresse[0] in hotes else None
 
     def _noter(quoi: str) -> None:
         tentatives.append(f"{quoi} (thread {threading.current_thread().name})")
@@ -187,16 +311,18 @@ def _librarybrain_hors_reseau(monkeypatch):
     connect, connect_ex = socket.socket.connect, socket.socket.connect_ex
 
     def _connect(self, adresse):
-        if _vers_librarybrain(adresse):
-            _noter(f"connexion vers {adresse[0]}:{adresse[1]}")
+        nom = _service_vise(adresse)
+        if nom:
+            _noter(f"connexion vers {adresse[0]}:{adresse[1]} [{nom}]")
             raise ConnectionRefusedError(
-                errno.ECONNREFUSED, "LibraryBrain interdit pendant les tests d'intégration"
+                errno.ECONNREFUSED, f"{nom} interdit pendant les tests d'intégration"
             )
         return connect(self, adresse)
 
     def _connect_ex(self, adresse):
-        if _vers_librarybrain(adresse):
-            _noter(f"connexion vers {adresse[0]}:{adresse[1]}")
+        nom = _service_vise(adresse)
+        if nom:
+            _noter(f"connexion vers {adresse[0]}:{adresse[1]} [{nom}]")
             return errno.ECONNREFUSED
         return connect_ex(self, adresse)
 
@@ -207,10 +333,10 @@ def _librarybrain_hors_reseau(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _connect)
     monkeypatch.setattr(socket.socket, "connect_ex", _connect_ex)
     monkeypatch.setattr("services._start_process", _lancement)
-    yield
+    yield tentatives
     assert not tentatives, (
-        "Un test d'intégration a tenté de joindre ou de lancer le VRAI LibraryBrain "
-        f"({config.LIBRARYBRAIN_URL}) : {tentatives}"
+        "Un test d'intégration a tenté de joindre ou de lancer un service RÉEL de "
+        f"la machine : {tentatives}"
     )
 
 
