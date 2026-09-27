@@ -92,13 +92,38 @@ def _voix_muette(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
 
 
+# Plafonds de segment du daemon local-suno, en LITTÉRAUX (cf. song_structure.
+# plafond_segment) : 600 s en v1.5 depuis le 2026-09-09, 120 s en v1 ou surchargé.
+_PLAFOND_UNE_PASSE = 600.0
+_PLAFOND_DECOUPE = 120.0
+
+
+@pytest.fixture(autouse=True)
+def _chanson_en_une_passe(monkeypatch):
+    """Le contrôle de couverture des chansons se teste en mode NOMINAL par défaut.
+
+    `song_structure.SEGMENT_MAX_SEC` est lu dans l'environnement à l'import : sans
+    ce garde, un `ACE_STEP_VERSION` ou un `ACESTEP_MAX_SEGMENT_SEC` exporté dans
+    le shell du développeur basculerait la suite en mode découpé — même défaut que
+    `_voix_muette` ci-dessus. Le mode découpé se demande EXPLICITEMENT
+    (`chanson_decoupee`).
+    """
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_UNE_PASSE)
+
+
+@pytest.fixture
+def chanson_decoupee(monkeypatch):
+    """Mode découpé : segments de ≤ 120 s recollés en cross-fade (v1, ou surcharge)."""
+    monkeypatch.setattr("klody_mcp.song_structure.SEGMENT_MAX_SEC", _PLAFOND_DECOUPE)
+
+
 @pytest.fixture(autouse=True)
 def _pas_de_decouverte_mcp(monkeypatch):
     """La suite ne DOIT JAMAIS découvrir les VRAIS serveurs MCP de l'atelier.
 
-    Quatrième instance du défaut des fixtures ci-dessus : `config.MCP_SERVERS`
-    est lu dans le `.env` du développeur (`load_dotenv()` remonte jusqu'au
-    checkout principal, même depuis un worktree), et `Orchestrator.__init__`
+    Même défaut que les fixtures ci-dessus : `config.MCP_SERVERS` est lu dans
+    le `.env` du développeur (`load_dotenv()` remonte jusqu'au checkout
+    principal, même depuis un worktree), et `Orchestrator.__init__`
     interroge ces serveurs (cache process ensuite). Mesuré le 2026-09-27 sur le
     Mac : **314 outils** sur 15 serveurs déclarés, **7,7 s** de réseau au
     premier orchestrateur du processus — dans des tests qui ne parlent pas de

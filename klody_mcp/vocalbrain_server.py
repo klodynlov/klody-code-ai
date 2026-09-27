@@ -185,11 +185,11 @@ async def generer_chanson(
     resultat_generation(session_id) une fois le statut "done".
 
     ⚠️ Les paroles sont CONTRÔLÉES avant l'envoi : le moteur ne chante pas plus
-    vite que ~2 mots/s, et au-delà de 120 s il génère la chanson en plusieurs
-    segments qui se partagent les sections. Un texte trop dense pour la durée est
-    tronqué ; un texte qui a moins de sections que de segments est re-chanté à
-    l'identique dans les segments de fin. Les deux cas sont REFUSÉS ici plutôt
-    que découverts à l'écoute d'une génération de plusieurs minutes.
+    vite que ~2 mots/s, et un texte trop dense pour la durée est tronqué. Ce cas
+    est REFUSÉ ici plutôt que découvert à l'écoute d'une génération de plusieurs
+    minutes. Le moteur compose la chanson en une seule passe jusqu'à 600 s ; si
+    le daemon est réglé en mode découpé, un texte qui a moins de sections que de
+    segments serait re-chanté à l'identique — refusé aussi.
 
     Pour une chanson complète, écris les paroles avec des en-têtes de section —
     [Couplet 1] / [Refrain] / [Couplet 2] / [Pont] / [Refrain] — ou au minimum une
@@ -230,8 +230,8 @@ async def generer_chanson(
         "rvc_transpose": int(transpose),
         "rvc_model": modele_voix or "klody",
         # L'arrangement canonique, PAS le texte brut : c'est lui qui garantit que
-        # chaque segment reçoit une section différente et que le refrain est balisé
-        # comme un refrain.
+        # le refrain est balisé comme un refrain, qu'aucune section n'en écrase une
+        # autre, et — en mode découpé — que chaque segment chante un texte différent.
         "custom_lyrics": rapport["arrangement"],
         "style_prompt": style or None,
     }
@@ -302,8 +302,7 @@ async def generer_instrumental(
         style: Tags de style en anglais (genre, instruments, ambiance) — c'est le
             SEUL conditionnement du moteur ici, donc sois précis :
             "boom bap hip hop, dusty rhodes, upright bass, brushed drums".
-        duree_sec: Durée cible en secondes (10-600 ; au-delà du plafond de segment
-            le daemon recolle des segments chevauchants).
+        duree_sec: Durée cible en secondes (10-600).
         bpm: BPM cible (60-180). Non fourni : le daemon retient 90.
         tonalite: Tonalité, format anglais ("F minor", "C# major"). Non fournie :
             le daemon retient Am.

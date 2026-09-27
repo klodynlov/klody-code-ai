@@ -65,7 +65,7 @@ class TestParolesEnvoyees:
     async def test_les_marqueurs_sont_canonises(self, monkeypatch):
         # « [Couplet 1] » et « Refrain : » ne sont pas le format du moteur. C'est
         # la balise qui porte la structure : sans elle le refrain n'est pas un
-        # refrain, et au-delà de 120 s les segments ne savent pas se partager.
+        # refrain, et en mode découpé les segments ne savent pas se partager.
         vu = _capture(monkeypatch, vb, "_post")
         await vb.generer_chanson(_CHANSON, duree_sec=180)
 
@@ -85,13 +85,26 @@ class TestParolesEnvoyees:
         # puisque la règle de comptage ne saute que les lignes entre crochets.
         assert ss.mots_chantes(vu["body"]["custom_lyrics"]) == 180
 
-    async def test_chanson_de_plus_de_120s_part_bien(self, monkeypatch):
-        # Le cas visé : une chanson complète, multi-segment, non tronquée.
+    async def test_chanson_de_plus_de_120s_part_en_une_passe(self, monkeypatch):
+        # Nominal depuis local-suno 3fddc2c (2026-09-09) : v1.5 compose jusqu'à
+        # 600 s d'un seul appel. Annoncer 2 segments ici serait décrire un
+        # découpage que le daemon ne fait plus.
         vu = _capture(monkeypatch, vb, "_post")
         r = await vb.generer_chanson(_CHANSON, duree_sec=180)
 
         assert vu["body"]["duration_sec"] == 180
         assert r["session_id"] == "abc12345"
+        assert r["parametres"]["segments"] == 1
+        assert r["parametres"]["sections"] == 6
+        assert r["couverture"]["couvrable"] is True
+
+    @pytest.mark.usefixtures("chanson_decoupee")
+    async def test_chanson_de_plus_de_120s_part_bien_en_mode_decoupe(self, monkeypatch):
+        # Le cas visé du mode découpé : complète, multi-segment, non tronquée.
+        vu = _capture(monkeypatch, vb, "_post")
+        r = await vb.generer_chanson(_CHANSON, duree_sec=180)
+
+        assert vu["body"]["duration_sec"] == 180
         assert r["parametres"]["segments"] == 2
         assert r["parametres"]["sections"] == 6
         assert r["couverture"]["couvrable"] is True
@@ -108,6 +121,7 @@ class TestRefusAvantEnvoi:
         # Actionnable : la durée qui marcherait est dans le message.
         assert str(r["couverture"]["duree_conseillee_sec"]) in r["error"]
 
+    @pytest.mark.usefixtures("chanson_decoupee")
     async def test_pas_assez_de_sections_pour_les_segments(self, monkeypatch):
         # 240 s = 3 segments ; un texte d'un seul bloc = 1 section ⇒ les 2 derniers
         # segments re-chantent le même texte (generate_song_long recopie le dernier).
@@ -231,11 +245,25 @@ class TestComposerDemo:
         assert body["custom_lyrics"] == "[Instrumental]"
 
     async def test_demo_refusee_avant_le_post(self, monkeypatch):
+        # 400 mots sur 60 s = 6,7 mots/s : le moteur couperait, en une passe comme
+        # en découpé.
+        vu = _capture(monkeypatch, km, "_ls_post")
+        idee = dict(_IDEE, amorce_paroles=[" ".join(["mot"] * 400)])
+        r = await km.composer_demo(idee, duree_sec=60)
+
+        assert "error" in r and vu == {}
+        assert "coupera des sections" in r["error"]
+
+    @pytest.mark.usefixtures("chanson_decoupee")
+    async def test_demo_dun_seul_bloc_refusee_en_mode_decoupe(self, monkeypatch):
+        # 240 s = 3 segments pour une amorce d'un seul bloc ⇒ re-chantée à
+        # l'identique. En une passe, le même texte part intégral (1,7 mot/s).
         vu = _capture(monkeypatch, km, "_ls_post")
         idee = dict(_IDEE, amorce_paroles=[" ".join(["mot"] * 400)])
         r = await km.composer_demo(idee, duree_sec=240)
 
         assert "error" in r and vu == {}
+        assert "RE-CHANTERONT" in r["error"]
 
     async def test_demo_nominale(self, monkeypatch):
         vu = _capture(monkeypatch, km, "_ls_post")
