@@ -43,8 +43,10 @@ from config import (
 )
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.text import Text
 from rich.tree import Tree
 from tools.automation import (
     backup_directory as auto_backup,
@@ -110,6 +112,7 @@ from tools.vision import analyser_image as vn_analyser_image
 from tools.voice import speak as vc_speak
 
 from agent import journal_client, preview_errors, semantic_memory
+from agent.arguments_outils import arguments_dict, arguments_json
 from agent.llm import LLMClient
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
@@ -786,7 +789,7 @@ class Orchestrator(GardesMixin):
         son code parse / passe les tests.
         """
         result = self._execute_tool(tool_name, tool_args)
-        self._display_tool_result(tool_name, tool_args, result)
+        self._afficher_sans_casser(tool_name, tool_args, result)
 
         # Auto-check sandbox après write_file (Roadmap v2 #3)
         if (
@@ -817,7 +820,7 @@ class Orchestrator(GardesMixin):
             # Réutilise le pipeline d'exécution standard pour que l'event UI
             # `tool_call` + `tool_result` soit émis comme un tool normal.
             res = self._execute_tool("preview_file", {"path": rel_path})
-            self._display_tool_result("preview_file", {"path": rel_path}, res)
+            self._afficher_sans_casser("preview_file", {"path": rel_path}, res)
             return f"[auto-preview] preview_file lancé sur {rel_path}\n{res[:200]}"
         except Exception as exc:
             logger.debug("Auto-preview failed: %s", exc)
@@ -1537,8 +1540,31 @@ class Orchestrator(GardesMixin):
             logger.error("Erreur dans %s: %s", tool_name, e, exc_info=True)
             return f"ERREUR: {e}"
 
+    def _afficher_sans_casser(self, tool_name: str, tool_args: dict, result: str) -> None:
+        """Affiche un résultat d'outil sans JAMAIS interrompre le tour.
+
+        Les rendus Rich interprètent le markup, et une sortie d'outil en contient
+        souvent sans le vouloir : `[/Users/…]`, `[/]`, `[red]` d'un fichier du
+        dépôt lu par `search_in_files`. `MarkupError` remontait jusqu'à `run()` :
+        l'outil AVAIT tourné, son résultat n'était jamais enregistré, et le
+        `tool_call` restait orphelin en mémoire (audit du 2026-09-27, reproduit
+        sur `search_in_files` et sur le repli générique). L'affichage est un
+        confort ; en cas d'échec, texte brut, jamais de markup.
+        """
+        try:
+            self._display_tool_result(tool_name, tool_args, result)
+        except Exception as exc:
+            logger.warning("Affichage de %s dégradé en texte brut : %s", tool_name, exc)
+            apercu = result[:2000] + "…" if len(result) > 2000 else result
+            console.print(Text(f"✓ {tool_name}\n{apercu}"))
+
     def _display_tool_result(self, tool_name: str, tool_args: dict, result: str) -> None:
-        """Rendu adapté selon le type d'outil."""
+        """Rendu adapté selon le type d'outil.
+
+        ⚠️ Toute donnée venue d'un outil ou du modèle qui entre dans une chaîne
+        à markup passe par `escape()`. Le filet `_afficher_sans_casser` rattrape
+        l'oubli, au prix d'un rendu brut.
+        """
 
         if tool_name == "read_file":
             path = tool_args.get("path", "")
@@ -1601,8 +1627,8 @@ class Orchestrator(GardesMixin):
             query = tool_args.get("query", "")
             miss = result.startswith(("Aucun", "Catalogue", "Erreur", "Requête"))
             console.print(Panel(
-                f"[{'yellow' if miss else 'cyan'}]{result}[/]",
-                title=f"[magenta]📖 catalogue: {query[:50]}[/magenta]",
+                f"[{'yellow' if miss else 'cyan'}]{escape(result)}[/]",
+                title=f"[magenta]📖 catalogue: {escape(query[:50])}[/magenta]",
                 border_style="yellow" if miss else "magenta",
             ))
 
@@ -1715,8 +1741,8 @@ class Orchestrator(GardesMixin):
             # Fallback générique
             preview = result[:300] + "…" if len(result) > 300 else result
             console.print(Panel(
-                f"[green]{preview}[/green]",
-                title=f"[green]✓ {tool_name}[/green]",
+                f"[green]{escape(preview)}[/green]",
+                title=f"[green]✓ {escape(tool_name)}[/green]",
                 border_style="green",
                 padding=(0, 1),
             ))
@@ -1787,7 +1813,44 @@ class Orchestrator(GardesMixin):
         """
         Boucle ReAct : Thought (LLM) → Action (outil) → Observation → repeat.
         Max MAX_ITERATIONS cycles.
+
+        Les drapeaux de garde sont remis à zéro dans un `finally` : en CLI
+        l'orchestrateur est RÉUTILISÉ d'un message à l'autre, et un Ctrl+C ou une
+        erreur LLM en plein tour laissait `_anti_stall_fired` & co. levés — le
+        message suivant partait avec `tool_choice="required"` dès l'itération 1
+        et quatre gardes désactivés (audit du 2026-09-27, reproduit).
         """
+        try:
+            self._run_tour(user_input)
+        finally:
+            # Photographiée AVANT la remise à zéro : c'est ce que lit le banc.
+            # `bench/run.py` lisait `_doc_guard_fired` APRÈS run() — donc toujours
+            # False, puisque remis à zéro en sortie : l'instrument du coût du
+            # garde doc (lot 2.2) ne pouvait pas voir le garde se déclencher.
+            self.trace_dernier_tour = {
+                "doc_guard_fired": bool(getattr(self, "_doc_guard_fired", False)),
+                "doc_consulte": bool(getattr(self, "_doc_consulte", False)),
+            }
+            self._reinitialiser_drapeaux()
+
+    def _reinitialiser_drapeaux(self) -> None:
+        """Chaque appel utilisateur est neuf."""
+        self._anti_stall_fired = False
+        self._anti_stall_iter = -1
+        self._t2a_fired = False
+        self._self_critique_done = False
+        self._interactive_skill_active = False
+        self._empty_reasoning_recovered = False
+        self._catalog_missed = False
+        self._content_searched = False
+        self._library_guard_fired = False
+        self._code_ecrit = False
+        self._doc_consulte = False
+        self._doc_guard_fired = False
+        self._doc_inventaire = None
+        self._doc_ecrits = set()
+
+    def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
         self.profiler.track_request(user_input)
         skills = load_skills()
@@ -2060,7 +2123,9 @@ class Orchestrator(GardesMixin):
                         "type": "function",
                         "function": {
                             "name": tc["function"]["name"],
-                            "arguments": tc["function"]["arguments"],
+                            # Normalisé AVANT d'entrer dans l'historique : un JSON
+                            # tronqué y tuerait la session (cf. arguments_outils).
+                            "arguments": arguments_json(tc["function"]["arguments"]),
                         },
                     }
                     for tc in tool_calls
@@ -2078,20 +2143,19 @@ class Orchestrator(GardesMixin):
                     tool_name = tc["function"]["name"]
                     tool_id = tc["id"]
 
-                    try:
-                        tool_args = json.loads(tc["function"]["arguments"])
-                    except json.JSONDecodeError:
-                        tool_args = {}
+                    tool_args = arguments_dict(tc["function"]["arguments"])
 
-                    # Afficher l'en-tête de l'action (masquer les gros blocs de contenu)
+                    # Afficher l'en-tête de l'action (masquer les gros blocs de contenu).
+                    # Valeurs échappées : un argument `echo "[/]"` levait MarkupError
+                    # AVANT même l'exécution de l'outil.
                     _HIDE_ARGS = {"content", "html", "css", "js"}
                     args_preview = "  ".join(
-                        f"[dim]{k}=[/dim][bold]{repr(v)[:35]}[/bold]"
+                        f"[dim]{escape(str(k))}=[/dim][bold]{escape(repr(v)[:35])}[/bold]"
                         for k, v in tool_args.items()
                         if k not in _HIDE_ARGS
                     )
                     console.print(
-                        f"\n[bold cyan]❯[/bold cyan] [bold]{tool_name}[/bold]"
+                        f"\n[bold cyan]❯[/bold cyan] [bold]{escape(tool_name)}[/bold]"
                         + (f"  {args_preview}" if args_preview else "")
                     )
 
@@ -2510,22 +2574,6 @@ class Orchestrator(GardesMixin):
                 # tâche non-raisonnement, coder, skill interactif ou réponse triviale.
                 self._maybe_self_critique(content)
                 break
-
-        # Reset les flags pour le prochain run (chaque appel utilisateur est neuf)
-        self._anti_stall_fired = False
-        self._anti_stall_iter = -1
-        self._t2a_fired = False
-        self._self_critique_done = False
-        self._interactive_skill_active = False
-        self._empty_reasoning_recovered = False
-        self._catalog_missed = False
-        self._content_searched = False
-        self._library_guard_fired = False
-        self._code_ecrit = False
-        self._doc_consulte = False
-        self._doc_guard_fired = False
-        self._doc_inventaire = None
-        self._doc_ecrits = set()
 
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""

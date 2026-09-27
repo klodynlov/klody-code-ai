@@ -52,6 +52,10 @@ class Candidate:
             for tc in self.tool_calls[:3]:
                 try:
                     args = json.loads(tc["function"]["arguments"])
+                    if not isinstance(args, dict):
+                        # JSON valide mais non-objet : `.items()` levait
+                        # AttributeError, non rattrapé (audit du 2026-09-27).
+                        raise TypeError("arguments non-objet")
                     # Tronquer les valeurs longues (ex: content de write_file)
                     short = {k: (v[:120] + "…" if isinstance(v, str) and len(v) > 120 else v)
                              for k, v in args.items()}

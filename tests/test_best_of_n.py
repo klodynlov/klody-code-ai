@@ -230,3 +230,10 @@ class TestBest:
         assert winner.idx == 2
         assert winner.content == "cand C"
         assert "C wins" in reasoning
+
+
+def test_args_json_non_objet_signales_invalides():
+    """JSON valide mais liste : levait AttributeError hors du `except`."""
+    c = Candidate(idx=0, temperature=0.5, content="",
+                  tool_calls=[{"function": {"name": "read_file", "arguments": '["a.py"]'}}])
+    assert "args invalides" in c.summary()

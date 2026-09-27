@@ -32,6 +32,7 @@ from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
+from agent.arguments_outils import arguments_json
 from agent.erreurs_llm import (
     attente_reessai_503,
     detail_http,
@@ -808,7 +809,7 @@ class LLMClient:
                 "type": "function",
                 "function": {
                     "name": name,
-                    "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                    "arguments": arguments_json(args),
                 },
             }
 
@@ -876,7 +877,7 @@ class LLMClient:
                 "type": "function",
                 "function": {
                     "name": name,
-                    "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                    "arguments": arguments_json(args),
                 },
             })
 
