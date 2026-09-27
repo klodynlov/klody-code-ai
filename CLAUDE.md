@@ -781,6 +781,12 @@ au moment de choisir ses arguments — et le **refus de l'outil** est le garde-f
 > - ⚠️ Les sondes tournent avec les deux variables PURGÉES : le daemon tourne sous
 >   launchd, qui ne les pose pas. Les hériter du shell rendait la suite
 >   dépendante de l'environnement du développeur — attrapé en l'exportant exprès.
+> - La sonde passe par le **vrai** `generate_song_long` (moteur remplacé par un
+>   enregistreur) au lieu de recopier sa boucle `chunks.append(chunks[-1])`, et
+>   `test_le_verdict_de_repetition_est_celui_du_daemon` exige que Klody refuse
+>   « RE-CHANTERONT » **SSI** le daemon re-chante, dans les deux modes. Mutation
+>   de cette boucle dans un miroir de local-suno : seul ce test rougit — la copie
+>   recopiée l'aurait laissé passer.
 ## État au 2026-08-10 — la veille Qwen3.8, et une sonde de plus qui ment
 
 Qwen3.8 annoncé le 2026-08-03. Deux checkpoints, **un seul intégrable ici** :

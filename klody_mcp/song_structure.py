@@ -396,8 +396,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
     Returns:
         Un rapport complet, toujours de la même forme :
         ``{"arrangement", "mots", "sections", "duree_sec", "duree_conseillee_sec",
-        "segments", "sections_min", "debit_mots_s", "couvrable", "problemes",
-        "avertissements", "structure": {...}}``.
+        "segments", "plafond_segment_sec", "sections_min", "debit_mots_s",
+        "couvrable", "problemes", "avertissements", "structure": {...}}``.
 
         ``couvrable=False`` signale un rendu TRONQUÉ ou RÉPÉTÉ garanti, pas un
         risque : chaque entrée de ``problemes`` nomme le mécanisme et le remède.
@@ -455,9 +455,13 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         )
 
     # (2) Moins de sections que de segments → les derniers segments se répètent.
+    # Mode découpé seulement. Le plafond est NOMMÉ dans le refus : c'est une
+    # hypothèse sur la config du daemon, qui vit dans un autre processus (cf.
+    # `plafond_segment`) — un refus qui la tait ne se laisse pas contester.
     if segments > 1 and structure["sections"] < besoin:
         problemes.append(
-            f"{duree} s = {segments} segments générés séparément, mais le texte "
+            f"{duree} s = {segments} segments générés séparément (plafond de "
+            f"segment {SEGMENT_MAX_SEC:g} s, mode découpé), mais le texte "
             f"n'a que {structure['sections']} section(s) : les "
             f"{segments - structure['sections']} derniers segments RE-CHANTERONT "
             f"le même texte. Découpe les paroles en au moins {besoin} sections "
@@ -480,6 +484,8 @@ def controler_couverture(paroles: str, duree_sec: int | None = None) -> dict:
         "duree_demandee_sec": duree_demandee,
         "duree_conseillee_sec": conseillee,
         "segments": segments,
+        # L'hypothèse sur le mode du daemon, lisible au lieu d'être devinée.
+        "plafond_segment_sec": SEGMENT_MAX_SEC,
         "sections_min": besoin,
         "debit_mots_s": round(debit, 2),
         "debit_pire_segment": round(debit_pire, 2),
