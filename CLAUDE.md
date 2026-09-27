@@ -61,9 +61,20 @@ l'alias par une complétion d'un token).
 
 Cinq paliers, 30 tâches : `easy`, `medium`, `hard` (les 20 de la baseline),
 `expert` (le réflexe est faux), `discovery` (la contrainte n'est pas dans
-l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N hors
-baseline, non jugée(s) » — les 10 tâches des deux nouveaux paliers ne sont donc
-pas jugées tant qu'une baseline ne les inclut pas.
+l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N tâche(s)
+hors baseline, non jugée(s) » — des tâches absentes de la baseline ne sont pas
+jugées tant qu'une baseline ne les inclut pas.
+
+⚠️ **Jusqu'au 2026-09-27, le gate ne jugeait que la DERNIÈRE passe d'un run
+`--repeat N`** (`{task_id: résultat}` écrase), et comptait les N−1 autres comme
+« hors baseline ». Vécu : `--category discovery --repeat 3` = 14/15,
+`config_precedence` ❌ en passe 1 ⇒ « courant=100.0 % … 10 hors baseline ✓ ». Le
+même écrasement lisait `reference_2026-07-30_garde_arret_apres.json` (24/25) à
+100 %. Il juge désormais toutes les passes, des deux côtés (moyenne des taux par
+tâche, en arithmétique exacte), et nomme en `::notice::` toute tâche en baisse
+sous le seuil. Sensibilité à N passes : tableau dans `bench/gate.py`, verrouillé
+par `tests/test_gate_sensibilite.py::TABLEAU_PASSES`. À une passe (le nightly),
+verdict inchangé — vérifié exhaustivement sur 5 à 30 tâches.
 
 ### ⚠️ `bench.run` MESURE, `bench.gate` JUGE — deux codes de sortie, un seul verdict
 

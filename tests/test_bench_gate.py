@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from bench.gate import compare, load_results, main, success_rate
+from bench.gate import DEFAULT_MAX_DROP, compare, load_results, main, success_rate
 
 
 def _result(task_id: str, success: bool, category: str = "easy") -> dict:
@@ -254,3 +254,159 @@ class TestSensibiliteSelonTaille:
         courant = self._run(20, 18)  # Δ = -10,0 % exactement
         assert compare(base, courant, max_drop=0.10)[0] is True
         assert compare(base, courant, max_drop=0.099)[0] is False
+
+
+class TestToutesLesPasses:
+    """`bench.run --repeat N` écrit N entrées par tâche dans le même fichier.
+
+    Jusqu'au 2026-09-27, `compare()` indexait `{task_id: résultat}` : seule la
+    DERNIÈRE passe de chaque tâche était jugée, et les N−1 autres étaient
+    comptées « hors baseline, non jugée(s) ». Un échec en passe 1 était donc
+    invisible, et le message affirmait un fait faux.
+    """
+
+    DISCOVERY = (
+        "discovery/hidden_invariant",
+        "discovery/config_precedence",
+        "discovery/error_contract",
+        "discovery/data_contract",
+        "discovery/first_write_method",
+    )
+
+    def _baseline_30(self) -> list[dict]:
+        """La baseline réelle : 30 tâches, une passe, 30/30."""
+        autres = [_result(f"autre/{i:02d}", True, category="hard") for i in range(25)]
+        return autres + [_result(t, True, category="discovery") for t in self.DISCOVERY]
+
+    def test_un_echec_en_passe_1_n_est_plus_masque(self):
+        """Le cas vécu, à l'identique : `--category discovery --repeat 3` = 14/15,
+        `config_precedence` ❌ en passe 1, ✅ en passes 2 et 3.
+
+        L'ancienne porte rendait « courant=100.0% Δ=+0.0% (5 tâche(s)
+        commune(s) — 10 hors baseline, non jugée(s)) ✓ »."""
+        courant = [
+            _result(t, not (passe == 1 and t == "discovery/config_precedence"), "discovery")
+            for passe in (1, 2, 3)
+            for t in self.DISCOVERY
+        ]
+        assert sum(r["success"] for r in courant) == 14
+
+        ok, msg = compare(self._baseline_30(), courant)
+
+        # (4 × 1 + 2/3) / 5 = 93,3 %, et non les 100 % de la dernière passe.
+        assert "courant=93.3%" in msg, msg
+        assert "Δ=-6.7%" in msg, msg
+        # Des passes ne sont pas des tâches.
+        assert "hors baseline" not in msg, msg
+        assert "5 tâche(s) commune(s), courant 3 passes, baseline 1 passe" in msg, msg
+        # La tâche en baisse est NOMMÉE, même sous le seuil.
+        assert "discovery/config_precedence (1/1 → 2/3)" in msg, msg
+        # Sous 0.09, un tiers de tâche cassée reste vert — c'est le tableau de
+        # sensibilité à N passes (bench/gate.py), pas un oubli.
+        assert ok, msg
+
+    def test_deux_passes_ratees_sur_quinze_rougissent(self):
+        # La ligne « intersection 5/5, N=3 » du tableau : il en faut 2.
+        rates = {(1, "discovery/config_precedence"), (2, "discovery/data_contract")}
+        courant = [
+            _result(t, (passe, t) not in rates, "discovery")
+            for passe in (1, 2, 3)
+            for t in self.DISCOVERY
+        ]
+
+        ok, msg = compare(self._baseline_30(), courant)
+
+        assert not ok, msg
+        assert "discovery/config_precedence (1/1 → 2/3)" in msg
+        assert "discovery/data_contract (1/1 → 2/3)" in msg
+
+    def test_la_baseline_repetee_est_jugee_sur_toutes_ses_passes(self):
+        """Même écrasement côté baseline : une baseline promue depuis un run
+        répété n'était lue que sur sa dernière passe.
+
+        Ici deux tâches ratent UNIQUEMENT la dernière passe de la baseline (vrai
+        taux 86,7 %) : l'ancienne porte y lisait 60 %, et un run courant à 60 %
+        passait donc avec Δ=+0.0 %. La direction dangereuse — une porte qui
+        juge contre une référence artificiellement basse est trop LÂCHE."""
+        taches = [f"easy/{i}" for i in range(5)]
+        base = [
+            _result(t, not (passe == 3 and t in taches[:2]))
+            for passe in (1, 2, 3)
+            for t in taches
+        ]
+        courant = [_result(t, t not in taches[:2]) for t in taches]
+
+        ok, msg = compare(base, courant)
+
+        assert "baseline=86.7%" in msg, msg
+        assert "courant=60.0%" in msg, msg
+        assert "courant 1 passe, baseline 3 passes" in msg, msg
+        assert not ok, msg
+
+    def test_hors_baseline_compte_des_taches_pas_des_passes(self):
+        base = [_result("easy/a", True)]
+        courant = [
+            _result(t, True) for _ in range(3) for t in ("easy/a", "easy/nouveau")
+        ]
+
+        ok, msg = compare(base, courant)
+
+        assert ok
+        assert "1 tâche(s) hors baseline" in msg, msg
+
+    def test_chaque_tache_pese_un_quel_que_soit_son_nombre_de_passes(self):
+        """Moyenne des taux PAR TÂCHE, pas taux poolé : sinon une tâche plus
+        répétée que les autres pèserait davantage. Ici poolé = 25 %, par tâche =
+        50 %."""
+        base = [_result("easy/a", True), _result("easy/b", True)]
+        courant = [_result("easy/a", True)] + [_result("easy/b", False)] * 3
+
+        _, msg = compare(base, courant, max_drop=1.0)
+
+        assert "courant=50.0%" in msg, msg
+        assert "courant 1 à 3 passes" in msg, msg
+
+    def test_un_run_repete_stable_reste_vert_et_muet(self):
+        base = [_result(f"easy/{i}", True) for i in range(5)]
+        courant = base * 3
+
+        ok, msg = compare(base, courant)
+
+        assert ok
+        assert "::notice::" not in msg
+        assert "courant=100.0%" in msg
+
+
+class TestNightlyInchange:
+    """Le nightly (`.github/workflows/bench-nightly.yml`) ne passe pas `--repeat`,
+    et sa baseline est à une passe. Juger toutes les passes ne doit rien y
+    changer : ni le verdict, ni les taux affichés, ni la forme du message."""
+
+    @pytest.mark.parametrize("n", [5, 10, 20, 25, 30])
+    def test_a_une_passe_le_verdict_est_celui_de_l_ancien_calcul(self, n):
+        # Tailles réelles d'intersection : une catégorie (5), la baseline
+        # historique (20), la baseline courante (30), et les unions de paliers.
+        for base_ok in range(n + 1):
+            base = [_result(f"t/{i:02d}", i < base_ok) for i in range(n)]
+            for cour_ok in range(n + 1):
+                courant = [_result(f"t/{i:02d}", i < cour_ok) for i in range(n)]
+                ok, msg = compare(base, courant)
+                # L'ancien `succès / tâches` en flottants, sur la dernière (et
+                # unique) passe.
+                ancien_delta = cour_ok / n - base_ok / n
+                assert ok is not (ancien_delta < -DEFAULT_MAX_DROP), (n, base_ok, cour_ok)
+                assert f"courant={cour_ok / n:.1%}" in msg
+                assert f"Δ={ancien_delta:+.1%}" in msg
+                assert "passe" not in msg.splitlines()[0]
+
+    def test_un_ecart_egal_au_seuil_passe_meme_la_ou_le_flottant_disait_non(self):
+        """`delta < -max_drop` est strict : un écart qui VAUT le seuil passe.
+        L'ancien calcul (`19/20 − 20/20` en flottants = −0,05000000000000004)
+        rougissait pourtant sous `--max-drop 0.05` — 853 égalités exactes de ce
+        genre sur n ≤ 100 et dix seuils, aucune à 0.09 sous 100 tâches."""
+        base = [_result(f"t/{i}", True) for i in range(20)]
+        une_perdue = [_result(f"t/{i}", i > 0) for i in range(20)]
+        deux_perdues = [_result(f"t/{i}", i > 1) for i in range(20)]
+
+        assert compare(base, une_perdue, max_drop=0.05)[0] is True
+        assert compare(base, deux_perdues, max_drop=0.05)[0] is False
