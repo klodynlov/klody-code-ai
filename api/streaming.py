@@ -19,6 +19,32 @@ from agent.stream_guard import LoopGuard
 logger = logging.getLogger(__name__)
 
 
+def tokens_en_cache(usage: Any) -> int | None:
+    """`usage.prompt_tokens_details.cached_tokens` (rendu par mlx_lm), ou None."""
+    details = getattr(usage, "prompt_tokens_details", None)
+    valeur = getattr(details, "cached_tokens", None)
+    return valeur if isinstance(valeur, int) else None
+
+
+def journaliser_cache(usage: Any, modele: str, duree_s: float) -> None:
+    """Une ligne par appel LLM : prompt, part servie par le cache, durée.
+
+    `grep -F '[cache]' logs/agent.log` donne le taux réel en production — la
+    seule mesure qui dise si un changement du prompt système casse le préfixe.
+    """
+    if usage is None:
+        return
+    prompt = getattr(usage, "prompt_tokens", None)
+    cache = tokens_en_cache(usage)
+    if not isinstance(prompt, int) or prompt <= 0:
+        return
+    part = "?" if cache is None else f"{cache / prompt:.0%}"
+    logger.info(
+        "[cache] %s prompt=%d cached=%s (%s) durée=%.2fs",
+        modele, prompt, "?" if cache is None else cache, part, duree_s,
+    )
+
+
 class StopGeneration(Exception):
     pass
 
@@ -200,6 +226,12 @@ def make_stream_api(
                 )
             raise
 
+        # Taux de cache du préfixe, pour CHAQUE appel (silencieux compris). Sans
+        # ce chiffre, un prompt système qui change d'un octet à chaque message
+        # recalcule tous les schémas d'outils depuis le token 0 sans que rien ne
+        # le dise — mesuré le 2026-09-27 : 11,2 s contre 0,55 s en cache.
+        journaliser_cache(usage, orch.llm.model, _t.perf_counter() - t0)
+
         tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
         if not tool_calls and full_content and tools:
@@ -228,6 +260,7 @@ def make_stream_api(
                 total_toks = completion_toks
             _put({"type": "message_stats", "latency_s": elapsed,
                   "tokens": completion_toks, "prompt_tokens": prompt_toks,
+                  "cached_tokens": tokens_en_cache(usage),
                   "total_tokens": total_toks, "context_window": config.CONTEXT_WINDOW,
                   "model": orch.llm.model})
 

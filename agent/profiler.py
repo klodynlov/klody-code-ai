@@ -147,7 +147,18 @@ class UserProfiler:
         return suggestions[:3]
 
     def get_profile_for_prompt(self) -> str:
-        """Formate le profil utilisateur pour injection dans le system prompt."""
+        """Formate le profil utilisateur pour injection dans le system prompt.
+
+        ⚠️ Aucun COMPTEUR ici : ce texte vit dans le prompt système, et le cache
+        de préfixe de mlx_lm (ArraysCache du MoE, non rognable) ne réutilise
+        qu'un préfixe EXACT. « Requêtes : N », incrémenté à chaque message, et
+        les « (N×) » invalidaient tout le préfixe — schémas d'outils compris —
+        au premier appel de CHAQUE message. Mesuré le 2026-09-27 sur le
+        gateway : dernier token du système changé ⇒ cached=0, 11,2 s ; rejeu
+        exact ⇒ cached=11 517/11 518, 0,55 s. Rejoué sur 218 paires de messages
+        réels consécutifs : profil identique 0 % avant ce correctif. Seul le
+        CLASSEMENT est dit — il ne bouge que lorsqu'un rang s'inverse.
+        """
         if self.total_requests < 3:
             return ""
 
@@ -156,7 +167,7 @@ class UserProfiler:
         # Top techs
         top_techs = sorted(self.tech_usage.items(), key=lambda x: -x[1])[:8]
         if top_techs:
-            tech_str = ", ".join(f"{t} ({c}×)" for t, c in top_techs)
+            tech_str = ", ".join(t for t, _c in top_techs)
             lines.append(f"**Stack préférée** : {tech_str}")
 
         # Top catégories
@@ -169,15 +180,14 @@ class UserProfiler:
                 "debug": "Débogage", "preview": "Aperçus visuels",
                 "learn": "Apprentissage", "refactor": "Refactoring",
             }
-            cats_str = ", ".join(f"{_CAT_LABELS.get(c, c)} ({n}×)" for c, n in top_cats)
+            cats_str = ", ".join(_CAT_LABELS.get(c, c) for c, _n in top_cats)
             lines.append(f"**Activités principales** : {cats_str}")
 
         # Patterns
-        pattern = self._detect_recurring_pattern()
+        pattern = self._detect_recurring_pattern(avec_compte=False)
         if pattern:
             lines.append(f"**Pattern récurrent** : {pattern}")
 
-        lines.append(f"**Sessions** : {self.session_count} | **Requêtes** : {self.total_requests}")
         lines.append("")
         lines.append(
             "_Utilise ce profil pour personnaliser tes réponses : "
@@ -252,8 +262,13 @@ class UserProfiler:
 
         return best
 
-    def _detect_recurring_pattern(self) -> str | None:
-        """Détecte les séquences de catégories récurrentes."""
+    def _detect_recurring_pattern(self, avec_compte: bool = True) -> str | None:
+        """Détecte les séquences de catégories récurrentes.
+
+        `avec_compte=False` pour le prompt système : le « (N× détecté) » change à
+        chaque occurrence et casserait le cache de préfixe (cf.
+        `get_profile_for_prompt`). L'affichage CLI garde le compte.
+        """
         if len(self.recent_categories) < 6:
             return None
 
@@ -279,7 +294,8 @@ class UserProfiler:
             parts = top_pair.split(" → ")
             a_label = _CAT_LABELS.get(parts[0], parts[0])
             b_label = _CAT_LABELS.get(parts[1], parts[1])
-            return f"{a_label} → {b_label} ({count}× détecté)"
+            motif = f"{a_label} → {b_label}"
+            return f"{motif} ({count}× détecté)" if avec_compte else motif
 
         return None
 
