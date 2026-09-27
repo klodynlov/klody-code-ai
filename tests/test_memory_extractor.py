@@ -752,11 +752,13 @@ class TestHermeticite:
         )
 
     def test_la_garde_est_de_portee_session(self, request):
-        """Le cas qu'une garde PAR TEST laisserait passer : `mem-extractor` est
-        un démon lancé après l'envoi de `done`, il peut démarrer une fois le
-        test fini, `monkeypatch` déjà restauré. Seule la portée session couvre
-        cette fenêtre — contre-épreuve du 2026-09-27 : garde retirée, +3 appels
-        réels à `brain` sur une passe de `test_websocket_chat.py`."""
+        """Précaution verrouillée : `mem-extractor` est un démon lancé après
+        l'envoi de `done`, rien ne garantit qu'il démarre avant la fin du test
+        (où un `monkeypatch` de test serait restauré). Course NON observée le
+        2026-09-27 (portée test : 0 appel réel sur 5 passes) — la portée
+        session la ferme par construction. Ce que la garde évite, lui, est
+        mesuré : SANS garde, +3 appels réels à `brain` par passe de
+        `test_websocket_chat.py`."""
         defs = request._fixturemanager.getfixturedefs(
             "_extraction_memoire_hors_reseau", request.node
         )

@@ -258,9 +258,12 @@ def _extraction_memoire_hors_reseau():
     un VRAI appel au gateway : mesuré dans `journal.db`, 2 appels `brain` par
     passe de `tests/integration/test_websocket_chat.py`.
 
-    Portée SESSION, et non test : le thread est un démon lancé APRÈS l'envoi de
-    `done`, donc il peut démarrer une fois le test fini — un `monkeypatch` de
-    test serait déjà restauré, et l'appel partirait pour de bon.
+    Portée SESSION par PRÉCAUTION, pas par nécessité mesurée : le thread est un
+    démon lancé APRÈS l'envoi de `done`, donc rien ne garantit qu'il démarre
+    avant la fin du test, où un `monkeypatch` de test serait déjà restauré.
+    Cette course n'a PAS été observée : garde en portée test, 0 appel réel sur
+    5 passes de `test_websocket_chat.py` (et 0 sur 8 côté #287). La portée
+    session ferme la fenêtre par construction, pour le même prix.
     Verrouillé par `tests/test_memory_extractor.py::TestHermeticite`.
     """
     from agent import memory_extractor

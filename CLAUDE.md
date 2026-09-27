@@ -1117,9 +1117,12 @@ n'apprenaient plus rien, et rien ne le disait.
   `mem-extractor` des tests WebSocket tapait :11434 (refusé, invisible) ; il
   tapait désormais `brain` — **2 appels par passe** de
   `tests/integration/test_websocket_chat.py`, lus dans `journal.db`. Garde de
-  **session** dans `tests/conftest.py` (`_extraction_memoire_hors_reseau`) : le
-  thread est un démon qui peut partir APRÈS le teardown, une garde par test
-  serait déjà restaurée. Contre-épreuve : garde retirée ⇒ +3 appels réels.
+  **session** dans `tests/conftest.py` (`_extraction_memoire_hors_reseau`).
+  Contre-épreuve : SANS garde ⇒ +3 appels réels. La portée session est une
+  PRÉCAUTION (le thread démon pourrait partir après le teardown) : la course
+  n'a pas été observée — garde en portée test, 0 appel sur 5 passes, 0 sur 8
+  côté #287. ⚠️ Première version de ce paragraphe : « une garde par test serait
+  déjà restaurée », affirmé sans l'avoir mesuré — c'est #287 qui l'a relevé.
 - ⚠️ **Mesurer contre le gateway sans `X-Klody-Source: system` pollue le miner** :
   ma propre mesure (app `mesure-extracteur`) a posé 17 événements `user` dans
   `journal.db` — une app inconnue n'est PAS dans `_SYSTEM_APPS`. Tout script de
