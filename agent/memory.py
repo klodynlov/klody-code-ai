@@ -41,6 +41,12 @@ class ConversationMemory:
         # à chaque message WS — pour survivre entre messages et couper les boucles
         # de commande cross-run (cf. Orchestrator._note_cmd_outcome).
         self.cmd_failure_streak: dict[str, int] = {}
+        # (titre, archivée) tels que CE processus les a lus ou écrits en dernier.
+        # Sert à reconnaître une modification faite HORS de lui (routes
+        # rename/archive de l'API, qui n'écrivent que le fichier) — sans ça, le
+        # save() suivant réécrivait l'état périmé : titre restauré, archivage
+        # annulé au message suivant (audit du 2026-09-27, reproduit).
+        self._meta_disque: tuple[str, bool] | None = None
 
     # ------------------------------------------------------------------ #
     # Ajout de messages                                                    #
@@ -120,7 +126,22 @@ class ConversationMemory:
     # Persistance JSON                                                     #
     # ------------------------------------------------------------------ #
 
+    def _adopter_meta_externe(self) -> None:
+        """Le disque gagne pour titre/archivage s'ils ont changé ailleurs."""
+        if self._meta_disque is None:
+            return
+        try:
+            disque = json.loads(self.memory_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        titre, archivee = disque.get("title", ""), bool(disque.get("archived", False))
+        if titre != self._meta_disque[0]:
+            self.title = titre
+        if archivee != self._meta_disque[1]:
+            self.archived = archivee
+
     def save(self) -> None:
+        self._adopter_meta_externe()
         data = {
             "session_id": self.session_id,
             "title": self.title,
@@ -139,6 +160,7 @@ class ConversationMemory:
                 json.dumps(data, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            self._meta_disque = (self.title, self.archived)
         except OSError as e:
             logger.error("Impossible de sauvegarder la mémoire: %s", e)
 
@@ -162,6 +184,7 @@ class ConversationMemory:
         instance._created_at = data["created_at"]
         instance.title = data.get("title", "")
         instance.archived = bool(data.get("archived", False))
+        instance._meta_disque = (instance.title, instance.archived)
         # Assainit les sessions héritées : un tool result orphelin viole
         # l'invariant ET casse l'API OpenAI/Ollama au prochain appel.
         dropped = instance._drop_orphan_tool_results()
