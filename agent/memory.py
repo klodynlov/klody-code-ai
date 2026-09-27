@@ -8,6 +8,7 @@ from typing import Optional
 import config
 
 from agent.dbc import invariant
+from agent.long_term_memory import invalider_section_de_session
 from agent.tokens import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,10 @@ class ConversationMemory:
         """Efface l'historique en conservant le system prompt."""
         system_msgs = [m for m in self.messages if m["role"] == "system"]
         self.messages = system_msgs
+        # La mémoire longue terme du système est figée pour la session parce que
+        # les faits extraits viennent de l'historique, déjà sous les yeux du
+        # modèle. Historique effacé ⇒ cette raison tombe : relire au prochain tour.
+        invalider_section_de_session(self)
         self.save()
 
     def stats(self) -> dict:
