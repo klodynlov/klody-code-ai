@@ -1,0 +1,116 @@
+{
+  "name": "library_guard_derniere_iteration",
+  "description": "Incident fondateur du garde LibraryBrain (27/07) sous sa forme SÉQUENTIELLE : 5 library_catalog (les requêtes de l'incident), zéro search_books, puis « pas de sources » à l'itération 6/6 d'un easy · explain. Le garde exigeait une itération de marge et se taisait donc sur l'incident même pour lequel il a été écrit. Il doit tirer, et — explain n'ayant pas d'auto-continue — se garantir le budget du search_books et de la réponse.",
+  "user_prompt": "Qu'est-ce que ma bibliothèque dit sur les soins du nouveau-né ?",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "explain",
+    "reasoning": "question sur le contenu de la bibliothèque"
+  },
+  "max_iterations": 6,
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c0",
+          "type": "function",
+          "function": {
+            "name": "library_catalog",
+            "arguments": "{\"query\": \"bébé nouveau-né puériculture\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "library_catalog",
+            "arguments": "{\"query\": \"child care infant\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "library_catalog",
+            "arguments": "{\"query\": \"parenting\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "library_catalog",
+            "arguments": "{\"query\": \"baby care\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {
+            "name": "library_catalog",
+            "arguments": "{\"query\": \"enfance\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "J'ai cherché dans ta bibliothèque LibraryBrain et il n'y a pas de sources sur ce sujet. Voici ce que je sais de mon entraînement.",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c6",
+          "type": "function",
+          "function": {
+            "name": "search_books",
+            "arguments": "{\"query\": \"que disent les livres sur les soins du nouveau-né ?\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "D'après le passage trouvé dans le contenu des livres, voici les soins du nouveau-né.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 8,
+    "max_llm_calls": 8,
+    "tool_calls_invoked": [
+      "library_catalog",
+      "library_catalog",
+      "library_catalog",
+      "library_catalog",
+      "library_catalog",
+      "search_books"
+    ],
+    "final_content_contains": [
+      "D'après le passage trouvé"
+    ],
+    "library_guard_fired": true,
+    "no_forced_synthesis": true
+  }
+}

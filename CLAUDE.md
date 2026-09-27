@@ -287,6 +287,29 @@ verte, `Δ +0,0 %`.
 > coûte un appel d'outil supplémentaire par tâche de code** qui n'ouvre rien.
 > Borné à un par run, mais réel, et ce banc ne le mesure pas : ses dossiers de
 > travail sont minuscules.
+>
+> ⚠️ **Trou fermé le 2026-09-27 : le garde se taisait à la DERNIÈRE itération.**
+> Il exigeait `iteration < max_iter - 1` « pour que la relance ne meure pas sur
+> le cap » — et laissait donc passer toute conclusion posée au dernier tour.
+> Vécu sur `hidden_invariant` (`easy · feature · max_iter=6`) : 5 appels
+> d'exploration et d'écriture, conclusion à 6/6, `docs/` jamais ouvert,
+> invariant violé. La marge ne protégeait rien : une relance consomme **5
+> itérations** (mesuré, 3/3 déclenchements), que seule l'auto-continue
+> fournissait — en injectant « … puis conclus dès que c'est fait » juste après
+> le nudge. Le garde tire désormais à toute itération et se garantit son budget
+> (`_DOC_GUARD_MARGE = 5`). Scénario de rejeu 22.
+> **Même trou, même jour, dans le garde LibraryBrain — et sur l'incident même qui
+> l'a fait écrire** : 5 `library_catalog` séquentiels en `easy · explain`
+> (max_iter=6) placent « pas de sources » à 6/6, le garde se taisait. Pire qu'ici :
+> `explain` n'a pas d'auto-continue, une relance sans budget garanti finit en
+> synthèse forcée SANS outils. Fermé pareil (`_LIBRARY_GUARD_MARGE = 4` : sur 123
+> tours réels, ≤ 4 itérations du premier `search_books` à la conclusion dans
+> 98 % des cas ; 0 déclenchement réel à mesurer). Scénario de rejeu 23.
+> Banc du jour, même config (QCM/brain), `discovery --repeat 3` : **13/15** avec
+> le correctif contre 12/15 sans — aucune régression, mais le cas « dernière
+> itération » ne s'est PAS reproduit dans ce run (garde tiré 2× à l'index 4) :
+> seul le scénario 22 prouve la fermeture du trou, le banc n'en voit que
+> l'innocuité. `reference_2026-09-27_garde_derniere_iteration.json`.
 
 > ### ❌ RÉSULTAT NÉGATIF — la piste était donnée à chaque fois, et jamais suivie
 >

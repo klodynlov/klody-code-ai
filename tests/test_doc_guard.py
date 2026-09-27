@@ -15,9 +15,11 @@ Deux propriétés comptent autant que le déclenchement lui-même :
 from pathlib import Path
 
 from agent.orchestrator import (
+    _DOC_GUARD_MARGE,
     _DOC_NUDGE_MAX,
     _DOC_SCAN_MAX,
     Orchestrator,
+    _budget_pour_relance,
     _est_documentation,
 )
 
@@ -197,11 +199,15 @@ class TestDeclenchement:
         o._doc_guard_fired = True
         assert o._should_force_doc_read(self._CONCLUSION, 5, 12) is False
 
-    def test_pas_de_relance_sans_marge_d_iteration(self, tmp_path):
-        # Relancer au dernier tour = mourir sur le cap sans réponse.
+    def test_relance_meme_a_la_derniere_iteration(self, tmp_path):
+        # Ce test verrouillait le TROU jusqu'au 2026-09-27 (il exigeait False) :
+        # une conclusion posée à la dernière itération passait sans lecture. Vécu
+        # sur hidden_invariant, conclusion à 6/6. Le budget de la relance est
+        # garanti à part (TestBudgetDeRelance), le garde ne renonce plus.
         o = _orch(_projet_documente(tmp_path))
         o._note_doc_probe("write_file", {"path": "cache.py"}, "écrit")
-        assert o._should_force_doc_read(self._CONCLUSION, 11, 12) is False
+        assert o._should_force_doc_read(self._CONCLUSION, 11, 12) is True
+        assert o._should_force_doc_read(self._CONCLUSION, 5, 6) is True
 
     def test_le_contenu_ne_desarme_pas(self, tmp_path):
         # Contraste assumé avec le garde LibraryBrain : là-bas la faute est dans ce
@@ -211,6 +217,27 @@ class TestDeclenchement:
         o._note_doc_probe("write_file", {"path": "cache.py"}, "écrit")
         prudent = "J'ai ajouté `set_many`. Je n'ai pas vérifié les conventions du projet."
         assert o._should_force_doc_read(prudent, 4, 12) is True
+
+
+class TestBudgetDeRelance:
+    """La relance doit pouvoir lire, corriger, relancer les tests et conclure.
+    Mesuré le 2026-09-27 : 5 itérations après le déclenchement, sur les 3 fois
+    où le garde a tiré au banc."""
+
+    def test_marge_mesuree(self):
+        # Littéral, pas `_DOC_GUARD_MARGE` recalculé : un test qui se recalcule à
+        # partir du réglage qu'il protège ne peut pas rougir (veille Qwen, 08-10).
+        assert _DOC_GUARD_MARGE == 5
+
+    def test_derniere_iteration_prolonge(self):
+        assert _budget_pour_relance(5, 6, _DOC_GUARD_MARGE) == 11  # itérations 6..10 garanties
+
+    def test_marge_insuffisante_completee(self):
+        assert _budget_pour_relance(8, 12, _DOC_GUARD_MARGE) == 14
+
+    def test_budget_suffisant_intact(self):
+        # Ne réduit jamais : une relance en début de run garde tout son budget.
+        assert _budget_pour_relance(4, 12, _DOC_GUARD_MARGE) == 12
 
 
 class TestDocumentEcritParLAgent:
