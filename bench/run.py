@@ -183,6 +183,36 @@ def _run_one_inprocess(task_cls: type[Task]) -> Result:
         )
 
 
+# Une tâche = un ÉTAT neuf, pas seulement un processus neuf. Constaté le
+# 2026-09-27 : 1 236 sessions du banc (« [Répertoire de travail : /private/tmp/kb-… »)
+# dormaient dans ~/.klody/data, le vrai dossier d'état de l'utilisateur —
+# l'historique KlodyAI en était noyé, et `klody --continue` pouvait rouvrir un
+# énoncé du banc. Pire pour la mesure : chaque tâche y lisait aussi le profil
+# appris (`user_profile.json`) et la mémoire long terme de l'utilisateur, tous
+# deux injectés dans le prompt système. Le prompt du banc dépendait donc de la vie
+# de l'utilisateur, et le profil comptait les requêtes du banc lui-même — la
+# boucle « le banc se mesure lui-même » du 2026-07-29, par un autre canal.
+#
+# Chaque tâche reçoit donc un dossier d'état vide, dans son dossier jetable, et
+# le fils refuse de tourner sans lui : un oubli côté parent rendrait un échec
+# bruyant, pas une pollution muette. Aucune trace n'est perdue : le banc ne lit
+# rien dans ce dossier — ses mesures viennent de `metrics` et de
+# `trace_dernier_tour`, ses traces de la sortie standard et de logs/agent.log.
+#
+# ⚠️ Conséquence de MESURE, assumée : les tâches servies par le prompt complet
+# (pas le coder-slim) n'y trouvent plus de section profil ni de mémoire long
+# terme. Les runs antérieurs au 2026-09-27 — baseline comprise — ont été
+# mesurés AVEC celles de l'utilisateur, telles qu'elles étaient ce jour-là. Un
+# écart de verdict au premier run qui suit est donc à lire d'abord comme ça.
+def _isoler_etat(dossier: Path) -> None:
+    """Pointe l'état persistant (sessions, `long_term.json`, `user_profile.json`,
+    `semantic_memory.db`) sur `dossier`. À appeler AVANT le premier `import config` :
+    `agent.long_term_memory` et `agent.profiler` figent leur chemin à l'import."""
+    os.environ["KLODY_DATA_DIR"] = str(dossier)
+    # Ne suit pas KLODY_DATA_DIR s'il est exporté : on le pose explicitement.
+    os.environ["SEMANTIC_MEMORY_DB"] = str(dossier / "semantic_memory.db")
+
+
 # Une tâche = un processus neuf. Mesuré le 2026-07-29 : en processus partagé, la
 # MÊME tâche rendait ✅ à la 1ʳᵉ passe et ❌ à la 2ᵉ — `FileManager.allowed_roots`
 # est figé dans __init__ et _run_klody ne repatchait que `.root`, si bien que les
@@ -219,10 +249,14 @@ def _run_one(task_cls: type[Task]) -> Result:
 
     with tempfile.TemporaryDirectory(prefix="kb-out-", dir=_TMP_ROOT) as out_dir:
         out_path = Path(out_dir) / "result.json"
+        # Supprimé avec le reste : l'état d'une tâche ne survit pas à la tâche.
+        etat = Path(out_dir) / "etat"
+        etat.mkdir()
         cmd = [
             sys.executable, "-m", "bench.run",
             "--child-task", task_cls.id,
             "--child-out", str(out_path),
+            "--child-data-dir", str(etat),
         ]
         try:
             # stdout hérité : on garde l'affichage live du parcours de l'agent.
@@ -336,12 +370,20 @@ def main(argv: list[str] | None = None) -> int:
     # Mode fils : exécute UNE tâche et écrit son Result. Jamais appelé à la main.
     p.add_argument("--child-task", default=None, help=argparse.SUPPRESS)
     p.add_argument("--child-out", default=None, help=argparse.SUPPRESS)
+    p.add_argument("--child-data-dir", default=None, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
 
     if args.child_task:
         if not args.child_out:
             print("--child-task exige --child-out.")
             return 1
+        if not args.child_data_dir:
+            # Sans lui, la tâche écrirait dans ~/.klody/data : refuser vaut mieux
+            # que polluer en silence l'historique de l'utilisateur.
+            print("--child-task exige --child-data-dir (état persistant jetable).")
+            return 1
+        # Avant install_patches, qui importe config.
+        _isoler_etat(Path(args.child_data_dir))
         matches = list(filter_tasks(discover_tasks(), task_id=args.child_task))
         if not matches:
             print(f"Tâche inconnue : {args.child_task}")
@@ -369,6 +411,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         return 0
+
+    if os.getenv("BENCH_ISOLATION") == "0":
+        # Processus partagé (débogage) : l'agent tourne ICI, donc l'état aussi.
+        # Un dossier pour tout le run — l'état y est partagé entre tâches, comme
+        # le reste dans ce mode. Conservé après le run, pour l'inspection.
+        etat = Path(tempfile.mkdtemp(prefix="kb-etat-", dir=_TMP_ROOT))
+        _isoler_etat(etat)
+        print(f"→ état persistant (BENCH_ISOLATION=0) : {etat}")
 
     if not metrics.install_patches():
         print("⚠️  Impossible d'installer le monkey-patch métriques. "

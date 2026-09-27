@@ -237,6 +237,36 @@ class TestChatRoundTrip:
             assert types[-1] == "done"
 
 
+class TestSessionHorsDeLHistoriqueReel:
+    """Ce fichier a laissé des centaines de sessions dans ~/.klody/data (constaté
+    le 2026-09-27 : « dis bonjour », « conçois mon algo pas à pas »…) parce que
+    rien n'y détournait `config.MEMORY_DIR`. La fixture autouse de
+    tests/conftest.py le fait désormais pour toute la suite ; ce test vérifie
+    l'EFFET sur le chemin même qui fuyait : la session du chat existe, et elle
+    est dans le dossier du test."""
+
+    def test_la_session_du_chat_atterrit_dans_le_dossier_du_test(self, chat_client):
+        import json
+
+        import config
+
+        from tests import garde_etat
+
+        FakeOpenAI._turns = [_text_turn("Bonjour je suis Klody")]
+        with chat_client.websocket_connect(WS_URL) as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "dis bonjour"})
+            _drain_until(ws, "done")
+
+        assert not garde_etat.est_protege(config.MEMORY_DIR)
+        premiers = [
+            next(m["content"] for m in json.loads(f.read_text(encoding="utf-8"))["messages"]
+                 if m["role"] == "user")
+            for f in config.MEMORY_DIR.glob("memory_*.json")
+        ]
+        assert "dis bonjour" in premiers
+
+
 class TestThinkingStream:
     """Mode raisonnement (Levier 2) sur le chemin WebSocket : quand
     `_should_think()` est vrai, `stream_api` doit DIFFUSER le CoT (delta.reasoning)

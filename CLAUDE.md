@@ -1046,6 +1046,37 @@ installé, exactement la limite déjà écrite plus bas pour les MCP.
 - Gate de sortie inchangée : 5 nightlies verts consécutifs, APRÈS chargement de
   `com.klody.bench-dispatch` et `com.klody.veille-nightly`.
 
+## État au 2026-09-27 — `~/.klody/data` était aux trois quarts des tests et du banc
+
+~6 000 sessions `memory_*.json` là où la mémoire projet en comptait 1 624. Relevé
+par contenu (`python scripts/etat_pollue.py`, qui le recompte et n'écrit rien) :
+**4 456 de la suite, 1 236 du banc, ~310 gardées** (dont une cinquantaine de
+tests probables, gardés par prudence : sans réponse, ou plus d'une minute). Effets : historique
+KlodyAI noyé, `klody --continue` capable de rouvrir un test, et `user_profile.json`
+— injecté dans le prompt — gonflé par les requêtes des tests et du banc.
+
+- **Tests** : `test_websocket_chat.py`, les rejeux, `test_preview_feedback_loop.py`
+  n'isolaient pas `config.MEMORY_DIR` (`test_api_routes.py`, à côté, le faisait).
+  Sonde d'audit sur une passe complète : **234 écritures** dans le vrai dossier.
+  Remède de SUITE, pas de fichier (`tests/garde_etat.py`) : `KLODY_DATA_DIR`
+  redirigé AVANT `import config` — trois modules recopient le chemin à l'import,
+  un monkeypatch ne les atteint pas — puis un hook d'audit qui REFUSE et CONSIGNE
+  toute écriture sous le vrai dossier. Consigner est indispensable :
+  `ConversationMemory.save` avale l'`OSError`, le refus seul laissait le test vert.
+  Trois mutations vérifiées rouges (hook, dénonciation, redirection).
+- **Banc** : une tâche = un **état** neuf (`--child-data-dir`, dans le dossier
+  jetable de la tâche) ; le fils refuse de tourner sans. ⚠️ **Conséquence de
+  mesure** : le banc injectait le profil et la mémoire long terme de
+  l'utilisateur dans le prompt complet. La baseline a été mesurée avec ; le
+  premier run qui suit, sans.
+- ⚠️ **Rien n'a été supprimé.** `scripts/etat_pollue.py --quarantaine DIR` DÉPLACE
+  (manifeste, réversible), refuse tant que `:8000` écoute. Règle « test » = premier
+  message ET réponses scriptés : une vraie session ouverte sur « explique en
+  raisonnant » (chaîne des tests) avec une vraie réponse du modèle y a été trouvée.
+  `user_profile.json` reste pollué — compteurs agrégés, inséparables.
+- ⚠️ Tout worktree dont la branche n'a pas ce correctif continue d'écrire dans le
+  vrai dossier à chaque `pytest` (vu en direct pendant l'enquête).
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
