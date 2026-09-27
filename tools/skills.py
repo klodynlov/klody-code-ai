@@ -131,11 +131,37 @@ _STOP = {
     "this", "that", "veux", "vais", "puis", "quoi", "donne",
     "klody", "skill", "skills", "fichier", "fichiers", "code",  # trop fréquents → non discriminants
     "outil", "outils", "tool", "tools",  # « code-moi un outil » n'est pas un sujet → évite le faux positif distiller_*
+    # Négation. Vécu le 2026-09-27 : « pas » figure dans le NOM du seul skill
+    # interactif (« Concevoir un algorithme pas à pas »), et la garde d'identité
+    # de `_detect_interactive_skill` le prenait pour une preuve que la requête
+    # nommait ce skill. Toute requête contenant « ne … pas » dont le how-to de
+    # tête était ce skill basculait en QCM : les 5 tâches `discovery` du banc
+    # (« NE SONT PAS écrites dans cet énoncé »), et 319 des 1 787 messages
+    # utilisateur distincts de ~/.klody/data — tâche de code forcée sur le
+    # généraliste, anti-stall coupé, `ask_user` exposé. Présent depuis #27.
+    "pas",
 }
+
+# Apocopes du vocabulaire technique → forme pleine, pour qu'elles touchent le
+# même mot que la forme longue. `_meme_radical` ne peut pas les couvrir : l'écart
+# « algo » → « algorithme » (6 caractères) dépasse la flexion courte qu'il
+# admet, et c'est cette borne qui ferme `bout` ⊂ `bouteilles`.
+_APOCOPES = {"algo": "algorithme", "algos": "algorithmes"}
 
 
 def _skill_terms(text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-zà-ÿ0-9]{3,}", (text or "").lower()) if t not in _STOP}
+    """Termes discriminants d'un texte : mots de ≥ 3 lettres, hors mots vides,
+    apocopes ramenées à leur forme pleine.
+
+    L'apocope compte pour la garde d'identité du QCM : « conçois mon algo pas à
+    pas » ne nommait le skill que par « pas » — donc par accident. Une fois
+    « pas » écarté, c'est « algo » = « algorithme » qui le nomme, un terme qui
+    désigne vraiment le sujet du skill et pas la manière de le traiter."""
+    return {
+        _APOCOPES.get(t, t)
+        for t in re.findall(r"[a-zà-ÿ0-9]{3,}", (text or "").lower())
+        if t not in _STOP
+    }
 
 
 def _meme_radical(a: str, b: str) -> bool:
