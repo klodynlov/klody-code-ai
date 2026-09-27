@@ -956,6 +956,36 @@ transitoire (RAM réelle 46 Go < 44 + plancher 12 ; une heure plus tard
   `max_tokens`, `silent` perdus — `_rejouer` transmet tout.
 - Le routeur nomme la cause : `[fallback: LLM error: HTTP 503]`.
 
+## État au 2026-09-27 — le nightly muet 9 jours, et la veille qui ne POUVAIT pas le dire
+
+Audit : **aucun nightly vert du 18 au 26 septembre** (dernier vert 09-17). Le
+correctif de septembre (lot 0.1, ci-dessus) visait les bonnes causes avec de
+mauvaises hypothèses. Quatre défauts empilés, chacun suffisant pour le silence :
+
+| # | défaut | effet | correctif |
+|---|---|---|---|
+| 1 | venv du contrôle de lock dans **`/tmp`**, réutilisé d'un run à l'autre ; `com.apple.tmp_cleaner` purge chaque nuit ce qui n'a été ni lu ni modifié depuis 3 j | code de pip-tools purgé, dist-info vide ⇒ pip dit « déjà installé » ⇒ `pip-compile: No such file` — **5 rouges**, bench SAUTÉ. Venv créé le 09-16 : 3 verts, puis rouge | `venv --clear` sous `$RUNNER_TEMP` |
+| 2 | le cron GitHub `0 3 * * *` tire entre **03:37 et 14:55 UTC** (90 runs planifiés, `gh run list --json createdAt`) ; chaque jour de septembre entre 07:26 et 08:36 UTC | le réveil `pmset` 03:50 + `caffeinate` 90 min tombaient TOUJOURS à côté ; run vers 10 h sur portable endormi ⇒ **4 annulés** | plus de `schedule:` ; déclencheur local `bench_dispatch.py` (5 créneaux, rattrapés au réveil, dédoublonnés) + `caffeinate` dans le job |
+| 3 | `veille_nightly.py` importait `datetime.UTC` (3.11+) et son agent le lance sous **`/usr/bin/python3` = 3.9** | ImportError AU CHARGEMENT : la veille ne pouvait ni interroger ni notifier. Suite verte (testée sous 3.11). C'est **ruff UP017** (cible py311) qui l'avait réclamé | `timezone.utc` + `per-file-target-version = py39` + `tests/test_scripts_python_systeme.py` |
+| 4 | `gh` absent du PATH de launchd (`/usr/bin:/bin:/usr/sbin:/sbin`) | même corrigé, la veille aurait rendu « pas pu interroger » à chaque tick | `trouver_gh()` (PATH puis Homebrew) |
+
+Et au-dessus : **`com.klody.veille-nightly` et `com.klody.bench-wake` n'ont jamais
+été chargés** (`install-launchagents.sh --check` : `ABSENT`). Le test « chaque
+veille a son agent » compare des NOMS DE FICHIERS — vert sur un plist jamais
+installé, exactement la limite déjà écrite plus bas pour les MCP.
+
+- ⚠️ **Un linter qui cible une version réécrit du code qui tourne sous une
+  autre.** Le fichier ne ment pas, la config du linter si. D'où la cible par
+  fichier : dire au linter la vérité plutôt que `# noqa`.
+- ⚠️ **Un commentaire XML ne tolère pas `--`.** launchd et `plutil` l'acceptent,
+  `plistlib` refuse : `com.klody.veille-qwen.plist` était illisible pour tout
+  test qui le parse. Verrouillé (`test_chaque_plist_est_du_xml_strict`).
+- ⚠️ **Mesurer l'heure réelle d'un déclencheur avant de caler un réveil dessus.**
+  Le lot 0.1 a réglé `pmset` sur l'heure ÉCRITE dans le cron ; `gh run list
+  --json createdAt` donnait l'heure réelle en une commande.
+- Gate de sortie inchangée : 5 nightlies verts consécutifs, APRÈS chargement de
+  `com.klody.bench-dispatch` et `com.klody.veille-nightly`.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et

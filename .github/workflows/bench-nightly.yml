@@ -21,10 +21,22 @@ name: Bench nightly (MLX)
 #      sur la machine et le nightly passe 5/5. Il ne redevient nécessaire que si
 #      l'on repasse explicitement le provider à `ollama`.
 
+# ⚠️ PLUS DE `schedule:` — le déclencheur vit sur le Mac, depuis le 2026-09-27.
+#
+# Le cron `0 3 * * *` ne tirait PAS à 03:00 UTC. Mesuré sur 90 runs planifiés :
+# entre 03:37 et 14:55 UTC, et chaque jour de septembre entre 07:26 et 08:36 UTC —
+# 4 h 30 à 5 h 30 de retard, une dérive qui grandit depuis août. Le réveil `pmset` de 03:50 local
+# et son `caffeinate` de 90 min tombaient donc systématiquement À CÔTÉ du run,
+# qui arrivait vers 10 h sur un portable en veille, sur batterie : la sentinelle
+# l'annulait 15 min plus tard. 4 des 9 nightlies muets du 18 au 26 septembre.
+#
+# Le runner EST le Mac : c'est le seul endroit qui sache quand il est éveillé.
+# `scripts/bench_dispatch.py` (agent `com.klody.bench-dispatch`, plusieurs
+# créneaux par jour, rattrapés au réveil par launchd) déclenche ce workflow par
+# `workflow_dispatch`, et seulement si aucun run récent n'est en vol ou jugé.
+# Garder AUSSI le cron doublerait le bench les jours où le Mac est éveillé aux
+# deux moments — deux chargements brain + coder pour une seule mesure.
 on:
-  schedule:
-    # 03:00 UTC = 05:00 Paris (heure d'hiver) / 04:00 Paris (heure d'été)
-    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       category:
@@ -58,8 +70,9 @@ jobs:
 
     env:
       # Délai laissé à un runner pour prendre le job. Généreux à dessein : un Mac
-      # qui sort de veille à 03:00 UTC met une minute ou deux, et le runner peut
-      # être brièvement occupé par un run précédent.
+      # qui sort de veille met une minute ou deux, et le runner peut être
+      # brièvement occupé par un run précédent. `bench_dispatch.py` tient le Mac
+      # éveillé pendant exactement ce délai (`caffeinate -t 900`).
       GRACE_SECONDS: "900"
       POLL_SECONDS: "30"
       SENTINEL_NAME: Sentinelle runner
@@ -154,26 +167,36 @@ jobs:
       - name: Recompiler et comparer
         run: |
           set -euo pipefail
-          python3.11 -m venv /tmp/lockcheck-venv
+          # ⚠️ venv NEUF à chaque run (`--clear`), sous `$RUNNER_TEMP`, jamais
+          # `/tmp`. Le runner self-hosted est une machine PERSISTANTE : l'ancien
+          # `/tmp/lockcheck-venv` survivait d'un run à l'autre, et macOS purge
+          # chaque nuit dans `/tmp` les fichiers ni lus, ni modifiés depuis
+          # 3 jours (`com.apple.tmp_cleaner`, minuit). Le code de pip-tools — jamais importé,
+          # puisque pip se contentait de lire son dist-info pour conclure
+          # « déjà installé » — a été purgé, `bin/pip-compile` avec : « No such
+          # file or directory », 5 nightlies rouges du 19 au 25 septembre 2026,
+          # bench SAUTÉ à chaque fois. Venv créé le 09-16, 3 verts, puis rouge.
+          venv="$RUNNER_TEMP/lockcheck-venv"
+          python3.11 -m venv --clear "$venv"
           # Même version que le gate Linux : deux versions de pip-tools ne
           # rendent pas le même fichier, et le diff accuserait le lock.
           # ⚠️ pip épinglé aussi (même cause que le gate Linux, 2026-08-16) : le pip
           # que `python -m venv` amorce peut avoir retiré `stdlib_pkgs`, que
           # pip-tools 7.5.3 importe encore → ImportError. Coupler les deux versions.
-          /tmp/lockcheck-venv/bin/python -m pip install --quiet "pip==24.3.1"
-          /tmp/lockcheck-venv/bin/pip install --quiet "pip-tools==7.5.3"
-          cp requirements-macos.lock /tmp/macos.lock.bak
+          "$venv/bin/python" -m pip install --quiet "pip==24.3.1"
+          "$venv/bin/pip" install --quiet "pip-tools==7.5.3"
+          cp requirements-macos.lock "$RUNNER_TEMP/macos.lock.bak"
           # -c requirements.lock : la contrainte EST le correctif. Sans elle la
           # recompilation dérive vers les versions du jour et ce gate rougirait
           # à chaque nouvelle publication sur PyPI, sans qu'aucun commit ne
           # l'explique.
-          /tmp/lockcheck-venv/bin/pip-compile requirements.txt \
+          "$venv/bin/pip-compile" requirements.txt \
             -c requirements.lock \
             --output-file requirements-macos.lock \
             --strip-extras --allow-unsafe --quiet
-          if ! diff -q /tmp/macos.lock.bak requirements-macos.lock > /dev/null; then
+          if ! diff -q "$RUNNER_TEMP/macos.lock.bak" requirements-macos.lock > /dev/null; then
             echo "::error::requirements-macos.lock est obsolète. Lance: pip-compile requirements.txt -c requirements.lock --output-file requirements-macos.lock --strip-extras --allow-unsafe"
-            diff /tmp/macos.lock.bak requirements-macos.lock | head -50
+            diff "$RUNNER_TEMP/macos.lock.bak" requirements-macos.lock | head -50
             exit 1
           fi
           echo "Lock macOS à jour ✅"
@@ -225,6 +248,16 @@ jobs:
       MLX_CODE_BASE_URL: http://127.0.0.1:8090/v1
 
     steps:
+      # En PREMIER : le bench dure jusqu'à 60 min sur un portable qui s'endort
+      # après 1 min d'inactivité. `-i` (sommeil d'inactivité) vaut aussi sur
+      # batterie ; `-s` n'agit que sur secteur. Borné par `-t` ET par le job : le
+      # runner tue les processus orphelins à la fin du job (« Cleaning up orphan
+      # processes »), donc aucun caffeinate ne survit au run.
+      - name: Garder le Mac éveillé
+        run: |
+          nohup caffeinate -ims -t 3900 >/dev/null 2>&1 &
+          echo "caffeinate lancé (pid $!, 65 min max)"
+
       - uses: actions/checkout@v7
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -390,12 +423,17 @@ jobs:
       - name: Run bench
         env:
           PROJECT_ROOT: ${{ runner.temp }}/klody-bench
+          # Passée par l'environnement, jamais interpolée dans le script : une
+          # expression `${{ inputs.* }}` est collée TELLE QUELLE dans le shell
+          # avant exécution — injection de commande pour qui peut déclencher le
+          # workflow, sur la machine même.
+          BENCH_CATEGORY: ${{ inputs.category }}
         run: |
           source .venv/bin/activate
           mkdir -p "$PROJECT_ROOT"
           category_flag=""
-          if [ -n "${{ inputs.category }}" ]; then
-            category_flag="--category ${{ inputs.category }}"
+          if [ -n "${BENCH_CATEGORY:-}" ]; then
+            category_flag="--category $BENCH_CATEGORY"
           fi
           # ⚠️ Le code 2 de `bench.run` signifie « mesure faite, des tâches ont
           # échoué ». Ce n'est PAS un verdict de CI : le juge, c'est l'étape

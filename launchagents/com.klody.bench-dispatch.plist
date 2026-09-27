@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.klody.bench-dispatch</string>
+
+    <!-- Déclenche le nightly bench depuis le Mac (workflow_dispatch), au lieu du
+         cron GitHub qui tirait 4 h 30 à 12 h en retard sur un portable endormi.
+         Détail et contrat de sortie dans le script.
+
+         Plusieurs créneaux : un créneau manqué pendant le sommeil est rattrapé
+         au réveil suivant (les manqués sont fusionnés en UN déclenchement), et
+         le script ne relance rien si un run récent est en vol ou jugé. Le
+         premier suit le réveil matériel `pmset repeat wakeorpoweron 03:50`. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/klodynlov/Projets/klody-code-ai/scripts/bench_dispatch.py</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>3</integer>
+            <key>Minute</key>
+            <integer>52</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>13</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>18</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>22</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- Pas de RunAtLoad : installer l'agent ne doit pas lancer un bench. -->
+
+    <!-- Le caffeinate lancé par le script doit survivre à sa sortie : sans
+         ceci, launchd tue le groupe de processus du job quand il se termine. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-bench-dispatch.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/klodynlov/Library/Logs/klody-bench-dispatch.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
