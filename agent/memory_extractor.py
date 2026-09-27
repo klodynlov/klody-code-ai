@@ -90,12 +90,11 @@ def _cible() -> tuple[str, str, str]:
     de chat lancé PENDANT une extraction paie +0,56 s, pas 3 s : le worker sert
     en parallèle (`--decode-concurrency 8`).
 
-    ⚠️ Coût INDIRECT, non mesuré : un fait nouveau change `lt_section` du prompt
-    système (`Orchestrator`, `LongTermMemory.format_for_prompt`), donc le tour
-    suivant rate le cache depuis le token 0. Aujourd'hui masqué — skills et
-    retrieval, placés AVANT, varient déjà sur 91 % des paires de messages
-    (#270) — mais il deviendra visible le jour où ils sortiront du prompt
-    système. Le juge est `grep -F '[cache]' logs/agent.log`.
+    ⚠️ Coût INDIRECT : un fait nouveau change la section mémoire du prompt
+    système, donc le tour suivant rate le cache depuis le token 0. Mesuré et
+    traité par #291 (`LongTermMemory.section_de_session`, section figée pour
+    la durée d'une `ConversationMemory`) : système identique entre deux
+    messages 95 % → 83 % avec extraction, ramené à 95 %.
     """
     if config.MEMORY_EXTRACTOR_MODEL:
         modele = config.MEMORY_EXTRACTOR_MODEL

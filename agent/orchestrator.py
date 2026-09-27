@@ -114,7 +114,11 @@ from tools.voice import speak as vc_speak
 from agent import journal_client, preview_errors, semantic_memory
 from agent.arguments_outils import arguments_dict, arguments_json
 from agent.llm import LLMClient
-from agent.long_term_memory import get_long_term_memory
+from agent.long_term_memory import (
+    get_long_term_memory,
+    invalider_section_de_session,
+    section_de_session,
+)
 from agent.memory import ConversationMemory
 from agent.memory_extractor import extract_mid_session
 from agent.orchestrateur.critique import (
@@ -673,7 +677,10 @@ class Orchestrator(GardesMixin):
                 skills = select_skills(load_skills(), query)
             self._injected_skill_slugs = [s.get("slug", "") for s in skills]
             skills_section = format_skills_for_prompt(skills) if skills else ""
-            lt_section = self.lt_memory.format_for_prompt()  # sanitize interne (ASI06)
+            # Figée pour la session : l'extraction automatique écrit après CHAQUE
+            # message, et un octet changé ici refait le prefill des schémas
+            # d'outils (cf. section_de_session). Sanitize interne (ASI06).
+            lt_section = section_de_session(self.memory, self.lt_memory)
             # ASI06 : profil/conventions/erreurs sont APPRIS automatiquement (requêtes,
             # sorties d'outils, contenu de fichiers) → mêmes canaux de poisoning que la
             # mémoire long terme. Bouclier au point d'injection dans le system prompt :
@@ -1116,9 +1123,8 @@ class Orchestrator(GardesMixin):
                 code_compatible=_as_bool(a.get("code_compatible", False)),
                 llm=self.llm),
             # Mémoire long-terme
-            "remember_fact": lambda a: self.lt_memory.remember(
-                a["key"], a["content"], a.get("category", "context")),
-            "forget_fact": lambda a: self.lt_memory.forget(a["key"]),
+            "remember_fact": self._tool_remember_fact,
+            "forget_fact": self._tool_forget_fact,
             # Mémoire sémantique (archive klody_memory — lecture seule)
             "rappeler_memoire": lambda a: semantic_memory.recall_for_llm(
                 a["requete"],
@@ -1231,6 +1237,21 @@ class Orchestrator(GardesMixin):
                 kind="référence",
             )
         return format_references(refs)
+
+    def _tool_remember_fact(self, a: dict) -> str:
+        """Écriture EXPLICITE : visible dès le message suivant, contrairement aux
+        faits extraits automatiquement (section figée pour la session)."""
+        resultat = self.lt_memory.remember(
+            a["key"], a["content"], a.get("category", "context"))
+        invalider_section_de_session(self.memory)
+        return resultat
+
+    def _tool_forget_fact(self, a: dict) -> str:
+        """Un fait oublié à la demande ne doit pas rester affirmé par le système
+        jusqu'à la fin de la session."""
+        resultat = self.lt_memory.forget(a["key"])
+        invalider_section_de_session(self.memory)
+        return resultat
 
     def _tool_find_relevant_files(self, a: dict) -> str:
         # Zéro hit = TOUJOURS une panne (search() n'a pas de seuil de pertinence) :

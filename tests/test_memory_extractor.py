@@ -723,7 +723,7 @@ class TestSurfaces:
         monkeypatch.setattr(server, "_probe_url", _toujours_up)
         monkeypatch.setattr(server.httpx, "AsyncClient", _SansReseau)
         monkeypatch.setattr(server, "_load_project_info", lambda: {"workdir": "/tmp"})
-        monkeypatch.setattr(server, "get_librarybrain_status", lambda: {"up": False})
+        monkeypatch.setattr("services.get_librarybrain_status", lambda: {"up": False})
         monkeypatch.setattr(memory_extractor, "OpenAI", _faux_openai(erreur=_erreur_connexion()))
         memory_extractor.extract_and_save(_msgs(3), _lt_mock())
 
