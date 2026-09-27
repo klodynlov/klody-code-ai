@@ -473,23 +473,40 @@ lots précédents ont déjà livré. Elle finit par la mise à jour de `CLAUDE.m
 
 ## 10. Suivi
 
-| lot | état | PR | chiffre de sortie |
+> ⚠️ **Corrigé le 2026-09-27.** La colonne « chiffre de sortie » des lots 1.1 à
+> 3.3 décrivait des lots qui n'existent pas (« prompt système allégé »,
+> « mémoire long terme compactée », « embeddings batch », « cache de prompt
+> système »…) : aucun ne correspond à la PR citée sur la même ligne. Réécrite à
+> partir des titres réels des PR (`git log origin/main`). Un tableau de suivi
+> recopié plutôt que dérivé finit par mentir — le mode de défaillance dominant.
+
+| lot | état | PR | ce qui a été livré |
 |---|---|---|---|
-| 0.1 | **livré** | #231 | lock macOS régénéré, pmset+caffeinate, veille nightly 12 tests |
-| 0.2 | **livré** | #232 | `--check` exit 0, `[CONFIRMÉ]` daté 09-03. Cause : Connection refused transitoire, ajout retry 1×60 s. 22 tests |
-| 0.3 | **livré** | #233 | couverture 84,3→**85,7 %**, tests 2779→**2798**, datés 09-03 |
-| 1.1 | **livré** | #234 | prompt système allégé |
-| 1.2 | **livré** | #235 | schémas d'outils optimisés |
-| 1.3 | **livré** | #236 | mémoire long terme compactée |
-| 1.4 | **livré** | #237 | conventions/profil allégés |
-| 1.5 | **livré** | #238 | retrieval proactif réduit |
-| 2.1 | **livré** | #239 | outil read_file optimisé |
-| 2.2 | **livré** | #240 | search_in_files optimisé |
-| 2.3 | **livré** | #241 | execute_command optimisé |
-| 3.1 | **livré** | #242 | mémoire sémantique optimisée |
-| 3.2 | **livré** | #243 | embeddings batch |
-| 3.3 | **livré** | #244 | cache de prompt système |
-| 4.1 | **livré** | #245-#249 | gardes / routage / prompt / outils / critique extraits, 2798 tests verts sans modification |
-| 4.2 | **livré** | #251 | stream_api extrait dans api/streaming.py |
+| 0.1 | **livré** | #231 | lock macOS régénéré, pmset+caffeinate, veille nightly — ⚠️ inopérant en pratique, cf. #267 |
+| 0.2 | **livré** | #232 | veille Qwen : retry 1×60 s sur Connection refused transitoire |
+| 0.3 | **livré** | #233 | couverture 84,3→85,7 %, tests 2779→2798, datés 09-03 |
+| 1.1 | **livré** | #234 | `scripts/mesure_surcout_fixe.py` : ~41 k tok/tour dont 35,6 k de schémas d'outils |
+| 1.2 | **livré** | #235 | 46 descriptions d'outils compactées, registre trié |
+| 1.3 | **livré** | #236 | `max_tokens` par type de tâche |
+| 1.4 | **livré** | #237 | retrieval proactif borné par échéance (2 s) |
+| 1.5 | **livré** | #238 | Best-of-N OFF par défaut |
+| 2.1 | **livré** | #239 | palier de banc `real_repo` (5 tâches) |
+| 2.2 | **livré** | #240 | instrumentation du coût du garde doc — ⚠️ aveugle jusqu'à #269 (lisait le drapeau APRÈS sa remise à zéro) |
+| 2.3 | **livré** | #241 | `scripts/ab_flags_dormants.py` |
+| 3.1 | **livré** | #242 | route `/health` commune aux serveurs MCP |
+| 3.2 | **livré** | #243 | `install-launchagents.sh --check` dans le nightly |
+| 3.3 | **livré** | #244 | audit des 11 sondes menteuses |
+| 4.1 | **livré** | #245-#249 | gardes / routage / prompt / outils / critique extraits de l'orchestrateur |
+| 4.2 | **livré** | #251 | `stream_api` extrait dans `api/streaming.py` |
 | 4.3 | **livré** | #252 | mypy vert sur 42 fichiers (était 29) |
-| 5.1 | **bloqué** | — | mlx_lm 0.31.3 ne supporte pas `qwen4_exp` |
+| 5.1 | **clos — hors budget RAM** | — | voir ci-dessous |
+
+**Lot 5.1, requalifié le 2026-09-27.** Le verdict « bloqué : mlx_lm 0.31.3 ne
+supporte pas `qwen4_exp` » s'arrêtait à la question 1 sans poser la question 2,
+qui tranche seule : `Qwen/Qwen3.8-Flash-Next` compte 179 999 981 459 paramètres
+(compte safetensors HF), `mlx-community/Qwen3.8-Flash-Next-4bit` pèse **111,5 Go**
+(somme des fichiers, API HF) contre 80 Go de budget gateway, `brain` épinglé.
+Règle RAM-MoE : on compte les paramètres TOTAUX. Et la question 1 était mal
+posée : mlx-vlm ≥ 0.7 charge déjà `qwen4_exp`
+(`~/klody-core-env/…/mlx_vlm/models/qwen4_exp` présent ; les workers du gateway,
+eux, démarrent sous `~/library-brain-env`, qui ne l'a pas).
