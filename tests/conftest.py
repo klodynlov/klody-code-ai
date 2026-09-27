@@ -90,3 +90,24 @@ def _voix_muette(monkeypatch, tmp_path):
     """
     monkeypatch.setattr(config, "VOICE_CLI", str(tmp_path / "vocalbrain-absent"))
     monkeypatch.setattr(config, "VOICE_AUDIO_DIR", tmp_path / "audio")
+
+
+@pytest.fixture(autouse=True)
+def _pas_de_decouverte_mcp(monkeypatch):
+    """La suite ne DOIT JAMAIS découvrir les VRAIS serveurs MCP de l'atelier.
+
+    Quatrième instance du défaut des fixtures ci-dessus : `config.MCP_SERVERS`
+    est lu dans le `.env` du développeur (`load_dotenv()` remonte jusqu'au
+    checkout principal, même depuis un worktree), et `Orchestrator.__init__`
+    interroge ces serveurs (cache process ensuite). Mesuré le 2026-09-27 sur le
+    Mac : **314 outils** sur 15 serveurs déclarés, **7,7 s** de réseau au
+    premier orchestrateur du processus — dans des tests qui ne parlent pas de
+    MCP. La CI, sans ces serveurs, ne voit qu'une liste vide : le même test ne
+    faisait pas le même travail selon la machine.
+
+    `/api/status` sonde aussi `config.MCP_SERVERS` : coupé du même geste.
+    Les tests MCP construisent leur `MCPManager` avec une config explicite
+    (`tests/test_mcp_bridge.py`) et ne dépendent pas de ce réglage ; un test
+    qui en aurait besoin le repose chez lui, l'autouse passe avant.
+    """
+    monkeypatch.setattr(config, "MCP_SERVERS", {})

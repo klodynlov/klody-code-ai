@@ -31,8 +31,43 @@ def _fake_embed_batch_fast(texts, timeout=60.0):
     return [[0.1] * 1024 for _ in texts]
 
 
-def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None):
-    """Construit un Orchestrator minimal avec retrieval actif."""
+class _IndexEspion:
+    """Index d'embeddings qui NOTE chaque accès et ne cherche rien.
+
+    Juge des tests « le retrieval ne part pas » : un temps de réponse court ne
+    prouvait rien. Vécu le 2026-09-27 : sans retrieval coupé, le vrai
+    `_embed_batch` levait `NotConfiguredError` en quelques ms en isolé — vert —
+    et chargeait bge-m3 en suite complète, où klody_memory avait été configuré
+    en amont — rouge à 2,07 s. Le même test mesurait l'état du processus, pas
+    la garde. Un accès à l'index, lui, ne dépend de rien d'autre que du code.
+    """
+
+    def __init__(self):
+        self.appels: list[str] = []
+
+    def is_available(self):
+        self.appels.append("is_available")
+        return True
+
+    def search(self, query, k=5):
+        self.appels.append(f"search({query!r})")
+        return []
+
+
+def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None, *, retrieval_actif=True):
+    """Construit un Orchestrator minimal.
+
+    `retrieval_actif` est un PARAMÈTRE, pas un réglage à poser avant l'appel :
+    ce helper pose lui-même le flag, et un `monkeypatch.setattr(…, False)` écrit
+    AVANT lui était donc écrasé en silence — le test « retrieval désactivé » a
+    exercé le retrieval ACTIF depuis sa création (constaté le 2026-09-27).
+
+    `embed_batch_fn` absent ⇒ faux instantané, jamais le vrai : le vrai charge
+    bge-m3 (plusieurs secondes) ou lève, selon ce que les tests précédents ont
+    laissé dans le processus ; et quand il lève, `_constater_panne` coupe
+    `tools.embeddings.is_available()` pour 10 min, au niveau du MODULE — état
+    qui fuit vers tous les tests suivants.
+    """
     from agent import orchestrator as orch_mod, router as router_mod
     from agent.memory import ConversationMemory
     from tools import code_search as cs_mod
@@ -47,7 +82,7 @@ def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None):
     monkeypatch.setattr(orch_mod, "MAX_ITERATIONS", 1)
     monkeypatch.setattr(orch_mod, "SANDBOX_AUTO_EXEC", False)
     monkeypatch.setattr(orch_mod, "ROUTER_ENABLED", False)
-    monkeypatch.setattr(orch_mod, "RETRIEVAL_INJECT_ENABLED", True)
+    monkeypatch.setattr(orch_mod, "RETRIEVAL_INJECT_ENABLED", retrieval_actif)
     monkeypatch.setattr(orch_mod, "RETRIEVAL_MIN_SCORE", 0.0)
 
     noop_profiler = SimpleNamespace(
@@ -61,8 +96,7 @@ def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None):
     monkeypatch.setattr(orch_mod.Orchestrator, "_mid_session_extract", lambda self: None)
     monkeypatch.setattr(orch_mod, "load_skills", lambda: [])
 
-    if embed_batch_fn:
-        monkeypatch.setattr(cs_mod, "_embed_batch", embed_batch_fn)
+    monkeypatch.setattr(cs_mod, "_embed_batch", embed_batch_fn or _fake_embed_batch_fast)
 
     from tools import embeddings as emb_mod
     monkeypatch.setattr(emb_mod, "is_available", lambda: True)
@@ -70,6 +104,10 @@ def _make_orchestrator(monkeypatch, tmp_path, embed_batch_fn=None):
     memory = ConversationMemory()
     orch = orch_mod.Orchestrator(memory)
     orch.file_manager = FileManager(root=project_root)
+    # L'index est paresseux et figé sur la racine du CONSTRUCTEUR : si __init__
+    # l'a touché, il pointerait encore sur le vrai PROJECT_ROOT. Vu en mutant la
+    # garde « requête vide » : un test voisin rendait `skull_generator.py`.
+    orch._embed_index = None
     return orch
 
 
@@ -112,24 +150,28 @@ class TestRetrievalDeadline:
         assert "example.py" in result, f"devrait trouver example.py, reçu: {result!r}"
 
     def test_retrieval_desactive_retourne_vide(self, monkeypatch, tmp_path):
-        """RETRIEVAL_INJECT_ENABLED=False → '' immédiat, pas de thread."""
-        monkeypatch.setattr(
-            "agent.orchestrator.RETRIEVAL_INJECT_ENABLED", False,
-        )
-        orch = _make_orchestrator(monkeypatch, tmp_path)
+        """RETRIEVAL_INJECT_ENABLED=False → '' sans même toucher l'index.
 
-        t0 = time.perf_counter()
-        result = orch._relevant_files_section("test")
-        elapsed = time.perf_counter() - t0
+        Jugé sur l'index, pas sur le chronomètre : l'ancien `elapsed < 0.1`
+        passait en isolé avec le retrieval ACTIF (repli rapide sur erreur) et
+        rougissait en suite complète (bge-m3 chargé) — il ne jugeait jamais la
+        garde, seulement l'état du processus."""
+        orch = _make_orchestrator(monkeypatch, tmp_path, retrieval_actif=False)
+        espion = _IndexEspion()
+        orch._embed_index = espion
 
-        assert result == ""
-        assert elapsed < 0.1
+        assert orch._relevant_files_section("test") == ""
+        assert espion.appels == [], f"retrieval coupé mais index interrogé : {espion.appels}"
 
     def test_query_vide_retourne_vide(self, monkeypatch, tmp_path):
-        """Requête vide → '' sans thread."""
+        """Requête vide → '' sans toucher l'index (retrieval pourtant actif)."""
         orch = _make_orchestrator(monkeypatch, tmp_path)
+        espion = _IndexEspion()
+        orch._embed_index = espion
+
         assert orch._relevant_files_section("") == ""
         assert orch._relevant_files_section("   ") == ""
+        assert espion.appels == [], f"requête vide mais index interrogé : {espion.appels}"
 
     def test_exception_dans_thread_silencieuse(self, monkeypatch, tmp_path):
         """Une exception dans le retrieval ne fuit pas."""
