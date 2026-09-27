@@ -1,0 +1,42 @@
+{
+  "sessions": 116,
+  "paires": 305,
+  "periode": [
+    "2026-06-09",
+    "2026-09-22"
+  ],
+  "sources": {
+    "~/Projets/.klody/errors.json": {
+      "entrees": 20,
+      "paires_non_vides": 18,
+      "paires_changees": 1,
+      "causes": {
+        "compteur": 0,
+        "ordre": 0,
+        "ensemble": 1
+      },
+      "transitions_par_echec": {
+        "compteur": 2,
+        "ordre": 0,
+        "ensemble": 2,
+        "inchangee": 16
+      }
+    },
+    "~/Projets/klody-code-ai/.klody/errors.json": {
+      "entrees": 3,
+      "paires_non_vides": 2,
+      "paires_changees": 0,
+      "causes": {
+        "compteur": 0,
+        "ordre": 0,
+        "ensemble": 0
+      },
+      "transitions_par_echec": {
+        "compteur": 0,
+        "ordre": 0,
+        "ensemble": 1,
+        "inchangee": 2
+      }
+    }
+  }
+}
