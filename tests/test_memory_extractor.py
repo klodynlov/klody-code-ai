@@ -635,7 +635,7 @@ class TestSurfaces:
 
         tampon = io.StringIO()
         monkeypatch.setattr(main, "console", Console(file=tampon, width=200, no_color=True))
-        monkeypatch.setattr(main, "get_long_term_memory", lambda: _lt_mock())
+        monkeypatch.setattr(main, "get_long_term_memory", _lt_mock)
         return tampon
 
     @staticmethod
