@@ -150,18 +150,24 @@ class TestRetrievalDeadline:
         assert "example.py" in result, f"devrait trouver example.py, reçu: {result!r}"
 
     def test_retrieval_desactive_retourne_vide(self, monkeypatch, tmp_path):
-        """RETRIEVAL_INJECT_ENABLED=False → '' sans même toucher l'index.
+        """RETRIEVAL_INJECT_ENABLED=False → '' immédiat, sans même toucher l'index.
 
-        Jugé sur l'index, pas sur le chronomètre : l'ancien `elapsed < 0.1`
-        passait en isolé avec le retrieval ACTIF (repli rapide sur erreur) et
-        rougissait en suite complète (bge-m3 chargé) — il ne jugeait jamais la
-        garde, seulement l'état du processus."""
+        Le JUGE est l'index, pas le chronomètre : seul, `elapsed < 0.1` passait
+        en isolé avec le retrieval ACTIF (repli rapide sur erreur) et rougissait
+        en suite complète (bge-m3 chargé) — il jugeait l'état du processus, pas
+        la garde. Le seuil reste en second verrou (« immédiat ») : flag coupé,
+        le retour se compte en microsecondes, il ne peut plus rougir à tort."""
         orch = _make_orchestrator(monkeypatch, tmp_path, retrieval_actif=False)
         espion = _IndexEspion()
         orch._embed_index = espion
 
-        assert orch._relevant_files_section("test") == ""
+        t0 = time.perf_counter()
+        result = orch._relevant_files_section("test")
+        elapsed = time.perf_counter() - t0
+
+        assert result == ""
         assert espion.appels == [], f"retrieval coupé mais index interrogé : {espion.appels}"
+        assert elapsed < 0.1
 
     def test_query_vide_retourne_vide(self, monkeypatch, tmp_path):
         """Requête vide → '' sans toucher l'index (retrieval pourtant actif)."""
