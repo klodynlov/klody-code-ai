@@ -11,10 +11,12 @@ import socket
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
-import httpx
 import pytest
+
+# Partagés avec le garde de SUITE (tests/conftest.py) : le périmètre nommé ici
+# et le double de httpx servent aussi hors de ce dossier.
+from tests.garde_reseau import HttpxSansReseau, services_de_la_machine
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -152,28 +154,6 @@ def _librarybrain_jamais_demarre(monkeypatch):
     monkeypatch.setattr("services.ensure_librarybrain", lambda *_a, **_kw: True)
 
 
-@pytest.fixture(autouse=True)
-def _journal_d_usage_coupe(monkeypatch):
-    """Aucun événement du journal d'usage ne part vers le VRAI gateway.
-
-    `agent/journal_client.py` pousse chaque appel d'outil et chaque borne de
-    session sur `POST /journal/event` du gateway :8090, depuis le thread démon
-    `klody-journal-client`. Mesuré le 2026-09-27 : 119 connexions pendant
-    tests/integration, et 119 événements écrits dans `state/journal.db` de
-    klody-core, tous `app='klody-ai'`, `source='user'` : pour le miner
-    d'habitudes, c'était l'utilisateur. Chaque run y laisse une empreinte,
-    l'appel à l'outil bidon `i_dont_exist` du rejeu 09 : 144 dans le journal
-    depuis le 2026-07-15. Suivi de l'échec de `preview_file`, ce trafic a
-    produit la proposition « Réparer ou contourner preview_file »
-    (`tool:preview_file-flaky`, créée le 2026-09-17, invalidée le 2026-09-22)
-    pour un outil qui n'était pas cassé.
-
-    `KLODY_JOURNAL=0` est l'interrupteur du module, relu à chaque émission.
-    L'émission elle-même est testée dans tests/test_journal_client.py.
-    """
-    monkeypatch.setenv("KLODY_JOURNAL", "0")
-
-
 def _extraction_vide(**_kwargs):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
 
@@ -207,32 +187,6 @@ def _extracteur_memoire_muet():
         yield
 
 
-class HttpxSansReseau:
-    """`httpx` tel que le voit `api/server.py` : ses `AsyncClient` ne sortent pas.
-
-    Tout le reste est le vrai module. Chaque requête lève `httpx.ConnectError`,
-    ce que rend un service absent (le chemin de la CI), et son URL est gardée
-    dans `requetes`.
-    """
-
-    def __init__(self) -> None:
-        self.requetes: list[str] = []
-
-    def __getattr__(self, nom: str):
-        return getattr(httpx, nom)
-
-    # Même nom que dans httpx : c'est `httpx.AsyncClient(...)` qu'appelle l'API.
-    def AsyncClient(self, *args, **kwargs):
-        kwargs["transport"] = httpx.MockTransport(self._refuser)
-        return httpx.AsyncClient(*args, **kwargs)
-
-    def _refuser(self, request: httpx.Request) -> httpx.Response:
-        self.requetes.append(f"{request.method} {request.url}")
-        raise httpx.ConnectError(
-            "service de la machine coupé pendant les tests d'intégration", request=request
-        )
-
-
 @pytest.fixture(autouse=True)
 def api_sans_services_machine(monkeypatch) -> HttpxSansReseau:
     """`/api/status`, `/health` et `/api/proposals` ne joignent aucun service réel.
@@ -247,41 +201,6 @@ def api_sans_services_machine(monkeypatch) -> HttpxSansReseau:
     faux = HttpxSansReseau()
     monkeypatch.setattr("api.server.httpx", faux)
     return faux
-
-
-_BOUCLE_LOCALE = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
-def services_de_la_machine() -> dict[int, tuple[str, frozenset[str]]]:
-    """Port → (services, hôtes) de ce qui tourne sur la machine de dev.
-
-    Dérivé de la configuration, pas écrit en dur : un `.env` qui déplace le
-    gateway déplace le garde avec lui. Plusieurs services peuvent partager un
-    port (en mode gateway, le modèle code et le worker VL passent par :8090).
-    """
-    import config
-    from agent import journal_client
-
-    urls = {
-        "LibraryBrain": config.LIBRARYBRAIN_URL,
-        "gateway klody-core": config.MLX_BASE_URL,
-        "journal d'usage": journal_client.gateway_root(),
-        "modèle code": config.MLX_CODE_BASE_URL,
-        "worker VL": config.VL_BASE_URL,
-        "Ollama": config.OLLAMA_BASE_URL,
-        "MCP Klody": config.KLODY_MCP_URL,
-    }
-    services: dict[int, tuple[list[str], set[str]]] = {}
-    for nom, url in urls.items():
-        cible = urlsplit(url)
-        if not cible.hostname:
-            continue
-        port = cible.port or (443 if cible.scheme == "https" else 80)
-        noms, hotes = services.setdefault(port, ([], set(_BOUCLE_LOCALE)))
-        if nom not in noms:
-            noms.append(nom)
-        hotes.add(cible.hostname)
-    return {port: (" / ".join(noms), frozenset(hotes)) for port, (noms, hotes) in services.items()}
 
 
 @pytest.fixture(autouse=True)
@@ -303,6 +222,12 @@ def _services_machine_hors_reseau(monkeypatch):
     pendant le test N+1 est imputé à N+1 (le nom du thread figure dans le
     message), et une connexion partie après le démontage du DERNIER test
     n'est vue par personne.
+
+    Derrière lui, le garde de SUITE (`tests/garde_reseau.py`) refuse TOUT le
+    loopback sous le premier port éphémère, services nommés ou non. Celui-ci
+    reste devant : il couvre aussi les hôtes NON loopback de la config, il
+    garde à `connect_ex` sa sémantique `ECONNREFUSED`, et il surveille le
+    lancement de LibraryBrain, qui n'est pas une connexion.
     """
     services = services_de_la_machine()
     tentatives: list[str] = []

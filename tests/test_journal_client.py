@@ -73,12 +73,32 @@ def test_emit_desactive_par_env(monkeypatch):
 
 
 def test_emit_avale_gateway_mort():
-    """Gateway down : aucune exception ne remonte, l'appelant ne voit rien."""
+    """Gateway down : aucune exception ne remonte, et le worker SURVIT à l'erreur.
+
+    ⚠️ Le second `emit` partait autrefois APRÈS le `with` : `urlopen` n'était plus
+    bouchonné, et le worker le postait sur le VRAI gateway. Relevé le 2026-09-27
+    dans `~/klody-core/state/journal.db` : 127 événements `session end` / `s-2`,
+    `source='user'`, du 2026-07-15 au jour même — dans un fichier dont l'en-tête
+    promet « aucun réseau ». Les deux émissions restent donc sous le bouchon, et
+    la survie du worker se PROUVE (le second appel arrive) au lieu de se supposer.
+    """
+    vus = []
+
+    def urlopen_qui_tombe_puis_repond(req, timeout=None):
+        vus.append(json.loads(req.data)["name"])
+        if len(vus) == 1:
+            raise OSError("connexion refusée")
+        return MagicMock()
+
     with patch.object(journal_client.urllib.request, "urlopen",
-                      side_effect=OSError("connexion refusée")):
+                      side_effect=urlopen_qui_tombe_puis_repond):
         journal_client.emit(kind="session", name="start", session_id="s-2")
-        _drain(journal_client._queue)          # le worker survit à l'erreur
-    journal_client.emit(kind="session", name="end", session_id="s-2")   # toujours OK
+        journal_client.emit(kind="session", name="end", session_id="s-2")
+        echeance = time.monotonic() + 2.0
+        while len(vus) < 2 and time.monotonic() < echeance:
+            time.sleep(0.01)
+
+    assert vus == ["start", "end"]
 
 
 # ── En-têtes X-Klody-* du client LLM ─────────────────────────────────────────

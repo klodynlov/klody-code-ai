@@ -6,6 +6,7 @@ en texte, ce qui valide aussi la propagation d'erreur sans crash).
 """
 
 import json
+import socket
 
 import pytest
 from tools.mcp_bridge import MCPManager, _result_to_text, _tool_to_openai_schema
@@ -81,10 +82,16 @@ class TestOwnsAndCall:
 
 class TestResilience:
     def test_serveur_injoignable_ignore(self, gmail_server):
-        # Un serveur mort (port 1) est ignoré ; le serveur valide survit.
+        # Un serveur mort est ignoré ; le serveur valide survit. Le port mort est
+        # un port ÉPHÉMÈRE qu'on vient de libérer, refusé par le système : un port
+        # fixe (c'était le port 1) est refusé par tests/garde_reseau.py, qui fait
+        # rougir le test — un service local pourrait y écouter.
+        with socket.socket() as sonde:
+            sonde.bind(("127.0.0.1", 0))
+            port_mort = sonde.getsockname()[1]
         mgr = MCPManager({
             "gmail": gmail_server,
-            "mort": "http://127.0.0.1:1/mcp",
+            "mort": f"http://127.0.0.1:{port_mort}/mcp",
         })
         tools = mgr.discover()
         assert len(tools) == 8
