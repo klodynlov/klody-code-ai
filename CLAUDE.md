@@ -1241,7 +1241,40 @@ de score. Le skill arrive en tête des how-to par la consigne commune du palier 
 > un `hidden_invariant` ❌ montre un trou du garde : écriture sans ouvrir
 > `docs/`, conclusion à l'itération 6/6 — or le garde exige
 > `iteration < max_iter - 1`. Avec `max_iter = 6` (`easy · feature`), un agent
-> qui explore 4 appels avant d'écrire sort de la fenêtre du garde.
+> qui explore 4 appels avant d'écrire sort de la fenêtre du garde. **Fermé par
+> #292**, avec le même trou du garde LibraryBrain.
+
+> ### ✅ MESURÉ — `main` après #288 + #292 : 14/15, porte verte de justesse
+>
+> `bench/results/reference_2026-09-28_discovery_main.json` — `main` à `fb91d89`,
+> `discovery --repeat 3`, 2026-09-28 11:27 → 12:01.
+>
+> | tâche | succès | `docs/` spont. | garde doc | itér. méd. |
+> |---|---|---|---|---|
+> | `hidden_invariant` | 3/3 | **3/3** | 0/3 | 5 |
+> | `first_write_method` | 3/3 | 3/3 | 0/3 | 5 |
+> | `error_contract` | 3/3 | 3/3 | 0/3 | 4 |
+> | `data_contract` | 3/3 | 0/3 | 0/3 | 5 |
+> | `config_precedence` | **2/3** | 3/3 | 0/3 | 4 |
+>
+> - Les 15 exécutions sur le **coder** (15 bascules journalisées) : le correctif
+>   du QCM tient en conditions réelles. 0 panne d'infra, 0 appel cassé.
+> - `config_precedence` est l'unique échec, **même mode que la veille sur le
+>   coder** : README lu, puis « option mal formée → ignorée » au lieu de
+>   `ValueError`. 4/6 sur le coder en deux jours, contre 1/7 sur brain.
+> - Porte : `Δ −6,7 %` contre la baseline à 35 tâches (#296, seuil **0.075**)
+>   — verte avec **0,8 point de marge**. Une seconde perte sur `discovery`
+>   seule la ferait rougir.
+> - 0 déclenchement des gardes doc et LibraryBrain, 0 auto-continue : le
+>   correctif #292 n'est pas exercé ici, il ne gêne pas non plus.
+>
+> ⚠️ **Conditions NON identiques à la baseline** : lancé depuis un worktree, le
+> banc remonte au `.env` et chaque exécution reçoit **314 outils MCP** dans son
+> prompt (journalisé 15/15) — la baseline #296 a été mesurée hors du dépôt,
+> sans eux. Et depuis #279 le banc n'injecte plus le profil ni la mémoire long
+> terme de l'utilisateur. L'ouverture spontanée de `docs/` sur
+> `hidden_invariant` (3/3, contre 1/3 la veille sur le coder) ne s'attribue donc
+> à rien : n=3, et deux variables de prompt ont bougé.
 
 - ⚠️ **`bench.gate` ne jugeait que la DERNIÈRE passe d'un run `--repeat N`**,
   et annonçait les passes précédentes comme « N hors baseline, non jugée(s) ».
