@@ -59,11 +59,13 @@ répéter dos à dos sert depuis un cache de prompt chaud et fausse la latence.
 Chaque run enregistre sa **provenance** (modèle réellement servi, résolu derrière
 l'alias par une complétion d'un token).
 
-Cinq paliers, 30 tâches : `easy`, `medium`, `hard` (les 20 de la baseline),
-`expert` (le réflexe est faux), `discovery` (la contrainte n'est pas dans
-l'énoncé). Le gate n'intersecte que les `task_id` communs et annonce « N tâche(s)
-hors baseline, non jugée(s) » — des tâches absentes de la baseline ne sont pas
-jugées tant qu'une baseline ne les inclut pas.
+Six paliers, 35 tâches : `easy`, `medium`, `hard` (les 20 de la baseline
+historique), `expert` (le réflexe est faux), `discovery` (la contrainte n'est pas
+dans l'énoncé), `real_repo` (dans un clone du dépôt, #239). Le gate n'intersecte
+que les `task_id` communs et annonce « N tâche(s) hors baseline, non jugée(s) » —
+des tâches absentes de la baseline ne sont pas jugées tant qu'une baseline ne les
+inclut pas. Baseline à 35 tâches × 3 passes depuis le 2026-09-28 (section dédiée
+plus bas), seuil 0.075.
 
 ⚠️ **Jusqu'au 2026-09-27, le gate ne jugeait que la DERNIÈRE passe d'un run
 `--repeat N`** (`{task_id: résultat}` écrase), et comptait les N−1 autres comme
@@ -1309,6 +1311,39 @@ coûte 11,2 s contre 0,55 s à 69 outils (#270), ~120 s au régime de l'API de p
   « STOP — ne conclus pas… ») sont AUSSI en rôle `user`, posées à `timestamp:
   None` — 89 sur 659 messages `user` de `~/.klody/data`. Compter les rôles
   compterait des tours qui n'existent pas.
+
+## État au 2026-09-28 — baseline à 35 tâches, et le seuil qui l'accompagne
+
+Les 5 tâches `real_repo` tournaient chaque nuit hors baseline (« 5 tâche(s) hors
+baseline, non jugée(s) »). Promues, avec un run FRAIS `--repeat 3` : **104/105**,
+seul `easy/add_simple_test` instable (✅ ❌ ✅ — l'agent AFFICHE le code du test au
+lieu d'appeler `write_file`, puis conclut). Promu tel quel : relancer jusqu'au
+35/35 aurait été choisir la mesure qui arrange.
+
+- ⚠️ **Promouvoir sans recalculer le seuil DESSERRAIT la porte** : 3 tâches
+  cassées sur 35 = −8,57 %, VERT sous 0.09 ; il en fallait 4, contre 3 sur 30.
+  Seuil passé à **0.075** (3 aux deux tailles). 0.08 marchait aussi mais tombe
+  pile sur des écarts exacts (2/25, 14/175) où seul le `<` strict tranche.
+  Sensibilité vérifiée sur le fichier promu lui-même : 3 tâches cassées rougissent,
+  `add_simple_test` comprise ou non — le tiers de tâche figé ne rachète rien.
+  Tableaux : `bench/gate.py`, verrouillés par `tests/test_gate_sensibilite.py`.
+- ⚠️ **Un run lancé depuis un worktree n'est PAS un run de nightly.** `config`
+  fait `load_dotenv()` sans chemin : depuis `.claude/worktrees/…` il remonte au
+  `.env` du dépôt principal (15 serveurs MCP, ~300 outils dans le prompt). Le
+  checkout du runner n'en a aucun au-dessus de lui. Promotion faite depuis un
+  checkout HORS de `~/Projets/klody-code-ai`, venv du runner, variables du
+  workflow — `config.MCP_SERVERS == {}` et `CONTEXT_WINDOW` 65536 vérifiés avant.
+- ⚠️ **Un premier run a été JETÉ : 3 échecs sur 4 tâches, tous des 503** « RAM
+  insuffisante pour coder ». `brain` (52 Go) + `coder` (40 Go) ne tiennent plus
+  ensemble quand la machine sert autre chose : le gateway évince l'un pour
+  l'autre (~3 s, poids en cache — supportable), mais refuse net si l'autre a une
+  requête en vol. Un autre client martelait `brain` (137 requêtes en 20 min) :
+  chaque appel `coder` du banc prenait un 503, compté comme un échec du modèle.
+  Le journal qui le dit : `~/klody-core/logs/gateway.error.log` (« pression
+  mémoire … déchargement de coder », « ensure(coder) refusé »). Critère de rejet
+  appliqué au run retenu : **zéro** « Backend indisponible » dans son log.
+- `bench.run` a laissé un fils `--child-task` ORPHELIN après un `pkill` du
+  parent : il a rechargé `brain` tout seul. Tuer aussi les `--child-task`.
 
 ## Pièges qui coûtent du temps
 

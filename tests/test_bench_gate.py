@@ -180,11 +180,12 @@ class TestSensibiliteSelonTaille:
     """La sensibilité du gate en NOMBRE DE TÂCHES dépend de la taille de la
     baseline, pas seulement du seuil.
 
-    Rien dans `DEFAULT_MAX_DROP = 0.09` ne le laisse voir, et c'est ce qui a
-    failli passer inaperçu en promouvant la baseline de 20 à 30 tâches le
-    2026-07-30 : à 0.10, agrandir le banc AFFAIBLISSAIT le gate — 4 tâches
-    cassées nécessaires contre 3 avant — parce qu'une baseline à 29/30 n'est plus
-    à 100 % et que l'arithmétique en pourcentage donne du mou.
+    Rien dans `DEFAULT_MAX_DROP` ne le laisse voir, et c'est ce qui a failli
+    passer inaperçu en promouvant la baseline de 20 à 30 tâches le 2026-07-30 : à
+    0.10, agrandir le banc AFFAIBLISSAIT le gate — 4 tâches cassées nécessaires
+    contre 3 avant — parce qu'une baseline à 29/30 n'est plus à 100 % et que
+    l'arithmétique en pourcentage donne du mou. Même piège à la promotion à 35
+    tâches (2026-09-28) : sous 0.09, 3 pertes sur 35 passaient.
 
     Ces tests reproduisent le tableau cité dans `bench/gate.py`. Ils existent pour
     qu'un futur palier ne puisse pas rendre le gate permissif en silence : c'est
@@ -198,16 +199,19 @@ class TestSensibiliteSelonTaille:
     @pytest.mark.parametrize(
         ("total", "base_ok", "perdues", "doit_echouer"),
         [
-            # baseline 20/20 sous 0.09 : 2 tâches perdues suffisent.
+            # baseline 20/20 : 2 tâches perdues suffisent.
             (20, 20, 1, False),
             (20, 20, 2, True),
-            # baseline 29/30 sous 0.09 : il en faut 3 — soit la sensibilité
-            # qu'avait le gate à 20 tâches sous l'ancien 0.10.
+            # baseline 29/30 : il en faut 3 — soit la sensibilité qu'avait le
+            # gate à 20 tâches sous l'ancien 0.10.
             (30, 29, 1, False),
             (30, 29, 2, False),
             (30, 29, 3, True),
+            # baseline 35/35 (depuis le 2026-09-28) : 3 aussi, pas 4.
+            (35, 35, 2, False),
+            (35, 35, 3, True),
         ],
-        ids=["20-1", "20-2", "30-1", "30-2", "30-3"],
+        ids=["20-1", "20-2", "30-1", "30-2", "30-3", "35-2", "35-3"],
     )
     def test_seuil_par_defaut(self, total, base_ok, perdues, doit_echouer):
         base = self._run(total, base_ok)
@@ -222,6 +226,15 @@ class TestSensibiliteSelonTaille:
         courant = self._run(30, 26)  # 3 perdues
         assert compare(base, courant, max_drop=0.10)[0] is True
         assert compare(base, courant, max_drop=0.09)[0] is False
+
+    def test_l_ancien_seuil_etait_permissif_a_35_taches(self):
+        """Le même piège, un palier plus loin : sous 0.09, trois tâches perdues
+        sur une baseline 35/35 (−8,57 %) PASSAIENT — il en fallait 4. D'où 0.075
+        à la promotion du palier `real_repo`."""
+        base = self._run(35, 35)
+        courant = self._run(35, 32)  # 3 perdues
+        assert compare(base, courant, max_drop=0.09)[0] is True
+        assert compare(base, courant)[0] is False
 
     def test_aucun_seuil_ne_donne_trois_taches_aux_deux_tailles(self):
         """Le fait structurel, verrouillé — et l'erreur que j'ai d'abord commise
@@ -301,8 +314,8 @@ class TestToutesLesPasses:
         assert "5 tâche(s) commune(s), courant 3 passes, baseline 1 passe" in msg, msg
         # La tâche en baisse est NOMMÉE, même sous le seuil.
         assert "discovery/config_precedence (1/1 → 2/3)" in msg, msg
-        # Sous 0.09, un tiers de tâche cassée reste vert — c'est le tableau de
-        # sensibilité à N passes (bench/gate.py), pas un oubli.
+        # Sous le seuil (0.075), un tiers de tâche cassée reste vert — c'est le
+        # tableau de sensibilité à N passes (bench/gate.py), pas un oubli.
         assert ok, msg
 
     def test_deux_passes_ratees_sur_quinze_rougissent(self):
@@ -382,10 +395,11 @@ class TestNightlyInchange:
     et sa baseline est à une passe. Juger toutes les passes ne doit rien y
     changer : ni le verdict, ni les taux affichés, ni la forme du message."""
 
-    @pytest.mark.parametrize("n", [5, 10, 20, 25, 30])
+    @pytest.mark.parametrize("n", [5, 10, 20, 25, 30, 35])
     def test_a_une_passe_le_verdict_est_celui_de_l_ancien_calcul(self, n):
-        # Tailles réelles d'intersection : une catégorie (5), la baseline
-        # historique (20), la baseline courante (30), et les unions de paliers.
+        # Tailles réelles d'intersection : une catégorie (5), les baselines
+        # historiques (20, 30), la baseline courante (35), et les unions de
+        # paliers.
         for base_ok in range(n + 1):
             base = [_result(f"t/{i:02d}", i < base_ok) for i in range(n)]
             for cour_ok in range(n + 1):
@@ -403,7 +417,8 @@ class TestNightlyInchange:
         """`delta < -max_drop` est strict : un écart qui VAUT le seuil passe.
         L'ancien calcul (`19/20 − 20/20` en flottants = −0,05000000000000004)
         rougissait pourtant sous `--max-drop 0.05` — 853 égalités exactes de ce
-        genre sur n ≤ 100 et dix seuils, aucune à 0.09 sous 100 tâches."""
+        genre sur n ≤ 100 et dix seuils ; sous le seuil par défaut (0.075), une
+        passe n'en rencontre qu'à 40 et 80 tâches."""
         base = [_result(f"t/{i}", True) for i in range(20)]
         une_perdue = [_result(f"t/{i}", i > 0) for i in range(20)]
         deux_perdues = [_result(f"t/{i}", i > 1) for i in range(20)]

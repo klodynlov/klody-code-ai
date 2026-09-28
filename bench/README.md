@@ -90,9 +90,11 @@ déjà promues ne sont pas invalidées.
 ## Gate de non-régression
 
 `bench/gate.py` compare `results/latest.json` à `results/baseline.json` et sort en
-erreur si le taux de succès chute de plus de 9 points (`DEFAULT_MAX_DROP`, dont le
-commentaire donne la sensibilité en nombre de tâches). C'est ce que lance le
-workflow `bench-nightly`.
+erreur si le taux de succès chute de plus de 7,5 points (`DEFAULT_MAX_DROP`, dont le
+commentaire donne la sensibilité en nombre de tâches : 3 tâches cassées sur 35). C'est
+ce que lance le workflow `bench-nightly`. Le seuil est RECALCULÉ à chaque palier qui
+entre dans la baseline — sans quoi agrandir le banc desserre la porte (0,09 à 35
+tâches laissait passer 3 tâches cassées).
 
 ```bash
 python -m bench.gate                    # baseline ↔ latest, seuil par défaut
