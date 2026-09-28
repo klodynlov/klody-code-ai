@@ -1,0 +1,140 @@
+{
+  "name": "doc_guard_derniere_iteration",
+  "description": "Vécu le 2026-09-27 sur discovery/hidden_invariant (easy · feature · max_iter=6) : list_files, lecture du code et du test, grep, write_file, puis conclusion à l'itération 6/6 — sans avoir ouvert docs/. Le garde « décisions jamais ouvertes » exigeait une itération de marge et s'est tu : la conclusion fausse est passée. Il doit tirer ici aussi, et le budget doit laisser la place de lire puis corriger.",
+  "user_prompt": "Ajoute une méthode set_many au cache.",
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "feature",
+    "reasoning": "ajout d'une méthode"
+  },
+  "max_iterations": 6,
+  "seed_files": {
+    "cache.py": "class Cache:\n    def __init__(self):\n        self._data = {}\n\n    def set(self, key, value):\n        self._data[key] = value\n",
+    "test_cache.py": "from cache import Cache\n\n\ndef test_set():\n    c = Cache()\n    c.set('a', 1)\n    assert c._data['a'] == 1\n",
+    "docs/INCIDENTS.md": "# Journal\n\n2026-03 — Copie profonde : une valeur stockée ne doit jamais être partagée avec l'appelant.\n"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c0",
+          "type": "function",
+          "function": {
+            "name": "list_files",
+            "arguments": "{\"path\": \".\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"cache.py\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"test_cache.py\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "search_in_files",
+            "arguments": "{\"path\": \".\", \"pattern\": \"set_many\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"cache.py\", \"content\": \"class Cache:\\n    def __init__(self):\\n        self._data = {}\\n\\n    def set(self, key, value):\\n        self._data[key] = value\\n\\n    def set_many(self, mapping):\\n        for k, v in mapping.items():\\n            self.set(k, v)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "set_many est ajoutée et réutilise set() : les tests passent.",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c6",
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "arguments": "{\"path\": \"docs/INCIDENTS.md\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "c7",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"cache.py\", \"content\": \"import copy\\n\\n\\nclass Cache:\\n    def __init__(self):\\n        self._data = {}\\n\\n    def set(self, key, value):\\n        self._data[key] = copy.deepcopy(value)\\n\\n    def set_many(self, mapping):\\n        for k, v in mapping.items():\\n            self.set(k, v)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Après lecture de docs/INCIDENTS.md : copie profonde appliquée, conforme au journal.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 9,
+    "max_llm_calls": 9,
+    "tool_calls_invoked": [
+      "list_files",
+      "read_file",
+      "read_file",
+      "search_in_files",
+      "write_file",
+      "read_file",
+      "write_file"
+    ],
+    "final_content_contains": [
+      "Après lecture de docs/INCIDENTS.md"
+    ],
+    "file_created": {
+      "path": "cache.py",
+      "content_contains": "copy.deepcopy(value)"
+    },
+    "doc_guard_fired": true,
+    "no_forced_synthesis": true,
+    "no_auto_extension": true
+  }
+}

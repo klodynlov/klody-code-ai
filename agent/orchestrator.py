@@ -128,6 +128,7 @@ from agent.orchestrateur.critique import (
 from agent.orchestrateur.gardes import (
     _CMD_EXEC_TOOLS,
     _CMD_FAIL_STREAK_BREAK,
+    _DOC_GUARD_MARGE,
     _DOC_NUDGE_MAX,  # noqa: F401 — ré-export pour scripts/tests
     _DOC_SCAN_DEPTH,  # noqa: F401 — ré-export pour scripts
     _DOC_SCAN_MAX,  # noqa: F401 — ré-export pour scripts/tests
@@ -136,12 +137,14 @@ from agent.orchestrateur.gardes import (
     _ECHO_REPEAT_BREAK,
     _ECHO_REPEAT_WARN,
     _FILE_SCAN_TOOLS,
+    _LIBRARY_GUARD_MARGE,
     _LOOP_REPEAT_BREAK,
     _LOOP_REPEAT_WARN,
     _NO_SOURCE_CLAIM_RE,  # noqa: F401 — ré-export pour tests
     _SCAN_REPEAT_BREAK,
     _SCAN_REPEAT_WARN,
     GardesMixin,
+    _budget_pour_relance,
     _claims_no_library_source,  # noqa: F401 — ré-export pour tests
     _cmd_result_failed,
     _est_documentation,  # noqa: F401 — ré-export pour tests
@@ -1946,9 +1949,11 @@ class Orchestrator(GardesMixin):
                 # est classée `explain`, PAS `feature` — gater sur
                 # _CODE_TASK_TYPES privait justement le QCM de l'outil `ask_user`
                 # (questions déversées en texte au lieu de cartes cliquables,
-                # cf. session 04:46). Les faux positifs sont déjà écartés en
-                # amont par select_skills (filtre de pertinence IDF : un skill
-                # non pertinent n'atteint jamais la tête de liste).
+                # cf. session 04:46). ⚠️ select_skills NE suffit PAS à écarter
+                # les faux positifs : sur les tâches `discovery`, le QCM arrive en
+                # tête des how-to par des mots de consigne (`list_files` → « file »,
+                # « avant », « écrire »). C'est la garde d'IDENTITÉ de
+                # _detect_interactive_skill qui tranche — cf. « pas » (2026-09-27).
                 self._interactive_skill_active = self._detect_interactive_skill(
                     user_input
                 )
@@ -2494,6 +2499,14 @@ class Orchestrator(GardesMixin):
                     logger.info(
                         "[library-guard] absence affirmée après un miss catalogue "
                         "sans search_books → relance forcée (iter=%d)", iteration)
+                    # `explain` n'a pas d'auto-continue : sur une conclusion posée à
+                    # la dernière itération, la relance tomberait sur le cap et la
+                    # synthèse forcée — SANS outils — redirait « pas de sources ».
+                    _budget = _budget_pour_relance(iteration, max_iter, _LIBRARY_GUARD_MARGE)
+                    if _budget > max_iter:
+                        logger.info("[library-guard] budget porté de %d à %d itérations",
+                                    max_iter, _budget)
+                        max_iter = _budget
                     console.print(
                         "[dim yellow]  ⤵  LibraryBrain : le catalogue ne couvre que "
                         "titre+auteur — je fouille le contenu avant de conclure[/dim yellow]"
@@ -2529,6 +2542,14 @@ class Orchestrator(GardesMixin):
                     logger.info(
                         "[doc-guard] conclusion après écriture sans lecture de doc "
                         "→ relance forcée (iter=%d, %d doc(s))", iteration, len(_docs))
+                    # La relance doit pouvoir LIRE puis corriger : sur une
+                    # conclusion posée à la dernière itération, elle tomberait
+                    # sinon sur le cap (synthèse forcée sans outils).
+                    _budget = _budget_pour_relance(iteration, max_iter, _DOC_GUARD_MARGE)
+                    if _budget > max_iter:
+                        logger.info("[doc-guard] budget porté de %d à %d itérations",
+                                    max_iter, _budget)
+                        max_iter = _budget
                     console.print(
                         "[dim yellow]  ⤵  Tu as modifié le projet sans ouvrir sa "
                         "documentation — je vais la lire avant de conclure[/dim yellow]"
@@ -2599,7 +2620,10 @@ class Orchestrator(GardesMixin):
     def _mid_session_extract(self) -> None:
         """Extraction mid-session en arrière-plan."""
         try:
-            facts = extract_mid_session(self.memory.messages, self.lt_memory)
+            facts = extract_mid_session(
+                self.memory.messages, self.lt_memory,
+                session_id=getattr(self.memory, "session_id", None),
+            )
             if facts:
                 logger.info("[Orchestrator] Mid-session: %d fait(s) extraits", len(facts))
         except Exception as e:

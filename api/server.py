@@ -43,7 +43,7 @@ from agent.approval import requires_approval
 from agent.erreurs_llm import expliquer_erreur_llm
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
-from agent.memory_extractor import extract_and_save
+from agent.memory_extractor import etat_extraction, extract_and_save
 from agent.orchestrator import Orchestrator
 from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
@@ -254,6 +254,10 @@ async def get_status():
         "mcp_server_active": mcp_active,
         "project_info": project_info,
         "dependances": dependances,
+        # Morte du 2026-07-18 au 2026-09-27 sans qu'aucune surface ne le dise :
+        # elle visait Ollama en mode mlx. Informatif, jamais un 503 — une
+        # mémoire qui n'apprend plus ne rend pas l'API indisponible.
+        "extraction_memoire": etat_extraction(),
     }
 
 
@@ -919,7 +923,7 @@ async def websocket_endpoint(ws: WebSocket):
                     # Extraction mémoire en arrière-plan (non-bloquant)
                     threading.Thread(
                         target=_extract_memory_bg,
-                        args=(memory.messages, get_long_term_memory()),
+                        args=(memory.messages, get_long_term_memory(), memory.session_id),
                         daemon=True,
                         name="mem-extractor",
                     ).start()
@@ -1105,10 +1109,10 @@ async def websocket_endpoint(ws: WebSocket):
         journal_client.emit(kind="session", name="end", session_id=memory.session_id)
 
 
-def _extract_memory_bg(messages: list[dict], lt_memory) -> None:
+def _extract_memory_bg(messages: list[dict], lt_memory, session_id: str | None = None) -> None:
     """Lance l'extraction mémoire dans un thread background."""
     try:
-        facts = extract_and_save(messages, lt_memory)
+        facts = extract_and_save(messages, lt_memory, session_id=session_id)
         if facts:
             logger.info("[API] %d fait(s) mémorisé(s) automatiquement", len(facts))
     except Exception as e:

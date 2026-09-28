@@ -1,6 +1,7 @@
 """Fixtures globales de la suite Klody."""
 import logging
 import sys
+from types import SimpleNamespace
 
 # ⚠️ AVANT `import config` : config fige MEMORY_DIR dès l'import, et trois modules
 # le recopient à leur tour. Rediriger après coup laisserait ces copies sur le vrai
@@ -227,3 +228,47 @@ def _pas_de_decouverte_mcp(monkeypatch):
     qui en aurait besoin le repose chez lui, l'autouse passe avant.
     """
     monkeypatch.setattr(config, "MCP_SERVERS", {})
+
+
+class ClientExtractionHorsReseau:
+    """Faux client OpenAI de l'extracteur de faits : une extraction vide, sans réseau.
+
+    Posé pour TOUTE la session par `_extraction_memoire_hors_reseau` ; un test
+    qui veut un autre comportement patche `memory_extractor.OpenAI` chez lui
+    (`@patch`, `monkeypatch`), ce qui passe par-dessus.
+    """
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        reponse = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **_p: reponse))
+
+    def close(self):
+        pass
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _extraction_memoire_hors_reseau():
+    """La suite ne DOIT JAMAIS joindre le vrai `brain` pour extraire des faits.
+
+    Après chaque message WebSocket, l'API lance le thread `mem-extractor`
+    (`api/server.py::_extract_memory_bg`). Tant que l'extracteur visait Ollama
+    — fermé sur cette machine comme en CI — la fuite était un refus de
+    connexion, invisible. Depuis qu'il suit `BACKEND` (2026-09-27), elle devient
+    un VRAI appel au gateway : mesuré dans `journal.db`, 2 appels `brain` par
+    passe de `tests/integration/test_websocket_chat.py`.
+
+    Portée SESSION par PRÉCAUTION, pas par nécessité mesurée : le thread est un
+    démon lancé APRÈS l'envoi de `done`, donc rien ne garantit qu'il démarre
+    avant la fin du test, où un `monkeypatch` de test serait déjà restauré.
+    Cette course n'a PAS été observée : garde en portée test, 0 appel réel sur
+    5 passes de `test_websocket_chat.py` (et 0 sur 8 côté #287). La portée
+    session ferme la fenêtre par construction, pour le même prix.
+    Verrouillé par `tests/test_memory_extractor.py::TestHermeticite`.
+    """
+    from agent import memory_extractor
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(memory_extractor, "OpenAI", ClientExtractionHorsReseau)
+        mp.setattr(memory_extractor, "_client_partage", None)
+        yield

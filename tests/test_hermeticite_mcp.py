@@ -46,7 +46,17 @@ def test_le_garde_tient_quand_l_environnement_declare_des_serveurs():
     """
     racine = Path(__file__).resolve().parent.parent
     noeud = f"{Path(__file__).resolve().relative_to(racine)}::test_aucun_serveur_mcp_pendant_un_test"
-    env = {**os.environ, "KLODY_MCP_SERVERS": json.dumps(_SERVEURS_DECLARES), _SONDE: "1"}
+    # Le sous-pytest doit démarrer comme une session NEUVE, pas hériter de l'état
+    # de celle-ci — même filtre que test_hermeticite_etat_persistant.py. Vu le
+    # 2026-09-27, CI de main rouge : le `KLODY_DATA_DIR` hérité est le dossier
+    # jetable posé par la fixture du test courant ; `tests/garde_etat.py` le lit à
+    # l'import comme un VRAI dossier de développeur, `rediriger()` sort tôt sur le
+    # `_KLODY_TESTS_DATA_DIR` hérité, et conftest refuse de démarrer.
+    env = {
+        k: v for k, v in os.environ.items()
+        if k not in ("KLODY_DATA_DIR", "SEMANTIC_MEMORY_DB", "_KLODY_TESTS_DATA_DIR")
+    }
+    env |= {"KLODY_MCP_SERVERS": json.dumps(_SERVEURS_DECLARES), _SONDE: "1"}
     r = subprocess.run(
         [sys.executable, "-m", "pytest", noeud, "-q", "-p", "no:cacheprovider"],
         cwd=racine, env=env, capture_output=True, text=True, timeout=120,

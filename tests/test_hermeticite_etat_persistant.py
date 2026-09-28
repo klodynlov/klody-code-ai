@@ -99,6 +99,56 @@ def test_chaque_test_a_son_propre_dossier():
     assert os.environ["KLODY_DATA_DIR"] == str(config.MEMORY_DIR)
 
 
+# --- les sous-processus de la suite -------------------------------------------
+
+
+def _vrais_dossiers_d_un_processus(env: dict[str, str]) -> list[Path]:
+    """`garde_etat.VRAIS_DOSSIERS` tel que le calcule un processus NEUF sous `env`
+    — la liste est figée à l'import, seul un interpréteur frais la recalcule."""
+    script = "from tests import garde_etat\nfor p in garde_etat.VRAIS_DOSSIERS: print(p)"
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=60, check=True,
+    )
+    return [Path(ligne) for ligne in proc.stdout.splitlines()]
+
+
+def test_un_fils_de_la_suite_ne_protege_pas_son_dossier_jetable():
+    """Vécu le 2026-09-27 : le pytest fils de `test_hermeticite_mcp.py` héritait du
+    `KLODY_DATA_DIR` posé par la fixture, le lisait comme « surcharge du
+    développeur », le protégeait — et son conftest refusait de démarrer."""
+    fils = _vrais_dossiers_d_un_processus(dict(os.environ))
+
+    assert config.MEMORY_DIR.absolute() not in fils
+    # …sans rien lâcher de ce que la suite protège : c'est la moitié qui compte.
+    assert (Path.home() / ".klody" / "data").absolute() in fils
+    assert set(garde_etat.VRAIS_DOSSIERS) <= set(fils)
+
+
+def test_un_fils_herite_de_la_surcharge_du_developpeur(tmp_path):
+    """La surcharge réelle a été capturée par l'ancêtre : le fils la reçoit par
+    l'héritage, pas par `KLODY_DATA_DIR`, qui ne désigne plus qu'un jetable."""
+    reel = tmp_path / "second-profil"
+    jetable = tmp_path / "jetable"
+    env = {**os.environ, "_KLODY_TESTS_VRAIS_DOSSIERS": str(reel),
+           "KLODY_DATA_DIR": str(jetable)}
+
+    fils = _vrais_dossiers_d_un_processus(env)
+
+    assert reel.absolute() in fils
+    assert jetable.absolute() not in fils
+
+
+def test_hors_de_la_suite_la_surcharge_est_protegee(tmp_path):
+    """Processus racine (aucun ancêtre de la suite) : `KLODY_DATA_DIR` EST la
+    surcharge du développeur, donc une donnée réelle."""
+    surcharge = tmp_path / "second-profil"
+    env = {k: v for k, v in os.environ.items() if k != "_KLODY_TESTS_VRAIS_DOSSIERS"}
+    env["KLODY_DATA_DIR"] = str(surcharge)
+
+    assert surcharge.absolute() in _vrais_dossiers_d_un_processus(env)
+
+
 # --- le garde refuse ET consigne ----------------------------------------------
 
 

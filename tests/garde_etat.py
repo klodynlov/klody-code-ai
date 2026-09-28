@@ -55,12 +55,24 @@ from pathlib import Path
 # rien dans le processus ne sait où vit le vrai dossier. On protège le défaut
 # ET une éventuelle surcharge du développeur (second profil) : les deux sont
 # des données réelles.
+#
+# Un pytest FILS de la suite (`tests/test_hermeticite_mcp.py` en lance un) hérite
+# de l'environnement du test qui l'a lancé, donc d'un `KLODY_DATA_DIR` posé par la
+# redirection ou par la fixture `_etat_persistant_isole` — un dossier JETABLE. Le
+# lire comme « surcharge du développeur » le protégeait, et le conftest du fils
+# refusait alors de démarrer sur son propre dossier de test : vécu le 2026-09-27,
+# `main` rouge dès la fusion de #285 (fils pytest) sur #279 (ce garde), chacun
+# vert seul. Le parent transmet donc SA liste (`_ENV_HERITAGE`) : un descendant
+# protège ce que l'ancêtre protégeait, plus son propre défaut (un fils lancé sous
+# un autre `HOME` a un autre « vrai » dossier), et ne lit plus `KLODY_DATA_DIR`.
+_ENV_HERITAGE = "_KLODY_TESTS_VRAIS_DOSSIERS"
 _DEFAUT = Path.home() / ".klody" / "data"
-_SURCHARGE = os.environ.get("KLODY_DATA_DIR")
+_HERITAGE = os.environ.get(_ENV_HERITAGE)
+_SURCHARGE = None if _HERITAGE is not None else os.environ.get("KLODY_DATA_DIR")
 VRAIS_DOSSIERS: tuple[Path, ...] = tuple(
     dict.fromkeys(
         Path(p).expanduser().absolute()
-        for p in (_DEFAUT, _SURCHARGE)
+        for p in (_DEFAUT, _SURCHARGE, *(_HERITAGE or "").split(os.pathsep))
         if p
     )
 )
@@ -88,6 +100,8 @@ def rediriger() -> Path:
 
     Idempotent : un second appel garde le premier dossier.
     """
+    # Avant tout retour : les sous-processus lancés par les tests en héritent.
+    os.environ[_ENV_HERITAGE] = os.pathsep.join(str(p) for p in VRAIS_DOSSIERS)
     deja = os.environ.get("_KLODY_TESTS_DATA_DIR")
     if deja:
         return Path(deja)
