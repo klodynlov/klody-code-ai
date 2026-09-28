@@ -27,7 +27,7 @@ from pathlib import Path
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 
-# Chute de taux de succès tolérée avant de casser le build (9 points).
+# Chute de taux de succès tolérée avant de casser le build (7,5 points).
 #
 # ⚠️ Ce seuil est un POURCENTAGE : sa sensibilité en nombre de tâches dépend de
 # la taille de la baseline, ce qu'aucune lecture de la constante ne laisse voir.
@@ -35,10 +35,11 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # seuil PASSE. Première perte qui fait rougir, MESURÉE en appelant `compare()`
 # (cf. tests/test_gate_sensibilite.py, qui verrouille exactement ce tableau) :
 #
-#   seuil   baseline 20/20   baseline 29/30   baseline 30/30
-#   0.06         2                3                2
-#   0.09         2                4                3
-#   0.10         3                5                4
+#   seuil   baseline 20/20   29/30   30/30   34/35   35/35
+#   0.06         2             3       2       4       3
+#   0.075        2             4       3       4       3
+#   0.09         2             4       3       5       4
+#   0.10         3             5       4       5       4
 #
 # ⚠️ **La colonne 29/30 était FAUSSE d'une unité dans ce commentaire**, du
 # 2026-07-30 matin jusqu'à sa vérification le soir. Elle annonçait 2/3/4 là où
@@ -57,12 +58,28 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # qui atteint enfin la cible que 0.09 visait — la sensibilité du gate historique
 # à 20 tâches sous 0.10.
 #
-# ⚠️ AUCUN seuil en pourcentage ne donne la même sensibilité absolue à deux
-# tailles de baseline : il faudrait ≥ 0.10 pour 20 tâches et < 0.10 pour 30.
-# C'est structurel, un seuil relatif ne conserve pas un compte absolu. On
-# optimise donc pour la taille RÉELLE de la baseline (30) ; l'effet de bord est
-# que les intersections plus petites (`--category easy`, 5 tâches) deviennent
-# plus strictes, ce qui est le bon sens de l'erreur.
+# ── Baseline à 35 tâches (palier `real_repo`) — 2026-09-28 : 0.09 → 0.075 ──────
+#
+# Les 5 tâches `real_repo` tournaient chaque nuit sans être jugées (« 5 tâche(s)
+# hors baseline, non jugée(s) »). Les faire entrer dans la baseline SANS toucher
+# au seuil DESSERRAIT la porte : 3 tâches cassées sur 35 = −8,57 %, VERT sous
+# 0.09 — il en fallait 4, contre 3 sur 30. Exactement le piège annoncé par le
+# corollaire ci-dessous.
+#
+# 0.075 rend 3 aux deux tailles : il faut ≥ 2/30 (0.0667, deux pertes sur 30
+# restent vertes) et < 3/35 (0.0857, trois pertes sur 35 rougissent). 0.08 le
+# faisait aussi, mais tombe PILE sur des écarts exacts (2/25 à une passe, 14/175
+# et 12/150 à cinq) : le verdict n'y tiendrait qu'au `<` strict. 0.075 n'a aucune
+# égalité exacte à une passe sous 40 tâches, ni à N = 3 ou 5 aux tailles du
+# tableau. Mesuré par `tests/test_gate_sensibilite.py` avant d'être écrit ici.
+#
+# ⚠️ AUCUN seuil en pourcentage ne donne la même sensibilité absolue à toutes
+# les tailles de baseline : 3 à 20 tâches exigerait ≥ 0.10, incompatible avec 3
+# à 30. C'est structurel, un seuil relatif ne conserve pas un compte absolu. On
+# optimise donc pour la taille RÉELLE de la baseline (35, et 30 qui l'a
+# précédée) ; l'effet de bord est que les intersections plus petites
+# (`--category easy`, 5 tâches) deviennent plus strictes, ce qui est le bon sens
+# de l'erreur.
 #
 # ⚠️ Corollaire : tout nouveau palier de tâches oblige à RECALCULER ce seuil.
 # Un banc qui grandit sans ça devient de plus en plus permissif et rien ne le
@@ -75,27 +92,29 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # Le tableau ci-dessus suppose UNE passe. Depuis que `compare()` juge toutes les
 # passes (moyenne des taux par tâche, cf. son docstring), une passe en échec vaut
 # 1/N de tâche cassée. Première rouge, comptée en PASSES en échec, pour un run
-# courant à N passes face à une baseline à une passe — MESURÉE, et identique
-# quelle que soit la place des échecs (tests/test_gate_sensibilite.py,
+# courant à N passes face à une baseline parfaite ou presque — MESURÉE, et
+# identique quelle que soit la place des échecs (tests/test_gate_sensibilite.py,
 # `TABLEAU_PASSES`) :
 #
-#   seuil 0.09         N=1   N=3   N=5
-#   baseline 30/30      3     9    14
-#   baseline 29/30      4    12    19
-#   baseline 20/20      2     6    10
-#   intersection 5/5    1     2     3      (`--category discovery`, par ex.)
+#   seuil 0.075        N=1   N=3   N=5
+#   baseline 35/35      3     8    14
+#   baseline 34/35      4    11    19
+#   baseline 30/30      3     7    12
+#   baseline 29/30      4    10    17
+#   baseline 20/20      2     5     8
+#   intersection 5/5    1     2     2      (`--category discovery`, par ex.)
 #
-# Lecture : en tâches ENTIÈREMENT cassées, rien ne change — 3 sur 30 à N=1
-# comme à N=3 (9 passes), c'est un seuil sur un taux. Ce qui change, c'est qu'un
-# échec ÉPARS pèse sa fraction : une passe ratée sur 3 = un tiers de tâche. Le
-# cas vécu (discovery × 3, une passe ratée sur 15) rend Δ −6,7 % : VERT sous
-# 0.09, et c'est voulu — un échec sur trois passes n'est pas une tâche cassée.
-# Mais il n'est plus invisible : `compare()` nomme en `::notice::` toute tâche
-# en baisse sous le seuil. Il en faut 2 pour rougir.
+# Lecture : c'est un seuil sur un TAUX, la répétition ne l'achète donc jamais —
+# à 35 tâches, 8 passes sur 105 (2⅔ tâches) rougissent déjà, là où il faut 3
+# tâches entières à une passe. Un échec ÉPARS pèse sa fraction : une passe ratée
+# sur 3 = un tiers de tâche. Le cas vécu (discovery × 3, une passe ratée sur 15)
+# rend Δ −6,7 % : VERT sous 0.075, et c'est voulu — un échec sur trois passes
+# n'est pas une tâche cassée. Mais il n'est plus invisible : `compare()` nomme en
+# `::notice::` toute tâche en baisse sous le seuil. Il en faut 2 pour rougir.
 #
-# ⚠️ À N=5 et 30 tâches, 14 passes = 2,8 tâches : la granularité devient plus
+# ⚠️ À N=5 et 35 tâches, 14 passes = 2,8 tâches : la granularité devient plus
 # fine que la tâche, la porte n'est donc PAS desserrée par la répétition.
-DEFAULT_MAX_DROP = 0.09
+DEFAULT_MAX_DROP = 0.075
 
 
 def load_run(path: Path) -> tuple[dict, list[dict]]:
@@ -224,8 +243,9 @@ def compare(
     # tombe alors sur le même flottant que `max_drop` et PASSE, comme documenté.
     # L'ancien `succès/n − succès/n` en flottants rougissait sur 853 égalités
     # exactes (n ≤ 100, dix seuils de 0.05 à 0.25) — 20/20 → 19/20 sous
-    # `--max-drop 0.05`, par exemple. Aucune à 0.09 sous 100 tâches : le nightly
-    # (30 tâches) ne voit pas la différence.
+    # `--max-drop 0.05`, par exemple. Sous le seuil par défaut (0.075), une passe
+    # ne tombe sur une égalité exacte qu'à 40 et 80 tâches : le nightly (35) ne
+    # voit pas la différence.
     delta = float(new_exact - base_exact)
     base_rate, new_rate = float(base_exact), float(new_exact)
 

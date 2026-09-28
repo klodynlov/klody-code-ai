@@ -16,6 +16,7 @@ Un commentaire qui chiffre une sensibilité EST un réglage. Ces tests le traite
 comme tel.
 """
 import copy
+from fractions import Fraction
 
 import pytest
 from bench.gate import DEFAULT_MAX_DROP, compare
@@ -45,12 +46,23 @@ TABLEAU = [
     (0.06, (20, 20), 2),
     (0.06, (30, 29), 3),
     (0.06, (30, 30), 2),
+    (0.06, (35, 34), 4),
+    (0.06, (35, 35), 3),
+    (0.075, (20, 20), 2),
+    (0.075, (30, 29), 4),
+    (0.075, (30, 30), 3),
+    (0.075, (35, 34), 4),
+    (0.075, (35, 35), 3),
     (0.09, (20, 20), 2),
     (0.09, (30, 29), 4),
     (0.09, (30, 30), 3),
+    (0.09, (35, 34), 5),
+    (0.09, (35, 35), 4),
     (0.10, (20, 20), 3),
     (0.10, (30, 29), 5),
     (0.10, (30, 30), 4),
+    (0.10, (35, 34), 5),
+    (0.10, (35, 35), 4),
 ]
 
 
@@ -61,21 +73,29 @@ def test_tableau_de_sensibilite(seuil, baseline, attendu):
 
 
 class TestSeuilCourant:
-    def test_le_defaut_vaut_toujours_0_09(self):
+    def test_le_defaut_vaut_toujours_0_075(self):
         # Changer le seuil sans toucher au tableau ci-dessus rendrait le
         # commentaire faux une seconde fois. Ce test force à faire les deux.
-        assert DEFAULT_MAX_DROP == 0.09
+        assert DEFAULT_MAX_DROP == 0.075
 
     def test_baseline_a_100_pourcent_rougit_a_trois(self):
-        # La ligne réellement en vigueur depuis la promotion du 2026-07-30 soir.
+        # La ligne en vigueur depuis la promotion à 35 tâches (2026-09-28) — et
+        # celle qu'elle a remplacée à 30, qui doit le rester.
+        assert _premiere_rouge(35, 35, DEFAULT_MAX_DROP) == 3
         assert _premiere_rouge(30, 30, DEFAULT_MAX_DROP) == 3
+
+    def test_agrandir_la_baseline_sans_recalculer_le_seuil_desserrait_la_porte(self):
+        # Le piège que la promotion à 35 tâches aurait refait en silence : sous
+        # l'ancien 0.09, trois tâches cassées sur 35 (−8,57 %) passaient.
+        assert _premiere_rouge(35, 35, 0.09) == 4
+        assert _premiere_rouge(35, 35, DEFAULT_MAX_DROP) == 3
 
     def test_une_baseline_non_parfaite_est_plus_LACHE(self):
         # Le piège qui a coûté la journée : figer un échec attendu dans la
         # baseline ne rend pas le gate neutre, il le DESSERRE — l'arithmétique en
         # pourcentage donne du mou dès que la référence n'est plus à 100 %.
-        assert _premiere_rouge(30, 29, DEFAULT_MAX_DROP) > _premiere_rouge(
-            30, 30, DEFAULT_MAX_DROP
+        assert _premiere_rouge(35, 34, DEFAULT_MAX_DROP) > _premiere_rouge(
+            35, 35, DEFAULT_MAX_DROP
         )
 
     def test_un_ecart_egal_au_seuil_passe(self):
@@ -132,10 +152,12 @@ def _premiere_rouge_en_passes(
 # Le tableau « Avec N passes » de `bench/gate.py`, à l'unité près.
 TABLEAU_PASSES = [
     #  (n, succès baseline),  {N passes: 1re rouge en passes en échec}
-    ((30, 30), {1: 3, 3: 9, 5: 14}),
-    ((30, 29), {1: 4, 3: 12, 5: 19}),
-    ((20, 20), {1: 2, 3: 6, 5: 10}),
-    ((5, 5), {1: 1, 3: 2, 5: 3}),
+    ((35, 35), {1: 3, 3: 8, 5: 14}),
+    ((35, 34), {1: 4, 3: 11, 5: 19}),
+    ((30, 30), {1: 3, 3: 7, 5: 12}),
+    ((30, 29), {1: 4, 3: 10, 5: 17}),
+    ((20, 20), {1: 2, 3: 5, 5: 8}),
+    ((5, 5), {1: 1, 3: 2, 5: 2}),
 ]
 
 
@@ -160,13 +182,17 @@ def test_a_une_passe_le_tableau_historique_est_intact():
 
 
 def test_en_taches_entieres_la_repetition_ne_desserre_pas():
-    # 3 tâches cassées sur 30 rougissent à 1 passe comme à 3 : c'est un seuil
-    # sur un taux, la répétition ne l'achète pas.
-    assert _premiere_rouge_en_passes(30, 30, DEFAULT_MAX_DROP, 3, eparses=False) == 3 * 3
+    # C'est un seuil sur un taux, la répétition ne l'achète pas : à 3 passes,
+    # des tâches cassées en entier rougissent au plus tard à la même perte qu'à
+    # une passe (3 × 3 passes) — sous 0.075, dès 8 passes, soit 2⅔ tâches.
+    for n in (30, 35):
+        une_passe = _premiere_rouge(n, n, DEFAULT_MAX_DROP)
+        trois = _premiere_rouge_en_passes(n, n, DEFAULT_MAX_DROP, 3, eparses=False)
+        assert trois <= 3 * une_passe
 
 
-@pytest.mark.parametrize("seuil", [0.06, 0.09, 0.10])
-@pytest.mark.parametrize("baseline", [(30, 30), (30, 29), (20, 20)])
+@pytest.mark.parametrize("seuil", [0.06, 0.075, 0.09, 0.10])
+@pytest.mark.parametrize("baseline", [(35, 35), (35, 34), (30, 30), (30, 29), (20, 20)])
 def test_le_verdict_ne_depend_pas_de_la_place_des_echecs(seuil, baseline):
     """Mesuré le 2026-09-27 avec des taux en FLOTTANTS : baseline 29/30, seuil
     0.06, 5 passes ⇒ rouge à 14 ou à 15 passes en échec selon leur place, à taux
@@ -176,3 +202,20 @@ def test_le_verdict_ne_depend_pas_de_la_place_des_echecs(seuil, baseline):
     assert _premiere_rouge_en_passes(
         n, succes, seuil, 5, eparses=True
     ) == _premiere_rouge_en_passes(n, succes, seuil, 5, eparses=False)
+
+
+def test_le_seuil_courant_ne_tombe_sur_aucune_egalite_exacte():
+    """0.075 plutôt que 0.08 (2026-09-28), qui rendait aussi 3 tâches à 30 et 35 :
+    0.08 tombe PILE sur des écarts atteignables — 2/25 à une passe, 14/175 et
+    12/150 à cinq —, où le verdict ne tient plus qu'au `<` strict. `bench/gate.py`
+    affirme que 0.075 n'en a aucune aux tailles du tableau : vérifié ici, en
+    arithmétique exacte (`Fraction(str(...))` : la valeur décimale ÉCRITE)."""
+    seuil = Fraction(str(DEFAULT_MAX_DROP))
+    tailles = {n for (n, _succes), _par_n in TABLEAU_PASSES}
+    for n in tailles:
+        for passes in (1, 3, 5):
+            assert (seuil * n * passes).denominator != 1, (n, passes)
+    # À une passe, aucune sous 40 tâches (40 × 0.075 = 3).
+    assert all((seuil * n).denominator != 1 for n in range(1, 40))
+    # …et 0.08 en avait bien, sinon ce test ne protégerait rien.
+    assert (Fraction("0.08") * 25).denominator == 1
