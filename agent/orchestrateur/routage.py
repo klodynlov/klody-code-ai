@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = [
     "_CODE_TASK_TYPES",
     "_INTERACTIVE_SKILL_MARKERS",
+    "_TYPES_ACTIONNABLES",
     "_skill_is_interactive",
 ]
 
@@ -21,6 +22,17 @@ _CODE_TASK_TYPES = frozenset({
     "edit", "refactor", "bug_fix", "feature", "self_dev",
     "test_gen", "perf", "migrate",
 })
+
+# Types sur lesquels tournent l'auto-continue, l'anti-stall « plan annoncé /
+# réponse vide » et le text-to-action. Recopiée À LA MAIN en trois endroits de
+# l'orchestrateur jusqu'au 2026-09-28 — d'où l'oubli des types de #96, aucune
+# copie n'ayant été mise à jour. Délibérément PLUS ÉTROITE que
+# `agent.router.TYPES_QUI_ECRIVENT` : `edit` n'est pas prolongé (une boucle de
+# lecture sans fin y est un stall), et le text-to-action écrit tout bloc Python
+# dans `script.py` — l'étendre à `test_gen` y aurait écrit le test au mauvais
+# endroit. Le garde « code affiché sans écriture » couvre le RESTE de
+# TYPES_QUI_ECRIVENT (cf. tests/test_types_qui_ecrivent.py).
+_TYPES_ACTIONNABLES = frozenset({"feature", "refactor", "self_dev", "bug_fix"})
 
 _INTERACTIVE_SKILL_MARKERS = (
     "qcm", "à choix multiple", "choix multiple", "fiche de besoin", "questionnaire",

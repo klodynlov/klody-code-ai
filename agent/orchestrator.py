@@ -144,6 +144,7 @@ from agent.orchestrateur.gardes import (
     _SCAN_REPEAT_BREAK,
     _SCAN_REPEAT_WARN,
     GardesMixin,
+    _affiche_du_code,
     _budget_pour_relance,
     _claims_no_library_source,  # noqa: F401 — ré-export pour tests
     _cmd_result_failed,
@@ -176,10 +177,12 @@ from agent.orchestrateur.prompt import (
 )
 from agent.orchestrateur.routage import (
     _CODE_TASK_TYPES,
+    _TYPES_ACTIONNABLES,
     _skill_is_interactive,
 )
 from agent.profiler import get_profiler
 from agent.prompts import compose_system_prompt
+from agent.router import TYPES_QUI_ECRIVENT
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +199,9 @@ class Orchestrator(GardesMixin):
     _doc_guard_fired: bool
     _doc_inventaire: list[str] | None
     _doc_ecrits: set[str]
+    # Garde « code affiché sans écriture » : un outil qui écrit (ou une commande
+    # shell, qui PEUT écrire) a-t-il été appelé pendant ce run ?
+    _outil_producteur_appele: bool
 
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
@@ -1873,6 +1879,7 @@ class Orchestrator(GardesMixin):
         self._doc_guard_fired = False
         self._doc_inventaire = None
         self._doc_ecrits = set()
+        self._outil_producteur_appele = False
 
     def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
@@ -1921,6 +1928,8 @@ class Orchestrator(GardesMixin):
         self._doc_guard_fired = False      # 1 relance max par run()
         self._doc_inventaire = None        # balayage paresseux, au plus 1 par run()
         self._doc_ecrits = set()           # documents écrits par l'agent ce run
+        # Garde « code affiché sans écriture » (cf. _affiche_du_code).
+        self._outil_producteur_appele = False
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2008,7 +2017,7 @@ class Orchestrator(GardesMixin):
                 is_actionable = (
                     self.last_routing is not None
                     and self.last_routing.task_type
-                    in ("feature", "refactor", "self_dev", "bug_fix")
+                    in _TYPES_ACTIONNABLES
                 )
                 if (is_actionable or produced_in_pass) and tools_called_in_pass and extensions < _MAX_AUTO_EXTENSIONS:
                     extensions += 1
@@ -2249,6 +2258,11 @@ class Orchestrator(GardesMixin):
                 tools_called_in_pass = True
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
+                    self._outil_producteur_appele = True
+                elif any(tc["function"]["name"] in _CMD_EXEC_TOOLS for tc in tool_calls):
+                    # Une commande shell peut écrire (`cat > f`, un générateur) : on
+                    # la compte, pour que le garde ne relance pas un travail fait.
+                    self._outil_producteur_appele = True
                 # Boucle de feedback : si la preview plante au runtime, on relance
                 # une passe de correction (no-op si pas de preview ou timeout désactivé).
                 self._check_preview_feedback(_preview_url, _preview_since)
@@ -2446,28 +2460,60 @@ class Orchestrator(GardesMixin):
                 is_empty_response = not content_stripped
                 actionable_mode = (
                     self.last_routing is not None
-                    and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
+                    and self.last_routing.task_type in _TYPES_ACTIONNABLES
                 )
                 # Un skill interactif (QCM) répond LÉGITIMEMENT en texte (il pose
                 # ses questions et attend) : ne pas confondre avec un plan annoncé
                 # sans action. On garde toutefois le filet « réponse vide », qui
                 # reste un vrai stall même en mode interactif.
                 interactive = getattr(self, "_interactive_skill_active", False)
+                plan_ou_vide = actionable_mode and (
+                    (_looks_like_unfinished_plan(content) and not interactive)
+                    or is_empty_response
+                )
+                # C. Code AFFICHÉ au lieu d'être écrit : la tâche doit produire une
+                # écriture, rien n'a été écrit ce run, et la réponse montre du code.
+                # C'est le trou où tombait `test_gen` (vécu le 2026-09-28,
+                # `add_simple_test` affiche son test et s'arrête — 1 itération, 0 appel
+                # d'outil). Réservé aux types que RIEN d'autre ne couvre : sur
+                # _TYPES_ACTIONNABLES, le text-to-action plus bas rattrape déjà un bloc
+                # de code, et mieux qu'une relance pour une démo HTML (preview
+                # directe, scénario de rejeu 06).
+                code_affiche = (
+                    self.last_routing is not None
+                    and self.last_routing.task_type in TYPES_QUI_ECRIVENT
+                    and self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                    and not interactive
+                    and not getattr(self, "_outil_producteur_appele", False)
+                    and _affiche_du_code(content)
+                )
                 stalled = (
-                    actionable_mode
-                    and not getattr(self, "_anti_stall_fired", False)
+                    not getattr(self, "_anti_stall_fired", False)
                     and iteration < max_iter - 1
-                    and (
-                        (_looks_like_unfinished_plan(content) and not interactive)
-                        or is_empty_response
-                    )
+                    and (plan_ou_vide or code_affiche)
                 )
                 if stalled:
                     self._anti_stall_fired = True
                     self._anti_stall_iter = iteration
-                    cause = "réponse vide" if is_empty_response else "plan annoncé sans action"
-                    logger.info("[anti-stall] %s → nudge injecté (iter=%d)", cause, iteration)
+                    # Priorité aux causes historiques : leur nudge est inchangé.
                     if is_empty_response:
+                        cause = "réponse vide"
+                    elif plan_ou_vide:
+                        cause = "plan annoncé sans action"
+                    else:
+                        cause = "code affiché sans écriture"
+                    logger.info("[anti-stall] %s → nudge injecté (iter=%d)", cause, iteration)
+                    if cause == "code affiché sans écriture":
+                        nudge = (
+                            "Tu as affiché du code dans ta réponse, mais rien n'a été "
+                            "écrit dans le projet — or cette tâche demande de créer ou "
+                            "de modifier un fichier. Appelle MAINTENANT "
+                            "`write_file(path, content)` avec le chemin demandé par "
+                            "l'utilisateur et ce code (lis d'abord le fichier avec "
+                            "`read_file` s'il existe et que tu dois le modifier). "
+                            "Réponds par un appel d'outil."
+                        )
+                    elif is_empty_response:
                         nudge = (
                             "Ta dernière réponse était vide. Pour cette tâche, lance "
                             "directement un tool concret — par exemple :\n"
@@ -2568,7 +2614,7 @@ class Orchestrator(GardesMixin):
                 if (
                     content
                     and self.last_routing is not None
-                    and self.last_routing.task_type in ("feature", "refactor", "self_dev", "bug_fix")
+                    and self.last_routing.task_type in _TYPES_ACTIONNABLES
                     and not getattr(self, "_t2a_fired", False)
                     # Skill interactif : sa réponse texte EST le livrable (questions
                     # du QCM) — ne pas la détourner en exécution de code.

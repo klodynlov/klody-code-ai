@@ -46,6 +46,25 @@ TaskType = Literal[
     "music",
 ]
 
+# Types dont le livrable est une ÉCRITURE dans le projet : y montrer du code sans
+# l'avoir écrit est un échec, pas une réponse. L'orchestrateur le rattrape par le
+# text-to-action sur `_TYPES_ACTIONNABLES`, par le garde « code affiché sans
+# écriture » sur le reste. Tout TaskType figure dans EXACTEMENT un des deux ensembles —
+# verrouillé par tests/test_types_qui_ecrivent.py. Vécu le 2026-09-28 : les types
+# ajoutés par #96 (2026-07-05) n'avaient été reportés dans AUCUNE liste de gardes
+# de l'orchestrateur ; `easy/add_simple_test`, routée `test_gen`, affichait le test
+# au lieu de l'écrire et rien ne la relançait (2 exécutions de banc sur 36).
+TYPES_QUI_ECRIVENT: frozenset[str] = frozenset({
+    "edit", "refactor", "bug_fix", "feature", "self_dev",
+    "test_gen", "docs", "migrate",
+})
+# Types où une réponse TEXTE peut être le livrable : explication, revue, audit,
+# diagnostic de performance (« pourquoi c'est lent ? »), paroles, morceau produit
+# par ses propres outils. Un extrait de code y est légitime.
+TYPES_REPONSE_TEXTE: frozenset[str] = frozenset({
+    "explain", "review", "security", "perf", "creative", "music",
+})
+
 # Nb d'essais LLM supplémentaires après l'appel initial sur échec de validation.
 # 1 appel initial + _ROUTER_MAX_RETRIES retries = (_ROUTER_MAX_RETRIES + 1) appels max.
 _ROUTER_MAX_RETRIES = 2

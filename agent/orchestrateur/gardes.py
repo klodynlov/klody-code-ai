@@ -32,6 +32,7 @@ __all__ = [
     "_SCAN_REPEAT_BREAK",
     "_SCAN_REPEAT_WARN",
     "GardesMixin",
+    "_affiche_du_code",
     "_budget_pour_relance",
     "_claims_no_library_source",
     "_cmd_result_failed",
@@ -124,6 +125,31 @@ def _looks_like_unfinished_plan(content: str | None) -> bool:
     if intent_count >= 2:
         return True
     return bool(has_enumeration and intent_count >= 1)
+
+
+# ── Anti-stall : code affiché au lieu d'être écrit ─────────────────────────────
+
+# Bloc délimité par ``` — avec ou sans langage — au contenu non vide.
+_BLOC_DE_CODE_RE = re.compile(r"```[^\n`]*\n(.*?)```", re.DOTALL)
+
+
+def _affiche_du_code(content: str | None) -> bool:
+    """Vrai si la réponse MONTRE du code (bloc ``` non vide) sans poser de question.
+
+    Vécu le 2026-09-28 (`easy/add_simple_test`, passe 2 du run de promotion) :
+    le test demandé sort dans un bloc ```python, aucun `write_file`, et le tour
+    s'arrête là — 1 itération, 0 appel d'outil. Ni « plan annoncé » ni « réponse
+    vide » : l'anti-stall historique ne pouvait pas le voir.
+
+    Une réponse qui se termine par une question (« je remplace par ceci ? ») est
+    une demande de confirmation, pas un stall — même règle que
+    `_looks_like_unfinished_plan`. Un `code` en ligne ne compte pas.
+    """
+    if not content:
+        return False
+    if content.rstrip().endswith("?"):
+        return False
+    return any(bloc.strip() for bloc in _BLOC_DE_CODE_RE.findall(content))
 
 
 def _is_empty_after_reasoning(

@@ -1,0 +1,25 @@
+{
+  "name": "code_affiche_review_sans_relance",
+  "description": "Une REVUE montre légitimement du code dans sa réponse : `review` est dans TYPES_REPONSE_TEXTE, le garde « code affiché » ne doit pas relancer.",
+  "user_prompt": "Relis math_utils.py et dis-moi ce qui cloche.",
+  "seed_files": {
+    "math_utils.py": "def add(a, b):\n    return a + b\n"
+  },
+  "router_decision": {
+    "difficulty": "medium",
+    "task_type": "review",
+    "reasoning": "revue"
+  },
+  "llm_responses": [
+    {
+      "content": "Rien d'alarmant. La fonction est correcte :\n\n```python\ndef add(a, b):\n    return a + b\n```\n\nTu pourrais ajouter des annotations de type.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 1,
+    "max_llm_calls": 1,
+    "no_tool_calls": true,
+    "code_affiche_absent": true
+  }
+}

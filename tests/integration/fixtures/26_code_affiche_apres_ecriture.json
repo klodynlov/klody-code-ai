@@ -1,0 +1,44 @@
+{
+  "name": "code_affiche_apres_ecriture",
+  "description": "Le récapitulatif FINAL d'une tâche test_gen montre le code qu'il vient d'écrire : le travail est fait (write_file appelé ce run), le garde ne doit pas relancer.",
+  "user_prompt": "Dans le fichier test_math.py (à créer), écris un test pytest qui vérifie que la fonction `add(a, b)` du module math_utils.py renvoie bien la somme. Couvre au moins 2 cas : entiers positifs et un cas avec zéro.",
+  "seed_files": {
+    "math_utils.py": "def add(a, b):\n    return a + b\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "test_gen",
+    "reasoning": "test simple"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_ca_002",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"test_math.py\", \"content\": \"import pytest\\n\\n\\ndef test_add_integers():\\n    from math_utils import add\\n    assert add(2, 3) == 5\\n\\n\\ndef test_add_zero():\\n    from math_utils import add\\n    assert add(0, 5) == 5\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "C'est fait. Contenu de test_math.py :\n\n```python\nimport pytest\n\n\ndef test_add_integers():\n    from math_utils import add\n    assert add(2, 3) == 5\n\n\ndef test_add_zero():\n    from math_utils import add\n    assert add(0, 5) == 5\n```",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 2,
+    "max_llm_calls": 2,
+    "tool_calls_invoked": [
+      "write_file"
+    ],
+    "code_affiche_absent": true,
+    "file_created": {
+      "path": "test_math.py",
+      "content_contains": "def test_add_integers"
+    }
+  }
+}
