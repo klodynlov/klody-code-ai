@@ -1320,6 +1320,19 @@ seul `easy/add_simple_test` instable (✅ ❌ ✅ — l'agent AFFICHE le code du
 lieu d'appeler `write_file`, puis conclut). Promu tel quel : relancer jusqu'au
 35/35 aurait été choisir la mesure qui arrange.
 
+- **Cause du flake trouvée, et c'était l'orchestrateur** : `test_gen` n'était
+  couvert par AUCUN des trois filets (anti-stall, auto-continue, text-to-action),
+  qui ne tournaient que sur 4 types recopiés à la main en trois endroits — les
+  types de #96 (2026-07-05) n'y avaient jamais été reportés. Sur le banc, 13
+  tâches sur 35 tombaient dans ce trou. Fermé par le garde « code affiché sans
+  écriture » (`test_gen`, `docs`, `migrate`, `edit`) ; tout TaskType doit être
+  classé (`tests/test_types_qui_ecrivent.py`). ⚠️ Étendre le text-to-action
+  n'aurait PAS suffi : il écrit tout bloc Python dans `script.py` — le test serait
+  parti au mauvais endroit, et dans un vrai projet un fichier parasite.
+- ⚠️ **Deux bancs lancés en parallèle (deux sessions) se contaminent** : chacun
+  prend les 503 de l'autre, et les deux runs sont à jeter. `pgrep -fl bench.run`
+  avant de lancer.
+
 - ⚠️ **Promouvoir sans recalculer le seuil DESSERRAIT la porte** : 3 tâches
   cassées sur 35 = −8,57 %, VERT sous 0.09 ; il en fallait 4, contre 3 sur 30.
   Seuil passé à **0.075** (3 aux deux tailles). 0.08 marchait aussi mais tombe

@@ -1,0 +1,49 @@
+{
+  "name": "code_affiche_test_gen",
+  "description": "Vécu le 2026-09-28 (banc, easy/add_simple_test, passe 2) : tâche routée test_gen, le modèle AFFICHE le test dans un bloc ```python au lieu d'appeler write_file, et le tour s'arrêtait là (1 itération, 0 appel d'outil) — test_gen n'était couvert par aucun anti-stall. Le garde « code affiché sans écriture » doit relancer, avec tool_choice=required au tour suivant.",
+  "user_prompt": "Dans le fichier test_math.py (à créer), écris un test pytest qui vérifie que la fonction `add(a, b)` du module math_utils.py renvoie bien la somme. Couvre au moins 2 cas : entiers positifs et un cas avec zéro.",
+  "seed_files": {
+    "math_utils.py": "def add(a, b):\n    return a + b\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "test_gen",
+    "reasoning": "test simple"
+  },
+  "llm_responses": [
+    {
+      "content": "```python\nimport pytest\n\n\ndef test_add_integers():\n    from math_utils import add\n    assert add(2, 3) == 5\n\n\ndef test_add_zero():\n    from math_utils import add\n    assert add(0, 5) == 5\n```",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_ca_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"test_math.py\", \"content\": \"import pytest\\n\\n\\ndef test_add_integers():\\n    from math_utils import add\\n    assert add(2, 3) == 5\\n\\n\\ndef test_add_zero():\\n    from math_utils import add\\n    assert add(0, 5) == 5\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Le test est écrit dans test_math.py (2 cas : entiers positifs et zéro).",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 3,
+    "tool_calls_invoked": [
+      "write_file"
+    ],
+    "code_affiche_fired": true,
+    "tool_choice_required_on_call": 2,
+    "file_created": {
+      "path": "test_math.py",
+      "content_contains": "def test_add_zero"
+    }
+  }
+}

@@ -37,6 +37,9 @@ SCENARIOS = [
     "21_library_guard_forces_content_search",
     "22_doc_guard_derniere_iteration",
     "23_library_guard_derniere_iteration",
+    "24_code_affiche_test_gen",
+    "25_code_affiche_review_sans_relance",
+    "26_code_affiche_apres_ecriture",
 ]
 
 
@@ -348,6 +351,28 @@ def _assert_expectations(
     # Le garde garantit SON budget : s'il s'en remettait à l'auto-continue, le
     # nudge « lis la doc » serait suivi de « … puis conclus dès que c'est fait »,
     # et la relance mourrait sur le cap une fois les extensions épuisées.
+    # Garde « code affiché sans écriture » (fixtures #24-26, vécu le 2026-09-28) :
+    # le nudge est la trace, les drapeaux étant remis à zéro en fin de run.
+    nudge_code = "Tu as affiché du code dans ta réponse"
+    code_nudges = [
+        m for m in orch.memory.messages
+        if m.get("role") == "user"
+        and isinstance(m.get("content"), str)
+        and nudge_code in m["content"]
+    ]
+    if exp.get("code_affiche_fired"):
+        assert len(code_nudges) == 1, (
+            f"Le garde « code affiché » devait relancer UNE fois, observé {len(code_nudges)}."
+        )
+    if exp.get("code_affiche_absent"):
+        assert not code_nudges, "Le garde « code affiché » a relancé à tort."
+    if "tool_choice_required_on_call" in exp:
+        n = exp["tool_choice_required_on_call"]
+        assert fake_llm.call_log[n - 1]["tool_choice"] == "required", (
+            f"Appel LLM n°{n} : tool_choice attendu « required », observé "
+            f"{[c['tool_choice'] for c in fake_llm.call_log]}"
+        )
+
     if exp.get("no_auto_extension"):
         extension = any(
             m.get("role") == "user"
