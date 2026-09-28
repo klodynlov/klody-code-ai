@@ -95,6 +95,7 @@ from tools.project_creator import (
 from tools.registry import ASK_USER_TOOL, get_tools
 from tools.search import Search
 from tools.skills import (
+    _ALWAYS_PREFIXES,
     _matching_terms,
     _skill_is_code_compatible,
     _skill_terms,
@@ -172,6 +173,7 @@ from agent.orchestrateur.outils import (
 )
 from agent.orchestrateur.prompt import (
     _CODER_SLIM_PROMPT,
+    _ENTETE_CONTEXTE_TOUR,
     _has_markdown_safe,
     _shield,
 )
@@ -267,6 +269,9 @@ class Orchestrator(GardesMixin):
         # réellement injectés pour ce message → affichage UI. None en CLI.
         self._on_skills_selected = None
         self._injected_skill_slugs: list[str] = []
+        # Retrieval + skills de la requête courante, ancrés sur son message user
+        # (cf. _inject_system_prompt) — plus jamais dans le prompt système.
+        self._contexte_tour = ""
         # Memory utile (Roadmap v2 #8) — détection conventions projet + erreurs récurrentes.
         self._conventions = None
         self._error_memory = None
@@ -626,7 +631,8 @@ class Orchestrator(GardesMixin):
         return result_box[0] if result_box else ""
 
     def _inject_system_prompt(self, task_type: str | None = None, query: str = "") -> None:
-        """Injecte (ou met à jour) le system prompt en mémoire.
+        """Injecte (ou met à jour) le system prompt en mémoire, et ancre le
+        contexte propre à CETTE requête sur le message utilisateur courant.
 
         Si task_type est fourni, utilise le prompt focalisé correspondant
         (Roadmap v2 #5). Sinon, utilise le fallback `default.md`.
@@ -634,6 +640,13 @@ class Orchestrator(GardesMixin):
         `query` (le prompt utilisateur courant) sert à n'injecter que les skills
         pertinents (cf. select_skills) plutôt que les ~6k tokens de tous les skills,
         ET les fichiers du projet sémantiquement proches (retrieval proactif).
+
+        Ces deux sections-là ne vont PAS dans le système : elles changent à chaque
+        requête, et le cache de préfixe de mlx_lm ne réutilise qu'un préfixe exact
+        — tout octet variable du système refait le prefill des schémas d'outils
+        (383 outils avec les serveurs MCP : 134 s contre 36 s au 1ᵉʳ appel d'un
+        message, mesuré le 2026-09-28). Le système ne garde que ce qui tient une
+        session ; le reste suit le tour (cf. ConversationMemory.ancrer_contexte_tour).
         """
         # Retrieval proactif : pistes de fichiers pertinents pour CE prompt. Injecté
         # dans les DEUX modes — y compris coder-slim, car les tâches de code (donc
@@ -669,7 +682,7 @@ class Orchestrator(GardesMixin):
             skills_section = (
                 format_skills_compact(skills, SKILLS_ON_CODER_MAX_CHARS) if skills else ""
             )
-            content = _CODER_SLIM_PROMPT + retrieval_section + skills_section
+            content = _CODER_SLIM_PROMPT
             self._injected_skill_slugs = [s.get("slug", "") for s in skills]
         else:
             base_prompt = compose_system_prompt(task_type)
@@ -685,7 +698,23 @@ class Orchestrator(GardesMixin):
             else:
                 skills = select_skills(load_skills(), query)
             self._injected_skill_slugs = [s.get("slug", "") for s in skills]
-            skills_section = format_skills_for_prompt(skills) if skills else ""
+            # Les skills PERMANENTS (utilisateur_*/conventions_*, renvoyés en tête
+            # sans test de pertinence) sont du profil : stables sur la session,
+            # ils restent dans le système, donc en cache — ~3,4 k tokens (compte
+            # heuristique, 2026-09-27) qu'il faudrait sinon re-prefiller à chaque
+            # message. Seuls les how-to, choisis par pertinence à la requête,
+            # suivent le tour.
+            permanents: list[dict] = []
+            howto_skills: list[dict] = []
+            for s in skills:
+                permanent = str(s.get("slug", "")).startswith(_ALWAYS_PREFIXES)
+                (permanents if permanent else howto_skills).append(s)
+            permanents_section = (
+                format_skills_for_prompt(permanents) if permanents else ""
+            )
+            skills_section = (
+                format_skills_for_prompt(howto_skills) if howto_skills else ""
+            )
             # Figée pour la session : l'extraction automatique écrit après CHAQUE
             # message, et un octet changé ici refait le prefill des schémas
             # d'outils (cf. section_de_session). Sanitize interne (ASI06).
@@ -710,8 +739,7 @@ class Orchestrator(GardesMixin):
             content = (
                 f"{base_prompt}\n\n"
                 f"Dossier projet actif: {PROJECT_ROOT}"
-                f"{retrieval_section}"
-                f"{skills_section}"
+                f"{permanents_section}"
                 f"{lt_section}"
                 f"{profile_section}"
                 f"{conv_section}"
@@ -726,10 +754,17 @@ class Orchestrator(GardesMixin):
         else:
             self.memory.messages.insert(0, message)
 
+        # Contexte de la requête → tour utilisateur courant, pas le système (le
+        # template Qwen n'accepte un message système qu'en tête). Calculé UNE
+        # fois par run() : identique à chaque itération ReAct du message.
+        sections = retrieval_section + skills_section
+        self._contexte_tour = f"{_ENTETE_CONTEXTE_TOUR}{sections}" if sections else ""
+        self.memory.ancrer_contexte_tour(self._contexte_tour)
+
         # Notifie l'UI des skills « how-to » réellement injectés (hook optionnel).
         if self._on_skills_selected:
             howto = [s.get("name", s.get("slug", "")) for s in skills
-                     if not str(s.get("slug", "")).startswith(("utilisateur_", "conventions_"))]
+                     if not str(s.get("slug", "")).startswith(_ALWAYS_PREFIXES)]
             with contextlib.suppress(Exception):
                 self._on_skills_selected(howto)
 

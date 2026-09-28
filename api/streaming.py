@@ -12,37 +12,12 @@ from collections.abc import Callable
 from typing import Any
 
 import config
+from agent.cache_prefixe import journaliser_cache, tokens_en_cache
 from agent.erreurs_llm import attente_reessai_503, message_reessai_503
 from agent.orchestrator import Orchestrator
 from agent.stream_guard import LoopGuard
 
 logger = logging.getLogger(__name__)
-
-
-def tokens_en_cache(usage: Any) -> int | None:
-    """`usage.prompt_tokens_details.cached_tokens` (rendu par mlx_lm), ou None."""
-    details = getattr(usage, "prompt_tokens_details", None)
-    valeur = getattr(details, "cached_tokens", None)
-    return valeur if isinstance(valeur, int) else None
-
-
-def journaliser_cache(usage: Any, modele: str, duree_s: float) -> None:
-    """Une ligne par appel LLM : prompt, part servie par le cache, durée.
-
-    `grep -F '[cache]' logs/agent.log` donne le taux réel en production — la
-    seule mesure qui dise si un changement du prompt système casse le préfixe.
-    """
-    if usage is None:
-        return
-    prompt = getattr(usage, "prompt_tokens", None)
-    cache = tokens_en_cache(usage)
-    if not isinstance(prompt, int) or prompt <= 0:
-        return
-    part = "?" if cache is None else f"{cache / prompt:.0%}"
-    logger.info(
-        "[cache] %s prompt=%d cached=%s (%s) durée=%.2fs",
-        modele, prompt, "?" if cache is None else cache, part, duree_s,
-    )
 
 
 class StopGeneration(Exception):

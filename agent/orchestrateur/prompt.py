@@ -58,3 +58,19 @@ _CODER_SLIM_PROMPT = (
     "Pour du code non-web : réponds avec le code complet dans un bloc "
     "```<langage>. Le code d'abord, explication minimale."
 )
+
+
+# ------------------------------------------------------------------ #
+# Contexte du tour (retrieval + skills), hors prompt système          #
+# ------------------------------------------------------------------ #
+
+# En-tête du contexte ajouté au message utilisateur courant. Les sections
+# viennent du prompt système, où elles se lisaient comme du contexte de
+# l'agent ; dans le tour user, sans en-tête, le modèle les attribuerait à
+# l'utilisateur. Texte FIXE : il fait partie du préfixe rejoué à chaque
+# itération ReAct du message.
+_ENTETE_CONTEXTE_TOUR = (
+    "\n\n---\n"
+    "_Contexte préparé par Klody pour ce message (pistes de fichiers, "
+    "compétences utiles) :_"
+)
