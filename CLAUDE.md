@@ -124,9 +124,9 @@ est le taux de succès, pas la vitesse.
 
 ## État au 2026-07-30
 
-Couverture **85,1 %** (run CI 33828140106 du 2026-09-04, gate 80), **2904 tests**
-(`pytest tests/ --collect-only`, recompté le 2026-09-04 sur `main` à jour ; 2829 le
-2026-09-03, 2779 le 2026-08-07, 2614 le 2026-08-05, 2313 le 2026-07-30 — personne
+Couverture **85,1 %** (run CI 33828140106 du 2026-09-04, gate 80), **3467 tests**
+(`pytest tests/ --collect-only`, recompté le 2026-09-28 sur `main` à jour, `511cab1` ;
+2904 le 2026-09-04, 2829 le 2026-09-03, 2779 le 2026-08-07, 2614 le 2026-08-05, 2313 le 2026-07-30 — personne
 ne le rejouait alors, exactement le mode de défaillance décrit en bas de ce fichier).
 ⚠️ Le 2026-09-03, la PR #250 (docs publics, CONSULTING/CASE-STUDY) a RECOPIÉ le
 2779 de ce paragraphe alors que `main` en collectait déjà 2829 ; le 2026-09-04
