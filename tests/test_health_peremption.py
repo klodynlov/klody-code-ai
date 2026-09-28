@@ -21,6 +21,8 @@ from api import server
 from api.server import app
 from fastapi.testclient import TestClient
 
+from tests.garde_reseau import HttpxSansReseau
+
 
 @pytest.fixture
 def client(monkeypatch):
@@ -33,6 +35,11 @@ def client(monkeypatch):
         return True
 
     monkeypatch.setattr(server, "_probe_url", _toujours_up)
+    # `/api/status` sonde Ollama (`/api/tags`) avec son PROPRE client, pas par
+    # `_probe_url` : ce chemin-là joignait le vrai :11434 (4 tentatives par
+    # passe, sonde du 2026-09-27), que tests/garde_reseau.py refuse désormais.
+    # Service absent, comme en CI ; ces tests ne lisent que `dependances`.
+    monkeypatch.setattr(server, "httpx", HttpxSansReseau())
     monkeypatch.setattr(config, "BACKEND", "ollama")
     # Liste neuve à chaque test : le drapeau « déjà signalé » est un état de
     # module, et le partager entre tests ferait passer le second pour muet.

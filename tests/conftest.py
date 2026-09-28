@@ -6,10 +6,13 @@ from types import SimpleNamespace
 # ⚠️ AVANT `import config` : config fige MEMORY_DIR dès l'import, et trois modules
 # le recopient à leur tour. Rediriger après coup laisserait ces copies sur le vrai
 # ~/.klody/data. Cf. tests/garde_etat.py.
-from tests import garde_etat
+from tests import garde_etat, garde_reseau
 
 garde_etat.rediriger()
 garde_etat.installer_garde()
+# Posé dès le chargement, avant tout import du projet : un service de la machine
+# est injoignable pendant la collecte comme entre deux tests. Cf. tests/garde_reseau.py.
+garde_reseau.installer_garde()
 
 import config
 import pytest
@@ -110,6 +113,69 @@ def _etat_persistant_isole(monkeypatch, tmp_path_factory):
             + "\n  ".join(fuites),
             pytrace=False,
         )
+
+
+@pytest.fixture(autouse=True)
+def _services_de_la_machine_injoignables():
+    """Un test qui tente de joindre un service de la machine ROUGIT.
+
+    Le hook de `tests/garde_reseau.py` refuse toute connexion loopback sous le
+    premier port éphémère et la consigne ; on relit ici ce qui a été consigné
+    depuis le relevé précédent, entre-deux compris (cf. `a_relire`). Relire est
+    indispensable : les appels fautifs partent de threads démons qui avalent
+    l'erreur (`klody-journal-client`, `mem-extractor`, `lb-init`), le refus
+    seul laissait le test vert.
+    """
+    yield
+    fuites = garde_reseau.a_relire()
+    if fuites:
+        pytest.fail(
+            "connexion à un service RÉEL de la machine, refusée — tentée pendant ce "
+            "test ou juste avant lui (un fil démon du test précédent se reconnaît "
+            "à son nom) :\n  " + "\n  ".join(fuites),
+            pytrace=False,
+        )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Une tentative partie APRÈS le dernier test n'a plus de test à faire rougir :
+    c'est la session qui échoue, pour qu'elle ne passe pas en silence."""
+    fuites = garde_reseau.a_relire()
+    if fuites:
+        print(
+            "\n[tests/garde_reseau.py] connexion à un service RÉEL de la machine après "
+            "le dernier test (refusée) :\n  " + "\n  ".join(fuites),
+            file=sys.stderr,
+        )
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+@pytest.fixture(autouse=True)
+def _journal_d_usage_coupe(monkeypatch):
+    """Aucun événement du journal d'usage ne part vers le VRAI gateway.
+
+    `agent/journal_client.py` pousse chaque appel d'outil et chaque borne de
+    session sur `POST /journal/event` du gateway :8090, depuis le thread démon
+    `klody-journal-client`. Ils arrivent dans `state/journal.db` de klody-core
+    en `app='klody-ai'`, `source='user'` : pour le miner d'habitudes, c'est
+    l'utilisateur. Chaque passe de `tests/integration` y laisse une empreinte,
+    l'appel à l'outil bidon `i_dont_exist` du rejeu 09 : 144 dans le journal
+    depuis le 2026-07-15. Suivi de l'échec de `preview_file`, ce trafic a
+    produit la proposition « Réparer ou contourner preview_file »
+    (`tool:preview_file-flaky`, créée le 2026-09-17, invalidée le 2026-09-22)
+    pour un outil qui n'était pas cassé.
+
+    Coupé d'abord dans `tests/integration` (119 connexions par passe), il
+    fuyait encore de toute la suite : 40 tentatives sous la sonde du
+    2026-09-27, de `test_audio_wiring` (14) à `test_domain_skills_etendus`.
+    D'où la coupure ici, pour tous.
+
+    `KLODY_JOURNAL=0` est l'interrupteur du module, relu à chaque émission.
+    L'émission elle-même est testée dans `tests/test_journal_client.py`, qui
+    retire la variable et bouchonne `urlopen`.
+    """
+    monkeypatch.setenv("KLODY_JOURNAL", "0")
 
 
 @pytest.fixture(autouse=True)
