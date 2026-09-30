@@ -93,18 +93,69 @@ class ConversationMemory:
         self.save()
 
     # ------------------------------------------------------------------ #
+    # Contexte du tour courant (pistes de fichiers, skills)               #
+    # ------------------------------------------------------------------ #
+
+    def ancrer_contexte_tour(self, contexte: str) -> None:
+        """Attache `contexte` au DERNIER message user, et le retire de tous les autres.
+
+        Le contexte propre à une requête (retrieval, skills) vivait dans le prompt
+        système. Or le cache de préfixe de mlx_lm (ArraysCache du MoE, non
+        rognable) ne réutilise qu'un préfixe EXACT, et le template Qwen écrit les
+        schémas d'outils PUIS le système dans le même bloc : un système qui change
+        d'un octet fait recalculer tous les schémas d'outils depuis le token 0 —
+        avec les 383 outils des serveurs MCP, 92 k tokens de prompt, 134 s au
+        lieu de 36 s pour le 1ᵉʳ appel d'un message (2026-09-28,
+        scripts/mesure_cache_deux_messages.py). Les skills variant avec la
+        requête, le système n'était identique que sur 22 % des paires de
+        messages réels consécutifs (95 % après ; scripts/mesure_stabilite_prompt.py).
+
+        Le contexte est donc porté par le tour utilisateur COURANT, dans une clé
+        privée `_contexte_tour` : retirée à la sauvegarde (cf. save) comme toute
+        clé `_`, rendue seulement par get_messages_for_api. Il n'entre jamais
+        dans `content`, donc ni dans l'historique persistant ni dans ce que les
+        tours suivants renverront au modèle — sinon les contextes
+        s'accumuleraient d'un message à l'autre.
+
+        Appelé UNE fois par tour, par run(), juste après l'ajout du message de
+        l'utilisateur : c'est lui qui porte l'ancre pour tout le tour. Les
+        relances (auto-continue, anti-stall, synthèse forcée…) s'ajoutent ensuite
+        en `user` et ne la déplacent pas — un contexte qui suivrait le dernier
+        `user` déplacerait le préfixe à chaque itération ReAct.
+
+        La mémoire de session survit à l'orchestrateur côté API (`_sessions`) :
+        l'ancre du message précédent est retirée ici, sinon chaque ancien tour
+        continuerait d'être rendu avec son contexte.
+        """
+        for msg in self.messages:
+            msg.pop("_contexte_tour", None)
+        if not contexte:
+            return
+        for msg in reversed(self.messages):
+            if msg.get("role") == "user":
+                msg["_contexte_tour"] = contexte
+                return
+
+    # ------------------------------------------------------------------ #
     # Format API OpenAI                                                    #
     # ------------------------------------------------------------------ #
 
     def get_messages_for_api(self) -> list[dict]:
-        """Retourne les messages dans le format exact attendu par l'API OpenAI/Ollama."""
+        """Retourne les messages dans le format exact attendu par l'API OpenAI/Ollama.
+
+        Le message user qui porte le contexte du tour (cf. ancrer_contexte_tour)
+        est rendu avec ce contexte en suffixe ; tous les autres, tels quels."""
         api_messages = []
         for msg in self.messages:
             role = msg["role"]
             if role == "system":
                 api_messages.append({"role": "system", "content": msg["content"]})
             elif role == "user":
-                api_messages.append({"role": "user", "content": msg["content"]})
+                content = msg["content"]
+                contexte = msg.get("_contexte_tour")
+                if contexte and isinstance(content, str):
+                    content = content + contexte
+                api_messages.append({"role": "user", "content": content})
             elif role == "assistant":
                 if msg.get("tool_calls"):
                     api_messages.append({
@@ -270,9 +321,16 @@ class ConversationMemory:
             return False
         role = self.messages[idx]["role"]
         if role == "user":
-            self.messages.pop(idx)
+            contexte = self.messages.pop(idx).get("_contexte_tour")
             while idx < len(self.messages) and self.messages[idx]["role"] not in ("system", "user"):
                 self.messages.pop(idx)
+            # Le contexte du tour vivait dans le système, que la fenêtre ne rogne
+            # jamais. Évincer son ancre (une relance `user` a ouvert un groupe plus
+            # récent) ne doit pas le perdre : il passe au message user suivant.
+            if contexte:
+                suivant = next((m for m in self.messages[idx:] if m["role"] == "user"), None)
+                if suivant is not None and not suivant.get("_contexte_tour"):
+                    suivant["_contexte_tour"] = contexte
         elif role == "assistant" and self.messages[idx].get("tool_calls"):
             tc_ids = {tc["id"] for tc in self.messages[idx].get("tool_calls", [])}
             self.messages.pop(idx)
@@ -295,7 +353,9 @@ class ConversationMemory:
         par ajout → O(n²) par tour. Les clés `_tok*` sont retirées à la
         sauvegarde (cf. save) et jamais transmises à l'API."""
         text = message.get("content") or ""
-        parts = [text]
+        # Le contexte du tour est envoyé au modèle avec ce message : il compte
+        # dans le budget, comme quand il était dans le prompt système.
+        parts = [text, message.get("_contexte_tour") or ""]
         for tc in message.get("tool_calls") or []:
             fn = tc.get("function", {})
             parts.append(fn.get("name", ""))

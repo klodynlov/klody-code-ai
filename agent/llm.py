@@ -33,6 +33,7 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from agent.arguments_outils import arguments_json
+from agent.cache_prefixe import journaliser_cache
 from agent.erreurs_llm import (
     attente_reessai_503,
     detail_http,
@@ -348,6 +349,10 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "stream": True,
+            # `usage` en fin de flux : seule source du taux de cache de préfixe
+            # (cf. agent/cache_prefixe.py). Sans lui, le banc — qui passe par ce
+            # chemin, pas par l'API — ne voyait pas si le préfixe était réutilisé.
+            "stream_options": {"include_usage": True},
             "temperature": temperature,
             "max_tokens": max_tokens,  # défaut généreux : 8192 tokens pour gros codes Three.js
         }
@@ -374,6 +379,7 @@ class LLMClient:
         full_content = ""
         reasoning_buf = ""  # CoT (mode thinking) — capté, jamais réinjecté dans l'historique
         raw_tool_calls: dict[int, dict] = {}
+        usage = None
         t0 = time.monotonic()
 
         # Filet DUR anti-boucle (miroir de api/server.py stream_api) : le chemin CLI
@@ -399,6 +405,7 @@ class LLMClient:
             if silent:
                 # Mode silencieux : on consomme le stream sans affichage console
                 for chunk in stream:
+                    usage = getattr(chunk, "usage", None) or usage
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
@@ -416,6 +423,7 @@ class LLMClient:
 
                 with Live(spinner, console=console, refresh_per_second=12, transient=True):
                     for chunk in stream:
+                        usage = getattr(chunk, "usage", None) or usage
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
@@ -458,6 +466,7 @@ class LLMClient:
 
                 # Phase 2 : accumulation des tokens (spinner déjà fermé)
                 for chunk in stream:
+                    usage = getattr(chunk, "usage", None) or usage
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
@@ -485,6 +494,7 @@ class LLMClient:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
             elapsed = time.monotonic() - t0
+            journaliser_cache(usage, self.model, elapsed)
             out_tokens = count_tokens(full_content)
             if reasoning_buf:
                 logger.info("Raisonnement (CoT): %d chars", len(reasoning_buf))
