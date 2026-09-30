@@ -213,6 +213,31 @@ def _isoler_etat(dossier: Path) -> None:
     os.environ["SEMANTIC_MEMORY_DB"] = str(dossier / "semantic_memory.db")
 
 
+# Le banc appelle le gateway de PROD :8090 — celui dont klody-core tient le
+# journal d'usage, et dont le miner d'habitudes tire ses propositions. Sans
+# déclaration, les appels d'un fils portent `X-Klody-App: klody-ai` et sont
+# classés `user`. Relevé dans `state/journal.db` le 2026-09-30 : la journée du
+# 2026-09-28 (promotion de la baseline, 35 tâches × 3 passes) y compte 1 554
+# événements `llm` et 1 772 `tool` en `user`, pour 2 bornes de session. Et le
+# nightly vient d'être réactivé (`com.klody.bench-dispatch`, cinq créneaux par
+# jour) : 105 tâches par run allaient passer pour les habitudes de l'utilisateur.
+#
+# Posé dans l'ENVIRONNEMENT, pas en argument : les fils en héritent par
+# `subprocess.run`, et `agent/journal_client.source()` le relit à chaque appel
+# (client LLM, worker VL, événements `tool`). Posé dans `main()` et pas à
+# l'import : un simple `from bench import run` — la suite le fait — aurait
+# déclaré `system` tout le processus qui l'importe.
+#
+# Une valeur déjà posée est respectée : un opérateur qui veut compter son run
+# comme de l'usage (`KLODY_SOURCE=user`) garde la main. Une valeur VIDE ne
+# compte pas comme posée — `KLODY_SOURCE=` dans un `.env` reclasserait sinon
+# tout le banc `user` sans que rien ne le dise.
+def _declarer_machinerie() -> None:
+    """Déclare `KLODY_SOURCE=system` pour ce processus et ses fils, sauf choix contraire."""
+    if not (os.environ.get("KLODY_SOURCE") or "").strip():
+        os.environ["KLODY_SOURCE"] = "system"
+
+
 # Une tâche = un processus neuf. Mesuré le 2026-07-29 : en processus partagé, la
 # MÊME tâche rendait ✅ à la 1ʳᵉ passe et ❌ à la 2ᵉ — `FileManager.allowed_roots`
 # est figé dans __init__ et _run_klody ne repatchait que `.root`, si bien que les
@@ -372,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--child-out", default=None, help=argparse.SUPPRESS)
     p.add_argument("--child-data-dir", default=None, help=argparse.SUPPRESS)
     args = p.parse_args(argv)
+    # Parent comme fils : un fils lancé à la main se déclare aussi.
+    _declarer_machinerie()
 
     if args.child_task:
         if not args.child_out:

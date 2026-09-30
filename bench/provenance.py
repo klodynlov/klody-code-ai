@@ -36,7 +36,15 @@ def resolve_served_model(
     if not base_url or not model:
         return None
 
-    headers = {"Content-Type": "application/json"}
+    # Journal d'usage du gateway : ce ping est de la machinerie de banc. Sans
+    # en-tête, il partait en `app='unknown'` — classé `system` par dérivation,
+    # donc sans dégât, mais sans dire QUI : on le déclare plutôt que de compter
+    # sur un repli (cf. klody-core `docs/JOURNAL-USAGE-SPEC.md` § 3.5-3.6).
+    headers = {
+        "Content-Type": "application/json",
+        "X-Klody-App": "bench",
+        "X-Klody-Source": "system",
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

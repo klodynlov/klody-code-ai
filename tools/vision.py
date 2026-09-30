@@ -111,6 +111,7 @@ def analyser_image(image_path: str, question: str = _DEFAULT_QUESTION) -> str:
 
     # Client OpenAI DÉDIÉ au worker VL : on ne touche pas au client de la boucle
     # principale (un appel d'outil ne doit jamais détourner la conversation).
+    from agent.journal_client import en_tetes as en_tetes_journal
     from openai import OpenAI
 
     client = OpenAI(
@@ -118,7 +119,8 @@ def analyser_image(image_path: str, question: str = _DEFAULT_QUESTION) -> str:
         api_key=config.VL_API_KEY,
         timeout=config.LLM_HTTP_TIMEOUT,
         max_retries=0,
-        default_headers={"X-Klody-App": "klody-ai"},  # journal d'usage gateway
+        # Journal d'usage du gateway : app ET source (cf. agent/journal_client).
+        default_headers=en_tetes_journal(),
     )
     messages = [
         {

@@ -41,6 +41,7 @@ from agent.erreurs_llm import (
     message_reessai_503,
     pour_journal,
 )
+from agent.journal_client import en_tetes as en_tetes_journal
 from agent.stream_guard import LoopGuard
 from agent.tokens import count_tokens
 
@@ -230,8 +231,8 @@ class LLMClient:
     def __init__(self, model: str = LLM_MODEL):
         self.model = model
         # Identité vue par le journal d'usage du gateway (klody-core brique 1) :
-        # X-Klody-App statique + X-Klody-Session posés en default_headers du client
-        # → couvrent TOUS les appels (stream_chat, mais aussi les usages directs de
+        # X-Klody-App + X-Klody-Source + X-Klody-Session posés en default_headers
+        # du client → couvrent TOUS les appels (stream_chat, mais aussi les usages directs de
         # `llm.client` dans api/server.py). Session inconnue à la construction ;
         # set_session() reconstruit le client quand l'orchestrateur la connaît.
         self.session_id: str | None = None
@@ -245,7 +246,10 @@ class LLMClient:
     def _make_client(self) -> OpenAI:
         # getattr : les tests construisent des LLMClient partiels via __new__
         # (contrat existant, cf. Orchestrator._dispatch) — jamais d'AttributeError.
-        headers = {"X-Klody-App": "klody-ai"}
+        # X-Klody-Source relu ici, donc à chaque (re)construction du client : un
+        # fils de banc (`KLODY_SOURCE=system`) n'est pas un tour de l'utilisateur,
+        # et le miner d'habitudes de klody-core ne mine que `user`.
+        headers = en_tetes_journal()
         sid: str | None = getattr(self, "session_id", None)
         if sid:
             headers["X-Klody-Session"] = sid
