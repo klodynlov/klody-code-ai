@@ -63,8 +63,16 @@ def _arg(cmd: list[str], nom: str) -> str:
 @pytest.fixture(autouse=True)
 def _pas_d_echappatoire(monkeypatch):
     """BENCH_ISOLATION peut traîner dans l'env du développeur — les tests qui
-    veulent l'échappatoire la posent eux-mêmes."""
+    veulent l'échappatoire la posent eux-mêmes.
+
+    `KLODY_SOURCE` aussi, et `main()` la POSE : retirée au démontage, sinon le
+    `system` d'un test d'ici déclarerait machinerie le reste de la suite.
+    (`monkeypatch.delenv` sur une variable absente n'enregistre rien à
+    restaurer, d'où le `pop` explicite.)"""
     monkeypatch.delenv("BENCH_ISOLATION", raising=False)
+    monkeypatch.delenv("KLODY_SOURCE", raising=False)
+    yield
+    os.environ.pop("KLODY_SOURCE", None)
 
 
 # --- le sous-processus est le chemin par défaut ------------------------------
@@ -375,3 +383,116 @@ def test_bench_isolation_0_isole_aussi_l_etat(monkeypatch, tmp_path):
     etat = Path(vu["etat"])
     assert etat.parent == tmp_path and etat.name.startswith("kb-etat-")
     assert not garde_etat.est_protege(etat)
+
+
+# --- le banc ne se fait pas passer pour l'utilisateur ------------------------
+#
+# Le fils appelle le gateway de PROD :8090, dont klody-core tient le journal
+# d'usage ; le miner d'habitudes n'y mine que `source='user'`. Relevé le
+# 2026-09-30 : la promotion de la baseline du 2026-09-28 y figure pour 1 554
+# événements `llm` et 1 772 `tool` classés `user`. Cf. `_declarer_machinerie`.
+
+_SONDE_FILS = textwrap.dedent("""
+    import json
+    from agent import journal_client
+    from agent.llm import LLMClient
+    print(json.dumps({
+        "llm": LLMClient().client.default_headers.get("X-Klody-Source"),
+        "evenements": journal_client.source(),
+    }))
+""")
+
+
+def _parent_sans_reseau(monkeypatch, tmp_path) -> None:
+    """Le parent jusqu'à `_run_one`, sans provenance ni fichiers de résultats réels."""
+    monkeypatch.setattr(bench_run, "_TMP_ROOT", str(tmp_path))
+    monkeypatch.setattr(bench_run, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(bench_run.provenance, "describe_config", lambda: {})
+    monkeypatch.setattr(bench_run.provenance, "describe_short", lambda _m: "")
+    monkeypatch.setattr(bench_run.metrics, "install_patches", lambda: True)
+
+
+def test_les_appels_d_un_vrai_fils_se_declarent_machinerie(monkeypatch, tmp_path):
+    """LE test de non-régression. À la couture `subprocess.run`, un interpréteur
+    NEUF reçoit exactement l'environnement dont le vrai fils hériterait, et y
+    construit le VRAI client LLM : c'est son `default_headers` que le gateway
+    lit pour classer les tours `llm`. Sans le correctif, l'en-tête est absent
+    et le gateway dérive `user` de `X-Klody-App: klody-ai`."""
+    vrai_run = subprocess.run
+    vus = []
+
+    def faux_run(cmd, **kwargs):
+        env = dict(kwargs.get("env") or os.environ)   # ce que le fils hérite
+        env["HOME"] = str(tmp_path / "home")          # jamais le vrai ~/.klody
+        sonde = vrai_run(
+            [sys.executable, "-c", _SONDE_FILS], cwd=kwargs.get("cwd"), env=env,
+            capture_output=True, text=True, timeout=120, check=True,
+        )
+        vus.append(json.loads(sonde.stdout.strip().splitlines()[-1]))
+        with open(_arg(cmd, "--child-out"), "w", encoding="utf-8") as f:
+            json.dump(_result(task_id="easy/rename_var").__dict__, f)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bench_run.subprocess, "run", faux_run)
+    _parent_sans_reseau(monkeypatch, tmp_path)
+
+    assert bench_run.main(["--task", "easy/rename_var", "--label", "t"]) == 0
+
+    assert vus == [{"llm": "system", "evenements": "system"}]
+
+
+@pytest.mark.parametrize(("posee", "attendue"), [
+    ("user", "user"),        # l'opérateur qui veut compter son run garde la main
+    ("test", "test"),
+    ("", "system"),          # `KLODY_SOURCE=` dans un .env n'est pas un choix
+])
+def test_une_source_deja_posee_est_respectee(monkeypatch, tmp_path, posee, attendue):
+    vu = {}
+
+    def faux_run(cmd, **kwargs):
+        vu["source"] = (kwargs.get("env") or os.environ).get("KLODY_SOURCE")
+        with open(_arg(cmd, "--child-out"), "w", encoding="utf-8") as f:
+            json.dump(_result(task_id="easy/rename_var").__dict__, f)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setenv("KLODY_SOURCE", posee)
+    monkeypatch.setattr(bench_run.subprocess, "run", faux_run)
+    _parent_sans_reseau(monkeypatch, tmp_path)
+
+    bench_run.main(["--task", "easy/rename_var", "--label", "t"])
+
+    assert vu["source"] == attendue
+
+
+def test_un_fils_lance_a_la_main_se_declare_aussi(monkeypatch, tmp_path):
+    """`python -m bench.run --child-task …` sans parent (débogage d'une tâche)."""
+    vu = {}
+
+    def espion_tache(_):
+        vu["source"] = os.environ.get("KLODY_SOURCE")
+        return _result(task_id="easy/rename_var")
+
+    monkeypatch.setattr(bench_run.metrics, "install_patches", lambda: True)
+    monkeypatch.setattr(bench_run, "_run_one_inprocess", espion_tache)
+
+    bench_run.main(
+        ["--child-task", "easy/rename_var", "--child-out", str(tmp_path / "r.json"),
+         "--child-data-dir", str(tmp_path / "etat")]
+    )
+
+    assert vu["source"] == "system"
+
+
+def test_importer_le_banc_ne_declare_rien(tmp_path):
+    """La suite importe `bench.run` : une déclaration à l'import aurait classé
+    `system` tout processus qui l'importe. Interpréteur neuf, variable absente."""
+    env = {k: v for k, v in os.environ.items() if k != "KLODY_SOURCE"}
+    env["HOME"] = str(tmp_path / "home")
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "import os; from bench import run; print(os.environ.get('KLODY_SOURCE'))"],
+        cwd=bench_run.REPO_ROOT, env=env,
+        capture_output=True, text=True, timeout=120, check=True,
+    )
+
+    assert proc.stdout.strip().splitlines()[-1] == "None"

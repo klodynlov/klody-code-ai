@@ -20,8 +20,12 @@ from agent.llm import LLMClient
 def _worker_propre(monkeypatch):
     """Chaque test repart sans worker (le singleton est module-global)."""
     monkeypatch.setattr(journal_client, "_queue", None)
+    monkeypatch.setattr(journal_client, "_sources_inconnues", set())
     monkeypatch.delenv("KLODY_JOURNAL", raising=False)
     monkeypatch.delenv("KLODY_JOURNAL_URL", raising=False)
+    # Peut traîner dans l'environnement du développeur (ou d'un `bench.run`) :
+    # les tests qui en veulent une la posent eux-mêmes.
+    monkeypatch.delenv("KLODY_SOURCE", raising=False)
     yield
     monkeypatch.setattr(journal_client, "_queue", None)
 
@@ -59,9 +63,66 @@ def test_emit_poste_le_payload(monkeypatch):
 
     (url, body), = vus
     assert url.endswith("/journal/event")
-    assert body == {"app": "klody-ai", "kind": "tool", "name": "search_books",
-                    "status": "ok", "session_id": "s-1", "latency_ms": 42,
-                    "meta": {"mcp": False}}
+    assert body == {"app": "klody-ai", "source": "user", "kind": "tool",
+                    "name": "search_books", "status": "ok", "session_id": "s-1",
+                    "latency_ms": 42, "meta": {"mcp": False}}
+
+
+# ── source : qui parle au gateway ─────────────────────────────────────────────
+# Le miner d'habitudes de klody-core ne mine que `source='user'`. Tout ce qui
+# part sans déclaration avec `app='klody-ai'` est classé `user` par le gateway.
+def test_source_par_defaut_est_user():
+    """Un vrai tour (API, CLI) ne pose rien : il doit rester miné."""
+    assert journal_client.source() == "user"
+
+
+@pytest.mark.parametrize("valeur", ["user", "system", "test"])
+def test_source_whitelist_du_gateway(monkeypatch, valeur):
+    monkeypatch.setenv("KLODY_SOURCE", valeur)
+    assert journal_client.source() == valeur
+
+
+def test_source_normalisee(monkeypatch):
+    monkeypatch.setenv("KLODY_SOURCE", "  System\n")
+    assert journal_client.source() == "system"
+
+
+def test_source_vide_vaut_absente(monkeypatch):
+    monkeypatch.setenv("KLODY_SOURCE", "   ")
+    assert journal_client.source() == "user"
+
+
+def test_source_inconnue_rend_system_et_le_dit_une_fois(monkeypatch, caplog):
+    """`systeme` est la faute naturelle dans ce dépôt. Envoyée telle quelle, le
+    gateway la rejetterait et dériverait `user` de `app='klody-ai'` : qui a posé
+    la variable pour dire « pas l'utilisateur » lui ferait dire l'inverse."""
+    monkeypatch.setenv("KLODY_SOURCE", "systeme")
+    with caplog.at_level("WARNING", logger=journal_client.logger.name):
+        assert journal_client.source() == "system"
+        assert journal_client.source() == "system"
+    avertissements = [r for r in caplog.records if "KLODY_SOURCE" in r.getMessage()]
+    assert len(avertissements) == 1
+    assert "systeme" in avertissements[0].getMessage()
+
+
+def test_source_relue_a_chaque_emission(monkeypatch):
+    """`bench/run.py` pose la variable dans `main()`, APRÈS ses imports : une
+    source figée au chargement du module classerait tout le banc `user`."""
+    vus = []
+
+    def fake_urlopen(req, timeout=None):
+        vus.append(json.loads(req.data)["source"])
+        return MagicMock()
+
+    with patch.object(journal_client.urllib.request, "urlopen", side_effect=fake_urlopen):
+        journal_client.emit(kind="tool", name="a")
+        monkeypatch.setenv("KLODY_SOURCE", "system")
+        journal_client.emit(kind="tool", name="b")
+        echeance = time.monotonic() + 2.0
+        while len(vus) < 2 and time.monotonic() < echeance:
+            time.sleep(0.01)
+
+    assert vus == ["user", "system"]
 
 
 def test_emit_desactive_par_env(monkeypatch):
@@ -114,6 +175,18 @@ def test_llm_client_entetes_app_et_session():
     client_avant = llm.client
     llm.set_session("abc123")                  # no-op : même id
     assert llm.client is client_avant
+
+
+def test_llm_client_declare_sa_source(monkeypatch):
+    """Les requêtes LLM sont journalisées PAR le gateway, sur la foi de cet
+    en-tête : c'est lui, pas `emit`, qui classe les tours `llm` d'un fils de banc."""
+    assert LLMClient().client.default_headers["X-Klody-Source"] == "user"
+
+    monkeypatch.setenv("KLODY_SOURCE", "system")
+    llm = LLMClient()
+    assert llm.client.default_headers["X-Klody-Source"] == "system"
+    llm.set_session("abc123")                  # client reconstruit : source gardée
+    assert llm.client.default_headers["X-Klody-Source"] == "system"
 
 
 def test_llm_switch_to_preserve_les_entetes():

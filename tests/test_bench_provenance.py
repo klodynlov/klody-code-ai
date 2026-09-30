@@ -58,9 +58,25 @@ def test_resolve_pose_le_bearer_quand_une_cle_existe(monkeypatch):
         return _Response({"model": "m"})
 
     monkeypatch.setattr(httpx, "post", fake_post)
-    provenance.resolve_served_model("http://x/v1", "brain", api_key="secret")
+    provenance.resolve_served_model("http://x/v1", "brain", api_key="secret")  # pragma: allowlist secret
 
     assert captured["Authorization"] == "Bearer secret"
+
+
+def test_resolve_se_declare_machinerie_de_banc(monkeypatch):
+    """Ce ping d'un token part vers le gateway de prod, dont le journal d'usage
+    nourrit le miner d'habitudes : il se déclare, il ne compte pas sur un repli."""
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs["headers"])
+        return _Response({"model": "m"})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    provenance.resolve_served_model("http://x/v1", "brain")
+
+    assert captured["X-Klody-App"] == "bench"
+    assert captured["X-Klody-Source"] == "system"
 
 
 def test_resolve_sans_cle_n_envoie_pas_d_authorization(monkeypatch):

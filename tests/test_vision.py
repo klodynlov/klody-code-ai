@@ -6,10 +6,9 @@ moment de l'appel). Les racines sandbox sont redirigées vers tmp_path.
 """
 from __future__ import annotations
 
+import config
 import openai
 import pytest
-
-import config
 from tools import vision
 
 
@@ -86,7 +85,7 @@ def _png(tmp_path, name="photo.png", data=b"\x89PNG\r\nfake-bytes"):
 
 class TestSucces:
     def test_decrit_image_et_renvoie_texte(self, vl_env):
-        holder, tmp = vl_env
+        _holder, tmp = vl_env
         img = _png(tmp)
         out = vision.analyser_image(str(img))
         assert "Analyse de photo.png" in out
@@ -105,6 +104,21 @@ class TestSucces:
         img_part = next(p for p in content if p["type"] == "image_url")
         assert img_part["image_url"]["url"].startswith("data:image/png;base64,")
         assert holder.captured["model"] == "vision"
+
+    def test_client_declare_app_et_source(self, vl_env, monkeypatch):
+        """Le worker VL passe par le gateway :8090 comme la boucle principale :
+        sans `X-Klody-Source`, une image analysée par un fils de banc serait
+        comptée comme un tour de l'utilisateur."""
+        holder, tmp = vl_env
+        img = _png(tmp)
+        monkeypatch.delenv("KLODY_SOURCE", raising=False)
+        vision.analyser_image(str(img))
+        assert holder.client_kwargs["default_headers"] == {
+            "X-Klody-App": "klody-ai", "X-Klody-Source": "user"}
+
+        monkeypatch.setenv("KLODY_SOURCE", "system")
+        vision.analyser_image(str(img))
+        assert holder.client_kwargs["default_headers"]["X-Klody-Source"] == "system"
 
     def test_question_vide_utilise_defaut(self, vl_env):
         holder, tmp = vl_env
@@ -137,12 +151,12 @@ class TestSandbox:
         assert holder.captured is None  # aucun appel VL → rien n'a fuité
 
     def test_image_introuvable(self, vl_env):
-        holder, tmp = vl_env
+        _holder, tmp = vl_env
         out = vision.analyser_image(str(tmp / "absente.png"))
         assert "introuvable" in out
 
     def test_image_trop_grosse(self, vl_env, monkeypatch):
-        holder, tmp = vl_env
+        _holder, tmp = vl_env
         monkeypatch.setattr(config, "VL_MAX_IMAGE_MB", 0.0001)
         out = vision.analyser_image(str(_png(tmp, data=b"x" * 5000)))
         assert "trop volumineuse" in out
