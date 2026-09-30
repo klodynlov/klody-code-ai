@@ -1516,8 +1516,9 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
 > `bootout`, sans nommer l'agent, les trois suivants non traités. Relancé par un
 > `bootstrap` seul ; les trois autres rechargés un par un en attendant que
 > `launchctl print gui/$UID/<label>` échoue avant le `bootstrap` (réessais à
-> 2 s) — aucun échec. **Tant que l'installeur n'attend pas le retrait du job,
-> recharger un agent de cette manière, pas par l'installeur.**
+> 2 s) — aucun échec. Cette procédure est celle de l'installeur depuis #304 :
+> il attend le retrait, réessaie, et nomme tout agent qu'il n'a pas pu relancer
+> (piège « `launchctl bootout` rend la main AVANT… », plus bas).
 >
 > `klody-mcp`, dit `PÉRIMÉ` (docstring de `klody_server` touchée par #301),
 > rechargé pareil. État final, recalculé par
