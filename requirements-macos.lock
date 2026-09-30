@@ -439,7 +439,7 @@ pygments==2.20.0
     #   pytest
     #   rich
     #   rich-rst
-pyjwt==2.13.0
+pyjwt==2.15.0
     # via
     #   -c requirements.lock
     #   mcp
@@ -667,7 +667,7 @@ uncalled-for==0.3.2
     # via
     #   -c requirements.lock
     #   fastmcp-slim
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   -c requirements.lock
     #   requests

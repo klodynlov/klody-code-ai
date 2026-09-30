@@ -325,7 +325,7 @@ pygments==2.20.0
     #   pytest
     #   rich
     #   rich-rst
-pyjwt==2.13.0
+pyjwt==2.15.0
     # via mcp
 pyparsing==3.3.2
     # via pip-requirements-parser
@@ -483,7 +483,7 @@ typing-inspection==0.4.2
     #   pydantic-settings
 uncalled-for==0.3.2
     # via fastmcp-slim
-urllib3==2.7.0
+urllib3==2.8.0
     # via requests
 uvicorn==0.52.1
     # via
