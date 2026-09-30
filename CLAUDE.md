@@ -1506,6 +1506,16 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
   COPIE du paquet dans un processus neuf, `.env` posé à côté, et rougit si
   l'ordre se réinverse (vérifié : 8 rouges sans le chargement, 1 avec
   `override=True`).
+- ⚠️ **`launchctl bootout` rend la main AVANT que launchd ait retiré le job.**
+  Un `bootstrap` posé dans la fenêtre rend « Bootstrap failed: 5: Input/output
+  error ». Vécu le 2026-09-30 : `install-launchagents.sh`, en `set -eu`, s'est
+  arrêté net APRÈS le bootout d'`ableton-mcp` — :8094 muet, 3 agents non
+  traités, aucun nom dans la sortie. Il attend désormais l'échec de
+  `launchctl print` (≤ 30 s), réessaie le bootstrap, et un refus final NOMME
+  l'agent, le dit arrêté avec sa commande de relance, continue, sort en 1
+  (`tests/test_install_launchagents_rechargement.py`, bouchon à état sur
+  fichiers, joué sous `/bin/sh` et `dash`). À la main : même attente entre les
+  deux commandes.
 - ⚠️ **Un `pip install` ne prend effet qu'au redémarrage des services — et
   l'oubli ne se voit que des heures plus tard.** Incident du 2026-08-05
   ci-dessus. Réflexe : après toute mise à jour de `requirements.lock`,
