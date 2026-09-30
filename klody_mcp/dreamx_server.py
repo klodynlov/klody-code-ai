@@ -15,7 +15,7 @@ La génération est ASYNCHRONE (un rendu à la fois, GPU partagé) :
 
 Démarrage :
     python -m klody_mcp.dreamx_server                          # stdio (défaut)
-    DREAMX_MCP_TRANSPORT=http python -m klody_mcp.dreamx_server   # :8089
+    DREAMX_MCP_TRANSPORT=http python -m klody_mcp.dreamx_server   # :8102
 """
 from __future__ import annotations
 
@@ -272,7 +272,10 @@ def lister_videos(limit: int = 10) -> dict:
 
 def main() -> None:
     transport = os.getenv("DREAMX_MCP_TRANSPORT", "stdio").lower()
-    port = int(os.getenv("DREAMX_MCP_PORT", "8091"))  # 8089 déjà pris par un autre serveur MCP local
+    # 8102 : 8089 est REAPER, et 8091 — pris pour l'éviter — est VLC.
+    # Latent jusqu'au 2026-09-30 (ce serveur n'était lancé qu'en stdio),
+    # verrouillé par tests/test_ports_mcp_uniques.py.
+    port = int(os.getenv("DREAMX_MCP_PORT", "8102"))
     host = os.getenv("DREAMX_MCP_HOST", "127.0.0.1")
 
     if transport == "http":
