@@ -1487,8 +1487,42 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
   Klody a déjà cette mémoire en process (`rappeler_memoire`,
   `agent/orchestrator.py`) ; ses 4 outils MCP feraient doublon et allongeraient
   un préfixe déjà à 383 outils ≈ 70 k tokens. Le serveur sert les clients
-  EXTERNES (Codex, Claude Desktop). Son agent se charge après le merge, une
-  fois le checkout principal sur :8100.
+  EXTERNES (Codex, Claude Desktop) : `http://127.0.0.1:8100/mcp`.
+- **`com.klody.memory-mcp` chargé le 2026-09-30 à 20:26**, après merge de #301
+  et mise à jour du checkout principal (`91900a6`). Vérifié : 406 sur `/mcp`,
+  `/health` à jour, 4 outils, `etat_memoire` disponible (provider `st`, même
+  base `~/.klody/data/semantic_memory.db` que Klody), Blender intact sur :8095.
+  Chargé À LA MAIN (plist rendu, `launchctl bootstrap`) : l'installeur sans
+  argument aurait aussi rechargé les quatre agents en écart ci-dessous.
+
+> ### ⚠️ Même soir — quatre agents installés ≠ dépôt, et l'installeur qui éteint
+>
+> `install-launchagents.sh --check` signalait 4 ÉCART, antérieurs à ce chantier :
+>
+> | agent | installé | dépôt |
+> |---|---|---|
+> | `ableton-mcp`, `blender-mcp`, `unity-mcp` | `/bin/bash <lanceur>` | `<lanceur>` seul |
+> | `veille-qwen` | commentaire XML avec `--` | commentaire corrigé (#267) |
+>
+> Le `/bin/bash` n'était pas cosmétique : `point_d_entree()` lit la PREMIÈRE
+> chaîne de `ProgramArguments`. Avec `/bin/bash` en tête, il ne trouvait ni
+> lanceur ni module — **ces trois services échappaient au contrôle de
+> péremption**, qui les aurait dits à jour quoi qu'il arrive. Les lanceurs sont
+> `100755` avec shebang `env bash` : le retirer est sans risque.
+>
+> ⚠️ **L'installeur a laissé `ableton-mcp` ÉTEINT ~1 min.** `bootout` puis
+> `bootstrap` immédiat ⇒ « Bootstrap failed: 5: Input/output error » : launchd
+> n'avait pas fini de retirer le job. `set -eu` a arrêté le script APRÈS le
+> `bootout`, sans nommer l'agent, les trois suivants non traités. Relancé par un
+> `bootstrap` seul ; les trois autres rechargés un par un en attendant que
+> `launchctl print gui/$UID/<label>` échoue avant le `bootstrap` (réessais à
+> 2 s) — aucun échec. **Tant que l'installeur n'attend pas le retrait du job,
+> recharger un agent de cette manière, pas par l'installeur.**
+>
+> `klody-mcp`, dit `PÉRIMÉ` (docstring de `klody_server` touchée par #301),
+> rechargé pareil. État final, recalculé par
+> `scripts/install-launchagents.sh --check` : **18 agents à jour, aucun écart,
+> 0 point d'entrée périmé** sur 14 résidents.
 
 ## Pièges qui coûtent du temps
 
