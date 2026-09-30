@@ -45,7 +45,7 @@ de démarrage — jamais de stacktrace.
 
 Démarrage :
     python -m klody_mcp.samplebrain_server                             # stdio (défaut)
-    SAMPLEBRAIN_MCP_TRANSPORT=http python -m klody_mcp.samplebrain_server  # :8094
+    SAMPLEBRAIN_MCP_TRANSPORT=http python -m klody_mcp.samplebrain_server  # :8103
 """
 from __future__ import annotations
 
@@ -443,9 +443,11 @@ def statut_index() -> dict:
 if __name__ == "__main__":
     transport = os.getenv("SAMPLEBRAIN_MCP_TRANSPORT", "stdio")
     if transport == "http":
-        # 8094 : premier port libre du bloc MCP (8082 LB, 8084 gmail, 8085 web,
-        # 8087 klody, 8088 musique, 8089 REAPER, 8093 gadget).
+        # 8103 : 8094, premier port libre du bloc MCP quand ce serveur est né,
+        # a été pris ensuite par Ableton (`ableton_server`, agent launchd).
+        # Latent jusqu'au 2026-09-30 (ce serveur tourne en stdio), verrouillé
+        # par tests/test_ports_mcp_uniques.py.
         mcp.run(transport="http", host="127.0.0.1",
-                port=int(os.getenv("SAMPLEBRAIN_MCP_PORT", "8094")))
+                port=int(os.getenv("SAMPLEBRAIN_MCP_PORT", "8103")))
     else:
         mcp.run()

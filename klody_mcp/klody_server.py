@@ -7,8 +7,8 @@ Cline, Zed, autre Claude/agent) peut se brancher et les utiliser.
 Klody devient ainsi une PLATEFORME et pas seulement un CLI.
 
 Démarrage :
-    python -m mcp.klody_server                       # défaut: stdio
-    KLODY_MCP_TRANSPORT=http python -m mcp.klody_server  # HTTP sur port 8083
+    python -m klody_mcp.klody_server                       # défaut: stdio
+    KLODY_MCP_TRANSPORT=http python -m klody_mcp.klody_server  # HTTP sur port 8087
 
 Outils exposés :
 - find_symbol(name)               — où est défini un symbole

@@ -939,7 +939,8 @@ fusionné RRF (`agent/semantic_memory.py`), extraction de faits
 2. **Mémoire exposée en MCP (le « GBrain » du post) — FAIT.** Toute la
    machinerie existait mais n'était offerte qu'en process (outil ReAct
    `rappeler_memoire`). Aucun client externe (Codex, ChatGPT Web, Claude Desktop)
-   ne partageait cette mémoire. `klody_mcp/memory_server.py` (:8095) l'expose :
+   ne partageait cette mémoire. `klody_mcp/memory_server.py` (**:8100** — :8095
+   jusqu'au 2026-09-30, port de Blender : section du 2026-09-30) l'expose :
    `memoriser` / `rappeler` / `oublier` / `etat_memoire`, en **déléguant** à
    `agent.semantic_memory` (seule source de vérité — une seconde copie
    divergerait en silence). 100 % local, aucun modèle ni dépendance de plus.
@@ -1390,6 +1391,34 @@ lieu d'appeler `write_file`, puis conclut). Promu tel quel : relancer jusqu'au
   appliqué au run retenu : **zéro** « Backend indisponible » dans son log.
 - `bench.run` a laissé un fils `--child-task` ORPHELIN après un `pkill` du
   parent : il a rechargé `brain` tout seul. Tuer aussi les `--child-task`.
+
+## État au 2026-09-30 — memory-mcp et Blender se disputaient :8095
+
+`memory_server` (#224, 2026-08-16) avait pris **:8095** par défaut — le port de
+Blender Lab (`blender_server`, agent `com.klody.blender-mcp` versionné par #266,
+consommé via `KLODY_MCP_SERVERS`). `com.klody.memory-mcp` n'a donc **jamais été
+chargé** (`install-launchagents.sh --check` : `NON CHARGÉ`), et le charger aurait
+mis deux démons KeepAlive sur le même bind : boucle pour le perdant, ou vol du
+port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
+**:8100** (libre sur la machine, dans le dépôt, klody-core et les LaunchAgents).
+
+- ⚠️ **Le test « un agent par lanceur » était vert sur cette panne** : il
+  compare des NOMS de fichiers. `tests/test_ports_mcp_uniques.py` compare les
+  PORTS — lus dans le code (AST, affectations shell, `.env.example`), jamais
+  dans la prose — et exige que module, lanceur et `.env.example` disent le même
+  port pour un même service. Il a rougi sur l'état d'avant (3 collisions), et
+  rejoue l'incident sur une copie pour prouver qu'il sait encore rougir.
+- Même inventaire, deux collisions **latentes** (serveurs lancés en stdio) :
+  `dreamx_server` en HTTP (:8091 = vlc → **:8102**) et `samplebrain_server` en
+  HTTP (:8094, pris ensuite par Ableton → **:8103**).
+- ⚠️ **Hors dépôt, non couvert par ce test** : le gateway klody-core lance son
+  worker `lyricist` sur **:8082** (surcharge du plist) — le `MCP_PORT` par
+  défaut du serveur MCP LibraryBrain (`klody_mcp/server.py`). Et ses défauts de
+  code (vision 8092 = iface HTTP de VLC, lyricist 8094 = Ableton) ne tiennent
+  que parce que le plist les surcharge.
+- Reste ouvert au merge : charger `com.klody.memory-mcp`, et décider s'il entre
+  dans `KLODY_MCP_SERVERS` — chaque outil allonge le préfixe (383 outils ≈ 70 k
+  tokens, prefill à froid 134-250 s).
 
 ## Pièges qui coûtent du temps
 

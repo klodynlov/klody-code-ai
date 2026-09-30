@@ -11,13 +11,15 @@
 #
 # Usage:
 #   ./scripts/start-memory-mcp.sh                 # stdio (par défaut)
-#   ./scripts/start-memory-mcp.sh --http          # HTTP sur :8095
+#   ./scripts/start-memory-mcp.sh --http          # HTTP sur :8100
 #   ./scripts/start-memory-mcp.sh --port 9000     # port HTTP custom
 
 set -euo pipefail
 
 TRANSPORT="${MEMORY_MCP_TRANSPORT:-stdio}"
-PORT="${MEMORY_MCP_PORT:-8095}"
+# 8100 : 8095 est à Blender Lab (collision vécue jusqu'au 2026-09-30,
+# tests/test_ports_mcp_uniques.py).
+PORT="${MEMORY_MCP_PORT:-8100}"
 HOST="${MEMORY_MCP_HOST:-127.0.0.1}"
 
 while [[ $# -gt 0 ]]; do

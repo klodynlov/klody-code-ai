@@ -28,7 +28,7 @@ sanitise chaque souvenir) — ce serveur ne rend jamais de brut.
 
 Démarrage :
     python -m klody_mcp.memory_server                          # stdio (défaut)
-    MEMORY_MCP_TRANSPORT=http python -m klody_mcp.memory_server # :8095
+    MEMORY_MCP_TRANSPORT=http python -m klody_mcp.memory_server # :8100
 
 Outils exposés :
 - memoriser(texte, titre, kind, remplacer)  — écrit un souvenir + l'embedde
@@ -199,7 +199,12 @@ async def etat_memoire() -> dict:
 
 def main() -> None:
     transport = os.getenv("MEMORY_MCP_TRANSPORT", "stdio").lower()
-    port = int(os.getenv("MEMORY_MCP_PORT", "8095"))
+    # 8100, pas 8095 : 8095 est Blender Lab (`blender_server`, consommé via
+    # KLODY_MCP_SERVERS). Les deux défauts se sont chevauchés du 2026-08-16 au
+    # 2026-09-30 — `com.klody.memory-mcp` n'a jamais été chargé, et le charger
+    # aurait mis deux démons launchd sur le même bind. Verrouillé par
+    # tests/test_ports_mcp_uniques.py.
+    port = int(os.getenv("MEMORY_MCP_PORT", "8100"))
     host = os.getenv("MEMORY_MCP_HOST", "127.0.0.1")
 
     register_health_route(mcp, "com.klody.memory-mcp")
