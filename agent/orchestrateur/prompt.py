@@ -9,6 +9,15 @@ from __future__ import annotations
 
 import logging
 
+# Symboles privés ré-exportés vers `agent.orchestrator` : sans `__all__`,
+# CodeQL les lit « jamais utilisés » (même traitement que `gardes.py`).
+__all__ = [
+    "_CODER_SLIM_PROMPT",
+    "_ENTETE_CONTEXTE_TOUR",
+    "_has_markdown_safe",
+    "_shield",
+]
+
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------ #

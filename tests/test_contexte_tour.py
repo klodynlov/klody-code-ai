@@ -16,7 +16,6 @@ from unittest.mock import MagicMock
 import agent.orchestrator as orch_mod
 import pytest
 from agent.memory import ConversationMemory
-from agent.orchestrator import Orchestrator
 
 _PERMANENT = {"name": "Profil studio", "slug": "utilisateur_studio",
               "description": "le studio de l'utilisateur", "content": "Scarlett 2i2"}
@@ -58,7 +57,7 @@ def _orchestrateur(memoire, monkeypatch, *, coder=False, pistes=_PISTES):
 
 def _tour(o, memoire, requete, task_type="explain"):
     memoire.add_message("user", requete)
-    Orchestrator._inject_system_prompt(o, task_type=task_type, query=requete)
+    orch_mod.Orchestrator._inject_system_prompt(o, task_type=task_type, query=requete)
     return memoire.get_messages_for_api()
 
 

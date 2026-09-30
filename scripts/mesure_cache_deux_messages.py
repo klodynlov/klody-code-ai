@@ -50,10 +50,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 
 QUESTIONS = [
-    "Sans utiliser d'outil, explique en trois phrases ce qu'est une progression "
-    "d'accords II-V-I en jazz.",
-    "Sans utiliser d'outil, explique en trois phrases comment fine-tuner un petit "
-    "modèle avec LoRA sur Mac.",
+    ("Sans utiliser d'outil, explique en trois phrases ce qu'est une progression "
+     "d'accords II-V-I en jazz."),
+    ("Sans utiliser d'outil, explique en trois phrases comment fine-tuner un petit "
+     "modèle avec LoRA sur Mac."),
 ]
 
 
