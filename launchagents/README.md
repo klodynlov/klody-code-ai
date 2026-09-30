@@ -21,6 +21,16 @@ script redémarrerait l'API en pleine session de travail.
 `--check` sort en code 1 s'il trouve un écart — utilisable en CI ou en contrôle
 manuel pour détecter la dérive entre le plist vivant et sa version au dépôt.
 
+⚠️ **Un rechargement n'est pas atomique.** `launchctl bootout` rend la main
+avant que launchd ait retiré le job, et un `bootstrap` posé dans cette fenêtre
+est refusé : « Bootstrap failed: 5: Input/output error ». Vécu le 2026-09-30 sur
+`ableton-mcp` : le script s'est arrêté net après le bootout — service coupé, les
+agents suivants jamais traités, aucun nom dans la sortie. Désormais il attend que
+`launchctl print` échoue (≤ 30 s), réessaie le bootstrap (5 fois, à 2 s), et si
+launchd refuse encore, **nomme** l'agent, le déclare arrêté avec sa commande de
+relance, traite les suivants et sort en 1. À la main, même précaution entre les
+deux commandes. `tests/test_install_launchagents_rechargement.py` le verrouille.
+
 ## Ce que `--check` signale sans le juger
 
 Un plist conforme ne dit **rien de ce que le service exécute**. Les agents

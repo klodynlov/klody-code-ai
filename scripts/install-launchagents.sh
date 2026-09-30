@@ -14,6 +14,10 @@
 # Idempotent : un agent dont le contenu rendu est déjà identique à l'installé
 # n'est ni réécrit ni rechargé. Indispensable — un `bootstrap` inconditionnel
 # redémarrerait l'API en pleine session de travail.
+#
+# Un agent que launchd refuse de recharger est NOMMÉ, déclaré arrêté avec sa
+# commande de relance, et n'empêche pas les suivants : le script va au bout,
+# puis sort en 1.
 
 set -eu
 
@@ -26,6 +30,11 @@ DOMAIN="gui/$(id -u)"
 # L'ordre compte : le chemin du repo (le plus spécifique) avant le HOME.
 ORIG_REPO="/Users/klodynlov/Projets/klody-code-ai"
 ORIG_HOME="/Users/klodynlov"
+
+# Rechargement d'un agent (bootout puis bootstrap) — cf. `recharger`.
+RETRAIT_MAX_S=30        # attente bornée du retrait effectif après bootout
+BOOTSTRAP_ESSAIS=5      # tentatives de bootstrap…
+BOOTSTRAP_PAUSE_S=2     # …espacées de tant de secondes
 
 CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
@@ -210,8 +219,8 @@ verifier_code_servi() {
     done
     while read -r lab p; do
         echo "PÉRIMÉ  $lab (pid $p) — son lanceur ou son module ont changé depuis son"
-        echo "        démarrage. Recharger : launchctl bootout $DOMAIN/$lab puis"
-        echo "        bootstrap (jamais kickstart)."
+        echo "        démarrage. Recharger : launchctl bootout $DOMAIN/$lab, attendre que"
+        echo "        launchctl print $DOMAIN/$lab échoue, puis bootstrap (jamais kickstart)."
     done < "$liste" 2>/dev/null || true
     perimes=$(wc -l < "$liste" 2>/dev/null | tr -d ' ' || echo 0)
     plus_ancien=$(sort -n "$liste.debuts" 2>/dev/null | head -1 || echo "")
@@ -240,9 +249,81 @@ verifier_code_servi() {
     return 0
 }
 
+# --- Rechargement d'un agent ----------------------------------------------
+#
+# Vécu le 2026-09-30 à 20:36 : 4 agents en écart (ableton-mcp, blender-mcp,
+# unity-mcp, veille-qwen). Sur le premier, `bootout` puis `bootstrap` IMMÉDIAT
+# → « Bootstrap failed: 5: Input/output error ». `bootout` d'un job en cours
+# rend la main AVANT que launchd ait fini de le retirer, et un bootstrap posé
+# dans cette fenêtre est refusé. Le script, en `set -eu`, s'est arrêté net
+# APRÈS le bootout : ableton-mcp hors service (:8094 muet), les trois autres
+# jamais traités, et aucun message ne nommait l'agent.
+#
+# D'où trois étages, validés à la main le jour même sur les 4 agents :
+#   1. attendre que `launchctl print` échoue — le job est réellement retiré ;
+#   2. réessayer le bootstrap (relancé seul, il a suffi pour ableton) ;
+#   3. en dernier recours, NOMMER l'agent, dire qu'il est arrêté, donner la
+#      commande de relance — et laisser la boucle traiter les suivants.
+
+attendre_retrait() {
+    # $1 = label. 0 dès que launchd ne connaît plus le job, 1 si le délai
+    # expire avant. Compté en tours de `sleep 1`, pas à l'horloge.
+    attente=0
+    while service_charge "$1"; do
+        [ "$attente" -lt "$RETRAIT_MAX_S" ] || return 1
+        sleep 1
+        attente=$((attente + 1))
+    done
+    return 0
+}
+
+recharger() {
+    # $1 = label, $2 = plist installé. 0 si l'agent est rechargé. Sinon
+    # l'explique sur stderr, pose `etat_echec` et rend 1 : c'est à l'appelant
+    # de continuer, jamais à ce rechargement d'arrêter le script.
+    etait_charge=0
+    if service_charge "$1"; then etait_charge=1; fi
+    # Le bootout échoue si le service n'était pas chargé : cas nominal d'une
+    # première installation, où l'attente qui suit ne coûte alors rien.
+    launchctl bootout "$DOMAIN/$1" 2>/dev/null || true
+    retire=1
+    attendre_retrait "$1" || retire=0
+    if [ "$retire" -eq 0 ]; then
+        echo "attente  $1 — encore connu de launchd après $RETRAIT_MAX_S s ;" \
+             "bootstrap tenté quand même." >&2
+    fi
+
+    essai=1
+    while :; do
+        rc=0
+        err=$(launchctl bootstrap "$DOMAIN" "$2" 2>&1) || rc=$?
+        [ "$rc" -ne 0 ] || return 0
+        [ "$essai" -lt "$BOOTSTRAP_ESSAIS" ] || break
+        sleep "$BOOTSTRAP_PAUSE_S"
+        essai=$((essai + 1))
+    done
+
+    if [ "$etait_charge" -eq 1 ]; then
+        etat_echec="ARRÊTÉ (bootout fait, rechargement refusé)"
+    else
+        etat_echec="non chargé (il ne l'était pas avant)"
+    fi
+    {
+        echo "ÉCHEC   $1 — bootstrap refusé $BOOTSTRAP_ESSAIS fois, dernier code $rc :"
+        [ -z "$err" ] || printf '%s\n' "$err" | sed 's/^/          /'
+        [ "$retire" -eq 1 ] ||
+            echo "          retrait jamais constaté : launchctl print répondait encore après $RETRAIT_MAX_S s."
+        echo "          Le service est désormais $etat_echec. Relancer :"
+        echo "          launchctl bootstrap $DOMAIN $2"
+    } >&2
+    return 1
+}
+
 drift=0
 installed=0
 skipped=0
+echecs=0
+en_echec=""
 
 for src in "$SRC_DIR"/*.plist; do
     [ -e "$src" ] || continue
@@ -269,17 +350,28 @@ for src in "$SRC_DIR"/*.plist; do
         continue
     fi
 
-    plutil -lint "$tmp" >/dev/null || { echo "plist invalide : $label" >&2; rm -f "$tmp"; exit 1; }
+    # Contrôlé AVANT d'écrire quoi que ce soit : un plist refusé ici laisse le
+    # service tel quel, les agents suivants sont donc traités sans risque.
+    if ! plutil -lint "$tmp" >/dev/null; then
+        echo "ÉCHEC   $label — plist rendu invalide, rien n'a été touché." >&2
+        rm -f "$tmp"
+        echecs=$((echecs + 1))
+        en_echec="$en_echec  $label — plist invalide, service inchangé
+"
+        continue
+    fi
     mkdir -p "$DEST_DIR"
     mv "$tmp" "$dest"
     chmod 644 "$dest"
 
-    # bootout puis bootstrap : recharge la définition. Le bootout échoue si le
-    # service n'était pas chargé, ce qui est le cas nominal d'une 1re install.
-    launchctl bootout "$DOMAIN/$label" 2>/dev/null || true
-    launchctl bootstrap "$DOMAIN" "$dest"
-    echo "installé  $label"
-    installed=$((installed + 1))
+    if recharger "$label" "$dest"; then
+        echo "installé  $label"
+        installed=$((installed + 1))
+    else
+        echecs=$((echecs + 1))
+        en_echec="$en_echec  $label — $etat_echec ; relancer : launchctl bootstrap $DOMAIN $dest
+"
+    fi
 done
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
@@ -293,4 +385,13 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     exit 0
 fi
 
+if [ "$echecs" -gt 0 ]; then
+    # Récapitulatif répété en fin de sortie : avec une quinzaine d'agents, la
+    # ligne ÉCHEC du milieu défile hors de l'écran.
+    {
+        echo "$installed installé(s), $skipped déjà à jour, $echecs en ÉCHEC :"
+        printf '%s' "$en_echec"
+    } >&2
+    exit 1
+fi
 echo "$installed installé(s), $skipped déjà à jour."
