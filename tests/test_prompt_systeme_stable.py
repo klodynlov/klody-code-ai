@@ -53,11 +53,11 @@ class TestJournalCache:
 
     def test_une_ligne_par_appel(self, caplog):
         u = SimpleNamespace(prompt_tokens=11518, prompt_tokens_details=SimpleNamespace(cached_tokens=11517))
-        with caplog.at_level(logging.INFO, logger="api.streaming"):
+        with caplog.at_level(logging.INFO, logger="agent.cache_prefixe"):
             journaliser_cache(u, "brain", 0.55)
         assert "[cache] brain prompt=11518 cached=11517 (100%)" in caplog.text
 
     def test_sans_usage_aucune_ligne(self, caplog):
-        with caplog.at_level(logging.INFO, logger="api.streaming"):
+        with caplog.at_level(logging.INFO, logger="agent.cache_prefixe"):
             journaliser_cache(None, "brain", 1.0)
         assert "[cache]" not in caplog.text

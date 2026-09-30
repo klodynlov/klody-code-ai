@@ -1392,6 +1392,73 @@ lieu d'appeler `write_file`, puis conclut). Promu tel quel : relancer jusqu'au
 - `bench.run` a laissé un fils `--child-task` ORPHELIN après un `pkill` du
   parent : il a rechargé `brain` tout seul. Tuer aussi les `--child-task`.
 
+## État au 2026-09-28 — le contexte d'une requête suit le tour, plus le système
+
+Le cache de préfixe de mlx_lm 0.31.3 (ArraysCache du MoE, **non rognable**) ne
+réutilise qu'une entrée dont les tokens sont un préfixe EXACT du nouveau prompt
+(`LRUPromptCache.fetch_nearest_cache` : sans `trim`, seule la branche `shorter`
+sert). Quand le dernier message est `user`, le serveur pose un point de
+reprise à la fin du bloc système — et le template Qwen y écrit **les schémas
+d'outils PUIS le système**. Un octet variable dans le système ⇒ tout recalculer
+depuis le token 0. Or retrieval et skills how-to changent à chaque requête.
+
+`_inject_system_prompt` ne met plus dans le système que ce qui tient une session
+(prompt de base + prompt de tâche, dossier, **skills permanents**
+`utilisateur_*`/`conventions_*`, mémoire long terme, profil, conventions,
+erreurs). Retrieval + skills how-to vont sur le message user COURANT, dans une
+clé privée `_contexte_tour` (`ConversationMemory.ancrer_contexte_tour`) : jamais
+dans `content`, jamais sur disque, rendue par `get_messages_for_api` seulement —
+donc identique à chaque itération ReAct, et absente des tours suivants.
+
+| mesure (2026-09-28, `~/.klody/data` assaini, 251 sessions) | avant | après |
+|---|---|---|
+| système identique, 386 paires, `task_type` fixe | 22 % | **95 %** |
+| idem, routeur RÉEL rejoué, 245 paires brain→brain | 17 % | **68 %** |
+| 1ᵉʳ appel du 2ᵉ message (92 k tokens, 383 outils), sur main 83d8c8a | cached=0, 134,3 s | **cached=85 990**, 35,9 s |
+
+`scripts/mesure_stabilite_prompt.py [--routeur]` et
+`scripts/mesure_cache_deux_messages.py` les recalculent. Le premier écarte
+désormais les sessions de tests et du banc (classifieur d'`etat_pollue.py`) :
+la veille, sur le dossier encore pollué, il rendait 8 → 86 % et 0 → 82 %.
+
+Relevé complet : `bench/results/reference_2026-09-28_contexte_tour.md`.
+
+- ⚠️ **L'ancre est posée par run(), pas sur le dernier `user`.** Les relances
+  (auto-continue, anti-stall, synthèse forcée) s'ajoutent en `user` au fil du
+  tour : un contexte qui les suivrait déplacerait le préfixe à chaque itération.
+  Et la mémoire survit à l'orchestrateur (`_sessions` côté API, un seul
+  orchestrateur en CLI) : `ancrer_contexte_tour` RETIRE l'ancre précédente,
+  sinon chaque ancien tour repartirait avec son contexte.
+- ⚠️ **Les skills permanents restent dans le système.** `select_skills` les
+  renvoie en tête sans test de pertinence ; ~3,4 k tokens (heuristique) de
+  profil. Dans le tour, ils seraient re-prefillés à chaque message.
+- ⚠️ **Avec le vrai routeur, le prompt de tâche est le premier casseur restant**
+  (68 % contre 95 % à type fixe, profil identique à 96 %) : `explain.md` ↔
+  `creative.md`/`music.md`… — 130 messages `creative` sur 636 classés.
+  `compose_system_prompt(task_type)` reste dans le système, délibérément : le
+  sortir change le comportement bien plus que les skills, à mesurer seul. Borne
+  basse : mlx_lm garde jusqu'à 10 entrées et évince les points de reprise
+  « system » en dernier — un retour à `explain` peut retrouver le sien.
+- ⚠️ **383 outils ≈ 70 k tokens de schémas** avec les serveurs MCP du `.env` :
+  un prompt de 92 k tokens, **~135-250 s de prefill à froid** sur brain. Le
+  banc les voit aussi (le worktree trouve le `.env` principal en remontant).
+- Le banc passe maintenant par `[cache]` lui aussi : `agent/llm.py` demande
+  `usage` en streaming et journalise comme l'API (`agent/cache_prefixe.py`).
+  En mode coder le système n'est plus que le prompt slim, constant : son point
+  de reprise sert d'une tâche à l'autre — 12 appels froids sur 439 dans le banc
+  complet, médiane 99,7 % en cache pour les autres.
+- **Banc** (`--repeat 3`, rebasé sur 83d8c8a) : **103/105, porte verte** (99,0 →
+  98,1 %, Δ −1,0 pt, seuil 7,5). `config_precedence` 2/3 est aussi à 2/3 sur
+  main le même jour ; `null_byte_sanitize` 2/3 (SECURITY.md non ouvert, alors
+  que le retrieval le nommait DANS le tour) ne se reproduit pas en apparié
+  `real_repo` × 5 : 5/5 des deux côtés, SECURITY.md lu 5/5, total 25/25
+  contre 23/25 sur main.
+- ⚠️ **Le banc n'est PAS l'instrument du gain inter-messages** : il rejoue des
+  tâches identiques d'une passe à l'autre, donc main y réutilise aussi ses
+  points de reprise (89,9 % des tokens en cache contre 93,4 %). Le scénario
+  visé — deux messages différents d'une même session — se mesure avec
+  `scripts/mesure_cache_deux_messages.py`.
+
 ## État au 2026-09-30 — memory-mcp et Blender se disputaient :8095
 
 `memory_server` (#224, 2026-08-16) avait pris **:8095** par défaut — le port de
@@ -1416,9 +1483,12 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
   défaut du serveur MCP LibraryBrain (`klody_mcp/server.py`). Et ses défauts de
   code (vision 8092 = iface HTTP de VLC, lyricist 8094 = Ableton) ne tiennent
   que parce que le plist les surcharge.
-- Reste ouvert au merge : charger `com.klody.memory-mcp`, et décider s'il entre
-  dans `KLODY_MCP_SERVERS` — chaque outil allonge le préfixe (383 outils ≈ 70 k
-  tokens, prefill à froid 134-250 s).
+- **memory-mcp n'entre PAS dans `KLODY_MCP_SERVERS`** (décidé le 2026-09-30) :
+  Klody a déjà cette mémoire en process (`rappeler_memoire`,
+  `agent/orchestrator.py`) ; ses 4 outils MCP feraient doublon et allongeraient
+  un préfixe déjà à 383 outils ≈ 70 k tokens. Le serveur sert les clients
+  EXTERNES (Codex, Claude Desktop). Son agent se charge après le merge, une
+  fois le checkout principal sur :8100.
 
 ## Pièges qui coûtent du temps
 

@@ -219,7 +219,11 @@ _FASTAPI_SKILL = {
 
 def _coder_inject(monkeypatch, *, enabled, skills_on_disk, query, task_type="feature"):
     """Mode coder : monkeypatche le flag + load_skills, exécute
-    _inject_system_prompt et renvoie (o, contenu du system message)."""
+    _inject_system_prompt et renvoie (o, contexte du tour).
+
+    Les skills ne vont plus dans le système (cache de préfixe, cf.
+    ConversationMemory.ancrer_contexte_tour) : on vérifie qu'ils en sont
+    absents ici, pour tous les cas, et on rend le contexte ancré au tour."""
     import agent.orchestrator as orch_mod
     monkeypatch.setattr(orch_mod, "SKILLS_ON_CODER_ENABLED", enabled)
     monkeypatch.setattr(orch_mod, "load_skills", lambda: skills_on_disk)
@@ -229,7 +233,10 @@ def _coder_inject(monkeypatch, *, enabled, skills_on_disk, query, task_type="fea
     o._on_skills_selected = None
     o._relevant_files_section.return_value = ""
     Orchestrator._inject_system_prompt(o, task_type=task_type, query=query)
-    return o, o.memory.messages[0]["content"]
+    systeme = o.memory.messages[0]["content"]
+    assert systeme == orch_mod._CODER_SLIM_PROMPT  # système figé, requête ou pas
+    o.memory.ancrer_contexte_tour.assert_called_once_with(o._contexte_tour)
+    return o, o._contexte_tour
 
 
 class TestSkillsOnCoder:
@@ -239,8 +246,7 @@ class TestSkillsOnCoder:
                                    skills_on_disk=[_FASTAPI_SKILL],
                                    query="ajoute un endpoint FastAPI")
         assert o._injected_skill_slugs == []
-        assert "Patterns FastAPI" not in content
-        assert "générateur de code" in content  # prompt slim intact
+        assert content == ""  # aucun skill, aucune piste → rien à ancrer
 
     def test_flag_on_skill_taggue_et_pertinent_injecte_compact(self, monkeypatch):
         o, content = _coder_inject(monkeypatch, enabled=True,
@@ -250,7 +256,6 @@ class TestSkillsOnCoder:
         assert "Patterns FastAPI" in content
         assert "## Compétence(s) pertinente(s)" in content  # rendu compact injecté
         assert "APIRouter" in content                       # le content (tronqué) est là
-        assert "générateur de code" in content              # le prompt slim reste présent
         assert len(content) < 2500                          # reste compact
 
     def test_flag_on_skill_non_taggue_ignore(self, monkeypatch):

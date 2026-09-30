@@ -68,6 +68,7 @@ files = [
     "agent/greeting.py",
     "agent/peremption.py",
     "agent/stream_guard.py",
+    "agent/cache_prefixe.py",
     "agent/tokens.py",
     "agent/journal_client.py",
     "agent/semantic_memory.py",
