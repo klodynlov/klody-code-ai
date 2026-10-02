@@ -38,6 +38,10 @@
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- Zéro réseau Hugging Face au chargement des modèles (2026-10-02) :
+             whisper-large-v3-turbo résolu depuis le cache. -->
+        <key>HF_HUB_OFFLINE</key>
+        <string>1</string>
     </dict>
 </dict>
 </plist>
