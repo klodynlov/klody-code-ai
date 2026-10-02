@@ -537,7 +537,7 @@ scipy==1.17.1
     #   -c requirements.lock
     #   scikit-learn
     #   sentence-transformers
-sentence-transformers==5.5.1
+sentence-transformers==5.6.0
     # via
     #   -c requirements.lock
     #   -r requirements.txt
