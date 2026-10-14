@@ -117,6 +117,29 @@ def test_laser_unknown_tool_falls_back_to_generic_rule():
     assert not requires_approval("mcp__laser__lookup_material")    # lecture probable
 
 
+# --- politique par serveur : organe KLOD Live Brain (Ventuno Q, Link dans Live, GrooveDNA)
+
+def test_klod_flash_tempo_and_midi_require_approval():
+    # ventuno_app_start flashe le STM32H5 ; live_link_set change le tempo de tous les pairs Link.
+    for leaf in ["ventuno_app_start", "ventuno_link_start", "live_link_set", "play_groove",
+                 "send_to_reaper", "capture_groove", "import_midi_groove", "apply_groove",
+                 "morph_grooves"]:
+        assert requires_approval(f"mcp__klod__{leaf}"), f"doit être gardé : {leaf}"
+
+
+def test_klod_generic_rule_would_have_let_them_pass():
+    # Prémisse de la politique : sans elle, aucun verbe de tête ne les garde.
+    for leaf in ["ventuno_app_start", "live_link_set", "play_groove", "morph_grooves"]:
+        assert not requires_approval(f"mcp__autre__{leaf}"), f"prémisse fausse : {leaf}"
+
+
+def test_klod_stops_and_reads_are_free():
+    for leaf in ["ventuno_app_stop", "ventuno_link_stop", "klod_status", "list_grooves",
+                 "get_groove", "find_matching_samples", "ventuno_status", "ventuno_logs",
+                 "ventuno_link_status", "live_link_status", "export_midi"]:
+        assert not requires_approval(f"mcp__klod__{leaf}"), f"doit être libre : {leaf}"
+
+
 def test_server_policy_does_not_leak_to_other_servers():
     # « laser_arm » sur un autre serveur : règle générique (verbe de tête inconnu, pas de verbe fort).
     assert not requires_approval("mcp__gadget__laser_arm")
