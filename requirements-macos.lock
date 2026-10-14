@@ -160,7 +160,7 @@ filelock==3.29.0
     #   cachecontrol
     #   huggingface-hub
     #   torch
-fsspec==2026.4.0
+fsspec==2026.6.0
     # via
     #   -c requirements.lock
     #   huggingface-hub
