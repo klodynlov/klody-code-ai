@@ -65,7 +65,7 @@ ollama>=0.4.0
 #   starlette        CVE-2026-54282/54283       -> 1.3.1
 #   setuptools       PYSEC-2026-3447            -> 83.0.0
 #   pip              PYSEC-2026-3721            -> 26.2
-#   mcp              CVE-2026-52869/52870/59950 -> 1.28.1
+#   mcp              CVE-2026-52869/52870/59950 -> 1.28.1 ; CVE-2026-59951 -> 1.30.0
 # setuptools ET pip sont « unsafe » pour pip-tools : ils n'apparaissent dans le
 # lock qu'avec --allow-unsafe (sinon pip-audit audite le setuptools/pip seedé du
 # venv éphémère). Sans le plancher pip, pip-compile ressort le dernier pip connu
@@ -80,7 +80,7 @@ python-multipart>=0.0.32
 starlette>=1.3.1
 setuptools>=83.0.0
 pip>=26.2
-mcp>=1.28.1
+mcp>=1.30.0
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
 # paho-mqtt est LAZY + OPTIONNEL : absent, les outils MQTT renvoient un message
