@@ -286,7 +286,7 @@ markupsafe==3.0.3
     # via
     #   -c requirements.lock
     #   jinja2
-mcp==1.28.1
+mcp==1.30.0
     # via
     #   -c requirements.lock
     #   -r requirements.txt
