@@ -102,6 +102,27 @@ _SERVER_POLICIES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
             "camera_bed_view", "camera_px_to_bed", "camera_find_dot",
         }),
     ),
+    # Organe KLOD Live Brain (GrooveDNA + KLOD Rig) : aucun verbe de tête dans
+    # « ventuno_app_start » ou « live_link_set » — la règle générique les laisserait
+    # passer. Or démarrer une app App Lab COMPILE ET FLASHE le STM32H5 de la Ventuno,
+    # live_link_set change le tempo de la session Live (donc de tous les pairs Link),
+    # play_groove émet du MIDI, et capture/import/morph écrasent un groove du même nom.
+    "klod": (
+        frozenset({
+            "ventuno_app_start", "ventuno_link_start", "live_link_set",
+            "play_groove", "send_to_reaper", "capture_groove", "import_midi_groove",
+            "apply_groove", "morph_grooves",
+        }),
+        frozenset({
+            # arrêts : comme laser_stop, ne jamais attendre une validation pour couper
+            "ventuno_app_stop", "ventuno_link_stop",
+            # lecture et état
+            "klod_status", "list_grooves", "get_groove", "find_matching_samples",
+            "ventuno_status", "ventuno_logs", "ventuno_link_status", "live_link_status",
+            # écrit un .mid dans un fichier, ne joue rien (cf. job_export_gcode du laser)
+            "export_midi",
+        }),
+    ),
 }
 
 
