@@ -3,7 +3,7 @@ rich>=15.0.0
 python-dotenv>=1.2.2
 prompt_toolkit>=3.0.52
 pytest>=9.1.1
-fastmcp>=3.4.5
+fastmcp>=3.4.10
 httpx>=0.28.1
 fastapi>=0.141.1
 uvicorn>=0.52.1
@@ -66,6 +66,15 @@ ollama>=0.4.0
 #   setuptools       PYSEC-2026-3447            -> 83.0.0
 #   pip              PYSEC-2026-3721            -> 26.2
 #   mcp              CVE-2026-52869/52870/59950 -> 1.28.1 ; CVE-2026-59951 -> 1.30.0
+#   setuptools       GHSA-xmj3-9gf7-h52w        -> 84.1.0
+#   authlib          CVE-2026-96760/114614..114620 -> 1.9.1
+#   msgpack          CVE-2026-114613            -> 1.2.3
+#   certifi          PYSEC-2026-4320            -> 2026.10.19
+#   dnspython        CVE-2026-114605            -> 2.9.0
+#   filelock         CVE-2026-112907/112913/112940 -> 4.2.1 (majeure : 0 import direct,
+#                    via cachecontrol/huggingface-hub/torch, qui acceptent filelock 4)
+#   opentelemetry-api CVE-2026-114603           -> 1.45.1
+#   (fastmcp GHSA-7xgj-8392-5q4r -> 3.4.10 : plancher direct, en tête de fichier)
 # setuptools ET pip sont « unsafe » pour pip-tools : ils n'apparaissent dans le
 # lock qu'avec --allow-unsafe (sinon pip-audit audite le setuptools/pip seedé du
 # venv éphémère). Sans le plancher pip, pip-compile ressort le dernier pip connu
@@ -78,9 +87,15 @@ ollama>=0.4.0
 cryptography>=50.0.0
 python-multipart>=0.0.32
 starlette>=1.3.1
-setuptools>=83.0.0
+setuptools>=84.1.0
 pip>=26.2
 mcp>=1.30.0
+authlib>=1.9.1
+msgpack>=1.2.3
+certifi>=2026.10.19
+dnspython>=2.9.0
+filelock>=4.2.1
+opentelemetry-api>=1.45.1
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
 # paho-mqtt est LAZY + OPTIONNEL : absent, les outils MQTT renvoient un message
