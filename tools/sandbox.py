@@ -13,10 +13,12 @@ Architecture :
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -37,6 +39,49 @@ _DEFAULT_TIMEOUT = 30
 # pour pytest seul ; numpy/requests + des requirements lourds (torch, opencv)
 # demandent de la marge — un dépassement coupait l'install EN SILENCE.
 _PIP_TIMEOUT = 600
+# Un venv non utilisé depuis ce délai est supprimé à la création d'un autre.
+# Sans purge, un venv (~92 Mo) par workdir s'accumulait sans fin : 2 242 venvs /
+# 163 Go le 2026-10-28, surtout des `tmp_path` de tests passés par le runner CI.
+_STALE_VENV_DAYS = 14
+
+
+def _default_cache_root() -> Path:
+    """Racine du cache des venvs. `KLODY_SANDBOX_CACHE` la détourne (tests)."""
+    env = os.environ.get("KLODY_SANDBOX_CACHE")
+    if env:
+        return Path(env)
+    return Path.home() / ".cache" / "klody" / "sandbox-venvs"
+
+
+def prune_stale_venvs(cache_root: Path, max_age_days: float = _STALE_VENV_DAYS,
+                      keep: Path | None = None) -> int:
+    """Supprime les venvs du cache inutilisés depuis `max_age_days`.
+
+    L'usage est daté par le mtime du dossier, rafraîchi à chaque `ensure_venv`.
+    Ne touche qu'aux dossiers qui ont un `pyvenv.cfg` (jamais autre chose qu'un
+    venv). Best-effort : une erreur n'empêche jamais le sandbox de tourner.
+    Retourne le nombre de venvs supprimés.
+    """
+    if not cache_root.is_dir():
+        return 0
+    cutoff = time.time() - max_age_days * 86400
+    removed = 0
+    for entry in cache_root.iterdir():
+        try:
+            if keep is not None and entry.resolve() == keep.resolve():
+                continue
+            if not (entry / "pyvenv.cfg").is_file():
+                continue
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry)
+            removed += 1
+        except OSError as exc:
+            logger.debug("Purge venv %s ignorée : %s", entry, exc)
+    if removed:
+        logger.info("Purge sandbox : %d venv(s) inutilisé(s) > %s j supprimé(s)",
+                    removed, max_age_days)
+    return removed
 
 
 @dataclass
@@ -78,7 +123,7 @@ class SandboxRunner:
     def __init__(self, workdir: Path, cache_root: Path | None = None):
         self.workdir = Path(workdir).resolve()
         if cache_root is None:
-            cache_root = Path.home() / ".cache" / "klody" / "sandbox-venvs"
+            cache_root = _default_cache_root()
         # Un venv unique par workdir (hash du chemin absolu)
         digest = hashlib.sha256(str(self.workdir).encode()).hexdigest()[:16]
         self.venv_dir: Path = cache_root / digest
@@ -126,6 +171,12 @@ class SandboxRunner:
                 return False
 
             self._pip_install(list(self._DEFAULT_PACKAGES), label="packages de base")
+            # Création = rare : le bon moment pour purger les venvs abandonnés.
+            prune_stale_venvs(self.venv_dir.parent, keep=self.venv_dir)
+        else:
+            # Daté à chaque usage : c'est ce mtime que la purge lit.
+            with contextlib.suppress(OSError):
+                os.utime(self.venv_dir)
 
         # requirements.txt : installer à l'apparition ET à chaque modification.
         req = self.workdir / "requirements.txt"
