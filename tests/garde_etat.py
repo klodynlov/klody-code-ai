@@ -110,6 +110,9 @@ def rediriger() -> Path:
     os.environ["KLODY_DATA_DIR"] = str(dossier)
     # Sinon hérité d'un `SEMANTIC_MEMORY_DB` exporté, qui ne suit pas KLODY_DATA_DIR.
     os.environ["SEMANTIC_MEMORY_DB"] = str(dossier / "semantic_memory.db")
+    # Un `SandboxRunner(tmp_path)` sans `cache_root` créait son venv dans le vrai
+    # ~/.cache à chaque run : 2 242 venvs / 163 Go accumulés (2026-10-28).
+    os.environ["KLODY_SANDBOX_CACHE"] = str(dossier / "sandbox-venvs")
     return dossier
 
 

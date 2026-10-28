@@ -5,10 +5,11 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
-from tools.sandbox import SandboxResult, SandboxRunner, auto_command_for
+from tools.sandbox import SandboxResult, SandboxRunner, auto_command_for, prune_stale_venvs
 
 # ── auto_command_for ──────────────────────────────────────────────────────────
 
@@ -354,3 +355,47 @@ class TestEnvHeadless:
         assert result.exit_code == 0
         assert captured["env"]["MPLBACKEND"] == "Agg"
         assert captured["env"]["PYTHONFAULTHANDLER"] == "1"
+
+
+# ── Purge des venvs inutilisés ────────────────────────────────────────────────
+
+
+def _faux_venv(root: Path, nom: str, age_jours: float) -> Path:
+    d = root / nom
+    d.mkdir(parents=True)
+    (d / "pyvenv.cfg").write_text("version = 3.11\n")
+    t = time.time() - age_jours * 86400
+    os.utime(d, (t, t))
+    return d
+
+
+class TestPruneStaleVenvs:
+    def test_supprime_vieux_garde_recents(self, tmp_path):
+        vieux = _faux_venv(tmp_path, "vieux", 30)
+        recent = _faux_venv(tmp_path, "recent", 1)
+        assert prune_stale_venvs(tmp_path, max_age_days=14) == 1
+        assert not vieux.exists()
+        assert recent.exists()
+
+    def test_ne_touche_pas_ce_qui_n_est_pas_un_venv(self, tmp_path):
+        autre = tmp_path / "pas_un_venv"
+        autre.mkdir()
+        t = time.time() - 100 * 86400
+        os.utime(autre, (t, t))
+        assert prune_stale_venvs(tmp_path, max_age_days=14) == 0
+        assert autre.exists()
+
+    def test_garde_le_venv_courant_meme_vieux(self, tmp_path):
+        courant = _faux_venv(tmp_path, "courant", 30)
+        assert prune_stale_venvs(tmp_path, max_age_days=14, keep=courant) == 0
+        assert courant.exists()
+
+    def test_cache_absent_ne_plante_pas(self, tmp_path):
+        assert prune_stale_venvs(tmp_path / "absent") == 0
+
+
+def test_cache_par_defaut_hors_du_vrai_home():
+    """La suite ne doit jamais créer de venv dans ~/.cache (fuite 163 Go)."""
+    runner = SandboxRunner(workdir=Path("/tmp"))
+    vrai = Path.home() / ".cache" / "klody" / "sandbox-venvs"
+    assert vrai not in runner.venv_dir.parents
