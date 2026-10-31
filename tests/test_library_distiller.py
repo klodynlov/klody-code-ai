@@ -10,7 +10,6 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
 from tools.library_distiller import (
     _digest_slug,
     _parse_llm_json,
@@ -19,7 +18,6 @@ from tools.library_distiller import (
     harvest,
     rank_books,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -137,9 +135,10 @@ class TestRankHarvest:
     def test_rank_trouve_le_bon_livre(self, db):
         books = rank_books("optimisation webgl shaders")
         assert books and books[0]["id"] == 1
-        # 2 chunks : « webgl »/« shaders » exacts. Le 3ᵉ dit « shader » au
-        # singulier — FTS5 ne stemme pas, il ne matche pas. Comportement assumé.
-        assert books[0]["hits"] == 2
+        # 2 chunks × 2 termes : « webgl »/« shaders » exacts. Le 3ᵉ dit
+        # « shader » au singulier — FTS5 ne stemme pas, il ne matche pas.
+        # Comportement assumé.
+        assert books[0]["hits"] == 4 and books[0]["coverage"] == 2
         assert all(b["id"] != 2 for b in books)  # la cuisine ne matche pas
 
     def test_rank_theme_vide(self, db):
@@ -153,9 +152,25 @@ class TestRankHarvest:
         con.execute("PRAGMA query_only=0")
         con.execute("INSERT INTO chunks VALUES (5, 2, 1, 'un webgl dans la cuisine', 9, 'ch2', 10)")
         con.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
-        con.commit(); con.close()
+        con.commit()
+        con.close()
         books = rank_books("webgl shaders")
         assert [b["id"] for b in books] == [1]
+
+    def test_rank_un_gros_livre_ne_gagne_pas_au_volume(self, db):
+        # Régression 2026-10-31 : au comptage brut, une somme de 9 769 chunks
+        # (Kant, Œuvres complètes) passait devant le vrai manuel. Ici un
+        # « gros » livre de 60 chunks matche les deux termes sur 3 chunks, le
+        # manuel (3 chunks) sur 2 : à couverture égale, la densité l'emporte.
+        con = sqlite3.connect(db)
+        con.execute("INSERT INTO books VALUES (3, 'Œuvres complètes', 'X', 'litt', 'epub', '/z.epub')")
+        rows = [(100 + i, 3, i, "webgl et shaders" if i < 3 else "prose sans rapport", i, "c", 10)
+                for i in range(60)]
+        con.executemany("INSERT INTO chunks VALUES (?,?,?,?,?,?,?)", rows)
+        con.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+        con.commit()
+        con.close()
+        assert [b["id"] for b in rank_books("webgl shaders")] == [1, 3]
 
     def test_harvest_rapporte_pages(self, db):
         books = rank_books("webgl")
