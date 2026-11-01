@@ -244,9 +244,10 @@ joblib==1.5.3
     # via
     #   -c requirements.lock
     #   scikit-learn
-joserfc==1.6.8
+joserfc==1.7.6
     # via
     #   -c requirements.lock
+    #   -r requirements.txt
     #   authlib
     #   fastmcp-slim
 jsonref==1.1.0
