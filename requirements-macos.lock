@@ -247,6 +247,7 @@ joblib==1.5.3
 joserfc==1.7.6
     # via
     #   -c requirements.lock
+    #   -r requirements.txt
     #   authlib
     #   fastmcp-slim
 jsonref==1.1.0
