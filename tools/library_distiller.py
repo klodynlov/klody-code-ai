@@ -2,9 +2,10 @@
 
 Chaînon entre `learn_from_books` (RAG lite : quelques extraits via :8765) et le
 pipeline brain-distiller premium (Claude Code, /distill) : Klody classe lui-même
-les livres du corpus local par pertinence FTS5, moissonne les meilleurs extraits
-(page/chapitre) et synthétise un digest couche A `skills/digest_<slug>.json`,
-routé ensuite comme n'importe quel skill.
+les livres du corpus local (couverture des termes + BM25 normalisé par
+taille), moissonne les meilleurs extraits (page/chapitre) et synthétise un
+digest couche A `skills/digest_<slug>.json`, routé ensuite comme n'importe
+quel skill.
 
 Règles héritées du pipeline premium (retours terrain 12/06) :
 - DB ouverte en LECTURE SEULE (URI mode=ro) — jamais d'écriture ici.
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 from pathlib import Path
@@ -63,11 +65,65 @@ def _like_clause(terms: list[str]) -> tuple[str, list[str]]:
     return f"({parts})", [f"%{t}%" for t in terms]
 
 
-def rank_books(theme: str, k: int = 4) -> list[dict]:
-    """Classe les livres du corpus par nombre de chunks matchant le thème.
+# Candidats gardés (par couverture puis score brut) avant la normalisation par
+# taille : borne le nombre de comptages de chunks par livre.
+_RANK_POOL = 400
 
-    Voie rapide : FTS5 (`OR` des termes). Sur DatabaseError/OperationalError
-    (index désynchronisé, table absente) → repli LIKE, plus lent mais sûr.
+
+def _term_stats(con: sqlite3.Connection, terms: list[str], fts: bool
+                ) -> tuple[dict[int, set[int]], dict[int, int], dict[int, float]]:
+    """Par livre : termes DISTINCTS couverts, chunks matchés, score cumulé.
+
+    Une requête par terme : le score FTS est BM25 (un terme rare pèse plus
+    qu'un terme banal) ; le repli LIKE n'a que le comptage.
+    """
+    cover: dict[int, set[int]] = {}
+    hits: dict[int, int] = {}
+    score: dict[int, float] = {}
+    for i, t in enumerate(terms):
+        if fts:
+            # bm25() refuse d'être agrégé à travers une jointure : on le
+            # matérialise d'abord. Terme alphanumérique strict (cf. _terms) →
+            # la phrase entre guillemets ne transporte aucun opérateur.
+            rows = con.execute(
+                """
+                WITH f AS MATERIALIZED (
+                    SELECT rowid, -bm25(chunks_fts) AS s
+                    FROM chunks_fts WHERE chunks_fts MATCH ?
+                )
+                SELECT c.book_id, COUNT(*), SUM(f.s)
+                FROM f JOIN chunks c ON c.id = f.rowid
+                GROUP BY c.book_id
+                """,
+                (f'"{t}"',),
+            )
+        else:
+            rows = con.execute(
+                "SELECT book_id, COUNT(*), COUNT(*) FROM chunks "
+                "WHERE text LIKE ? GROUP BY book_id",
+                (f"%{t}%",),
+            )
+        for bid, n, s in rows:
+            cover.setdefault(bid, set()).add(i)
+            hits[bid] = hits.get(bid, 0) + n
+            score[bid] = score.get(bid, 0.0) + s
+    return cover, hits, score
+
+
+def rank_books(theme: str, k: int = 4) -> list[dict]:
+    """Classe les livres du corpus par pertinence au thème.
+
+    1. COUVERTURE : nombre de termes distincts du thème présents dans le livre
+       (≥ 2 exigés dès qu'un livre y arrive) ;
+    2. puis score BM25 cumulé divisé par √(nb de chunks du livre).
+
+    Le comptage brut faisait gagner les livres énormes sur un seul mot
+    (mesuré 2026-10-31 : Kant, Œuvres complètes — 9 769 chunks — n°1 sur
+    « harmonie jazz » ; un preprint de 1 856 p. n°1 sur « python » grâce à
+    ses listings de code). Sur 12 thèmes réels jugés, précision@4 0,47 → 0,56.
+
+    Voie rapide : FTS5. Sur DatabaseError/OperationalError (index
+    désynchronisé, table absente) → repli LIKE, plus lent mais sûr.
     """
     terms = _terms(theme)
     if not terms:
@@ -75,41 +131,31 @@ def rank_books(theme: str, k: int = 4) -> list[dict]:
     con = _connect()
     try:
         try:
-            # AND d'abord : tous les termes dans le MÊME chunk. Sans ça, un
-            # terme fréquent isolé (« rest », « design ») fait gagner de gros
-            # livres hors sujet au comptage brut. Repli OR si AND ne sort rien.
-            rows: list = []
-            for op in (" AND ", " OR "):
-                rows = con.execute(
-                    """
-                    SELECT b.id, b.title, b.author, b.format, COUNT(*) AS hits
-                    FROM chunks_fts f
-                    JOIN chunks c ON c.id = f.rowid
-                    JOIN books b ON b.id = c.book_id
-                    WHERE chunks_fts MATCH ?
-                    GROUP BY b.id ORDER BY hits DESC LIMIT ?
-                    """,
-                    (op.join(terms), k),
-                ).fetchall()
-                if rows:
-                    break
+            cover, hits, score = _term_stats(con, terms, fts=True)
         except (sqlite3.DatabaseError, sqlite3.OperationalError) as exc:
             logger.warning("[distill_theme] FTS KO (%s) → repli LIKE", exc)
-            where, params = _like_clause(terms[:4])
-            rows = con.execute(
-                f"""
-                SELECT b.id, b.title, b.author, b.format, COUNT(*) AS hits
-                FROM chunks c JOIN books b ON b.id = c.book_id
-                WHERE {where}
-                GROUP BY b.id ORDER BY hits DESC LIMIT ?
-                """,
-                (*params, k),
-            ).fetchall()
+            cover, hits, score = _term_stats(con, terms[:4], fts=False)
+        if not cover:
+            return []
+        min_cover = 2 if any(len(c) >= 2 for c in cover.values()) else 1
+        pool = sorted((b for b, c in cover.items() if len(c) >= min_cover),
+                      key=lambda b: (-len(cover[b]), -score[b]))[:_RANK_POOL]
+        marks = ",".join("?" * len(pool))
+        sizes = dict(con.execute(
+            f"SELECT book_id, COUNT(*) FROM chunks WHERE book_id IN ({marks}) "  # nosec B608 — `marks` = uniquement des `?`
+            "GROUP BY book_id", pool).fetchall())
+        ranked = sorted(pool, key=lambda b: (
+            -len(cover[b]), -score[b] / math.sqrt(sizes.get(b) or 1)))[:k]
+        marks = ",".join("?" * len(ranked))
+        meta = {r[0]: r for r in con.execute(
+            f"SELECT id, title, author, format FROM books WHERE id IN ({marks})",  # nosec B608 — `marks` = uniquement des `?`
+            ranked).fetchall()}
     finally:
         con.close()
     return [
-        {"id": r[0], "title": r[1], "author": r[2], "format": r[3], "hits": r[4]}
-        for r in rows
+        {"id": b, "title": meta[b][1], "author": meta[b][2], "format": meta[b][3],
+         "hits": hits[b], "coverage": len(cover[b])}
+        for b in ranked if b in meta
     ]
 
 
@@ -124,7 +170,7 @@ def harvest(books: list[dict], theme: str, per_book: int = 5, clip: int = 900) -
         for b in books:
             try:
                 rows = []
-                for op in (" AND ", " OR "):  # même logique AND-first que rank_books
+                for op in (" AND ", " OR "):  # extraits portant TOUS les termes d'abord
                     rows = con.execute(
                         """
                         SELECT c.text, c.page, c.chapter
@@ -138,15 +184,9 @@ def harvest(books: list[dict], theme: str, per_book: int = 5, clip: int = 900) -
                         break
             except (sqlite3.DatabaseError, sqlite3.OperationalError):
                 where, params = _like_clause(terms[:4])
-                rows = con.execute(
-                    f"""
-                    SELECT c.text, c.page, c.chapter
-                    FROM chunks c
-                    WHERE {where} AND c.book_id = ?
-                    LIMIT ?
-                    """,
-                    (*params, b["id"], per_book),
-                ).fetchall()
+                sql = (f"SELECT c.text, c.page, c.chapter FROM chunks c "  # nosec B608 — `where` = « c.text LIKE ? » répétés (_like_clause)
+                       f"WHERE {where} AND c.book_id = ? LIMIT ?")
+                rows = con.execute(sql, (*params, b["id"], per_book)).fetchall()
             for text, page, chapter in rows:
                 out.append({
                     "book_id": b["id"],
