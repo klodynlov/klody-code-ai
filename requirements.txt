@@ -97,7 +97,7 @@ certifi>=2026.10.19
 dnspython>=2.9.0
 filelock>=4.2.1
 opentelemetry-api>=1.45.1
-joserfc>=1.7.6
+joserfc>=1.7.7
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
 # paho-mqtt est LAZY + OPTIONNEL : absent, les outils MQTT renvoient un message
