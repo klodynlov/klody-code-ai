@@ -2,7 +2,7 @@ openai>=2.53.0
 rich>=15.0.0
 python-dotenv>=1.2.2
 prompt_toolkit>=3.0.52
-pytest>=9.1.1
+pytest>=9.2.0
 fastmcp>=3.4.10
 httpx>=0.28.1
 fastapi>=0.141.1
@@ -26,7 +26,7 @@ tree-sitter-typescript>=0.23.2
 
 # MCP server expose (Roadmap v2 #9 — Klody-as-platform)
 # fastmcp + pytest-asyncio pour les tests d'intégration MCP
-pytest-asyncio>=1.4.0
+pytest-asyncio>=1.4.1
 
 # Serveur MCP Web (klody_mcp/web_server.py — fetch_url + web_search)
 requests>=2.34.2
