@@ -84,6 +84,10 @@ def horloge(monkeypatch):
     monkeypatch.setattr("agent.llm.time.sleep", attentes.append)
     monkeypatch.setattr("config.LLM_503_ESSAIS", 2)
     monkeypatch.setattr("config.LLM_503_ATTENTE_S", 5.0)
+    # Ces tests jugent le RÉESSAI. Le repli brain → coder (2026-11-15) a les
+    # siens (tests/test_llm_repli_503.py) ; sans cette ligne, le verdict
+    # dépendrait du `.env` de la machine (MLX_CODE_MODEL posé ou non).
+    monkeypatch.setattr("config.LLM_503_REPLI", False)
     monkeypatch.setattr("agent.llm.MODEL_FALLBACK", "secours")
     return attentes
 

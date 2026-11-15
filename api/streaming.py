@@ -13,7 +13,15 @@ from typing import Any
 
 import config
 from agent.cache_prefixe import journaliser_cache, tokens_en_cache
-from agent.erreurs_llm import attente_reessai_503, message_reessai_503
+from agent.erreurs_llm import (
+    attente_reessai_503,
+    est_503,
+    message_reessai_503,
+    message_repli_503,
+    modele_repli_503,
+    noter_repli_503,
+    pour_journal,
+)
 from agent.orchestrator import Orchestrator
 from agent.stream_guard import LoopGuard
 
@@ -47,6 +55,7 @@ def make_stream_api(
         thinking_budget: int | None = None,
         _recovering: bool = False,
         _essai_503: int = 0,
+        _modele_repli: str | None = None,
     ) -> tuple[str, Any]:
         """Streaming direct sans Rich — pour l'API server (pas de TTY).
 
@@ -57,13 +66,16 @@ def make_stream_api(
         """
         import time as _t
         t0 = _t.perf_counter()
+        # Alias réellement servi : le modèle de session, ou le repli posé par la
+        # branche 503 plus bas pour CET appel — `orch.llm.model` n'est pas touché.
+        modele = _modele_repli or orch.llm.model
         if not silent:
             _put({"type": "thinking"})
 
         if enable_thinking:
             max_tokens = max(max_tokens, config.THINKING_MAX_TOKENS)
         params: dict = {
-            "model": orch.llm.model,
+            "model": modele,
             "messages": messages,
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -145,7 +157,7 @@ def make_stream_api(
                                     temperature=temperature, silent=silent,
                                     tool_choice=tool_choice, max_tokens=max_tokens,
                                     enable_thinking=False, thinking_budget=None,
-                                    _recovering=True,
+                                    _recovering=True, _modele_repli=_modele_repli,
                                 )
                 if delta.content:
                     full_content += delta.content
@@ -183,7 +195,11 @@ def make_stream_api(
             # que la CLI, cf. agent/erreurs_llm.py), et toute autre erreur
             # REMONTE sans être affichée ici — `run_agent` est le seul
             # émetteur de `error`, avec un message lisible.
-            attente = attente_reessai_503(e, _essai_503)
+            if _modele_repli is not None:
+                # Appel de repli : aucun réessai, aucun second repli. Un refus
+                # remonte à l'appel d'origine, qui rend le refus du modèle demandé.
+                raise
+            attente = attente_reessai_503(e, _essai_503, orch.llm)
             if attente is not None:
                 statut_txt = message_reessai_503(e, _essai_503, attente)
                 logger.warning("%s", statut_txt)
@@ -199,13 +215,43 @@ def make_stream_api(
                     thinking_budget=thinking_budget, _recovering=_recovering,
                     _essai_503=_essai_503 + 1,
                 )
-            raise
+            repli = modele_repli_503(e, orch.llm)
+            if repli is not None:
+                # Le 503 mémoire a survécu aux essais (vécu le 2026-11-15 : 54 Go
+                # réels, brain ~52 refusé plusieurs minutes, coder ~40 passait) :
+                # CET appel est rejoué sur le modèle de code. Même décision que la
+                # CLI (agent/erreurs_llm.py) ; le modèle de session ne bouge pas.
+                statut_txt = message_repli_503(e, orch.llm, repli)
+                logger.warning("%s", pour_journal(statut_txt, 400))
+                if not silent:
+                    _put({"type": "reasoning", "content": f"⚠ {statut_txt}\n"})
+                noter_repli_503(orch.llm)
+                try:
+                    return stream_api(
+                        messages, tools=tools, token_callback=token_callback,
+                        temperature=temperature, silent=silent, tool_choice=tool_choice,
+                        max_tokens=max_tokens, enable_thinking=enable_thinking,
+                        thinking_budget=thinking_budget, _recovering=_recovering,
+                        _essai_503=_essai_503, _modele_repli=repli,
+                    )
+                except StopGeneration:
+                    raise
+                except Exception as e_repli:
+                    if not est_503(e_repli):
+                        raise
+                    logger.warning(
+                        "Repli refusé aussi (%s) — on rend le refus d'origine",
+                        pour_journal(str(e_repli), 300),
+                    )
+            # `raise e`, pas `raise` nu : après un repli refusé, c'est le refus
+            # du modèle DEMANDÉ qui doit remonter à `run_agent`.
+            raise e
 
         # Taux de cache du préfixe, pour CHAQUE appel (silencieux compris). Sans
         # ce chiffre, un prompt système qui change d'un octet à chaque message
         # recalcule tous les schémas d'outils depuis le token 0 sans que rien ne
         # le dise — mesuré le 2026-09-27 : 11,2 s contre 0,55 s en cache.
-        journaliser_cache(usage, orch.llm.model, _t.perf_counter() - t0)
+        journaliser_cache(usage, modele, _t.perf_counter() - t0)
 
         tool_calls = list(raw_tool_calls.values()) if raw_tool_calls else None
 
@@ -237,7 +283,7 @@ def make_stream_api(
                   "tokens": completion_toks, "prompt_tokens": prompt_toks,
                   "cached_tokens": tokens_en_cache(usage),
                   "total_tokens": total_toks, "context_window": config.CONTEXT_WINDOW,
-                  "model": orch.llm.model})
+                  "model": modele})
 
         orch.llm.total_tokens += (
             (getattr(usage, "completion_tokens", 0) or 0) if usage is not None
