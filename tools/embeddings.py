@@ -26,6 +26,8 @@ leurs replis existants (grep littéral, `select_skills`).
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -44,14 +46,22 @@ REESSAI_APRES_PANNE_S = 600.0
 _reessai_apres: float = 0.0
 
 
+# Vérifier-puis-configurer sous verrou : depuis le préchauffage au démarrage
+# (2026-11-19), un fil de fond et la première requête peuvent arriver ici en même
+# temps. Sans verrou, les deux appellent `configure_memory()` et le second
+# remplace la connexion que le premier vient de poser.
+_pret_lock = threading.Lock()
+
+
 def _ensure_ready() -> bool:
     """Garantit que `klody_memory` est configuré, via son propriétaire."""
     from agent import semantic_memory as _sm  # import tardif : évite un cycle
 
     if not _sm.MEMORY_AVAILABLE:
         return False
-    if not _sm.is_ready():
-        _sm.configure_memory()
+    with _pret_lock:
+        if not _sm.is_ready():
+            _sm.configure_memory()
     return True
 
 
@@ -144,6 +154,47 @@ def embed_one(text: str) -> list[float]:
         return []
     out = embed_batch([text])
     return out[0] if out else []
+
+
+ENV_PRECHAUFFE = "KLODY_PRECHAUFFE_EMBEDDINGS"
+
+
+def prechauffer() -> bool:
+    """Charge le modèle d'embedding TOUT DE SUITE, au lieu du premier embed.
+
+    Pourquoi (mesuré le 2026-11-19, PR #325) : une fois l'index de code persisté,
+    la première recherche d'un process neuf coûtait encore ~7-8 s, dont 0,05 s
+    d'index et 8,75 s de chargement de bge-m3 au premier embed. Siri et iMessage
+    tombent justement sur un process fraîchement redémarré. `api.server` appelle
+    cette fonction dans un fil de fond au démarrage : le modèle est en mémoire
+    avant la première question, et l'écoute sur :8000 n'attend pas.
+
+    Le chargement est sérialisé par le verrou du moteur (`klody_memory.embedder`) :
+    une requête arrivée pendant le préchauffage attend le même chargement au lieu
+    d'en lancer un second.
+
+    `KLODY_PRECHAUFFE_EMBEDDINGS=0` le coupe (la suite de tests le pose : un
+    `TestClient` avec lifespan chargerait sinon le vrai modèle). Ne lève jamais.
+    Rend True si un vecteur est sorti.
+    """
+    if os.getenv(ENV_PRECHAUFFE, "1").strip().lower() in {"0", "false", "non", "no", "off"}:
+        logger.info("Préchauffage des embeddings coupé (%s).", ENV_PRECHAUFFE)
+        return False
+    debut = time.monotonic()
+    try:
+        if not is_available():
+            logger.info("Préchauffage des embeddings sauté : moteur indisponible.")
+            return False
+        ok = bool(embed_one("préchauffage"))
+    except Exception as exc:  # jamais fatal : le premier vrai embed chargera
+        logger.warning("Préchauffage des embeddings échoué : %s", exc)
+        return False
+    duree = time.monotonic() - debut
+    if ok:
+        logger.info("Embeddings préchauffés (%s) en %.1f s.", model_id() or "?", duree)
+    else:
+        logger.warning("Préchauffage des embeddings : aucun vecteur (%.1f s).", duree)
+    return ok
 
 
 def _reset_cache() -> None:

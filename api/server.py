@@ -139,6 +139,15 @@ async def lifespan(app: FastAPI):
             logger.warning("[LibraryBrain] init ignorée: %s", exc)
 
     threading.Thread(target=_init_librarybrain, name="lb-init", daemon=True).start()
+    # Modèle d'embedding chargé dès le boot, dans un fil de fond (8,75 s mesurées
+    # le 2026-11-19) : sinon c'est la première recherche, souvent une requête Siri
+    # ou iMessage, qui le paie. Appelé par le module pour que les tests puissent
+    # le remplacer ; coupé par KLODY_PRECHAUFFE_EMBEDDINGS=0.
+    from tools import embeddings as _embeddings
+
+    threading.Thread(
+        target=lambda: _embeddings.prechauffer(), name="embed-prechauffe", daemon=True,
+    ).start()
     yield
     with suppress(Exception):  # arrêt propre (SIGTERM uvicorn ; pas sur kickstart -k)
         from tools.preview import _stop_server

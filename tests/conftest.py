@@ -179,6 +179,18 @@ def _journal_d_usage_coupe(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _pas_de_prechauffage_embeddings(monkeypatch):
+    """Le lifespan de l'API ne charge PAS le vrai modèle d'embedding en test.
+
+    Depuis le 2026-11-19, `api.server.lifespan` préchauffe bge-m3 dans un fil de
+    fond. Chaque `with TestClient(app)` le lancerait : ~2 Go et ~9 s sur une
+    machine qui a le modèle, ou une panne d'embeddings constatée ailleurs.
+    `tests/test_embeddings.py` retire la variable là où il juge la fonction.
+    """
+    monkeypatch.setenv("KLODY_PRECHAUFFE_EMBEDDINGS", "0")
+
+
+@pytest.fixture(autouse=True)
 def _semantic_memory_isolee(monkeypatch, tmp_path):
     """La mémoire sémantique ne touche JAMAIS la base réelle pendant les tests.
 
