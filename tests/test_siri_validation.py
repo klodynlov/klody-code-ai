@@ -4,6 +4,7 @@ Vécu le 2026-11-19 (spike iMessage) : `_run_siri_query` exécutait tout outil s
 passer par approval.py, la garde n'existant que dans le WebSocket.
 """
 import inspect
+from typing import ClassVar
 
 import api.server as serveur
 import httpx
@@ -98,3 +99,67 @@ def test_le_chemin_siri_utilise_le_reessai():
     source = inspect.getsource(serveur._run_siri_query)
     assert "_creer_avec_reessai_503(orch.llm.client.chat.completions.create" in source
     assert "orch.llm.client.chat.completions.create(**params)" not in source
+
+
+# ── Latence (2026-11-19) : ce que le modèle voit sur le chemin Siri ──────────
+# Mesuré : 405 schémas d'outils = 89 k tokens = 165 s de prefill à froid, et la
+# bascule brain→coder du routeur perdait le cache de préfixe à chaque requête.
+
+def _outil(nom: str) -> dict:
+    return {"type": "function", "function": {"name": nom, "parameters": {}}}
+
+
+def test_outils_siri_natifs_non_gardes_seulement():
+    noms = ["read_file", "search_books", "git_control", "sync_directories",
+            "write_file", "run_applescript", "run_shortcut",
+            "mcp__web__search", "mcp__gmail__read_email", "mcp__laser__laser_run"]
+    gardes = {t["function"]["name"] for t in serveur._outils_siri([_outil(n) for n in noms])}
+    assert gardes == {"read_file", "search_books", "git_control", "sync_directories"}
+
+
+class _FauxLLM:
+    def __init__(self):
+        self.model = "brain"
+        self.client = None
+        self.total_tokens = 0
+
+    def stream_chat(self, *a, **k):  # remplacé par _sync_chat
+        raise AssertionError
+
+
+class _FauxOrchestrateur:
+    vu: ClassVar[dict] = {}
+
+    def __init__(self, memory):
+        self.memory = memory
+        self.llm = _FauxLLM()
+        self._pinned_model = None
+        self.tools = [_outil(n) for n in ("read_file", "write_file", "mcp__unity__build")]
+
+    def _execute_tool(self, nom, args):
+        return "ok"
+
+    def _execute_and_display(self, nom, args):
+        return "ok"
+
+    def _relevant_files_section(self, query):
+        return "PISTES"
+
+    def run(self, query):
+        type(self).vu = {
+            "pinned": self._pinned_model,
+            "outils": [t["function"]["name"] for t in self.tools],
+            "pistes": self._relevant_files_section(query),
+        }
+        self.memory.messages.append({"role": "assistant", "content": "**réponse**"})
+
+    def close(self):
+        pass
+
+
+def test_run_siri_query_epingle_reduit_et_coupe_le_retrieval(monkeypatch, tmp_path):
+    monkeypatch.setattr(serveur, "Orchestrator", _FauxOrchestrateur)
+    monkeypatch.setattr(serveur.config, "MEMORY_DIR", tmp_path)
+    monkeypatch.setattr(serveur.config, "BACKEND", "mlx")
+    assert serveur._run_siri_query("quelle heure est-il ?") == "réponse"
+    assert _FauxOrchestrateur.vu == {"pinned": "brain", "outils": ["read_file"], "pistes": ""}

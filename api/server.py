@@ -1397,6 +1397,25 @@ def _executeur_sans_validation(
     return _executer
 
 
+def _outils_siri(outils: list[dict]) -> list[dict]:
+    """Outils exposés au modèle sur le chemin Siri : natifs non gardés seulement.
+
+    Mesuré le 2026-11-19 : les 405 schémas (336 MCP + 69 natifs) font 89 k tokens
+    de prompt, soit 165 s de prefill à froid sur coder — plus le reste du tour, le
+    chemin non streamé dépassait la lecture de 300 s. Les outils gardés seraient
+    de toute façon refusés (`_executeur_sans_validation`) : les montrer coûte sans
+    servir. Les MCP sont retirés en bloc (≈ 72 k tokens, outils de création et de
+    pilotage hors sujet pour une question vocale, et le spike iMessage excluait déjà
+    le web, vecteur d'injection). Natifs seuls ≈ 14 k tokens → 21 s à froid.
+    Les outils gardés PAR ARGUMENTS restent (valides en lecture, refusés sinon).
+    """
+    return [
+        t for t in outils
+        if not t["function"]["name"].startswith("mcp__")
+        and not requires_approval(t["function"]["name"], {})
+    ]
+
+
 def _creer_avec_reessai_503(
     creer: Callable[..., Any], params: dict, dormir: Callable[[float], None] = time.sleep
 ) -> Any:
@@ -1442,6 +1461,17 @@ def _run_siri_query(query: str) -> str:
         # (= config.LLM_MODEL), exactement le modèle du chat WS qui fonctionne.
         if config.BACKEND == "ollama":
             orch.llm.model = config.MODEL_FALLBACK
+        # Latence (mesurée le 2026-11-19, cf. `_outils_siri`) :
+        # - modèle ÉPINGLÉ : le routeur classe toujours (budget, prompt), mais ne
+        #   bascule plus brain→coder — la bascule évinçait brain, chargeait coder à
+        #   froid et perdait le cache de préfixe à chaque requête Siri ;
+        # - schémas d'outils réduits aux natifs non gardés ;
+        # - pas de pistes de fichiers du projet : hors sujet pour une question
+        #   vocale, et la 1re recherche d'un processus ré-encode tout le dépôt
+        #   (~160 s de GPU, en concurrence avec le prefill).
+        orch._pinned_model = orch.llm.model
+        orch.tools = _outils_siri(orch.tools)
+        orch._relevant_files_section = lambda _query: ""
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
         def _sync_chat(messages: list[dict], tools=None, **_kwargs) -> tuple[str, Any]:
