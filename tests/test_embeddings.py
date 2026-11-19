@@ -229,3 +229,75 @@ def test_l_exception_du_moteur_est_une_panne_constatee(emb, monkeypatch):
     monkeypatch.setattr(sys.modules["klody_memory.embedder"], "get_embeddings_batch", boom)
     emb.embed_batch(["a"])
     assert emb.is_available() is False
+
+
+# --- préchauffage au démarrage (2026-11-19) -----------------------------------
+
+
+@pytest.fixture
+def prechauffe_active(monkeypatch):
+    """La suite coupe le préchauffage (conftest) ; ici on le juge."""
+    monkeypatch.delenv("KLODY_PRECHAUFFE_EMBEDDINGS", raising=False)
+
+
+def test_prechauffer_produit_un_vecteur(emb, prechauffe_active, monkeypatch):
+    textes = []
+    monkeypatch.setattr(emb, "embed_batch", lambda t: textes.extend(t) or [[0.1, 0.2]])
+
+    assert emb.prechauffer() is True
+    assert textes == ["préchauffage"]
+
+
+@pytest.mark.parametrize("valeur", ["0", "false", "NON", " off "])
+def test_prechauffer_coupe_par_l_environnement(emb, monkeypatch, valeur):
+    monkeypatch.setenv("KLODY_PRECHAUFFE_EMBEDDINGS", valeur)
+    monkeypatch.setattr(emb, "embed_batch", lambda t: pytest.fail("embed appelé"))
+
+    assert emb.prechauffer() is False
+
+
+def test_prechauffer_saute_si_moteur_indisponible(emb, prechauffe_active, monkeypatch):
+    monkeypatch.setattr(emb, "is_available", lambda: False)
+    monkeypatch.setattr(emb, "embed_batch", lambda t: pytest.fail("embed appelé"))
+
+    assert emb.prechauffer() is False
+
+
+def test_prechauffer_ne_leve_jamais(emb, prechauffe_active, monkeypatch):
+    def boum(_t):
+        raise RuntimeError("mps perdu")
+
+    monkeypatch.setattr(emb, "embed_batch", boum)
+
+    assert emb.prechauffer() is False
+
+
+def test_prechauffer_sans_vecteur_rend_faux(emb, prechauffe_active, monkeypatch):
+    monkeypatch.setattr(emb, "embed_batch", lambda t: [[]])
+
+    assert emb.prechauffer() is False
+
+
+def test_ensure_ready_ne_configure_qu_une_fois_sous_concurrence(emb, monkeypatch):
+    """Fil de préchauffage + première requête : un seul configure_memory()."""
+    import threading
+    import time
+
+    from agent import semantic_memory
+
+    appels = []
+    vrai = semantic_memory.configure_memory
+
+    def lent(*a, **kw):
+        appels.append(1)
+        time.sleep(0.05)  # élargit la fenêtre vérifier-puis-configurer
+        return vrai(*a, **kw)
+
+    monkeypatch.setattr(semantic_memory, "configure_memory", lent)
+    fils = [threading.Thread(target=emb._ensure_ready) for _ in range(4)]
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join()
+
+    assert appels == [1]
