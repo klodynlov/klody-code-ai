@@ -3,7 +3,9 @@
 Vécu le 2026-11-19 (spike iMessage) : `_run_siri_query` exécutait tout outil sans
 passer par approval.py, la garde n'existant que dans le WebSocket.
 """
-from api.server import _executeur_sans_validation
+import inspect
+
+import api.server as serveur
 
 
 def _executeur():
@@ -13,7 +15,7 @@ def _executeur():
         appels.append(nom)
         return f"ok:{nom}"
 
-    return _executeur_sans_validation(execute, "Siri"), appels
+    return serveur._executeur_sans_validation(execute, "Siri"), appels
 
 
 def test_outil_garde_refuse_et_non_execute():
@@ -34,9 +36,5 @@ def test_lecture_passe():
 
 
 def test_le_chemin_siri_utilise_l_enveloppe():
-    import inspect
-
-    import api.server as serveur
-
     source = inspect.getsource(serveur._run_siri_query)
     assert "_executeur_sans_validation(orch._execute_tool" in source
