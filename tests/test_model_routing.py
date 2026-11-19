@@ -191,6 +191,7 @@ class TestDetectInteractiveSkill:
 class TestSlimPromptCoder:
     def test_coder_actif_injecte_un_prompt_slim(self):
         o = MagicMock()
+        o._context_routing_enabled = False
         o._code_model_active = True
         o.memory.messages = []
         o._on_skills_selected = None
@@ -229,6 +230,7 @@ def _coder_inject(monkeypatch, *, enabled, skills_on_disk, query, task_type="fea
     monkeypatch.setattr(orch_mod, "load_skills", lambda: skills_on_disk)
     o = MagicMock()
     o._code_model_active = True
+    o._context_routing_enabled = False
     o.memory.messages = []
     o._on_skills_selected = None
     o._relevant_files_section.return_value = ""

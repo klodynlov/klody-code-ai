@@ -134,6 +134,8 @@ class _FauxOrchestrateur:
         self.memory = memory
         self.llm = _FauxLLM()
         self._pinned_model = None
+        self._context_routing_enabled = True
+        self._active_tools = [_outil("mcp__unity__build")]
         self.tools = [_outil(n) for n in ("read_file", "write_file", "mcp__unity__build")]
 
     def _execute_tool(self, nom, args):
@@ -150,6 +152,8 @@ class _FauxOrchestrateur:
             "pinned": self._pinned_model,
             "outils": [t["function"]["name"] for t in self.tools],
             "pistes": self._relevant_files_section(query),
+            "routage": self._context_routing_enabled,
+            "actifs": self._active_tools,
         }
         self.memory.messages.append({"role": "assistant", "content": "**réponse**"})
 
@@ -162,4 +166,7 @@ def test_run_siri_query_epingle_reduit_et_coupe_le_retrieval(monkeypatch, tmp_pa
     monkeypatch.setattr(serveur.config, "MEMORY_DIR", tmp_path)
     monkeypatch.setattr(serveur.config, "BACKEND", "mlx")
     assert serveur._run_siri_query("quelle heure est-il ?") == "réponse"
-    assert _FauxOrchestrateur.vu == {"pinned": "brain", "outils": ["read_file"], "pistes": ""}
+    assert _FauxOrchestrateur.vu == {
+        "pinned": "brain", "outils": ["read_file"], "pistes": "",
+        "routage": False, "actifs": None,
+    }
