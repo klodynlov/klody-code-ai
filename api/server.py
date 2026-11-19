@@ -13,6 +13,7 @@ import re
 import signal
 import sys
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
@@ -41,7 +42,7 @@ import config
 import services
 from agent import journal_client, peremption, preview_errors
 from agent.approval import requires_approval
-from agent.erreurs_llm import expliquer_erreur_llm
+from agent.erreurs_llm import attente_reessai_503, expliquer_erreur_llm, message_reessai_503
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import etat_extraction, extract_and_save
@@ -1396,6 +1397,30 @@ def _executeur_sans_validation(
     return _executer
 
 
+def _creer_avec_reessai_503(
+    creer: Callable[..., Any], params: dict, dormir: Callable[[float], None] = time.sleep
+) -> Any:
+    """Appel non streamé au backend, rejoué sur 503 comme les chemins CLI et WS.
+
+    Le chemin Siri remplace `stream_chat` par un appel synchrone et perdait donc
+    le réessai 503 de `LLMClient.stream_chat` — vécu le 2026-11-19 : deux refus
+    « RAM insuffisante pour coder » du gateway rendus tels quels à l'utilisateur
+    alors que la CLI et klody-ui auraient attendu et rejoué. La décision (combien
+    d'essais, quelle attente) reste celle d'`agent/erreurs_llm.py`.
+    """
+    essai = 0
+    while True:
+        try:
+            return creer(**params)
+        except Exception as e:
+            attente = attente_reessai_503(e, essai)
+            if attente is None:
+                raise
+            logger.warning("[Siri] %s", message_reessai_503(e, essai, attente))
+            dormir(attente)
+            essai += 1
+
+
 def _run_siri_query(query: str) -> str:
     """Exécute la requête de façon synchrone dans un thread dédié.
 
@@ -1434,7 +1459,7 @@ def _run_siri_query(query: str) -> str:
                 params["tools"] = tools
                 params["tool_choice"] = "auto"
 
-            completion = orch.llm.client.chat.completions.create(**params)
+            completion = _creer_avec_reessai_503(orch.llm.client.chat.completions.create, params)
             choice = completion.choices[0]
             content: str = choice.message.content or ""
 

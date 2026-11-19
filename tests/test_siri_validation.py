@@ -6,6 +6,9 @@ passer par approval.py, la garde n'existant que dans le WebSocket.
 import inspect
 
 import api.server as serveur
+import httpx
+import pytest
+from openai import InternalServerError, NotFoundError
 
 
 def _executeur():
@@ -38,3 +41,60 @@ def test_lecture_passe():
 def test_le_chemin_siri_utilise_l_enveloppe():
     source = inspect.getsource(serveur._run_siri_query)
     assert "_executeur_sans_validation(orch._execute_tool" in source
+
+
+# ── Réessai 503 (2026-11-19) ─────────────────────────────────────────────────
+# Le chemin Siri remplace `stream_chat` par un appel synchrone : il perdait le
+# réessai 503 partagé par la CLI et le WebSocket. Vécu au test live du fix
+# ci-dessus : « RAM insuffisante pour coder » rendu au premier refus.
+
+def _http(code: int, exc_cls):
+    req = httpx.Request("POST", "http://localhost:8090/v1/chat/completions")
+    return exc_cls(f"Error code: {code}", response=httpx.Response(code, request=req),
+                   body={"error": "RAM insuffisante pour coder (~40 Go)"})
+
+
+def _scenario(*etapes):
+    appels: list[dict] = []
+    reste = list(etapes)
+
+    def creer(**params):
+        appels.append(params)
+        etape = reste.pop(0)
+        if isinstance(etape, BaseException):
+            raise etape
+        return etape
+
+    return creer, appels
+
+
+def test_503_rejoue_puis_reussit(monkeypatch):
+    monkeypatch.setattr(serveur.config, "LLM_503_ESSAIS", 2)
+    monkeypatch.setattr(serveur.config, "LLM_503_ATTENTE_S", 5)
+    creer, appels = _scenario(_http(503, InternalServerError), _http(503, InternalServerError), "ok")
+    attentes: list[float] = []
+    assert serveur._creer_avec_reessai_503(creer, {"model": "m"}, dormir=attentes.append) == "ok"
+    assert attentes == [5, 10]
+    assert appels == [{"model": "m"}] * 3
+
+
+def test_503_borne_puis_remonte(monkeypatch):
+    monkeypatch.setattr(serveur.config, "LLM_503_ESSAIS", 2)
+    monkeypatch.setattr(serveur.config, "LLM_503_ATTENTE_S", 0)
+    creer, appels = _scenario(*[_http(503, InternalServerError)] * 3)
+    with pytest.raises(InternalServerError):
+        serveur._creer_avec_reessai_503(creer, {}, dormir=lambda _s: None)
+    assert len(appels) == 3
+
+
+def test_autre_erreur_pas_rejouee():
+    creer, appels = _scenario(_http(404, NotFoundError))
+    with pytest.raises(NotFoundError):
+        serveur._creer_avec_reessai_503(creer, {}, dormir=lambda _s: pytest.fail("pas d'attente"))
+    assert len(appels) == 1
+
+
+def test_le_chemin_siri_utilise_le_reessai():
+    source = inspect.getsource(serveur._run_siri_query)
+    assert "_creer_avec_reessai_503(orch.llm.client.chat.completions.create" in source
+    assert "orch.llm.client.chat.completions.create(**params)" not in source
