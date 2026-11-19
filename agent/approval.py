@@ -13,6 +13,8 @@ module ne concerne que le chemin non-interactif (l'app desktop / l'API).
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 # Outils internes (cœur Klody) à effet de bord → validation requise.
 _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     # Écritures / suppressions sur le disque
@@ -25,7 +27,35 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     "learn_from_books", "distill_theme",
     # Production d'artefacts audio sur le disque
     "edit_wav", "mix_stems", "generate_silence", "convert_format",
+    # Pilotage macOS : un AppleScript peut envoyer un iMessage, un mail, fermer
+    # une app… (la liste noire de tools/mac_control.py ne couvre que le
+    # destructeur évident) ; un Raccourci peut tout faire, HomeKit compris.
+    "run_applescript", "run_shortcut",
+    # Domotique : publier = actionner un appareil physique
+    "mqtt_publish",
+    # Écritures disque hors du dossier de téléchargements
+    "backup_directory", "scaffold_tool",
 })
+
+# Outils dont l'effet dépend de leurs ARGUMENTS : lecture par défaut, écriture
+# sur option. Chaque règle dit « gardé si … » à partir des arguments. Sans les
+# arguments (appel par le seul nom), on garde : en cas de doute, l'humain.
+def _faux(v: object) -> bool:
+    return v is False or str(v).strip().lower() in {"false", "0", "no", "non"}
+
+
+_ARG_GATED_TOOLS: dict[str, Callable[[dict], bool]] = {
+    # dry_run=True par défaut : seule l'exécution réelle demande validation
+    "sync_directories": lambda a: _faux(a.get("dry_run", True)),
+    "organize_directory": lambda a: _faux(a.get("dry_run", True)),
+    "batch_rename": lambda a: _faux(a.get("dry_run", True)),
+    # lecture (status, log, diff…) libre ; add/commit écrivent dans le dépôt
+    "git_control": lambda a: str(a.get("action", "")).lower() in {"add", "commit"},
+    # ps, images, logs… libres ; run lance un conteneur
+    "docker_control": lambda a: str(a.get("action", "")).lower() == "run",
+    # SQLite : lecture par défaut, mode « write » sur demande
+    "run_sql": lambda a: str(a.get("mode", "read")).lower() != "read",
+}
 # NB : generate_excel / generate_text_file / bundle_zip ne sont PAS gardés — leurs
 # artefacts sont confinés à DOWNLOADS_DIR (nom basenamé, aucune écriture possible
 # hors de ce dossier) et l'utilisateur les a explicitement demandés. Les garde-fous
@@ -132,15 +162,24 @@ def _server_of(tool_name: str) -> str:
     return parts[1] if len(parts) == 3 else ""
 
 
-def requires_approval(tool_name: str) -> bool:
+def requires_approval(tool_name: str, tool_args: dict | None = None) -> bool:
     """True si `tool_name` doit être validé par l'utilisateur avant exécution.
 
     Politique « actions à effet de bord » : on garde-fou les écritures, les
     exécutions et les mutations externes ; la lecture/recherche/inspection
-    passe librement.
+    passe librement. `tool_args` affine la décision pour les outils dont
+    l'effet dépend d'une option (dry_run, action, mode) ; absent → on garde.
     """
     if tool_name in _SIDE_EFFECT_TOOLS:
         return True
+    rule = _ARG_GATED_TOOLS.get(tool_name)
+    if rule is not None:
+        if not isinstance(tool_args, dict):
+            return True
+        try:
+            return bool(rule(tool_args))
+        except Exception:  # arguments inattendus → l'humain tranche
+            return True
     if not tool_name.startswith("mcp__"):
         return False
 

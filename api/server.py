@@ -14,6 +14,7 @@ import signal
 import sys
 import threading
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -1248,7 +1249,7 @@ def _build_streaming_orchestrator(
     def execute_with_events(tool_name: str, tool_args: dict) -> str:
         # Garde-fou humain : les actions à effet de bord requièrent validation.
         # (and court-circuité : _request_approval n'est appelé que si gardé.)
-        if requires_approval(tool_name) and not _request_approval(tool_name, tool_args):
+        if requires_approval(tool_name, tool_args) and not _request_approval(tool_name, tool_args):
             refusal = "Action refusée par l'utilisateur (non validée)."
             _put({"type": "tool_result", "name": tool_name, "content": refusal})
             return refusal
@@ -1372,6 +1373,29 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _executeur_sans_validation(
+    execute: Callable[[str, dict], str], canal: str
+) -> Callable[[str, dict], str]:
+    """Enveloppe d'exécution pour un canal SANS interface de validation.
+
+    Tout outil que `requires_approval` garde est refusé, avec un message que le
+    modèle peut relayer ; le reste passe tel quel. `ask_user` est refusé aussi :
+    personne ne peut répondre à la carte.
+    """
+    refus = (
+        f"Action refusée : le canal {canal} ne peut pas faire valider une action "
+        "à effet de bord. Propose à l'utilisateur de la lancer depuis klody-ui."
+    )
+
+    def _executer(tool_name: str, tool_args: dict) -> str:
+        if tool_name == "ask_user" or requires_approval(tool_name, tool_args):
+            logger.warning("[%s] outil gardé refusé : %s", canal, tool_name)
+            return refus
+        return execute(tool_name, tool_args)
+
+    return _executer
+
+
 def _run_siri_query(query: str) -> str:
     """Exécute la requête de façon synchrone dans un thread dédié.
 
@@ -1436,6 +1460,13 @@ def _run_siri_query(query: str) -> str:
             return content, tool_calls
 
         orch.llm.stream_chat = _sync_chat
+        # Garde-fou humain : Siri n'a aucune surface pour valider une action, donc
+        # tout outil gardé par approval.py est REFUSÉ. Avant le 2026-11-19 ce chemin
+        # exécutait tout sans validation (la garde n'existait que dans le WebSocket) :
+        # tout client local de :8000 pouvait faire écrire, envoyer un mail ou piloter
+        # le Mac. On enveloppe `_execute_tool` — pas seulement `_execute_and_display` —
+        # pour couvrir aussi les appels internes de l'orchestrateur (auto-preview).
+        orch._execute_tool = _executeur_sans_validation(orch._execute_tool, "Siri")
         # Supprime l'affichage Rich des outils (on garde l'exécution)
         orch._execute_and_display = lambda name, args: orch._execute_tool(name, args)
 
