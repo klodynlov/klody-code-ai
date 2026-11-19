@@ -1525,6 +1525,35 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
 > `scripts/install-launchagents.sh --check` : **18 agents à jour, aucun écart,
 > 0 point d'entrée périmé** sur 14 résidents.
 
+## État au 2026-11-19 — deux trous d'approbation, trouvés par le spike iMessage
+
+En branchant KlodyAI sur iMessage (spike `~/Archives/spikes/imessage-20261119/`),
+deux trous dans la garde humaine (`agent/approval.py`) :
+
+1. **`/api/siri` exécutait tout outil SANS validation** : la garde n'existait que
+   dans le WebSocket (`execute_with_events`). Tout client local de `:8000` pouvait
+   faire écrire, envoyer un mail ou piloter le Mac. Désormais
+   `_executeur_sans_validation` enveloppe `orch._execute_tool` (pas seulement
+   `_execute_and_display`, pour couvrir l'auto-preview) et REFUSE tout outil
+   gardé, `ask_user` compris : Siri n'a aucune surface de validation.
+2. **54 outils natifs sur 69 passaient libres**, dont `run_applescript`,
+   `run_shortcut` (HomeKit), `mqtt_publish` (domotique), `backup_directory`,
+   `scaffold_tool`, et les modes écriture de `git_control` (add/commit),
+   `docker_control` (run), `run_sql` (write), `sync_directories` /
+   `organize_directory` / `batch_rename` (`dry_run=False`). Ces six derniers sont
+   gardés **selon leurs arguments** (`_ARG_GATED_TOOLS`) ; appelés sans
+   arguments, ils sont gardés par prudence.
+
+- `requires_approval(nom, args=None)` : le WebSocket passe désormais les arguments.
+- ⚠️ **Le défaut « libre si inconnu » des outils NATIFS est ce qui a laissé passer
+  AppleScript.** `test_chaque_outil_natif_libre_est_un_choix_ecrit` rougit dès
+  qu'un outil ajouté au registre est libre sans avoir été classé.
+- Mutations rejouées : 4/5 rouges ; la 5ᵉ (retirer le test `isinstance`) est
+  équivalente — `rule(None)` lève et le `except` garde déjà.
+- ⚠️ Un canal joignable à distance (iMessage) ne doit PAS s'appuyer sur
+  `requires_approval` seul : liste BLANCHE de lecture, `web` exclu (mail piégé
+  lu → fetch d'URL = exfiltration). C'est ce que fait le spike.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
