@@ -295,6 +295,9 @@ RETRIEVAL_BUILD_DEADLINE_S: float = float(os.getenv("RETRIEVAL_BUILD_DEADLINE_S"
 # select_skills si un endpoint est indisponible). N'active rien au démarrage
 # tant que le flag vaut 0.
 SKILLS_ROUTER_ENABLED: bool = os.getenv("SKILLS_ROUTER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Progressive tool/skill loading. Set false only to compare with the full
+# historical context; this does not change tool permissions or stored memory.
+CONTEXT_ROUTING_ENABLED: bool = os.getenv("CONTEXT_ROUTING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 # Sous-flag : utiliser le juge LLM en plus des embeddings (sinon rang cosinus seul).
 SKILLS_ROUTER_JUDGE: bool = os.getenv("SKILLS_ROUTER_JUDGE", "true").lower() in ("1", "true", "yes", "on")
 

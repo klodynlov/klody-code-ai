@@ -1323,7 +1323,7 @@ def _build_streaming_orchestrator(
     if original_run_bon:
         def run_bon_with_event(messages: list[dict]):
             winner, all_cands, reasoning = orch.best_of_n.best(
-                messages, tools=orch.tools, user_prompt=orch._current_user_prompt,
+                messages, tools=orch._tools_for_run(), user_prompt=orch._current_user_prompt,
             )
             _put({"type": "best_of_n", "result": {
                 "winner_idx": winner.idx,
@@ -1470,6 +1470,11 @@ def _run_siri_query(query: str) -> str:
         #   vocale, et la 1re recherche d'un processus ré-encode tout le dépôt
         #   (~160 s de GPU, en concurrence avec le prefill).
         orch._pinned_model = orch.llm.model
+        # Routage progressif coupé : il chargerait ses propres outils (MCP et
+        # gardés compris) dans `_active_tools`, qui prime sur `orch.tools` —
+        # la liste blanche `_outils_siri` serait contournée.
+        orch._context_routing_enabled = False
+        orch._active_tools = None
         orch.tools = _outils_siri(orch.tools)
         orch._relevant_files_section = lambda _query: ""
 

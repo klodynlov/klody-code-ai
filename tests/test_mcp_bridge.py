@@ -28,6 +28,41 @@ def manager(gmail_server):
 # ── Découverte ────────────────────────────────────────────────────────────────
 
 class TestDiscovery:
+    def test_selected_discovery_does_not_contact_other_servers(self, gmail_server, monkeypatch):
+        from tools import mcp_bridge
+        mcp_bridge.clear_discovery_cache()
+        mgr = MCPManager({"gmail": gmail_server, "other": "unreachable"})
+        contacted = []
+        original = MCPManager._list_tools
+
+        async def record(self, target):
+            contacted.append(target)
+            return await original(self, target)
+
+        monkeypatch.setattr(MCPManager, "_list_tools", record)
+        assert len(mgr.discover_selected({"gmail"})) == 8
+        assert contacted == [gmail_server]
+        assert mgr.owns("mcp__gmail__list_labels")
+        mgr.discover_selected({"gmail"})
+        assert contacted == [gmail_server]
+
+    def test_failed_selected_discovery_can_retry(self, monkeypatch):
+        from tools import mcp_bridge
+        mcp_bridge.clear_discovery_cache()
+        attempts = []
+
+        async def flaky(self, target):
+            attempts.append(target)
+            if len(attempts) == 1:
+                raise ConnectionError("not started")
+            return [type("Tool", (), {"name": "ping", "description": "", "inputSchema": {}})()]
+
+        monkeypatch.setattr(MCPManager, "_list_tools", flaky)
+        mgr = MCPManager({"test": "endpoint"})
+        assert mgr.discover_selected({"test"}) == []
+        assert len(mgr.discover_selected({"test"})) == 1
+        assert mgr.owns("mcp__test__ping")
+
     def test_decouvre_les_outils(self, manager):
         names = manager.tool_names()
         assert len(names) == 8

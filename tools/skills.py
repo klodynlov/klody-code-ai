@@ -140,6 +140,7 @@ _STOP = {
     # utilisateur distincts de ~/.klody/data — tâche de code forcée sur le
     # généraliste, anti-stall coupé, `ask_user` exposé. Présent depuis #27.
     "pas",
+    "mcp", "seulement", "aucune", "noms",  # protocol/control words, not a subject
 }
 
 # Apocopes du vocabulaire technique → forme pleine, pour qu'elles touchent le
@@ -213,7 +214,8 @@ def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]
     Pondération IDF (déterministe, hors-ligne, sans embeddings) : un terme rare
     dans le corpus de skills (`dijkstra`, `nextjs`) pèse fort, un terme partagé
     par plusieurs skills (`fusion`) pèse faible. Garde-fou homonyme : un skill
-    dont le SEUL terme commun est partagé (df > 1) est rejeté — c'est ce qui
+    dont le SEUL terme commun est partagé (df > 1) est rejeté, sauf si ce terme
+    figure exactement dans son titre (ex. Unity, cité aussi par Blender) — ce qui
     évite que « tri fusion » pêche le skill de distillation (« fusionner des
     livres »). Évite aussi d'injecter ~6k tokens de skills quand un seul compte.
     """
@@ -238,10 +240,11 @@ def select_skills(skills: list[dict], query: str = "", k: int = 5) -> list[dict]
     for s, mt in matched:
         if not mt:
             continue
+        title_hits = mt & _skill_terms(s.get("name", ""))
         # Signal trop faible : un unique terme commun, et partagé par d'autres skills.
-        if len(mt) == 1 and df[next(iter(mt))] > 1:
+        if len(mt) == 1 and df[next(iter(mt))] > 1 and not title_hits:
             continue
-        scored.append((sum(_idf(t) for t in mt), s))
+        scored.append((sum(_idf(t) for t in mt) + 2 * sum(_idf(t) for t in title_hits), s))
 
     scored.sort(key=lambda x: -x[0])
     picked = [s for _, s in scored[:k]]
@@ -258,6 +261,34 @@ def format_skills_for_prompt(skills: list[dict]) -> str:
         lines.append(f"{s['description']}")
         lines.append(f"```\n{s['content']}\n```")
     return "\n".join(lines)
+
+
+def format_skills_index_for_prompt(skills: list[dict], full_slugs: set[str] | None = None) -> str:
+    """Keep user rules verbatim; load how-to bodies only when they are needed.
+
+    No disk content is shortened or deleted. Even long procedures and their
+    final caveats are returned in full by read_skill, not clipped excerpts.
+    """
+    full_slugs = full_slugs or set()
+    always = [s for s in skills if str(s.get("slug", "")).startswith(_ALWAYS_PREFIXES)
+              or s.get("slug") in full_slugs]
+    howto = [s for s in skills if s not in always]
+    content = format_skills_for_prompt(always)
+    if howto:
+        content += ("\n\n## Index des compétences pertinentes\n"
+                    "Avant d'appliquer une méthode, lis son texte complet avec read_skill(slug). "
+                    "Ces notices ne sont pas les procédures.\n")
+        for s in howto:
+            content += f"- {s.get('name', '')} — slug `{s.get('slug', '')}` : {s.get('description', '')[:400]}\n"
+    return content
+
+
+def read_skill(slug: str) -> str:
+    """Resolve an exact known slug; never interpret it as a filesystem path."""
+    for skill in load_skills():
+        if skill.get("slug") == slug:
+            return json.dumps(skill, ensure_ascii=False, indent=2)
+    return f"ERREUR: compétence inconnue '{slug}'. Utilise list_skills pour la retrouver."
 
 
 def _skill_is_code_compatible(skill: dict) -> bool:
