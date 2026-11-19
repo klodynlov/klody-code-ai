@@ -111,6 +111,33 @@ def _constater_panne(cause: str) -> None:
     )
 
 
+def model_id() -> str:
+    """Identifiant du modèle qui produit les vecteurs, ou "" s'il est inconnu.
+
+    Sert de clé aux caches de vecteurs PERSISTÉS (`tools.code_search`, depuis le
+    2026-11-19) : deux vecteurs ne se comparent que s'ils sortent du même modèle.
+    Lu dans les réglages vivants du moteur (provider + nom), jamais recopié d'ici,
+    pour qu'un changement de modèle côté `agent.semantic_memory` invalide le cache
+    sans qu'il faille penser à toucher ce module.
+
+    "" (moteur non configuré, réglages illisibles) ⇒ l'appelant NE PERSISTE PAS :
+    un cache écrit sous une clé inconnue ne pourrait jamais être invalidé.
+    """
+    try:
+        from klody_memory.runtime import get_settings
+
+        cfg = get_settings()
+        provider = (getattr(cfg, "embed_provider", "") or "ollama").strip().lower()
+        if provider == "st":
+            nom = getattr(cfg, "embed_st_model", "") or "BAAI/bge-m3"
+        else:
+            nom = getattr(cfg, "embed_model", "") or ""
+        return f"{provider}:{nom}" if nom else ""
+    except Exception as exc:  # moteur absent ou non configuré
+        logger.debug("identifiant du modèle d'embedding inconnu : %s", exc)
+        return ""
+
+
 def embed_one(text: str) -> list[float]:
     """Embedde un texte unique. [] si vide ou en cas d'échec."""
     if not (text or "").strip():
