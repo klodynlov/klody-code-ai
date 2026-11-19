@@ -75,6 +75,10 @@ ollama>=0.4.0
 #                    via cachecontrol/huggingface-hub/torch, qui acceptent filelock 4)
 #   opentelemetry-api CVE-2026-114603           -> 1.45.1
 #   joserfc          CVE-2026-119283/119284     -> 1.7.6 (via authlib/fastmcp-slim)
+#   dnspython        CVE-2026-128089            -> 2.9.2 (via email-validator)
+#   opentelemetry-api CVE-2026-126360           -> 1.45.2 (via fastmcp-slim)
+#   soupsieve        CVE-2026-126190..126193    -> 4.0 (majeure, via beautifulsoup4,
+#                    qui accepte soupsieve>=1.6.1 ; 0 import direct de soupsieve)
 #   (fastmcp GHSA-7xgj-8392-5q4r -> 3.4.10 : plancher direct, en tête de fichier)
 # setuptools ET pip sont « unsafe » pour pip-tools : ils n'apparaissent dans le
 # lock qu'avec --allow-unsafe (sinon pip-audit audite le setuptools/pip seedé du
@@ -94,10 +98,11 @@ mcp>=1.30.0
 authlib>=1.9.1
 msgpack>=1.2.3
 certifi>=2026.10.19
-dnspython>=2.9.0
+dnspython>=2.9.2
 filelock>=4.2.1
-opentelemetry-api>=1.45.1
+opentelemetry-api>=1.45.2
 joserfc>=1.7.6
+soupsieve>=4.0
 
 # Maison connectée / IoT (tools/home_automation.py — mqtt_publish/mqtt_subscribe).
 # paho-mqtt est LAZY + OPTIONNEL : absent, les outils MQTT renvoient un message
