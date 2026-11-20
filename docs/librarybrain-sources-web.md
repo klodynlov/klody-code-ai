@@ -50,6 +50,13 @@ Voir aussi `library-brain/docs/sources-web.md` pour les API et la sauvegarde des
   redirections locales refusées, les téléchargements incomplets, le remplacement
   atomique des passages/vecteurs et la conservation de la version après échec.
 
-Traces : `librarybrain-sources-web-validation.json` et
-`librarybrain-source-agent-validation.json`. Le Code de la route intégral n'a
+Les traces brutes de cette validation ne sont pas versionnées. Le Code de la route intégral n'a
 pas été actualisé : Légifrance renvoie HTTP 403 sur l'accès direct testé.
+
+## Reprise du 20 novembre 2026
+
+Le repli Service Public visait `/particuliers/recherche`, devenu une page
+« Démarches et outils » : aucune fiche n'en sortait. Il interroge maintenant
+`/particuliers/recherche-generale` (3 fiches officielles pour « Code de la route
+vitesse maximale autorisée », dont F19460). DuckDuckGo renvoyait une page
+anti-bot ce jour-là : le repli a donc été exercé en réel.
