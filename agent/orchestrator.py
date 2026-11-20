@@ -78,6 +78,12 @@ from tools.home_automation import (
     mqtt_subscribe as home_mqtt_subscribe,
 )
 from tools.library_distiller import distill_theme
+from tools.library_sources import (
+    library_import_source,
+    library_refresh_source,
+    library_source_status,
+    library_web_search,
+)
 from tools.llm_import import import_llm_export, list_imports
 from tools.mac_control import (
     list_shortcuts as mac_list_shortcuts,
@@ -1218,6 +1224,13 @@ class Orchestrator(GardesMixin):
                 a["theme"], a.get("slug", ""),
                 code_compatible=_as_bool(a.get("code_compatible", False)),
                 llm=self.llm),
+            # LibraryBrain — sources web (découverte d'URL, import/actualisation versionnés)
+            "library_web_search": lambda a: library_web_search(
+                a["query"], a.get("limit", 5), _as_bool(a.get("official_only", False))),
+            "library_import_source": lambda a: library_import_source(
+                a["url"], _as_bool(a.get("official_only", False))),
+            "library_refresh_source": lambda a: library_refresh_source(a["book_id"]),
+            "library_source_status": lambda a: library_source_status(a.get("book_id")),
             # Mémoire long-terme
             "remember_fact": self._tool_remember_fact,
             "forget_fact": self._tool_forget_fact,

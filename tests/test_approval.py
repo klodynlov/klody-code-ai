@@ -213,7 +213,7 @@ def test_chaque_outil_natif_libre_est_un_choix_ecrit():
         "list_indexed_repos", "list_previews", "list_shortcuts", "list_skills",
         "list_tool_kinds", "mqtt_subscribe", "preview_file", "rappeler_memoire",
         "read_file", "read_github_file", "search_books", "search_in_files",
-        "spotlight_search",
+        "spotlight_search", "library_web_search", "library_source_status",
         # artefacts confinés ou code rendu sans écriture (choix documentés)
         "bundle_zip", "generate_excel", "generate_text_file", "generate_uml",
         "preview_code", "scaffold_api", "scaffold_nosql", "scaffold_sdk", "speak",

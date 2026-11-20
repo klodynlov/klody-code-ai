@@ -35,6 +35,8 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     "mqtt_publish",
     # Écritures disque hors du dossier de téléchargements
     "backup_directory", "scaffold_tool",
+    # LibraryBrain : télécharge une URL du web et publie une version indexée
+    "library_import_source", "library_refresh_source",
 })
 
 # Outils dont l'effet dépend de leurs ARGUMENTS : lecture par défaut, écriture
