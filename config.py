@@ -326,6 +326,22 @@ LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dép
 LIBRARYBRAIN_TOKEN: str = os.getenv("LIBRARYBRAIN_TOKEN", "")
 
 
+def format_book_source(source: dict) -> str:
+    """Référence lisible d'une source LibraryBrain : « Titre — Auteur, p.N ».
+
+    Les sources web importées (Légifrance, Service Public…) n'ont pas d'auteur :
+    LibraryBrain renvoie `"author": null`, et `s.get("author", "?")` affichait
+    alors « None » (la clé existe). On omet l'auteur absent et la page absente
+    au lieu d'imprimer un marqueur vide.
+    """
+    title = str(source.get("title") or "").strip() or "?"
+    author = source.get("author")
+    author = "" if author is None else str(author).strip()
+    ref = title if not author or author.lower() in ("none", "null") else f"{title} — {author}"
+    page = source.get("page")
+    return ref if page in (None, "") else f"{ref}, p.{page}"
+
+
 def librarybrain_headers() -> dict[str, str]:
     """En-têtes d'auth pour LibraryBrain (`X-API-Token`) — vides si aucun token.
 

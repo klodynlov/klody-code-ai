@@ -13,6 +13,7 @@ from config import (
     LIBRARY_DB_PATH,
     LIBRARYBRAIN_URL,
     SKILLS_DIR,
+    format_book_source,
     librarybrain_auth_hint,
     librarybrain_headers,
 )
@@ -46,7 +47,7 @@ def _parse_result(data: dict, limit: int) -> str:
         lines.append(answer)
     if sources:
         refs = " | ".join(
-            f"{s.get('title','?')} — {s.get('author','?')}, p.{s.get('page','?')}"
+            format_book_source(s)
             for s in sources[:limit]
         )
         lines.append(f"[Sources : {refs}]")
