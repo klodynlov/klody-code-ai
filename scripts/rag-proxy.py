@@ -32,7 +32,7 @@ from loguru import logger
 
 # Ajouter la racine du projet au path pour importer config
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import LIBRARYBRAIN_URL, SKILLS_DIR, librarybrain_headers
+from config import LIBRARYBRAIN_URL, SKILLS_DIR, format_book_source, librarybrain_headers
 
 # — Configuration ——————————————————————————————————————————————————————————————
 
@@ -211,7 +211,7 @@ async def _build_context(user_text: str) -> str:
             content = c.get("content", "")
             srcs = c.get("sources", [])
             ref = " | ".join(
-                f"{s.get('title','?')} — {s.get('author','?')}, p.{s.get('page','?')}"
+                format_book_source(s)
                 for s in srcs
             ) if srcs else "source inconnue"
             parts.append(f"[{ref}]\n{content}")
