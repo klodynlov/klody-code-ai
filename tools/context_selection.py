@@ -48,7 +48,8 @@ SERVER_ALIASES = {
 NATIVE_GROUPS = {
     "code": set(["write_file", "execute_command", "run_in_sandbox", "find_symbol", "find_references", "find_relevant_files", "analyze_dependencies", "code_graph", "create_project", "open_in_pycharm", "preview_code", "preview_file", "list_previews", "stop_preview_server", "git_control", "generate_uml", "scaffold_api", "scaffold_sdk", "scaffold_nosql"]),
     "github": set(["browse_repo", "read_github_file", "list_indexed_repos", "index_github_repo", "extract_best_practices", "clone_github_repo"]),
-    "library": set(["await_distillation", "import_llm_export", "list_imports", "search_books", "library_catalog", "get_skills", "learn_from_books", "distill_theme"]),
+    "library": set(["await_distillation", "import_llm_export", "list_imports", "search_books", "library_catalog", "get_skills", "learn_from_books", "distill_theme",
+                     "library_web_search", "library_import_source", "library_refresh_source", "library_source_status"]),
     "skills": set(["list_skills", "save_skill", "delete_skill"]),
     "audio": set(["analyze_audio", "edit_wav", "mix_stems", "generate_silence", "convert_format", "get_waveform_data", "speak"]),
     "documents": set(["generate_excel", "generate_text_file", "bundle_zip"]),
@@ -61,7 +62,8 @@ NATIVE_GROUPS = {
 GROUP_ALIASES = {
     "code": ("code", "coder", "script", "scripts", "python", "bpy", "c#", "javascript", "typescript", "html", "css", "react", "fastapi", "bug", "corrige", "debug", "refactor", "tests", "pytest", "depot", "repository", "repo", "api", "fonction", "algorithme", "page web", "site web", "implementation", "implemente", "compile", "build", "git", "commit"),
     "github": ("github", "pull request", "clone", "cloner"),
-    "library": ("librarybrain", "library brain", "livre", "livres", "ouvrage", "ouvrages", "corpus", "bibliotheque", "distille", "distiller", "distillation", "sources", "apprendre"),
+    "library": ("librarybrain", "library brain", "livre", "livres", "ouvrage", "ouvrages", "corpus", "bibliotheque", "distille", "distiller", "distillation", "sources", "apprendre",
+                "code de la route", "droit routier", "legifrance"),
     "skills": ("skill", "skills", "competence", "competences"),
     "audio": ("audio", "wav", "mp3", "mix", "mixage", "stems", "musique", "chanson", "midi", "ableton", "reaper"),
     "documents": ("excel", "xlsx", "csv", "document", "rapport", "zip", "texte"),
