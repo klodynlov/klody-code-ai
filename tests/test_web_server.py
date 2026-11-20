@@ -159,7 +159,7 @@ class TestDiscovery:
 # Vécu le 2026-11-20 : DuckDuckGo bloquait l'IP (202 « anomaly ») sur toutes ses
 # entrées. Tout est bouchonné ici : aucun appel réseau, aucune vraie clé.
 
-import klody_mcp.web_server as ws
+from klody_mcp import web_server as ws
 
 _PAGE_ANOMALIE = "<html><body><div class='anomaly-modal__title'>bloqué</div></body></html>"
 _PAGE_CHALLENGE = "<html><body><form id='challenge-form'></form></body></html>"
