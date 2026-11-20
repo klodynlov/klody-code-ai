@@ -60,3 +60,13 @@ Le repli Service Public visait `/particuliers/recherche`, devenu une page
 `/particuliers/recherche-generale` (3 fiches officielles pour « Code de la route
 vitesse maximale autorisée », dont F19460). DuckDuckGo renvoyait une page
 anti-bot ce jour-là : le repli a donc été exercé en réel.
+
+## Moteur de recherche : API Brave officielle (20 novembre 2026)
+
+Le blocage DuckDuckGo n'était pas passager : l'IP de la machine recevait la page
+« anomaly » (HTTP 202) sur `html.` comme sur `lite.`, en GET comme en POST, et
+même depuis `curl`. On ne contourne pas une protection anti-bot ;
+`klody_mcp/web_server.py` passe donc par l'API Brave Search quand
+`BRAVE_SEARCH_API_KEY` est posée (`WEB_SEARCH_BACKEND=auto`, défaut), avec
+DuckDuckGo en secours. `library_web_search` rapporte le fournisseur réellement
+utilisé (`provider`) et l'échec du moteur principal dans `warning`.

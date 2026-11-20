@@ -101,3 +101,28 @@ def test_service_public_fallback_parses_general_search(monkeypatch):
     assert vus["params"] == {"keyword": "Code de la route vitesse"}
     assert [r["url"] for r in out["results"]] == [
         "https://www.service-public.gouv.fr/particuliers/vosdroits/F19460"]
+
+
+def test_provider_and_warning_come_from_web_search(monkeypatch):
+    # Brave en échec, secours DuckDuckGo réussi : le fournisseur réel et
+    # l'avertissement doivent remonter, pas un « duckduckgo » écrit en dur.
+    from klody_mcp import web_server
+    official = {"title": "F19460", "url": "https://www.service-public.gouv.fr/particuliers/vosdroits/F19460"}
+    monkeypatch.setattr(web_server, "web_search", lambda *a, **kw: {
+        "results": [official], "provider": "brave"})
+    out = json.loads(sources.library_web_search("code de la route vitesse"))
+    assert out["provider"] == "brave" and out["warning"] is None
+    monkeypatch.setattr(web_server, "web_search", lambda *a, **kw: {
+        "results": [official], "provider": "duckduckgo", "warning": "Brave : quota (HTTP 429)."})
+    out = json.loads(sources.library_web_search("code de la route vitesse"))
+    assert out["provider"] == "duckduckgo" and "429" in out["warning"]
+
+
+def test_warning_alone_with_no_hit_is_not_an_error(monkeypatch):
+    # Un avertissement (Brave tombé, secours servi) sans résultat retenu
+    # n'est pas une panne : liste vide, avertissement conservé.
+    from klody_mcp import web_server
+    monkeypatch.setattr(web_server, "web_search", lambda *a, **kw: {
+        "results": [], "provider": "duckduckgo", "warning": "Brave : HTTP 500."})
+    out = json.loads(sources.library_web_search("documentation python"))
+    assert "error" not in out and out["count"] == 0 and "500" in out["warning"]

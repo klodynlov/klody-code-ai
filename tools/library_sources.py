@@ -103,7 +103,9 @@ def library_web_search(query: str, limit: int = 5, official_only: bool = False) 
         results.append({**result, "official_domain": official})
         if len(results) >= n:
             break
-    provider, warning = "duckduckgo", data.get("error")
+    provider = data.get("provider", "duckduckgo")
+    error = data.get("error")
+    warning = error or data.get("warning")
     if not results and official_only:
         fallback = _service_public_search(query, n)
         if fallback.get("error"):
@@ -111,8 +113,8 @@ def library_web_search(query: str, limit: int = 5, official_only: bool = False) 
         results = fallback["results"]
         provider = "service-public"
         warning = "Recherche de secours limitée au site Service Public ; Légifrance et Sécurité routière ne sont pas couverts par ce résultat."
-    elif not results and warning:
-        return json.dumps({"error": warning}, ensure_ascii=False)
+    elif not results and error:
+        return json.dumps({"error": error}, ensure_ascii=False)
     return json.dumps({"query": query, "official_only": official_only, "count": len(results),
                        "provider": provider, "warning": warning,
                        "results": results, "notice": "Résultats de découverte, pas des sources indexées. Importer l'URL choisie avec library_import_source ; ne jamais présenter l'extrait comme le document complet."}, ensure_ascii=False)
