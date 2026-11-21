@@ -22,10 +22,14 @@ LOG="$HOME/Library/Logs/klody-imessage.log"
 DOMAIN="gui/$(id -u)"
 SIGN_ID="${SIGN_ID:-Developer ID Application: Claude volny (GM9K95VYY4)}"
 
-build() {
-    local dest="${1:-$REPO/build}" work app
+# Sous-shell `( … )` + piège EXIT : le nettoyage reste LOCAL à build. Vécu au
+# déploiement du 2026-11-21 : un `trap … RETURN` survit à la fonction et se
+# redéclenche au retour de la suivante, où `work` n'existe plus → « work: unbound
+# variable » sous `set -u`, après un ✅ — installeur en échec sur une install réussie.
+build() (
+    dest="${1:-$REPO/build}"
     work="$(mktemp -d)"
-    trap 'rm -rf "$work"' RETURN
+    trap 'rm -rf "$work"' EXIT
     app="$work/KlodyMessages.app"
     mkdir -p "$app/Contents/MacOS"
     swiftc -O -swift-version 5 -o "$app/Contents/MacOS/KlodyMessages" "$REPO/canaux/imessage_app/main.swift"
@@ -43,7 +47,7 @@ build() {
     ditto "$app" "$dest/KlodyMessages.app"
     codesign --verify --strict "$dest/KlodyMessages.app"
     echo "$dest/KlodyMessages.app"
-}
+)
 
 attendre_retrait() {
     # `launchctl bootout` rend la main AVANT le retrait effectif (vécu le 2026-09-30).
