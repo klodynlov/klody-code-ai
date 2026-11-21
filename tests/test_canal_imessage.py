@@ -465,3 +465,18 @@ def test_construction_ad_hoc_et_coque_relaie_le_code(tmp_path):
     r = subprocess.run([str(binaire)], capture_output=True, text=True,
                        env={**env, "KLODY_IMSG_REPO": str(tmp_path / "absent")}, timeout=30)
     assert r.returncode == 78 and "dépôt introuvable" in r.stderr
+
+
+@pytest.mark.skipif(shutil.which("swiftc") is None or shutil.which("codesign") is None,
+                    reason="macOS + outils Xcode requis")
+def test_nettoyage_de_build_ne_fuit_pas_hors_de_la_fonction(tmp_path):
+    """Vécu le 2026-11-21 : `trap … RETURN` se redéclenchait au retour suivant
+    (« work: unbound variable » après le ✅ de l'installation). Un `source` du
+    script rejoue ce retour suivant : la commande d'après doit s'exécuter."""
+    env = {**__import__("os").environ, "SIGN_ID": "-"}
+    r = subprocess.run(["bash", "-c", '. "$0" build "$1" >/dev/null; echo APRES',
+                        str(INSTALLEUR), str(tmp_path)],
+                       capture_output=True, text=True, env=env, timeout=300)
+    assert "unbound" not in r.stderr, r.stderr
+    assert r.stdout.strip().endswith("APRES")
+    assert not list(Path("/tmp").glob("tmp.*/KlodyMessages.app"))
