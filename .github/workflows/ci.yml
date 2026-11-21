@@ -112,7 +112,7 @@ jobs:
       #   3. reporter les versions exactes ici, dans le même commit que les fixes
       - run: pip install "ruff==0.16.1" "mypy==2.1.0"
       - name: Ruff (lint)
-        run: ruff check agent/ tools/ api/ klody_mcp/ config.py main.py services.py bench/ scripts/
+        run: ruff check agent/ tools/ api/ canaux/ klody_mcp/ config.py main.py services.py bench/ scripts/
       - name: Mypy (cœur typé — voir [tool.mypy].files dans pyproject.toml)
         run: mypy
 
@@ -135,7 +135,7 @@ jobs:
       # Épinglé (version du .venv local) — bump délibéré only, cf. procédure job quality
       - run: pip install "bandit==1.9.4"
       - name: Bandit scan (fail on HIGH)
-        run: bandit -r agent/ tools/ api/ --severity-level high
+        run: bandit -r agent/ tools/ api/ canaux/ --severity-level high
 
   # ─────────────────────────────────────────────────────────────────
   # Vulnérabilités des dépendances Python

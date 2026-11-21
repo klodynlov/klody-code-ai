@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Runtime renforcé : sans ce droit, macOS refuse les Apple Events (envoi par
+       Messages.app) émis au nom de l'app, sans même afficher la demande. -->
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
