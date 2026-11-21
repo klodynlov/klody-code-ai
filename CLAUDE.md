@@ -1554,6 +1554,36 @@ deux trous dans la garde humaine (`agent/approval.py`) :
   `requires_approval` seul : liste BLANCHE de lecture, `web` exclu (mail piégé
   lu → fetch d'URL = exfiltration). C'est ce que fait le spike.
 
+## État au 2026-11-21 — le canal iMessage devient un module (`canaux/imessage.py`)
+
+Spike du 2026-11-19 passé de bout en bout le 2026-11-21 : « Klody, 12 fois 12 »
+depuis l'iPhone → « 🤖 144 » reçu en **7,7 s** ; essai à blanc 3/3 (calcul 22 s,
+livres 18 s, raccourci refusé 4 s) ; la copie reçue d'un message à soi-même est
+ignorée, la réponse 🤖 n'est jamais retraitée. Porté en module :
+
+- **Même régime que `/api/siri`** (`preparer_orchestrateur`) : modèle épinglé,
+  routage progressif coupé, schémas = liste blanche, pas de retrieval. Mesuré au
+  spike : 4-22 s par réponse contre 19-273 s avec le prompt complet. La liste
+  blanche est REVÉRIFIÉE à l'exécution (garde), pas seulement cachée au modèle.
+- **Liste blanche de lecture, jamais « tout sauf approval »** (section du
+  2026-11-19). `test_contrat_orchestrator_attributs_utilises` rougit si un
+  attribut privé patché par le canal est renommé.
+- ⚠️ **TCC suit le processus RESPONSABLE, pas le binaire.** L'Accès complet au
+  disque accordé à Terminal.app ne couvrait PAS une commande venue de Claude.app
+  (boîte `!`, panneau Terminal de Claude, `osascript … do script` injecté) : même
+  `ls ~/Library/Messages` refusé. Seul un `.command` ouvert depuis le Finder
+  passait. En prod : coque signée `KlodyMessages.app` (`canaux/imessage_app/`,
+  patron KlodyShield) qui porte SEULE l'Accès disque et l'Automatisation →
+  Messages, droit `com.apple.security.automation.apple-events` (runtime renforcé).
+- **Opt-in** : agent `com.klody.imessage` écrit par
+  `scripts/install-klody-messages.sh install`, HORS `launchagents/` (que
+  `install-launchagents.sh` installe sans demander). Refuse un worktree (la coque
+  fige le chemin du dépôt) et un `.env` sans `KLODY_IMSG_ALLOWED`. Sortie 0 =
+  « non configuré », `KeepAlive.SuccessfulExit=false` : pas de boucle launchd ;
+  chat.db refusé ⇒ attente de 60 s entre essais, pas de mort-relance.
+- Bug trouvé par les tests : `st.get("last_rowid") or max_rowid()` prenait un
+  état à 0 pour un premier lancement. `in`, pas `or`.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
