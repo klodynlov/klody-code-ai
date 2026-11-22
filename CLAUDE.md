@@ -1584,6 +1584,27 @@ ignorée, la réponse 🤖 n'est jamais retraitée. Porté en module :
 - Bug trouvé par les tests : `st.get("last_rowid") or max_rowid()` prenait un
   état à 0 pour un premier lancement. `in`, pas `or`.
 
+## État au 2026-11-22 — Klody écrit le premier (`canaux/proactif.py`)
+
+Moteur proactif DANS le processus du canal iMessage (donc sous `KlodyMessages.app`,
+qui détient l'Automatisation → Messages). Toute la journée, **10 messages
+spontanés/jour** (`KLODY_PROACTIF_MAX_JOUR`) ; au-delà, DIFFÉRÉS (briefing).
+
+- **Fins de tâches** : `scripts/klody-notifier.py "titre" --statut ok|echec|info`
+  dépose un JSON dans `~/.klody/data/notifications/` (stdlib, Python 3.9 OK) —
+  un dossier plutôt qu'un port, aucun service réseau de plus.
+- **Mails importants** : `is:unread is:important newer_than:2d` via le MCP Gmail,
+  résumé d'une phrase par `brain` SANS outils (consigne anti-injection ; le corps
+  d'un mail est une donnée). Premier passage = amorçage : l'existant est « vu »,
+  rien n'est déversé. Requêtes marquées `X-Klody-Source: system` (miner).
+- **Rappels / notes dictés** : outils LOCAUX au canal `programmer_rappel` /
+  `noter`, exécutés par la garde, n'écrivant que dans `proactif.db`. Hors quota.
+- ⚠️ **Le contexte de date doit porter l'ANNÉE.** Vécu au premier essai réel :
+  « dimanche 22/11 » seul → année inventée, « déjà passée », aucun rappel.
+  `contexte_date` donne `… 2026 (2026-11-22T01:23)` ; le refus cite « maintenant ».
+- Une clé par alerte (`gmail:<uid>`, `tache:<fichier>`, `rappel:<id>`) : jamais
+  deux fois. Envoi en échec = non marqué, retenté. Source en panne = isolée.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
