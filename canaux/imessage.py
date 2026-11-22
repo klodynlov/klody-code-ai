@@ -64,6 +64,7 @@ from canaux.proactif import (
     outils_locaux,
     resumeur_llm,
 )
+from canaux.rendez_vous import AVANCE_MIN, source_rendez_vous
 
 logger = logging.getLogger("klody.imessage")
 
@@ -437,19 +438,23 @@ def demarrer_proactif(registre: Registre, dest: str,
     gmail = GmailMCP(mcp_servers["gmail"]) if "gmail" in mcp_servers else None
     client, modele = client_llm()
     resumer = resumeur_llm(client, modele) if gmail is not None else None
+    # La coque pose KLODY_IMSG_LAUNCHER (chemin du bundle) : relancée en
+    # `--agenda`, elle lit EventKit sous SES droits TCC.
+    bundle = os.environ.get("KLODY_IMSG_LAUNCHER", "")
+    lanceur = Path(bundle) / "Contents" / "MacOS" / "KlodyMessages" if bundle else None
     briefing = None
     if os.environ.get("KLODY_BRIEFING", "1") != "0":
-        # La coque pose KLODY_IMSG_LAUNCHER (chemin du bundle) : relancée en
-        # `--agenda`, elle lit EventKit sous SES droits TCC.
-        bundle = os.environ.get("KLODY_IMSG_LAUNCHER", "")
-        lanceur = Path(bundle) / "Contents" / "MacOS" / "KlodyMessages" if bundle else None
         dep = Dependances(lanceur=lanceur, resumer=synthese_llm(client, modele),
                           chercher_mails=gmail.chercher if gmail is not None else None)
         briefing = source_briefing(registre, dep, data_dir,
                                    os.environ.get("KLODY_BRIEFING_HEURE", HEURE_DEFAUT))
+    rdv = None
+    if lanceur is not None and os.environ.get("KLODY_RDV", "1") != "0":
+        rdv = source_rendez_vous(lanceur, avance_min=int(
+            os.environ.get("KLODY_RDV_AVANCE_MIN", AVANCE_MIN)))
     moteur = construire_moteur(registre, envoi, data_dir / "notifications", gmail, resumer,
                                int(os.environ.get("KLODY_PROACTIF_MAX_JOUR", MAX_PAR_JOUR)),
-                               briefing)
+                               briefing, rdv)
     fil = threading.Thread(target=moteur.boucle, args=(threading.Event(),),
                            name="klody-proactif", daemon=True)
     fil.start()

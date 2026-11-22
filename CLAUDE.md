@@ -1629,6 +1629,20 @@ maintenant (sans consommer celui du jour).
   `normaliser_puces` ; coque absente → « aucun rendez-vous » (un vide qui ment)
   → toute erreur est NOMMÉE (« indisponible (coque KlodyMessages absente…) »).
 
+## État au 2026-11-22 — rappels juste avant (`canaux/rendez_vous.py`)
+
+Troisième brique de la proactivité. Toutes les 2 min, `KlodyMessages --agenda 2`
+(aujourd'hui + demain, délai court de 20 s pour ne pas bloquer les rappels
+dictés du même fil) :
+- **rendez-vous HORAIRE** dont le début tombe dans les `KLODY_RDV_AVANCE_MIN`
+  (30) minutes → « 📅 Dans 25 min : … » ; les « journée » restent au briefing ;
+- **app Rappels AVEC heure** échue depuis moins de 30 min → « ✅ Rappel : … ».
+Hors quota. Clé `rdv:<id>:<début>` : un événement déplacé est rappelé à sa
+nouvelle heure, jamais deux fois à la même. Mac réveillé trop tard : rien
+(un « dans 30 min » reçu après coup serait faux) — le briefing reprend.
+Aucune lecture d'agenda hors coque pendant le développement : depuis la session
+Claude, TCC aurait attribué la demande à Claude.app.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

@@ -167,12 +167,14 @@ def _heure(iso: str) -> str:
         return "?"
 
 
-def agenda(lanceur: Path | None, run: Callable[[list[str], float], str] = lancer) -> dict:
-    """Agenda + Rappels du jour via ``KlodyMessages --agenda`` (EventKit)."""
+def agenda(lanceur: Path | None, run: Callable[[list[str], float], str] = lancer,
+           jours: int = 1) -> dict:
+    """Agenda + Rappels via ``KlodyMessages --agenda <jours>`` (EventKit), depuis
+    le début du jour : ``jours=2`` couvre un rendez-vous juste après minuit."""
     if lanceur is None:
         return {"evenements": [], "rappels": [], "erreurs": ["coque KlodyMessages absente"]}
     try:
-        return dict(json.loads(run([str(lanceur), "--agenda", "1"], 60)))
+        return dict(json.loads(run([str(lanceur), "--agenda", str(jours)], 60)))
     except Exception as e:
         logger.warning("[briefing] agenda : %s", e)
         return {"evenements": [], "rappels": [], "erreurs": [f"agenda : {type(e).__name__}"]}

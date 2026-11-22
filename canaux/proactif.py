@@ -48,6 +48,7 @@ PERIODE_MAILS_S = 300.0
 PERIODE_TACHES_S = 30.0
 PERIODE_RAPPELS_S = 20.0
 PERIODE_BRIEFING_S = 60.0
+PERIODE_RDV_S = 120.0  # rendez-vous / app Rappels : avance réelle AVANCE − 2 min au pire
 PAS_BOUCLE_S = 10.0
 MAILS_PAR_PASSAGE = 5
 REQUETE_MAILS = "is:unread is:important newer_than:2d"
@@ -455,7 +456,8 @@ def outils_locaux(registre: Registre,
 def construire_moteur(registre: Registre, envoyer: Callable[[str], None], dossier_notif: Path,
                       gmail: GmailMCP | None, resumer: Resumer | None,
                       max_par_jour: int = MAX_PAR_JOUR,
-                      briefing: Callable[[float], list[Alerte]] | None = None) -> Moteur:
+                      briefing: Callable[[float], list[Alerte]] | None = None,
+                      rendez_vous: Callable[[float], list[Alerte]] | None = None) -> Moteur:
     sources = [
         Source("rappels", PERIODE_RAPPELS_S, source_rappels(registre)),
         Source("taches", PERIODE_TACHES_S, source_taches(dossier_notif)),
@@ -465,4 +467,6 @@ def construire_moteur(registre: Registre, envoyer: Callable[[str], None], dossie
                               source_mails(registre, gmail.chercher, gmail.lire, resumer)))
     if briefing is not None:
         sources.append(Source("briefing", PERIODE_BRIEFING_S, briefing))
+    if rendez_vous is not None:
+        sources.append(Source("rendez_vous", PERIODE_RDV_S, rendez_vous))
     return Moteur(registre, envoyer, sources, max_par_jour)
