@@ -370,7 +370,7 @@ def test_main_un_passage_a_blanc(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("KLODY_IMSG_ALLOWED", MOI)
     monkeypatch.setattr(im, "CHAT_DB", db)
     monkeypatch.setattr(config, "MEMORY_DIR", tmp_path)
-    monkeypatch.setattr(im, "make_agent_runner", lambda d: (lambda q: f"vu:{q}"))
+    monkeypatch.setattr(im, "make_agent_runner", lambda *a, **k: (lambda q: f"vu:{q}"))
     etat = tmp_path / "imessage_state.json"
     im.save_state(etat, {"last_rowid": 0})
     assert im.main(["--dry-run", "--once"]) == 0
@@ -396,7 +396,7 @@ def test_main_premier_lancement_ignore_l_historique(monkeypatch, tmp_path):
     def run(q):
         raise AssertionError("l'historique ne doit pas être traité")
 
-    monkeypatch.setattr(im, "make_agent_runner", lambda d: run)
+    monkeypatch.setattr(im, "make_agent_runner", lambda *a, **k: run)
     assert im.main(["--once"]) == 0
 
 

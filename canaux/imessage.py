@@ -45,11 +45,24 @@ import sqlite3
 # osascript seulement, argv sans shell (cf. send_imessage)
 import subprocess  # nosec B404
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from canaux.proactif import (
+    MAX_PAR_JOUR,
+    OUTILS_CANAL,
+    GmailMCP,
+    Registre,
+    client_llm,
+    construire_moteur,
+    contexte_date,
+    outils_locaux,
+    resumeur_llm,
+)
 
 logger = logging.getLogger("klody.imessage")
 
@@ -202,7 +215,8 @@ def tool_allowed(name: str, requires_approval: Callable[..., bool]) -> bool:
 
 
 def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
-                           bloques: list[str]) -> None:
+                           bloques: list[str],
+                           locaux: dict[str, Callable[[dict], str]] | None = None) -> None:
     """Met un Orchestrator au régime iMessage (même régime que ``/api/siri``).
 
     - modèle ÉPINGLÉ : pas de bascule brain→coder, le cache de préfixe survit
@@ -216,6 +230,10 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
       se contente pas de ne pas voir les autres outils.
 
     Résultat mesuré au spike le 2026-11-21 : 4-22 s par réponse (19-273 s avant).
+
+    ``locaux`` : outils propres au canal (``programmer_rappel``, ``noter`` —
+    ``canaux/proactif.py``), exécutés ici sans passer par l'orchestrateur. Ils
+    n'écrivent que dans le registre du canal : aucun effet hors de lui.
     """
     orch._pinned_model = orch.llm.model
     orch._context_routing_enabled = False
@@ -234,11 +252,17 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
         if nom not in vus and tool_allowed(nom, requires_approval):
             vus.add(nom)
             garder.append(t)
+    locaux = locaux or {}
+    garder += [s for s in OUTILS_CANAL if s["function"]["name"] in locaux]
     orch.tools = garder
     orch._relevant_files_section = lambda _q: ""
     executer = orch._execute_tool
 
     def garde(name: str, args: dict) -> str:
+        if name in locaux:
+            resultat = locaux[name](args if isinstance(args, dict) else {})
+            logger.info("[imessage] outil local %s → %s", name, resultat[:120])
+            return resultat
         if not tool_allowed(name, requires_approval):
             bloques.append(name)
             logger.warning("[imessage] outil refusé : %s", name)
@@ -248,8 +272,15 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
     orch._execute_and_display = garde
 
 
-def make_agent_runner(memory_dir: Path) -> Callable[[str], str]:
-    """Charge l'orchestrateur KlodyAI ; renvoie ``requête → réponse texte``."""
+def make_agent_runner(memory_dir: Path,
+                      locaux: dict[str, Callable[[dict], str]] | None = None,
+                      horloge: Callable[[], float] = time.time) -> Callable[[str], str]:
+    """Charge l'orchestrateur KlodyAI ; renvoie ``requête → réponse texte``.
+
+    La date du jour précède la requête : sans elle, « demain 9 h » n'a pas de
+    référence (le prompt système ne la porte pas) et ``programmer_rappel`` ne
+    peut pas calculer une heure absolue.
+    """
     from agent.approval import requires_approval
     from agent.memory import ConversationMemory
     from agent.orchestrator import Orchestrator
@@ -262,9 +293,9 @@ def make_agent_runner(memory_dir: Path) -> Callable[[str], str]:
         memory = (ConversationMemory.load_from_file(mem_file) if mem_file.exists()
                   else ConversationMemory(session_id="imessage"))
         orch = Orchestrator(memory)
-        preparer_orchestrateur(orch, requires_approval, bloques)
+        preparer_orchestrateur(orch, requires_approval, bloques, locaux)
         try:
-            orch.run(query)
+            orch.run(f"{contexte_date(horloge())}\n{query}")
         finally:
             orch.close()
         last = next((m["content"] for m in reversed(memory.messages)
@@ -385,6 +416,33 @@ def ouvrir_avec_attente(db: Path, dormir: Callable[[float], None] = time.sleep,
             dormir(ATTENTE_ACCES_S)
 
 
+def premier_destinataire(raw: str) -> str:
+    """Le destinataire des messages spontanés : ``KLODY_PROACTIF_DEST``, sinon le
+    PREMIER expéditeur autorisé (l'ordre compte, d'où la lecture du brut)."""
+    dest = os.environ.get("KLODY_PROACTIF_DEST", "").strip()
+    return dest or next(h.strip() for h in raw.split(",") if h.strip())
+
+
+def demarrer_proactif(registre: Registre, dest: str,
+                      envoyer: Callable[[str, str], None] | None,
+                      data_dir: Path, mcp_servers: dict) -> threading.Thread:
+    """Lance le moteur proactif en fil de fond (même processus = mêmes droits TCC)."""
+    def envoi(texte: str) -> None:
+        if envoyer is None:
+            print(f"[à blanc · proactif] → {formater_reponse(texte)!r}", flush=True)
+        else:
+            envoyer(dest, formater_reponse(texte))
+
+    gmail = GmailMCP(mcp_servers["gmail"]) if "gmail" in mcp_servers else None
+    resumer = resumeur_llm(*client_llm()) if gmail is not None else None
+    moteur = construire_moteur(registre, envoi, data_dir / "notifications", gmail, resumer,
+                               int(os.environ.get("KLODY_PROACTIF_MAX_JOUR", MAX_PAR_JOUR)))
+    fil = threading.Thread(target=moteur.boucle, args=(threading.Event(),),
+                           name="klody-proactif", daemon=True)
+    fil.start()
+    return fil
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m canaux.imessage")
     ap.add_argument("--probe", action="store_true", help="vérifie chat.db, n'affiche aucun texte")
@@ -411,11 +469,15 @@ def main(argv: list[str] | None = None) -> int:
     # 1er lancement (aucun état) : on part du ROWID max, l'historique n'est jamais rejoué.
     # Test `in`, pas `or` : un état à 0 est un état, pas une absence d'état.
     last = int(st["last_rowid"]) if "last_rowid" in st else max_rowid(con)
-    run = make_agent_runner(config.MEMORY_DIR)
+    registre = Registre(config.MEMORY_DIR / "proactif.db")
+    run = make_agent_runner(config.MEMORY_DIR, outils_locaux(registre))
     logger.info("[imessage] écoute depuis ROWID %d, %d expéditeur(s)%s",
                 last, len(allowed), " — À BLANC" if a.dry_run else "")
     dedup = Dedoublonneur()
     envoyer = None if a.dry_run else send_imessage
+    if not a.once and os.environ.get("KLODY_PROACTIF", "1") != "0":
+        demarrer_proactif(registre, premier_destinataire(os.environ["KLODY_IMSG_ALLOWED"]),
+                          envoyer, config.MEMORY_DIR, config.MCP_SERVERS)
     while True:
         try:
             msgs = fetch_since(con, last)
