@@ -47,6 +47,7 @@ MAX_PAR_JOUR = 10
 PERIODE_MAILS_S = 300.0
 PERIODE_TACHES_S = 30.0
 PERIODE_RAPPELS_S = 20.0
+PERIODE_BRIEFING_S = 60.0
 PAS_BOUCLE_S = 10.0
 MAILS_PAR_PASSAGE = 5
 REQUETE_MAILS = "is:unread is:important newer_than:2d"
@@ -65,6 +66,7 @@ class Alerte:
     texte: str
     source: str
     hors_quota: bool = False
+    texte_max: int = 600  # = TEXTE_MAX ; le briefing (3 messages) va jusqu'à 1500
 
 
 # ── Registre (SQLite) ────────────────────────────────────────────────────────
@@ -151,6 +153,15 @@ class Registre:
             return int(con.execute("INSERT INTO notes (texte, cree) VALUES (?,?)",
                                    (texte, now)).lastrowid or 0)
 
+    def notes_depuis(self, ts: float) -> list[str]:
+        with closing(self._con()) as con:
+            return [str(r[0]) for r in con.execute(
+                "SELECT texte FROM notes WHERE cree>=? ORDER BY cree", (ts,))]
+
+    def marquer_etat(self, cle: str, etat: int) -> None:
+        with closing(self._con()) as con, con:
+            con.execute("UPDATE alertes SET etat=? WHERE cle=?", (etat, cle))
+
     def notes_recentes(self, n: int = 10) -> list[str]:
         with closing(self._con()) as con:
             return [str(r[0]) for r in con.execute(
@@ -200,7 +211,7 @@ class Moteur:
             self.registre.marquer(a, DIFFEREE, now)
             return False
         try:
-            self.envoyer(a.texte[:TEXTE_MAX])
+            self.envoyer(a.texte[:a.texte_max])
         except Exception:
             # Non marquée : retentée au prochain passage de sa source.
             logger.exception("[proactif] envoi de %s impossible", a.cle)
@@ -443,7 +454,8 @@ def outils_locaux(registre: Registre,
 
 def construire_moteur(registre: Registre, envoyer: Callable[[str], None], dossier_notif: Path,
                       gmail: GmailMCP | None, resumer: Resumer | None,
-                      max_par_jour: int = MAX_PAR_JOUR) -> Moteur:
+                      max_par_jour: int = MAX_PAR_JOUR,
+                      briefing: Callable[[float], list[Alerte]] | None = None) -> Moteur:
     sources = [
         Source("rappels", PERIODE_RAPPELS_S, source_rappels(registre)),
         Source("taches", PERIODE_TACHES_S, source_taches(dossier_notif)),
@@ -451,4 +463,6 @@ def construire_moteur(registre: Registre, envoyer: Callable[[str], None], dossie
     if gmail is not None and resumer is not None:
         sources.append(Source("mails", PERIODE_MAILS_S,
                               source_mails(registre, gmail.chercher, gmail.lire, resumer)))
+    if briefing is not None:
+        sources.append(Source("briefing", PERIODE_BRIEFING_S, briefing))
     return Moteur(registre, envoyer, sources, max_par_jour)

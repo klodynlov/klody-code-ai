@@ -14,6 +14,14 @@
   <key>LSBackgroundOnly</key><true/>
   <key>NSAppleEventsUsageDescription</key>
   <string>KlodyMessages envoie par Messages les réponses de Klody, uniquement aux expéditeurs que tu as autorisés.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>KlodyMessages lit ton agenda pour ton briefing du matin et te rappeler tes rendez-vous par iMessage. Rien ne quitte le Mac.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>KlodyMessages lit ton agenda pour ton briefing du matin et te rappeler tes rendez-vous par iMessage. Rien ne quitte le Mac.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>KlodyMessages lit tes rappels pour ton briefing du matin et te prévenir à leur échéance par iMessage. Rien ne quitte le Mac.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>KlodyMessages lit tes rappels pour ton briefing du matin et te prévenir à leur échéance par iMessage. Rien ne quitte le Mac.</string>
   <key>KlodyRepo</key><string>__REPO__</string>
 </dict>
 </plist>

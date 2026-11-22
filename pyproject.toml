@@ -54,6 +54,7 @@ files = [
     "config.py",
     "canaux/imessage.py",
     "canaux/proactif.py",
+    "canaux/briefing.py",
     "services.py",
     "agent/dbc.py",
     "agent/llm.py",

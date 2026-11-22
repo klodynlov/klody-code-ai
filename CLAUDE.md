@@ -1605,6 +1605,30 @@ spontanés/jour** (`KLODY_PROACTIF_MAX_JOUR`) ; au-delà, DIFFÉRÉS (briefing).
 - Une clé par alerte (`gmail:<uid>`, `tache:<fichier>`, `rappel:<id>`) : jamais
   deux fois. Envoi en échec = non marqué, retenté. Source en panne = isolée.
 
+## État au 2026-11-22 — briefing du matin (`canaux/briefing.py`)
+
+Source du moteur proactif, une fois par jour à `KLODY_BRIEFING_HEURE` (07:30),
+rattrapé au réveil jusqu'à midi, **hors quota**, 3-4 messages ≤ 1 500 car. :
+météo Open-Meteo (Baulon, Le Rheu), agenda + app Rappels, Notes modifiées la
+veille, mails importants de la nuit, alertes DIFFÉRÉES (puis marquées
+« briefées »), notes dictées, une proposition du miner d'habitudes (jamais deux
+fois), revue de presse synthétisée par `brain` (titres = données, sans outils),
+veille MLX locale si neuve. `scripts/klody-notifier.py --briefing` le déclenche
+maintenant (sans consommer celui du jour).
+
+- **Agenda/Rappels par la coque** : `KlodyMessages --agenda 1` (`Agenda.swift`,
+  EventKit) relancé par le canal → TCC attribue l'accès Calendriers/Rappels à
+  l'app. Droit `com.apple.security.personal-information.calendars` (runtime
+  renforcé) + `NS*FullAccessUsageDescription`. Notes via `osascript` (Automation
+  → Notes, même responsable).
+- **Martinique** : ni Martinique la 1ère ni RCI n'ont de flux RSS public (pages
+  HTML, vérifié le 2026-11-22) → Google Actualités `q=Martinique`, filtré sur
+  ces deux sources.
+- ⚠️ Vécus à l'essai réel : la veille collée à la revue dépassait 1 500 car.
+  (coupée) → message à part ; le modèle rend du Markdown malgré la consigne →
+  `normaliser_puces` ; coque absente → « aucun rendez-vous » (un vide qui ment)
+  → toute erreur est NOMMÉE (« indisponible (coque KlodyMessages absente…) »).
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
