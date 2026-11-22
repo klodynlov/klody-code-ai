@@ -19,6 +19,12 @@ func fail(_ msg: String) -> Never {
     exit(78) // EX_CONFIG
 }
 
+// Mode agenda (Agenda.swift) : relancé par le canal, JAMAIS le pont Python.
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--agenda" {
+    let jours = CommandLine.arguments.count > 2 ? Int(CommandLine.arguments[2]) ?? 1 : 1
+    lancerAgenda(jours: jours)
+}
+
 let info = Bundle.main.infoDictionary ?? [:]
 let env = ProcessInfo.processInfo.environment
 guard let repo = env["KLODY_IMSG_REPO"] ?? info["KlodyRepo"] as? String else {

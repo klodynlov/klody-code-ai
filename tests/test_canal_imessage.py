@@ -430,7 +430,8 @@ def test_info_plist_coque():
 
 def test_droit_apple_events_sinon_envoi_refuse_en_silence():
     e = plistlib.loads((APP / "KlodyMessages.entitlements").read_bytes())
-    assert e == {"com.apple.security.automation.apple-events": True}
+    assert e == {"com.apple.security.automation.apple-events": True,
+                 "com.apple.security.personal-information.calendars": True}
 
 
 def test_coque_lance_le_bon_module():

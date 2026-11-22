@@ -32,7 +32,7 @@ build() (
     trap 'rm -rf "$work"' EXIT
     app="$work/KlodyMessages.app"
     mkdir -p "$app/Contents/MacOS"
-    swiftc -O -swift-version 5 -o "$app/Contents/MacOS/KlodyMessages" "$REPO/canaux/imessage_app/main.swift"
+    swiftc -O -swift-version 5 -o "$app/Contents/MacOS/KlodyMessages" "$REPO"/canaux/imessage_app/*.swift
     sed -e "s#__REPO__#$REPO#g" "$REPO/canaux/imessage_app/Info.plist" > "$app/Contents/Info.plist"
     plutil -lint "$app/Contents/Info.plist" >/dev/null
     printf 'APPL????' > "$app/Contents/PkgInfo"

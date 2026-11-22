@@ -27,14 +27,20 @@ STATUTS = ("ok", "echec", "info")
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("titre")
+    ap.add_argument("titre", nargs="?", default="")
+    ap.add_argument("--briefing", action="store_true",
+                    help="demande le briefing du matin MAINTENANT (relevé sous une minute)")
     ap.add_argument("--statut", choices=STATUTS, default="info")
     ap.add_argument("--source", default="")
     ap.add_argument("--detail", default="")
     a = ap.parse_args(argv)
+    base = Path(os.environ.get("KLODY_DATA_DIR") or Path.home() / ".klody" / "data")
+    if a.briefing:
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "briefing.maintenant").write_text(str(time.time()))
+        return 0
     if not a.titre.strip():
         ap.error("titre vide")
-    base = Path(os.environ.get("KLODY_DATA_DIR") or Path.home() / ".klody" / "data")
     dossier = base / "notifications"
     dossier.mkdir(parents=True, exist_ok=True)
     nom = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"

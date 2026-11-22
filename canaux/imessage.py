@@ -52,6 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from canaux.briefing import HEURE_DEFAUT, Dependances, source_briefing, synthese_llm
 from canaux.proactif import (
     MAX_PAR_JOUR,
     OUTILS_CANAL,
@@ -434,9 +435,21 @@ def demarrer_proactif(registre: Registre, dest: str,
             envoyer(dest, formater_reponse(texte))
 
     gmail = GmailMCP(mcp_servers["gmail"]) if "gmail" in mcp_servers else None
-    resumer = resumeur_llm(*client_llm()) if gmail is not None else None
+    client, modele = client_llm()
+    resumer = resumeur_llm(client, modele) if gmail is not None else None
+    briefing = None
+    if os.environ.get("KLODY_BRIEFING", "1") != "0":
+        # La coque pose KLODY_IMSG_LAUNCHER (chemin du bundle) : relancée en
+        # `--agenda`, elle lit EventKit sous SES droits TCC.
+        bundle = os.environ.get("KLODY_IMSG_LAUNCHER", "")
+        lanceur = Path(bundle) / "Contents" / "MacOS" / "KlodyMessages" if bundle else None
+        dep = Dependances(lanceur=lanceur, resumer=synthese_llm(client, modele),
+                          chercher_mails=gmail.chercher if gmail is not None else None)
+        briefing = source_briefing(registre, dep, data_dir,
+                                   os.environ.get("KLODY_BRIEFING_HEURE", HEURE_DEFAUT))
     moteur = construire_moteur(registre, envoi, data_dir / "notifications", gmail, resumer,
-                               int(os.environ.get("KLODY_PROACTIF_MAX_JOUR", MAX_PAR_JOUR)))
+                               int(os.environ.get("KLODY_PROACTIF_MAX_JOUR", MAX_PAR_JOUR)),
+                               briefing)
     fil = threading.Thread(target=moteur.boucle, args=(threading.Event(),),
                            name="klody-proactif", daemon=True)
     fil.start()
