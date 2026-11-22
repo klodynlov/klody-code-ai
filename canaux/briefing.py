@@ -198,7 +198,7 @@ def formater_agenda(d: dict, now: datetime) -> tuple[str, str]:
         except (KeyError, ValueError):
             # Rappel sans échéance (ou date illisible) : il reste listé, sans
             # mention de retard ni d'heure — l'omettre le ferait disparaître.
-            ligne += ""
+            pass
         rap.append(ligne)
     # Une erreur est toujours NOMMÉE : vécu à l'essai réel du 2026-11-22, la coque
     # absente donnait « aucun rendez-vous » — un vide qui ment.
