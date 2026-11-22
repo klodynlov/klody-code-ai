@@ -5,6 +5,7 @@ import plistlib
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -12,7 +13,21 @@ import pytest
 from canaux import briefing as br, proactif as pr
 
 RACINE = Path(__file__).resolve().parents[1]
-T_0731 = datetime(2026, 11, 23, 7, 31).timestamp()   # lundi
+
+
+@pytest.fixture(autouse=True)
+def _fuseau_paris(monkeypatch):
+    """Les données d'agenda sont en +01:00 et le code affiche l'heure LOCALE.
+    Vécu en CI le 2026-11-22 : runner en UTC → « 08:00 » au lieu de « 09:00 »."""
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def t0731():
+    return datetime(2026, 11, 23, 7, 31).timestamp()   # lundi, heure de Paris
 
 
 @pytest.fixture
@@ -261,9 +276,9 @@ def _dep(tmp_path, **kw):
 
 
 def test_composer_trois_messages_complets(reg, tmp_path):
-    reg.marquer(pr.Alerte("gmail:9", "📧 X — mis de côté", "mails"), pr.DIFFEREE, T_0731 - 3600)
-    reg.ajouter_note("racheter des cordes", T_0731 - 600)
-    m1, m2, m3, m4 = br.composer(reg, _dep(tmp_path), T_0731)
+    reg.marquer(pr.Alerte("gmail:9", "📧 X — mis de côté", "mails"), pr.DIFFEREE, t0731() - 3600)
+    reg.ajouter_note("racheter des cordes", t0731() - 600)
+    m1, m2, m3, m4 = br.composer(reg, _dep(tmp_path), t0731())
     assert m1.startswith("☀️ Bonjour ! Briefing du lundi 23/11")
     for s in ("🌤 Météo", "Baulon : pluie faible", "📅 Agenda", "Dentiste", "✅ Rappels",
               "Appeler Marc à 14:00", "🗒 Notes modifiées hier", "• Courses"):
@@ -282,7 +297,7 @@ def test_composer_tout_en_panne_reste_un_briefing(reg, tmp_path):
         raise OSError("hors ligne")
     dep = br.Dependances(get=panne, run=panne, lanceur=None, chercher_mails=panne, resumer=None,
                          assistant_db=tmp_path / "x.db", veille=tmp_path / "x.md")
-    msgs = br.composer(reg, dep, T_0731)
+    msgs = br.composer(reg, dep, t0731())
     assert "Baulon : indisponible" in msgs[0] and "Notes : indisponible" in msgs[0]
     assert "Mails : indisponible" in msgs[1]
     assert "Revue indisponible." in msgs[2]
@@ -295,10 +310,10 @@ def test_borne_a_1500():
 def test_planification_quotidienne(reg, tmp_path):
     src = br.source_briefing(reg, _dep(tmp_path), tmp_path, "07:30")
     assert src(datetime(2026, 11, 23, 7, 29).timestamp()) == []
-    alertes = src(T_0731)
+    alertes = src(t0731())
     assert [a.cle for a in alertes] == [f"briefing:2026-11-23:{i}" for i in (1, 2, 3, 4)]
     assert all(a.hors_quota and a.texte_max == 1500 for a in alertes)
-    assert src(T_0731 + 600) == []                                     # une fois par jour
+    assert src(t0731() + 600) == []                                     # une fois par jour
     assert src(datetime(2026, 11, 24, 12, 5).timestamp()) == []        # Mac réveillé trop tard
     assert len(src(datetime(2026, 11, 25, 9, 10).timestamp())) == 3    # rattrapé (veille déjà lue)
 
@@ -319,7 +334,7 @@ def test_moteur_envoie_le_briefing_entier(reg, tmp_path):
     m = pr.Moteur(reg, envois.append, [pr.Source("briefing", 0, lambda now: [
         pr.Alerte("b:1", "y" * 1400, "briefing", hors_quota=True, texte_max=1500)])],
         max_par_jour=0)
-    m.tick(T_0731)
+    m.tick(t0731())
     assert len(envois[0]) == 1400                                       # pas tronqué à 600
 
 
