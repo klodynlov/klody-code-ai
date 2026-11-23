@@ -37,8 +37,12 @@ from agent.cache_prefixe import journaliser_cache
 from agent.erreurs_llm import (
     attente_reessai_503,
     detail_http,
+    est_503,
     expliquer_erreur_llm,
     message_reessai_503,
+    message_repli_503,
+    modele_repli_503,
+    noter_repli_503,
     pour_journal,
 )
 from agent.journal_client import en_tetes as en_tetes_journal
@@ -315,6 +319,7 @@ class LLMClient:
         thinking_budget: int | None = None,
         _recovering: bool = False,
         _essai_503: int = 0,
+        _modele_repli: str | None = None,
     ) -> tuple[str, list[dict] | None]:
         """
         Envoie les messages et streame la réponse avec :
@@ -343,14 +348,19 @@ class LLMClient:
                      le CoT seul exigerait une troncature dure du flux (écartée : risque
                      sur le format tool-call). Cf. docs/thinking-budget-policy.md et
                      Orchestrator._thinking_budget. None ⇒ clé absente (forme historique).
+            _modele_repli : alias servi À LA PLACE de `self.model` pour CET appel
+                     (repli brain → coder sur 503 mémoire persistant). Interne :
+                     posé par la branche 503 ci-dessous, jamais par un appelant.
+                     `self.model` n'est pas touché — cf. erreurs_llm.modele_repli_503.
         """
+        modele = _modele_repli or self.model
         if enable_thinking:
             # Le CoT précède la réponse et consomme beaucoup de tokens : on élargit le
             # plafond global pour qu'il ne mange pas toute la réponse (comportement
             # historique INCHANGÉ). Le budget par-tâche ne touche PAS max_tokens.
             max_tokens = max(max_tokens, THINKING_MAX_TOKENS)
         params: dict = {
-            "model": self.model,
+            "model": modele,
             "messages": messages,
             "stream": True,
             # `usage` en fin de flux : seule source du taux de cache de préfixe
@@ -454,7 +464,7 @@ class LLMClient:
                                 temperature=temperature, silent=silent,
                                 tool_choice=tool_choice, max_tokens=max_tokens,
                                 enable_thinking=False, thinking_budget=None,
-                                _recovering=True,
+                                _recovering=True, _modele_repli=_modele_repli,
                             )
 
                         if delta.content:
@@ -498,7 +508,7 @@ class LLMClient:
                             self._accumulate_tool_call(raw_tool_calls, tc_chunk)
 
             elapsed = time.monotonic() - t0
-            journaliser_cache(usage, self.model, elapsed)
+            journaliser_cache(usage, modele, elapsed)
             out_tokens = count_tokens(full_content)
             if reasoning_buf:
                 logger.info("Raisonnement (CoT): %d chars", len(reasoning_buf))
@@ -595,7 +605,12 @@ class LLMClient:
             # Réponse HTTP d'erreur du backend (4xx/5xx), AVANT toute génération.
             detail = detail_http(e)
             statut = getattr(e, "status_code", None)
-            attente = attente_reessai_503(e, _essai_503)
+            if _modele_repli is not None and est_503(e):
+                # Le repli est refusé lui aussi : on rend la main SANS rien
+                # afficher. L'appel d'origine (plus bas) affiche le refus du
+                # modèle demandé — le message que l'utilisateur lisait déjà.
+                raise
+            attente = attente_reessai_503(e, _essai_503, self)
             if attente is not None:
                 # Transitoire par nature (« RAM insuffisante pour brain », gateway
                 # en cours de chargement) : on attend et on rejoue, borné, avec
@@ -612,6 +627,30 @@ class LLMClient:
                     messages, tools, token_callback, temperature, silent, tool_choice,
                     max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503 + 1,
                 )
+            repli = modele_repli_503(e, self)
+            if repli is not None:
+                # Le 503 mémoire a survécu aux essais : la RAM réelle ne tient
+                # pas le généraliste, elle tient peut-être le modèle de code
+                # (vécu le 2026-11-15 : 54 Go réels, brain ~52 refusé, coder ~40
+                # passait). On rejoue CET appel dessus, sans toucher self.model.
+                statut_txt = message_repli_503(e, self, repli)
+                logger.warning("%s", pour_journal(statut_txt, 400))
+                if not silent:
+                    console.print(f"\n[yellow]⚠  {statut_txt}[/yellow]\n")
+                noter_repli_503(self)
+                try:
+                    return self._rejouer(
+                        messages, tools, token_callback, temperature, silent, tool_choice,
+                        max_tokens, enable_thinking, thinking_budget, _recovering, _essai_503,
+                        _modele_repli=repli,
+                    )
+                except APIStatusError as e_repli:
+                    if not est_503(e_repli):
+                        raise
+                    logger.warning(
+                        "Repli refusé aussi (%s) — on rend le refus d'origine",
+                        pour_journal(detail_http(e_repli), 300),
+                    )
             if statut == 404 and self._fallback_model_utilisable():
                 logger.warning("Modèle introuvable sur %s — bascule sur '%s'", self._base_url, MODEL_FALLBACK)
                 if not silent:
@@ -627,7 +666,9 @@ class LLMClient:
             logger.error("Erreur HTTP %s du backend %s: %s", statut, self._base_url, pour_journal(detail, 300))
             if not silent:
                 console.print(f"\n[bold red]✗ {expliquer_erreur_llm(e, self)}[/bold red]\n")
-            raise
+            # `raise e`, pas `raise` nu : après un repli refusé, c'est bien le
+            # refus du modèle DEMANDÉ qui doit remonter, pas celui du repli.
+            raise e
         except Exception as e:
             logger.error("Erreur LLM: %s", e)
             raise
@@ -658,6 +699,7 @@ class LLMClient:
         thinking_budget: int | None,
         _recovering: bool,
         _essai_503: int,
+        _modele_repli: str | None = None,
     ) -> tuple[str, list[dict] | None]:
         """Relance stream_chat avec TOUS ses arguments.
 
@@ -671,7 +713,7 @@ class LLMClient:
             temperature=temperature, silent=silent, tool_choice=tool_choice,
             max_tokens=max_tokens, enable_thinking=enable_thinking,
             thinking_budget=thinking_budget, _recovering=_recovering,
-            _essai_503=_essai_503,
+            _essai_503=_essai_503, _modele_repli=_modele_repli,
         )
 
     # ------------------------------------------------------------------ #

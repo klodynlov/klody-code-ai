@@ -170,3 +170,95 @@ def test_run_siri_query_epingle_reduit_et_coupe_le_retrieval(monkeypatch, tmp_pa
         "pinned": "brain", "outils": ["read_file"], "pistes": "",
         "routage": False, "actifs": None,
     }
+
+
+# ── Repli sur le modèle de code quand le 503 mémoire persiste ────────────────
+# La CLI et le WebSocket l'avaient depuis le 2026-11-15 ; Siri, qui remplace
+# `stream_chat` par un appel synchrone, rendait encore « Une erreur s'est
+# produite côté serveur » sur un refus que `coder` aurait servi.
+
+_URL = "http://localhost:8090/v1"
+
+
+def _refus_ram(modele: str):
+    req = httpx.Request("POST", f"{_URL}/chat/completions")
+    detail = f"RAM insuffisante pour {modele} : RAM réelle 54 Go (plancher 12)"
+    return InternalServerError(f"Error code: 503 - {detail}",
+                               response=httpx.Response(503, request=req), body={"error": detail})
+
+
+def _client(model="brain", backend="mlx"):
+    from types import SimpleNamespace
+    return SimpleNamespace(model=model, _backend=backend, _base_url=_URL)
+
+
+@pytest.fixture
+def repli(monkeypatch):
+    for nom, valeur in {
+        "LLM_503_REPLI": True, "LLM_503_REPLI_MEMOIRE_S": 120.0, "LLM_503_ESSAIS": 2,
+        "LLM_503_ATTENTE_S": 5.0, "LLM_MODEL": "brain", "CODE_MODEL": "coder",
+        "CODE_BASE_URL": _URL, "LLM_BASE_URL": _URL,
+    }.items():
+        monkeypatch.setattr(serveur.config, nom, valeur)
+
+
+def test_503_memoire_persistant_servi_par_coder(repli):
+    creer, appels = _scenario(*[_refus_ram("brain")] * 3, "ok")
+    llm, params, attentes = _client(), {"model": "brain", "stream": False}, []
+    assert serveur._creer_avec_reessai_503(creer, params, dormir=attentes.append, llm=llm) == "ok"
+    assert [a["model"] for a in appels] == ["brain", "brain", "brain", "coder"]
+    assert appels[3] == {"model": "coder", "stream": False}   # le reste de l'appel est intact
+    assert attentes == [5.0, 10.0]                            # les essais d'abord, le repli ensuite
+    # Rien de muté : le modèle demandé repart en premier à l'appel suivant.
+    assert params == {"model": "brain", "stream": False}
+    assert llm.model == "brain"
+
+
+def test_repli_refuse_aussi_rend_le_refus_d_origine(repli):
+    creer, appels = _scenario(*[_refus_ram("brain")] * 3, _refus_ram("coder"))
+    with pytest.raises(InternalServerError) as info:
+        serveur._creer_avec_reessai_503(creer, {"model": "brain"}, dormir=lambda _s: None, llm=_client())
+    assert "pour brain" in str(info.value)
+    assert len(appels) == 4                                   # un seul essai sur coder
+
+
+def test_repli_qui_casse_autrement_remonte_son_erreur(repli):
+    creer, _ = _scenario(*[_refus_ram("brain")] * 3, _http(404, NotFoundError))
+    with pytest.raises(NotFoundError):
+        serveur._creer_avec_reessai_503(creer, {"model": "brain"}, dormir=lambda _s: None, llm=_client())
+
+
+def test_appel_suivant_saute_l_attente(repli):
+    llm = _client()
+    creer, _ = _scenario(*[_refus_ram("brain")] * 3, "ok")
+    serveur._creer_avec_reessai_503(creer, {"model": "brain"}, dormir=lambda _s: None, llm=llm)
+    creer, appels = _scenario(_refus_ram("brain"), "ok")
+    sans_attente = lambda _s: pytest.fail("repli récent : aucune attente")  # noqa: E731
+    assert serveur._creer_avec_reessai_503(creer, {"model": "brain"}, dormir=sans_attente, llm=llm) == "ok"
+    assert [a["model"] for a in appels] == ["brain", "coder"]
+
+
+@pytest.mark.parametrize("cas", ["ollama", "coupe", "sans_client", "503_non_memoire"])
+def test_pas_de_repli(repli, monkeypatch, cas):
+    llm, refus = _client(), _refus_ram("brain")
+    if cas == "ollama":
+        llm = _client(model="mistral:latest", backend="ollama")
+    elif cas == "coupe":
+        monkeypatch.setattr(serveur.config, "LLM_503_REPLI", False)
+    elif cas == "sans_client":
+        llm = None
+    else:
+        req = httpx.Request("POST", f"{_URL}/chat/completions")
+        refus = InternalServerError("Error code: 503", response=httpx.Response(503, request=req),
+                                    body={"error": "worker en cours de démarrage"})
+    creer, appels = _scenario(*[refus] * 3)
+    with pytest.raises(InternalServerError):
+        serveur._creer_avec_reessai_503(creer, {"model": llm.model if llm else "brain"},
+                                        dormir=lambda _s: None, llm=llm)
+    assert len(appels) == 3
+    assert all(a["model"] != "coder" for a in appels)
+
+
+def test_le_chemin_siri_passe_son_client_au_repli():
+    source = inspect.getsource(serveur._run_siri_query)
+    assert "params, llm=orch.llm)" in source

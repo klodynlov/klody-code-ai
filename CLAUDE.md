@@ -1525,6 +1525,49 @@ port à Blender selon l'ordre de démarrage au boot. Mémoire déplacée sur
 > `scripts/install-launchagents.sh --check` : **18 agents à jour, aucun écart,
 > 0 point d'entrée périmé** sur 14 résidents.
 
+## État au 2026-11-15 — le 503 mémoire de `brain` est servi par `coder`
+
+Seul mode d'échec MESURÉ du chat (`~/klody-core/state/journal.db`, 45 jours,
+app `klody-ai`, source `user`) : **2 852 réussies, 46 refusées en 503, 2
+injoignables**. Les 5 refus du jour (06:44–06:46, `logs/agent.log`) : « RAM
+insuffisante pour brain (~52 Go) : libre 55/95 Go virtuel, RAM réelle 54 Go
+(plancher 12), rien d'évinçable de plus ». Le réessai du 2026-09-20 (5 s puis
+10 s) n'a pas suffi — la mémoire est restée prise plusieurs minutes — alors que
+`coder` (~40 Go) tenait : 54 − 40 = 14 ≥ 12.
+
+`agent/erreurs_llm.py::modele_repli_503` — décision UNIQUE, branchée sur
+`LLMClient.stream_chat` et `api/streaming.py::stream_api` : 503 **mémoire**
+persistant après les essais, `BACKEND=mlx`, modèle refusé = `LLM_MODEL`,
+`CODE_MODEL` distinct et servi par le MÊME point d'entrée ⇒ l'appel est rejoué
+sur `coder`. Statut visible (filigrane `reasoning`, ligne jaune en CLI) : « mode
+dégradé ». `message_stats` nomme le modèle qui a réellement répondu.
+
+- ⚠️ **`self.model` n'est PAS muté** — l'alias part en paramètre du rejeu
+  (`_modele_repli`). Le muter est le piège de `MODEL_FALLBACK` (2026-09-20).
+  `brain` reste essayé en premier à chaque appel : un refus est immédiat, et le
+  tour repasse dessus dès que la mémoire revient.
+- **Mémoire du repli** (`LLM_503_REPLI_MEMOIRE_S`, 120 s, sur le client) : un
+  tour ReAct enchaîne les appels, chacun aurait repayé 5 + 10 s avant le même
+  `coder`. Côté API le client vit un message : la mémoire EST le tour.
+- `coder` refusé aussi ⇒ un seul essai, puis le refus de `brain` remonte : le
+  message d'avant, pas deux erreurs empilées. `LLM_503_REPLI=false` coupe tout.
+- **Routeur** : son 503 rend déjà `[fallback: LLM error: HTTP 503]`
+  (medium/explain) sans second appel ; le tour passe ensuite par le repli
+  ci-dessus. Rien à y ajouter.
+- **`/api/siri` aussi** (2026-11-23) : ce chemin remplace `stream_chat` par un
+  appel synchrone (`api/server.py::_creer_avec_reessai_503`) — il avait reçu le
+  réessai 503 (#323) mais pas le repli. Même décision, alias passé dans une
+  COPIE de `params`. Aucune surface de statut en vocal : le mode dégradé n'est
+  que journalisé (`[Siri] … mode dégradé`). 9 mutations rejouées, 9 rouges.
+- ⚠️ **Non mesuré in vivo** : le repli n'a tourné que contre des faux clients
+  (20 mutations rejouées, 20 rouges). Le compteur à relire est le nombre de 503
+  `klody-ai` dans `journal.db` — et les lignes « mode dégradé » d'`agent.log`.
+- ⚠️ **Coût attendu** : `coder` reçoit le prompt COMPLET de `brain` (pas le
+  slim) et part à froid — prefill des schémas d'outils à payer une fois.
+- ⚠️ **Hors dépôt, non fait** : le plancher du gateway compare la RAM réelle à
+  l'estimation de `brain` (52 Go) pour ~33-37 Go résidents mesurés. Le repli
+  compense un refus que cette estimation rend plus fréquent que nécessaire.
+
 ## État au 2026-11-19 — deux trous d'approbation, trouvés par le spike iMessage
 
 En branchant KlodyAI sur iMessage (spike `~/Archives/spikes/imessage-20261119/`),

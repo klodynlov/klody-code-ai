@@ -84,6 +84,17 @@ LLM_MAX_RETRIES: int = 0
 # pire cas avant de rendre l'erreur, message de statut à chaque essai.
 LLM_503_ESSAIS: int = int(os.getenv("LLM_503_ESSAIS", "2"))
 LLM_503_ATTENTE_S: float = float(os.getenv("LLM_503_ATTENTE_S", "5"))
+# Repli brain → coder quand le 503 MÉMOIRE persiste après ces essais (mode
+# gateway uniquement). Mesuré le 2026-11-15 : 46 refus 503 pour 2 852 requêtes
+# réussies en 45 jours, seul mode d'échec du chat ; « RAM réelle 54 Go (plancher
+# 12) » refuse brain (~52 Go) mais laisse passer coder (~40 Go). Le repli vaut
+# pour l'appel en cours, le modèle de session n'est pas touché — décision dans
+# agent/erreurs_llm.py::modele_repli_503. `false` rend le comportement d'avant.
+LLM_503_REPLI: bool = os.getenv("LLM_503_REPLI", "true").lower() in ("1", "true", "yes", "on")
+# Après un repli, durée pendant laquelle les appels suivants du même client
+# sautent l'attente (le modèle nominal reste essayé d'abord, un refus est
+# immédiat). Sans elle, chaque itération ReAct repaierait 5 + 10 s.
+LLM_503_REPLI_MEMOIRE_S: float = float(os.getenv("LLM_503_REPLI_MEMOIRE_S", "120"))
 
 # --- Sandbox ---
 PROJECT_ROOT: Path = Path(os.getenv("PROJECT_ROOT", ".")).resolve()

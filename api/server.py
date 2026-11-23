@@ -42,7 +42,16 @@ import config
 import services
 from agent import journal_client, peremption, preview_errors
 from agent.approval import requires_approval
-from agent.erreurs_llm import attente_reessai_503, expliquer_erreur_llm, message_reessai_503
+from agent.erreurs_llm import (
+    attente_reessai_503,
+    est_503,
+    expliquer_erreur_llm,
+    message_reessai_503,
+    message_repli_503,
+    modele_repli_503,
+    noter_repli_503,
+    pour_journal,
+)
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import etat_extraction, extract_and_save
@@ -1427,7 +1436,10 @@ def _outils_siri(outils: list[dict]) -> list[dict]:
 
 
 def _creer_avec_reessai_503(
-    creer: Callable[..., Any], params: dict, dormir: Callable[[float], None] = time.sleep
+    creer: Callable[..., Any],
+    params: dict,
+    dormir: Callable[[float], None] = time.sleep,
+    llm: Any = None,
 ) -> Any:
     """Appel non streamé au backend, rejoué sur 503 comme les chemins CLI et WS.
 
@@ -1436,18 +1448,42 @@ def _creer_avec_reessai_503(
     « RAM insuffisante pour coder » du gateway rendus tels quels à l'utilisateur
     alors que la CLI et klody-ui auraient attendu et rejoué. La décision (combien
     d'essais, quelle attente) reste celle d'`agent/erreurs_llm.py`.
+
+    `llm` fourni : quand le 503 MÉMOIRE survit aux essais, l'appel est rejoué
+    une fois sur le modèle de code — même décision (`modele_repli_503`) que la
+    CLI et le WebSocket, qui avaient ce repli depuis le 2026-11-15 alors que ce
+    chemin-ci rendait encore « Une erreur s'est produite côté serveur ». L'alias
+    part dans une COPIE de `params` : ni `params` ni `llm.model` ne sont mutés,
+    le modèle demandé reste essayé en premier à l'appel suivant. Siri n'a aucune
+    surface de statut (réponse vocale) : le mode dégradé n'est que journalisé.
+    Repli refusé aussi ⇒ c'est le refus du modèle DEMANDÉ qui remonte.
     """
     essai = 0
     while True:
         try:
             return creer(**params)
         except Exception as e:
-            attente = attente_reessai_503(e, essai)
-            if attente is None:
+            attente = attente_reessai_503(e, essai, llm)
+            if attente is not None:
+                logger.warning("[Siri] %s", message_reessai_503(e, essai, attente))
+                dormir(attente)
+                essai += 1
+                continue
+            repli = modele_repli_503(e, llm) if llm is not None else None
+            if repli is None:
                 raise
-            logger.warning("[Siri] %s", message_reessai_503(e, essai, attente))
-            dormir(attente)
-            essai += 1
+            logger.warning("[Siri] %s", pour_journal(message_repli_503(e, llm, repli), 400))
+            noter_repli_503(llm)
+            try:
+                return creer(**{**params, "model": repli})
+            except Exception as e_repli:
+                if not est_503(e_repli):
+                    raise
+                logger.warning(
+                    "[Siri] Repli refusé aussi (%s) — on rend le refus d'origine",
+                    pour_journal(str(e_repli), 300),
+                )
+            raise e
 
 
 def _run_siri_query(query: str) -> str:
@@ -1504,7 +1540,7 @@ def _run_siri_query(query: str) -> str:
                 params["tools"] = tools
                 params["tool_choice"] = "auto"
 
-            completion = _creer_avec_reessai_503(orch.llm.client.chat.completions.create, params)
+            completion = _creer_avec_reessai_503(orch.llm.client.chat.completions.create, params, llm=orch.llm)
             choice = completion.choices[0]
             content: str = choice.message.content or ""
 

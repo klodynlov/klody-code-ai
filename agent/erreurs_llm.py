@@ -20,6 +20,7 @@ surfaces racontent la même chose. Il ne lève jamais et ne dépend pas de Rich.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import config
@@ -31,6 +32,9 @@ __all__ = [
     "est_503",
     "expliquer_erreur_llm",
     "message_reessai_503",
+    "message_repli_503",
+    "modele_repli_503",
+    "noter_repli_503",
     "pour_journal",
     "resume_exception",
 ]
@@ -68,7 +72,70 @@ def est_503(exc: BaseException) -> bool:
     return isinstance(exc, APIStatusError) and getattr(exc, "status_code", None) == 503
 
 
-def attente_reessai_503(exc: BaseException, essai: int) -> float | None:
+def _est_503_ram(exc: BaseException) -> bool:
+    """Un 503 dont le gateway attribue lui-même la cause à la mémoire."""
+    return est_503(exc) and any(m in detail_http(exc).lower() for m in _MARQUEURS_RAM)
+
+
+def modele_repli_503(exc: BaseException, llm: Any = None) -> str | None:
+    """Alias sur lequel REJOUER le tour quand le 503 mémoire persiste, ou None.
+
+    Mesuré le 2026-11-15 (`~/klody-core/state/journal.db`, 45 jours) : 2 852
+    requêtes utilisateur `klody-ai` réussies, 46 refusées en 503, 2 injoignables
+    — le 503 « RAM insuffisante pour brain » est le SEUL mode d'échec mesuré du
+    chat. Les 5 refus du jour (06:44–06:46) : « RAM insuffisante pour brain
+    (~52 Go) : libre 55/95 Go virtuel, RAM réelle 54 Go (plancher 12), rien
+    d'évinçable de plus ». Le réessai (5 s puis 10 s) n'a pas suffi, la mémoire
+    est restée prise plusieurs minutes. Or `coder` (même famille
+    Qwen3.6-35B-A3B, 4 bits, ~40 Go) tenait : 54 − 40 = 14 ≥ plancher 12.
+
+    Le repli ne vaut que pour l'appel en cours : l'appelant passe l'alias au
+    rejeu et ne touche PAS `llm.model`. Muter le modèle de session est le piège
+    de `MODEL_FALLBACK` (2026-09-20) : une panne passagère empoisonnait tout le
+    reste de la session.
+
+    Conditions, toutes nécessaires :
+    - `config.LLM_503_REPLI` ;
+    - 503 dont le message nomme la mémoire — un 503 d'une autre nature (worker
+      qui démarre, gateway qui s'arrête) ne serait pas mieux servi par `coder` ;
+    - `BACKEND=mlx` : en mode ollama il n'y a ni gateway ni alias `coder` ;
+    - le modèle refusé est le généraliste (`config.LLM_MODEL`) et un modèle de
+      code DISTINCT est configuré — jamais de repli coder → coder, ni depuis un
+      modèle tiers choisi dans le sélecteur ;
+    - même point d'entrée pour les deux alias (mode gateway). En mode autonome
+      (`:8080`/`:8081`, deux serveurs) le rejeu partirait sur le mauvais port.
+    """
+    if not config.LLM_503_REPLI or not _est_503_ram(exc):
+        return None
+    backend = str(getattr(llm, "_backend", None) or config.BACKEND)
+    if backend != "mlx":
+        return None
+    modele = str(getattr(llm, "model", None) or config.LLM_MODEL)
+    repli = str(config.CODE_MODEL or "")
+    if not repli or repli == modele or modele != config.LLM_MODEL:
+        return None
+    base_url = str(getattr(llm, "_base_url", None) or config.LLM_BASE_URL)
+    if base_url.rstrip("/") != str(config.CODE_BASE_URL).rstrip("/"):
+        return None
+    return repli
+
+
+def noter_repli_503(llm: Any) -> None:
+    """Retient, sur le client, l'instant du dernier repli (cf. attente_reessai_503)."""
+    try:
+        llm._repli_503_a = time.monotonic()
+    except Exception as err:  # pragma: no cover - objet figé : on perd l'optimisation
+        logger.debug("noter_repli_503 KO (%s)", err)
+
+
+def _repli_recent(llm: Any) -> bool:
+    instant = getattr(llm, "_repli_503_a", None)
+    if not isinstance(instant, (int, float)):
+        return False
+    return (time.monotonic() - instant) < float(config.LLM_503_REPLI_MEMOIRE_S)
+
+
+def attente_reessai_503(exc: BaseException, essai: int, llm: Any = None) -> float | None:
     """Durée à attendre avant de REJOUER l'appel, ou None s'il ne faut pas.
 
     Une seule décision pour les deux chemins de streaming (`LLMClient.stream_chat`
@@ -79,12 +146,32 @@ def attente_reessai_503(exc: BaseException, essai: int) -> float | None:
     Backoff ATTENTE × 2^essai, borné à ESSAIS essais — cf. config.LLM_503_*.
     Les réglages sont lus À L'APPEL, pour rester surchargeables par l'env et
     les tests.
+
+    `llm` fourni : si ce client vient d'être servi en repli (`noter_repli_503`,
+    il y a moins de `LLM_503_REPLI_MEMOIRE_S`) et que ce refus y a droit aussi,
+    on n'attend plus. Un tour ReAct enchaîne plusieurs appels ; sans cette
+    mémoire, CHACUN repaierait 15 s d'attente avant d'arriver au même repli.
+    Le modèle nominal reste essayé en premier à chaque appel (un refus est
+    immédiat) : dès que la mémoire revient, le tour repasse dessus tout seul.
     """
     if not est_503(exc):
         return None
     if essai >= max(0, int(config.LLM_503_ESSAIS)):
         return None
+    if llm is not None and _repli_recent(llm) and modele_repli_503(exc, llm):
+        return None
     return float(config.LLM_503_ATTENTE_S) * (2 ** essai)
+
+
+def message_repli_503(exc: BaseException, llm: Any, repli: str) -> str:
+    """Ligne de statut, identique en CLI et dans l'UI, quand le tour est rejoué
+    sur le modèle de repli. Dit que c'est un mode DÉGRADÉ : la réponse ne vient
+    pas du modèle attendu, l'utilisateur doit pouvoir le savoir."""
+    modele = str(getattr(llm, "model", None) or config.LLM_MODEL)
+    return (
+        f"Mémoire insuffisante pour « {modele} » ({detail_http(exc)}) — mode dégradé : "
+        f"ce tour est servi par « {repli} ». « {modele} » sera réessayé au prochain appel."
+    )
 
 
 def message_reessai_503(exc: BaseException, essai: int, attente: float) -> str:
@@ -169,7 +256,7 @@ def _expliquer(exc: BaseException, llm: Any) -> str:
         statut = getattr(exc, "status_code", None)
         detail = detail_http(exc)
         if statut == 503:
-            if any(m in detail.lower() for m in _MARQUEURS_RAM):
+            if _est_503_ram(exc):
                 return (
                     f"Pas assez de mémoire pour charger le modèle « {modele} » : "
                     f"{detail}. C'est la RAM réelle de la machine qui manque, pas le "

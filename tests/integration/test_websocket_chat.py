@@ -115,6 +115,7 @@ class _Completions:
         # Capture les messages envoyés au modèle → permet de vérifier qu'une
         # réponse ask_user a bien été réinjectée dans le contexte (tool result).
         FakeOpenAI.captured.append(params.get("messages") or [])
+        FakeOpenAI.modeles.append(params.get("model"))
         turn = self._turns[min(self._i, len(self._turns) - 1)]
         self._i += 1
         # Un tour peut être une EXCEPTION du SDK (503 du gateway…) : on la lève
@@ -134,9 +135,11 @@ class FakeOpenAI:
 
     _turns: ClassVar[list] = []
     captured: ClassVar[list] = []  # messages passés au modèle à chaque tour streamé
+    modeles: ClassVar[list] = []   # alias demandé à chaque tour streamé (repli 503)
 
     def __init__(self, *args, **kwargs) -> None:
         FakeOpenAI.captured = []
+        FakeOpenAI.modeles = []
         self.chat = _Chat(list(FakeOpenAI._turns))
 
 
@@ -161,6 +164,9 @@ def chat_client(monkeypatch: pytest.MonkeyPatch):
     # Déterminisme : pas de routeur LLM, pas de best-of-N (un seul appel chat).
     monkeypatch.setattr("agent.orchestrator.ROUTER_ENABLED", False)
     monkeypatch.setattr("agent.orchestrator.BEST_OF_N_ENABLED", False)
+    # Repli brain → coder coupé par défaut : sinon le verdict des tests 503
+    # dépendrait du `.env` de la machine. TestRepliCoder le réactive.
+    monkeypatch.setattr("config.LLM_503_REPLI", False)
     # Le client OpenAI bas niveau devient notre faux scripté.
     monkeypatch.setattr("agent.llm.OpenAI", FakeOpenAI)
 
@@ -505,11 +511,11 @@ class TestCycleDeVieOrchestrateur:
 # Chemin d'erreur : le backend refuse (503) → l'UI reçoit une cause + un remède #
 # --------------------------------------------------------------------------- #
 
-def _erreur_503_ram():
+def _erreur_503_ram(detail: str = ""):
     import httpx
     from openai import InternalServerError
 
-    detail = (
+    detail = detail or (
         "RAM insuffisante pour brain (~44 Go) : libre 80/80 Go virtuel, "
         "RAM réelle 46 Go (plancher 12), rien d'évinçable de plus"
     )
@@ -584,3 +590,96 @@ class TestErreurBackendLisible:
         assert any("nouvel essai 1/1" in s for s in statuts), statuts
         streamed = "".join(e["content"] for e in events if e["type"] == "token")
         assert "réessai" in streamed
+
+
+# --------------------------------------------------------------------------- #
+# 503 mémoire PERSISTANT sur brain → le tour est servi par coder, en dégradé   #
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def repli_actif(monkeypatch):
+    """Mode gateway : généraliste et modèle de code derrière le même point
+    d'entrée. Rend l'alias du généraliste (celui que porte `orch.llm.model`)."""
+    import agent.llm as llm_mod
+
+    generaliste = llm_mod.LLMClient.__init__.__defaults__[0]
+    monkeypatch.setattr("agent.llm.BACKEND", "mlx")
+    monkeypatch.setattr("config.BACKEND", "mlx")
+    monkeypatch.setattr("config.LLM_MODEL", generaliste)
+    monkeypatch.setattr("config.CODE_MODEL", "coder-de-test")
+    monkeypatch.setattr("config.CODE_BASE_URL", llm_mod.LLM_BASE_URL)
+    monkeypatch.setattr("config.LLM_503_REPLI", True)
+    monkeypatch.setattr("config.LLM_503_ESSAIS", 1)
+    monkeypatch.setattr("config.LLM_503_ATTENTE_S", 0.0)
+    return generaliste
+
+
+class TestRepliCoder:
+    """Mesuré le 2026-11-15 : 46 refus 503 pour 2 852 requêtes réussies en 45
+    jours, seul mode d'échec du chat. « RAM réelle 54 Go (plancher 12) » refusait
+    brain (~52 Go) pendant des minutes — le réessai (5 s, 10 s) n'y changeait
+    rien — alors que coder (~40 Go) tenait."""
+
+    def test_503_persistant_puis_coder_repond(self, chat_client, repli_actif):
+        FakeOpenAI._turns = [
+            _erreur_503_ram(), _erreur_503_ram(), _text_turn("Réponse du modèle de repli"),
+        ]
+        with chat_client.websocket_connect(WS_URL) as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "salut"})
+            events = _drain_until(ws, "done")
+        types = [e["type"] for e in events]
+        assert "error" not in types, types
+        # 1 appel + 1 réessai sur le généraliste, PUIS le repli — dans cet ordre.
+        assert FakeOpenAI.modeles == [repli_actif, repli_actif, "coder-de-test"]
+        streamed = "".join(e["content"] for e in events if e["type"] == "token")
+        assert "repli" in streamed
+        # Le mode dégradé est ANNONCÉ dans le filigrane, avec les deux alias.
+        statuts = [e["content"] for e in events if e["type"] == "reasoning"]
+        annonce = [s for s in statuts if "mode dégradé" in s]
+        assert len(annonce) == 1, statuts
+        assert "coder-de-test" in annonce[0] and repli_actif in annonce[0]
+        # …et les stats du message nomment le modèle qui a RÉELLEMENT répondu.
+        stats = [e for e in events if e["type"] == "message_stats"]
+        assert stats and stats[-1]["model"] == "coder-de-test"
+
+    def test_le_message_suivant_repart_sur_le_generaliste(self, chat_client, repli_actif):
+        # Le repli vaut pour le tour : rien ne reste épinglé sur coder.
+        FakeOpenAI._turns = [_erreur_503_ram(), _erreur_503_ram(), _text_turn("dégradé")]
+        with chat_client.websocket_connect(WS_URL) as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "premier"})
+            _drain_until(ws, "done")
+            FakeOpenAI._turns = [_text_turn("nominal")]
+            ws.send_json({"type": "chat", "content": "second"})
+            _drain_until(ws, "done")
+        assert FakeOpenAI.modeles == [repli_actif]
+
+    def test_503_des_deux_cotes_rend_le_message_du_generaliste(self, chat_client, repli_actif):
+        FakeOpenAI._turns = [
+            _erreur_503_ram(), _erreur_503_ram(),
+            _erreur_503_ram("RAM insuffisante pour coder (~40 Go) : RAM réelle 30 Go (plancher 12)"),
+        ]
+        with chat_client.websocket_connect(WS_URL) as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "salut"})
+            events = _drain_until(ws, "error")
+        # Un seul essai sur coder : ni réessai, ni second repli.
+        assert FakeOpenAI.modeles == [repli_actif, repli_actif, "coder-de-test"]
+        contenu = events[-1]["content"]
+        assert "Pas assez de mémoire" in contenu
+        assert f"« {repli_actif} »" in contenu       # le message d'avant, pas celui de coder
+        assert "coder-de-test" not in contenu
+        # C'est le refus du modèle DEMANDÉ qui est rendu, détail compris.
+        assert "RAM réelle 46 Go" in contenu
+        assert "RAM réelle 30 Go" not in contenu
+
+    def test_pas_de_repli_en_mode_ollama(self, chat_client, repli_actif, monkeypatch):
+        monkeypatch.setattr("agent.llm.BACKEND", "ollama")
+        monkeypatch.setattr("config.BACKEND", "ollama")
+        FakeOpenAI._turns = [_erreur_503_ram()]
+        with chat_client.websocket_connect(WS_URL) as ws:
+            _connect_ready(ws)
+            ws.send_json({"type": "chat", "content": "salut"})
+            _drain_until(ws, "error")
+        assert FakeOpenAI.modeles == [repli_actif, repli_actif]
