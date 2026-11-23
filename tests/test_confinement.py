@@ -288,3 +288,25 @@ class TestRedirectionsSansEffet:
         txt = confinement.indice_refus("Operation not permitted", confinement.NIVEAU_SYSTEME)
         assert "BLOQUÉE" in txt and "signale" in txt
         assert "pas la cause" in txt
+
+
+def test_profil_pip_reserve_au_pip_du_venv(tmp_path, monkeypatch):
+    """`<autre binaire> -m pip` ne doit pas obtenir le réseau du profil pip."""
+    monkeypatch.setattr(confinement, "seatbelt_disponible", lambda: True)
+    monkeypatch.delenv("KLODY_CONFINEMENT", raising=False)
+    monkeypatch.delenv("KLODY_CONFINEMENT_RESEAU", raising=False)
+    runner = SandboxRunner(workdir=tmp_path, cache_root=tmp_path / "_cache")
+    (runner.venv_dir / "bin").mkdir(parents=True)
+    runner.python.touch()
+    vus: list[list[str]] = []
+
+    def faux_executer(plan, cmd_str, is_python, timeout):
+        vus.append(plan.commande)
+        from tools.sandbox import SandboxResult
+        return SandboxResult(command=cmd_str, exit_code=0, stdout="", stderr="", duration_s=0.0)
+
+    monkeypatch.setattr(runner, "_executer", faux_executer)
+    runner.run(["/usr/bin/env", "-m", "pip", "install", "x"])
+    runner.run(["python", "-m", "pip", "install", "x"])
+    assert "(deny network*)" in vus[0][2]       # binaire quelconque : réseau coupé
+    assert "(deny network*)" not in vus[1][2]   # python du venv -m pip : profil pip

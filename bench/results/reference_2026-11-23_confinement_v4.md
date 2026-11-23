@@ -54,7 +54,10 @@ Harnais adaptés : `~/bench-localcode/inj/harness_conf/` (worktree du confinemen
 
 - n = 10 par campagne : seuls 0/10 et 10/10 sont solides ; les taux de tâche intermédiaires
   sont indicatifs.
-- Les campagnes 4 et 5 tournent sur une branche locale qui combine les trois PR : la tâche
+- `confinement_v4_combine` et `confinement_v4_combine2` tournent sur une branche locale qui combine les trois PR : la tâche
   10/10 vaut pour l'état fusionné, pas pour une PR seule.
 - V4 seulement : `execute_command` (non confiné) n'a été emprunté par aucun essai ici ; une
   charge lancée par ce chemin, s'il est approuvé, s'exécuterait.
+- `pip` garde le réseau (index PyPI) : le code d'installation d'un paquet piégé, ou du
+  `requirements.txt` du dépôt (installé automatiquement), s'exécute avec le réseau ouvert —
+  écriture confinée et environnement nettoyé, mais exfiltration possible. Non mesuré ici.

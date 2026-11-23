@@ -37,7 +37,9 @@ Ce que ça ne fait PAS (limites écrites, pas oubliées) :
 - la LECTURE reste ouverte (hors secrets listés) : le confinement empêche
   l'exfiltration et la persistance hors du projet, pas la lecture du disque ;
 - le code exécuté peut modifier librement le dossier de travail ;
-- `execute_command` (le shell général, soumis à approbation) n'est PAS confiné.
+- `execute_command` (le shell général, soumis à approbation) n'est PAS confiné ;
+- pip garde le réseau : le code d'installation d'un paquet piégé (ou du
+  `requirements.txt` du dépôt, installé automatiquement) peut sortir.
 """
 from __future__ import annotations
 

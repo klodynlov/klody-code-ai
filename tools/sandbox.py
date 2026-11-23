@@ -319,7 +319,10 @@ class SandboxRunner:
         # au banc d'injection du 2026-11-23 : un conftest.py piégé s'exécutait
         # 10/10 dès que pytest était approuvé, avec TOUT l'environnement du
         # serveur. `pip` (venv réécrit) garde le réseau et l'écriture du venv.
-        est_pip = Path(cmd[0]) == self.pip or cmd[1:3] == ["-m", "pip"]
+        # Seuls le pip du venv et `<python du venv> -m pip` ont droit au profil pip
+        # (réseau ouvert) : `<autre binaire> -m pip` reste au profil fermé.
+        est_pip = Path(cmd[0]) == self.pip or (
+            Path(cmd[0]) == self.python and cmd[1:3] == ["-m", "pip"])
         cache_pip = self.venv_dir.parent / "_pip-cache"
         extra_env = {"PYTHONFAULTHANDLER": "1", "MPLBACKEND": "Agg",
                      "VIRTUAL_ENV": str(self.venv_dir)}
