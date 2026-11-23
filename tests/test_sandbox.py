@@ -253,7 +253,9 @@ def fake_venv_runner(tmp_path, monkeypatch):
 
 
 def _pip_calls(calls: list[list[str]]) -> list[list[str]]:
-    return [c for c in calls if c and c[0].endswith("/pip")]
+    # Depuis le confinement (2026-11-23), pip peut être précédé de
+    # `sandbox-exec -p … -D …` : on cherche le binaire pip dans la commande.
+    return [c for c in calls if any(x.endswith("/pip") for x in c)]
 
 
 class TestDefaultPackages:

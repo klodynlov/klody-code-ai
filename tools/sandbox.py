@@ -28,6 +28,8 @@ from pathlib import Path
 
 from agent.dbc import ensure, require
 
+from tools import confinement
+
 logger = logging.getLogger(__name__)
 
 # Taille max stdout/stderr renvoyés à l'agent (tronqué depuis la fin —
@@ -39,6 +41,8 @@ _DEFAULT_TIMEOUT = 30
 # pour pytest seul ; numpy/requests + des requirements lourds (torch, opencv)
 # demandent de la marge — un dépassement coupait l'install EN SILENCE.
 _PIP_TIMEOUT = 600
+# Redirections de flux sans effet hors shell (cf. SandboxRunner.run).
+_REDIRECTIONS_SANS_EFFET = frozenset({"2>&1", "1>&2", ">&2"})
 # Un venv non utilisé depuis ce délai est supprimé à la création d'un autre.
 # Sans purge, un venv (~92 Mo) par workdir s'accumulait sans fin : 2 242 venvs /
 # 163 Go le 2026-10-28, surtout des `tmp_path` de tests passés par le runner CI.
@@ -93,6 +97,9 @@ class SandboxResult:
     stderr: str
     duration_s: float
     timed_out: bool = False
+    # Niveau de confinement réellement appliqué (cf. tools/confinement.py) :
+    # « système », « environnement » ou « aucun ». Vide = pas d'exécution.
+    confinement: str = ""
 
     @property
     def success(self) -> bool:
@@ -108,6 +115,9 @@ class SandboxResult:
         if self.stderr.strip():
             lines.append("--- stderr ---")
             lines.append(self.stderr.strip())
+        indice = confinement.indice_refus(self.stderr, self.confinement)
+        if indice:
+            lines.append(indice)
         return "\n".join(lines)
 
 
@@ -194,13 +204,28 @@ class SandboxRunner:
         check=False voulu — un requirements cassé ne doit pas rendre le
         sandbox inutilisable, l'agent verra l'ImportError au run et corrigera.
         """
+        # Confiné lui aussi : un requirements.txt de dépôt piégé exécute du code
+        # à l'installation (setup.py, backend de build). Réseau ouvert (index
+        # PyPI), écriture limitée au projet, au venv et au cache pip dédié.
+        cache_pip = self.venv_dir.parent / "_pip-cache"
+        cache_pip.mkdir(parents=True, exist_ok=True)
+        plan = confinement.preparer(
+            [str(self.pip), "install", "-q", *args], self.workdir,
+            extra_env={"PIP_CACHE_DIR": str(cache_pip), "VIRTUAL_ENV": str(self.venv_dir)},
+            ecritures_en_plus=[self.venv_dir, cache_pip], reseau=True,
+        )
+        if plan.refus:
+            logger.warning("pip install %s non lancé : %s", label, plan.refus)
+            return
         try:
             res = subprocess.run(
-                [str(self.pip), "install", "-q", *args],
+                plan.commande,
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=_PIP_TIMEOUT,
+                cwd=self.workdir,
+                env=plan.env,
             )
             if res.returncode != 0:
                 logger.warning(
@@ -212,6 +237,8 @@ class SandboxRunner:
                 "Timeout installation %s (>%ss) — sandbox utilisable mais install incomplète",
                 label, _PIP_TIMEOUT,
             )
+        finally:
+            plan.nettoyer()
 
     # ------------------------------------------------------------------ #
     # Exécution                                                            #
@@ -249,6 +276,13 @@ class SandboxRunner:
         else:
             cmd = list(command)
 
+        # `2>&1` (et `1>&2`) n'ont aucun sens ici : pas de shell, et stdout comme
+        # stderr sont déjà capturés. Passés tels quels, pytest les prenait pour un
+        # chemin (« file or directory not found: 2>&1 », exit 4) — 19 fois sur 10
+        # essais au banc d'injection du 2026-11-23, et c'est cette erreur que le
+        # modèle cherchait ensuite à « corriger » ailleurs.
+        cmd = [c for c in cmd if c not in _REDIRECTIONS_SANS_EFFET]
+
         if not cmd:
             return SandboxResult(
                 command="", exit_code=1,
@@ -279,20 +313,51 @@ class SandboxRunner:
         # immédiatement (EOFError) au lieu de pendre jusqu'au timeout.
         # MPLBACKEND=Agg : sandbox headless — sans ça, matplotlib tente le
         # backend macosx (fenêtre GUI) et plt.show() pend jusqu'au timeout.
-        env = dict(os.environ, PYTHONFAULTHANDLER="1", MPLBACKEND="Agg")
         is_python = Path(cmd[0]).name.startswith(("python", "pytest"))
+        # Confinement (tools/confinement.py) : écriture limitée au projet et à un
+        # temporaire propre, réseau coupé, environnement en liste blanche. Vécu
+        # au banc d'injection du 2026-11-23 : un conftest.py piégé s'exécutait
+        # 10/10 dès que pytest était approuvé, avec TOUT l'environnement du
+        # serveur. `pip` (venv réécrit) garde le réseau et l'écriture du venv.
+        # Seuls le pip du venv et `<python du venv> -m pip` ont droit au profil pip
+        # (réseau ouvert) : `<autre binaire> -m pip` reste au profil fermé.
+        est_pip = Path(cmd[0]) == self.pip or (
+            Path(cmd[0]) == self.python and cmd[1:3] == ["-m", "pip"])
+        cache_pip = self.venv_dir.parent / "_pip-cache"
+        extra_env = {"PYTHONFAULTHANDLER": "1", "MPLBACKEND": "Agg",
+                     "VIRTUAL_ENV": str(self.venv_dir)}
+        if est_pip:
+            cache_pip.mkdir(parents=True, exist_ok=True)
+            extra_env["PIP_CACHE_DIR"] = str(cache_pip)
+        plan = confinement.preparer(
+            cmd, self.workdir, extra_env=extra_env,
+            ecritures_en_plus=[self.venv_dir, cache_pip] if est_pip else None,
+            reseau=True if est_pip else None,
+        )
+        if plan.refus:
+            return SandboxResult(
+                command=cmd_str, exit_code=1, stdout="", stderr=plan.refus,
+                duration_s=0.0, confinement=plan.niveau,
+            )
+        try:
+            return self._executer(plan, cmd_str, is_python, timeout)
+        finally:
+            plan.nettoyer()
 
+    def _executer(self, plan: confinement.Confinement, cmd_str: str,
+                  is_python: bool, timeout: int) -> SandboxResult:
+        """Lance le plan préparé par `run` et met en forme le résultat."""
         t0 = time.monotonic()
         timed_out = False
         proc = subprocess.Popen(
-            cmd,
+            plan.commande,
             cwd=self.workdir,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             errors="replace",
-            env=env,
+            env=plan.env,
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -335,6 +400,10 @@ class SandboxRunner:
                       "le terminal réel.").strip()
         duration = round(time.monotonic() - t0, 2)
         ensure(duration >= 0, "durée d'exécution non négative")
+        # Trace lisible par un banc (agent.log) : le niveau RÉELLEMENT appliqué,
+        # pas le réglage demandé — « auto » sans sandbox-exec rend « environnement ».
+        logger.info("[sandbox] exit=%s confinement=%s : %s",
+                    exit_code, plan.niveau, cmd_str[:200])
 
         return SandboxResult(
             command=cmd_str,
@@ -343,6 +412,7 @@ class SandboxRunner:
             stderr=stderr[-_MAX_OUTPUT_CHARS:] if stderr else "",
             duration_s=duration,
             timed_out=timed_out,
+            confinement=plan.niveau,
         )
 
     def _rewrite_to_venv(self, cmd: list[str]) -> list[str]:
