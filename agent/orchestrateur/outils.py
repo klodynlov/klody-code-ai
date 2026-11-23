@@ -197,13 +197,6 @@ _PRODUCING_TOOLS = frozenset({
     "mcp__reaper__insert_midi_note", "mcp__reaper__insert_midi_notes",
 })
 
-# Producteurs qui laissent un ARTEFACT (fichier, preview, projet…). Exclut
-# `run_in_sandbox` : lancer pytest ne prouve aucune écriture. C'est ce sous-
-# ensemble qui fait taire le garde « code affiché sans écriture » sur les types
-# actionnables (vécu au banc V4 rejoué le 2026-11-23 : pytest lancé, correction
-# affichée, conclusion — le garde se taisait).
-_FICHIER_PRODUIT_TOOLS = _PRODUCING_TOOLS - {"run_in_sandbox"}
-
 # ------------------------------------------------------------------ #
 # Coercition de types d'arguments d'outils                             #
 # ------------------------------------------------------------------ #

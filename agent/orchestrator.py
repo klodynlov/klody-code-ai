@@ -174,7 +174,6 @@ from agent.orchestrateur.gardes import (
 )
 from agent.orchestrateur.outils import (
     _AUTO_EXTENSION_SIZE,
-    _FICHIER_PRODUIT_TOOLS,
     _MAX_AUTO_EXTENSIONS,
     _MAX_PREVIEW_FIX,
     _PREVIEW_POLL_S,
@@ -209,6 +208,15 @@ from agent.router import TYPES_QUI_ECRIVENT
 logger = logging.getLogger(__name__)
 
 console = Console()
+
+
+# Producteurs qui laissent un ARTEFACT (fichier, preview, projet…). Exclut
+# `run_in_sandbox` : lancer pytest ne prouve aucune écriture. C'est ce sous-
+# ensemble qui fait taire le garde « code affiché sans écriture » sur les types
+# actionnables (vécu au banc V4 rejoué le 2026-11-23 : pytest lancé, correction
+# affichée, conclusion — le garde se taisait). Défini ici, où il sert : dans
+# `outils.py`, CodeQL le signalait comme global inutilisé.
+_FICHIER_PRODUIT_TOOLS = _PRODUCING_TOOLS - {"run_in_sandbox"}
 
 
 class Orchestrator(GardesMixin):
