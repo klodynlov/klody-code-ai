@@ -1554,6 +1554,11 @@ dégradé ». `message_stats` nomme le modèle qui a réellement répondu.
 - **Routeur** : son 503 rend déjà `[fallback: LLM error: HTTP 503]`
   (medium/explain) sans second appel ; le tour passe ensuite par le repli
   ci-dessus. Rien à y ajouter.
+- **`/api/siri` aussi** (2026-11-23) : ce chemin remplace `stream_chat` par un
+  appel synchrone (`api/server.py::_creer_avec_reessai_503`) — il avait reçu le
+  réessai 503 (#323) mais pas le repli. Même décision, alias passé dans une
+  COPIE de `params`. Aucune surface de statut en vocal : le mode dégradé n'est
+  que journalisé (`[Siri] … mode dégradé`). 9 mutations rejouées, 9 rouges.
 - ⚠️ **Non mesuré in vivo** : le repli n'a tourné que contre des faux clients
   (20 mutations rejouées, 20 rouges). Le compteur à relire est le nombre de 503
   `klody-ai` dans `journal.db` — et les lignes « mode dégradé » d'`agent.log`.
