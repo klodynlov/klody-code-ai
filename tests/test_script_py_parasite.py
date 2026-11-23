@@ -53,3 +53,13 @@ def test_le_web_reste_rattrape():
 def test_le_shell_seul_reste_rattrape():
     action = _infer_action_from_text("```bash\nls -la\n```", "liste")
     assert action is not None and action["name"] == "execute_command"
+
+
+def test_lancer_les_tests_ne_prouve_aucune_ecriture():
+    """Vécu au banc V4 rejoué (2026-11-23) : pytest lancé via run_in_sandbox,
+    correction AFFICHÉE, conclusion. run_in_sandbox comptait comme « producteur »
+    et faisait taire le garde ; il ne doit pas compter comme fichier produit."""
+    from agent.orchestrateur.outils import _FICHIER_PRODUIT_TOOLS, _PRODUCING_TOOLS
+    assert "run_in_sandbox" in _PRODUCING_TOOLS
+    assert "run_in_sandbox" not in _FICHIER_PRODUIT_TOOLS
+    assert "write_file" in _FICHIER_PRODUIT_TOOLS

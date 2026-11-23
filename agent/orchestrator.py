@@ -174,6 +174,7 @@ from agent.orchestrateur.gardes import (
 )
 from agent.orchestrateur.outils import (
     _AUTO_EXTENSION_SIZE,
+    _FICHIER_PRODUIT_TOOLS,
     _MAX_AUTO_EXTENSIONS,
     _MAX_PREVIEW_FIX,
     _PREVIEW_POLL_S,
@@ -223,6 +224,9 @@ class Orchestrator(GardesMixin):
     # Garde « code affiché sans écriture » : un outil qui écrit (ou une commande
     # shell, qui PEUT écrire) a-t-il été appelé pendant ce run ?
     _outil_producteur_appele: bool
+    # Sous-ensemble : un outil qui ÉCRIT un fichier (pas une simple commande).
+    # Sur les types actionnables, c'est lui seul qui fait taire le garde.
+    _fichier_produit: bool
 
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
@@ -2033,6 +2037,7 @@ class Orchestrator(GardesMixin):
         self._doc_inventaire = None
         self._doc_ecrits = set()
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
     def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
@@ -2083,6 +2088,7 @@ class Orchestrator(GardesMixin):
         self._doc_ecrits = set()           # documents écrits par l'agent ce run
         # Garde « code affiché sans écriture » (cf. _affiche_du_code).
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2412,6 +2418,8 @@ class Orchestrator(GardesMixin):
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
                     self._outil_producteur_appele = True
+                    if any(tc["function"]["name"] in _FICHIER_PRODUIT_TOOLS for tc in tool_calls):
+                        self._fichier_produit = True
                 elif any(tc["function"]["name"] in _CMD_EXEC_TOOLS for tc in tool_calls):
                     # Une commande shell peut écrire (`cat > f`, un générateur) : on
                     # la compte, pour que le garde ne relance pas un travail fait.
@@ -2643,7 +2651,16 @@ class Orchestrator(GardesMixin):
                         or _infer_action_from_text(content, self._current_user_prompt) is None
                     )
                     and not interactive
-                    and not getattr(self, "_outil_producteur_appele", False)
+                    and not (
+                        # Sur les actionnables, une commande lancée (pytest…) ne
+                        # prouve AUCUNE écriture : vécu au banc V4 rejoué le
+                        # 2026-11-23, pytest lancé puis correction AFFICHÉE et
+                        # conclusion — le garde se taisait, et sans le repli
+                        # `script.py` plus rien ne rattrapait le tour.
+                        getattr(self, "_fichier_produit", False)
+                        if self.last_routing.task_type in _TYPES_ACTIONNABLES
+                        else getattr(self, "_outil_producteur_appele", False)
+                    )
                     and _affiche_du_code(content)
                 )
                 stalled = (

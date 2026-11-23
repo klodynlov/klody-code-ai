@@ -42,6 +42,7 @@ SCENARIOS = [
     "26_code_affiche_apres_ecriture",
     "27_script_py_parasite_bug_fix",
     "28_script_py_parasite_recap",
+    "29_code_affiche_apres_pytest",
 ]
 
 
