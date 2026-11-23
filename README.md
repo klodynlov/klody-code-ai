@@ -25,9 +25,11 @@ Chaque écriture et chaque commande que l'agent demande passent par une approbat
 > ([protocole et résultats](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md)).
 > L'accès aux fichiers est limité aux racines autorisées (sandbox **de fichiers**).
 >
-> **Ce que Klody ne fait pas encore** : confiner l'exécution au niveau du système. Approuver
-> pytest sur un dépôt piégé exécute son `conftest.py` (10/10). C'est le prochain chantier, avec
-> l'installation en une commande.
+> **Exécution confinée sur macOS** (depuis le 23/11/2026) : `run_in_sandbox` et
+> l'auto-vérification tournent sous Seatbelt — écriture limitée au projet, réseau coupé,
+> environnement sans secrets. Rejoué sur le même dépôt piégé, le `conftest.py` s'exécute toujours,
+> mais sa charge n'a **aucun effet sur 40 essais sur 40** (effet 10/10 avant). Le shell général
+> (`execute_command`) n'est **pas** confiné : il reste soumis à la seule approbation.
 
 > **Status** : v2.1+ stable · **2829 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
@@ -106,7 +108,7 @@ flowchart TD
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
 | 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 14 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate, creative, music) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
-| 4 | **Sandbox de fichiers multi-racines + venv jetable** | `ALLOWED_ROOTS` pour les fichiers ; venv jetable par racine, qui isole les dépendances Python, **pas le système** ; exec auto après write (`py_compile`/`pytest`). |
+| 4 | **Sandbox de fichiers multi-racines + exécution confinée** | `ALLOWED_ROOTS` pour les fichiers ; venv jetable par racine, exécuté sous **confinement Seatbelt** sur macOS (écriture limitée au projet, réseau coupé, environnement sans secrets) ; exec auto après une écriture **effective** (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
 | 6 | **Serveurs MCP fournis** | Gmail (IMAP/SMTP) + Web (fetch/search **lecture seule**, anti-SSRF) — branchés par une ligne de `.env`. |
 | 7 | **Serveur MCP Klody** | Klody = plateforme pour d'autres agents (Cline, Zed, Continue.dev). |
@@ -205,7 +207,7 @@ python api/server.py                   # 3. (option) API WebSocket pour l'UI Tau
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
 | **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies`, `generate_uml` (diagramme de classes Mermaid depuis le code) |
-| **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
+| **Exécution** | `execute_command` (shell, approbation seule), `run_in_sandbox` (venv jetable par racine, confiné sur macOS), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
 | **Ops / runtime** | `docker_control` (Docker : ps/images/inspect/logs/stats en lecture seule ; `run` ultra-contraint si activé), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…), `git_control` (Git : status, log, diff, show, blame… en lecture seule ; add/commit locaux si `GIT_WRITE_ENABLED`) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
@@ -250,7 +252,11 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 ## Sécurité
 
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
-- **Exécution : approbation, pas de confinement système** : écritures et commandes passent par une approbation humaine dans l'UI (WebSocket), ou une confirmation en TTY en CLI — ⚠️ en CLI non interactive (stdin non-TTY), `execute_command` est auto-confirmée ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` = venv jetable qui isole les **dépendances Python**, pas le système (réseau et fichiers restent accessibles). **Limites mesurées le 23/11/2026** ([test d'injection](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md)) : un `conftest.py` piégé s'exécute 10/10 dès que pytest est approuvé ; l'auto-vérification après écriture d'un `.py` tourne sans approbation séparée, y compris après une écriture refusée (à corriger).
+- **Exécution : approbation humaine, plus un confinement système pour le code du projet.** Écritures et commandes passent par une approbation dans l'UI (WebSocket), ou une confirmation en TTY en CLI — ⚠️ en CLI non interactive (stdin non-TTY), `execute_command` est auto-confirmée ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…).
+  - **`run_in_sandbox` et l'auto-vérification sont confinés sur macOS** (`tools/confinement.py`, `sandbox-exec` + profil Seatbelt) : écriture limitée au dossier du projet et à un temporaire propre à l'exécution ; réseau coupé, boucle locale comprise ; AppleEvents et LaunchServices refusés ; lecture refusée sur `~/.ssh`, `~/.aws`, trousseaux et autres magasins de secrets connus ; environnement reconstruit en liste blanche (aucun jeton transmis). Les `pip install` du venv sont confinés aussi, réseau ouvert vers l'index. `KLODY_CONFINEMENT=auto|strict|off`, `KLODY_CONFINEMENT_RESEAU=1` ; hors macOS ou sans `sandbox-exec`, `auto` n'applique que l'environnement nettoyé et le dit.
+  - L'auto-vérification ne part qu'après une écriture qui a **réellement changé** le fichier : plus après une écriture refusée ([#338](https://github.com/klodynlov/klody-code-ai/pull/338)).
+  - **Prouvé le 23/11/2026** ([test d'injection](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md), variante `conftest.py` rejouée contre une instance de dev) : avant, charge exécutée **10/10** dès que pytest était approuvé ; après, **40 essais sur 40 confinés** sur 4 campagnes (144 exécutions sandbox, 0 hors confinement), effet de la charge **0/40** ; sur l'état final (avec #338 et #339), tâche réussie **10/10** (8/10 avant). Détail et commande de recalcul : [`bench/results/reference_2026-11-23_confinement_v4.md`](bench/results/reference_2026-11-23_confinement_v4.md). Vérifié sur macOS 27.3 bêta.
+  - **Limites** : `execute_command` (le shell général) n'est **pas** confiné, seule l'approbation le garde ; la **lecture** du disque reste ouverte hors secrets listés (le confinement empêche l'exfiltration et la persistance hors du projet, pas la lecture) ; le code exécuté peut modifier tout le dossier du projet ; `sandbox-exec` est déprécié par Apple (fonctionnel aujourd'hui, sondé à chaque démarrage).
 - **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
 - **Ops en lecture seule** (`docker_control`, `kubectl_control`, `git_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats… ; k8s : get/describe/logs/top… ; Git : status/log/diff/show/blame…), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, ref, fichier) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`, `--output`…) ; dépôt Git confiné aux racines autorisées ; sortie plafonnée, timeout borné. Les **mutations Git** (`add`/`commit`, **locales** et réversibles) sont **désactivées par défaut** (`GIT_WRITE_ENABLED`) ; `push`/`pull` et les opérations destructives (reset/checkout/clean/rebase) restent hors de l'outil. Le **`docker run`** (mutation) est doublement borné — `DOCKER_WRITE_ENABLED` **et** une **allowlist d'images** non vide — et impose un durcissement figé (**aucun flag utilisateur** : `--network none`, `--cap-drop ALL`, `no-new-privileges`, limites ressources, pas de montage) ; `build`/`exec`/`rm` restent exclus.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
