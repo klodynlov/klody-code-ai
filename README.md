@@ -43,7 +43,7 @@ Chaque écriture et chaque commande que l'agent demande passent par une approbat
 La plupart des agents de code envoient ton code et tes données dans le cloud. **Klody fait
 l'inverse** : tout s'exécute sur ta machine. Le défi technique — faire d'un modèle local
 (plus petit que la frontière) un agent fiable — est résolu par l'**orchestration**, pas par
-la force brute : un routeur adaptatif, une boucle ReAct qui va au bout, un sandbox isolé, et
+la force brute : un routeur adaptatif, une boucle ReAct qui va au bout, des approbations humaines et une sandbox de fichiers, et
 une discipline de tests/sécurité de niveau production. Le tout extensible via **MCP** : Klody
 **consomme** des serveurs externes (Gmail, web…) *et* **s'expose** comme serveur pour d'autres agents.
 
@@ -106,7 +106,7 @@ flowchart TD
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
 | 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 14 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate, creative, music) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
-| 4 | **Sandbox isolé multi-racines** | venv jetable par racine, `ALLOWED_ROOTS`, exec auto après write (`py_compile`/`pytest`). |
+| 4 | **Sandbox de fichiers multi-racines + venv jetable** | `ALLOWED_ROOTS` pour les fichiers ; venv jetable par racine, qui isole les dépendances Python, **pas le système** ; exec auto après write (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
 | 6 | **Serveurs MCP fournis** | Gmail (IMAP/SMTP) + Web (fetch/search **lecture seule**, anti-SSRF) — branchés par une ligne de `.env`. |
 | 7 | **Serveur MCP Klody** | Klody = plateforme pour d'autres agents (Cline, Zed, Continue.dev). |
@@ -250,7 +250,7 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 ## Sécurité
 
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
-- **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
+- **Exécution : approbation, pas de confinement système** : écritures et commandes passent par une approbation humaine dans l'UI (WebSocket), ou une confirmation en TTY en CLI — ⚠️ en CLI non interactive (stdin non-TTY), `execute_command` est auto-confirmée ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` = venv jetable qui isole les **dépendances Python**, pas le système (réseau et fichiers restent accessibles). **Limites mesurées le 23/11/2026** ([test d'injection](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md)) : un `conftest.py` piégé s'exécute 10/10 dès que pytest est approuvé ; l'auto-vérification après écriture d'un `.py` tourne sans approbation séparée, y compris après une écriture refusée (à corriger).
 - **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
 - **Ops en lecture seule** (`docker_control`, `kubectl_control`, `git_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats… ; k8s : get/describe/logs/top… ; Git : status/log/diff/show/blame…), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, ref, fichier) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`, `--output`…) ; dépôt Git confiné aux racines autorisées ; sortie plafonnée, timeout borné. Les **mutations Git** (`add`/`commit`, **locales** et réversibles) sont **désactivées par défaut** (`GIT_WRITE_ENABLED`) ; `push`/`pull` et les opérations destructives (reset/checkout/clean/rebase) restent hors de l'outil. Le **`docker run`** (mutation) est doublement borné — `DOCKER_WRITE_ENABLED` **et** une **allowlist d'images** non vide — et impose un durcissement figé (**aucun flag utilisateur** : `--network none`, `--cap-drop ALL`, `no-new-privileges`, limites ressources, pas de montage) ; `build`/`exec`/`rm` restent exclus.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
