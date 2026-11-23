@@ -190,7 +190,27 @@ class MCPManager:
         from fastmcp import Client
 
         async with Client(target, init_timeout=_DISCOVER_TIMEOUT) as client:
-            return await client.list_tools()
+            return await asyncio.wait_for(client.list_tools(), timeout=_DISCOVER_TIMEOUT)
+
+    def discover_selected(self, server_names: set[str]) -> list[dict]:
+        """Découvre seulement les serveurs demandés, sans perdre les précédents.
+
+        Un pair par serveur réutilise le cache processus d'un message API à
+        l'autre. Un échec n'est pas gardé comme entrée vide : un find_tools
+        ultérieur peut se reconnecter après l'ouverture de l'application.
+        """
+        result: list[dict] = []
+        merged = {tool["function"]["name"]: tool for tool in self._tools}
+        for name in sorted(server_names.intersection(self.servers)):
+            peer = MCPManager({name: self.servers[name]})
+            found = peer.discover()
+            if not found:
+                _DISCOVERY_CACHE.pop(_signature(peer.servers), None)
+            result.extend(found)
+            merged.update({tool["function"]["name"]: tool for tool in found})
+            self._index.update(peer._index)
+        self._tools = list(merged.values())
+        return result
 
     # ------------------------------------------------------------------ #
     # Appel                                                               #

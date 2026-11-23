@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = agent,tools,api
+source = agent,tools,api,canaux
 omit =
     */__pycache__/*
     */tests/*

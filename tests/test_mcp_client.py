@@ -137,6 +137,22 @@ class TestParseResult:
         assert "Auteur A" in result
         assert "p.10" in result
 
+    def test_source_web_sans_auteur_pas_de_none(self):
+        """Source web importée (Légifrance) : LibraryBrain renvoie author=null."""
+        from tools.mcp_client import _parse_result
+        data = {
+            "found": True,
+            "answer": "réponse",
+            "sources": [
+                {"title": "Code civil annoté - 2023", "author": "Editions Dalloz", "page": 105},
+                {"title": "Code civil — Article 1240", "author": None, "page": 1},
+            ],
+        }
+        result = _parse_result(data, limit=3)
+        assert "None" not in result
+        assert "Code civil — Article 1240, p.1" in result
+        assert "Code civil annoté - 2023 — Editions Dalloz, p.105" in result
+
     def test_limit_respectee_dans_sources(self):
         from tools.mcp_client import _parse_result
         sources = [{"title": f"Livre {i}", "author": "A", "page": i} for i in range(10)]
@@ -466,3 +482,18 @@ class TestReflexeSearchBooksCatalogue:
         from tools.mcp_client import _augment_no_hit
         with patch("tools.mcp_client._catalogued_exact", return_value=_HIT_EXACT):
             assert _augment_no_hit("x").startswith("Aucun")
+
+
+# ── format_book_source ─────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("source, attendu", [
+    ({"title": "Clean Code", "author": "Martin", "page": 42}, "Clean Code — Martin, p.42"),
+    ({"title": "Code civil — Article 1240", "author": None, "page": 1}, "Code civil — Article 1240, p.1"),
+    ({"title": "Page web", "author": "", "page": None}, "Page web"),
+    ({"title": "Page web", "author": "None"}, "Page web"),
+    ({"title": "  ", "author": "  Auteur  ", "page": 3}, "? — Auteur, p.3"),
+    ({}, "?"),
+])
+def test_format_book_source(source, attendu):
+    from config import format_book_source
+    assert format_book_source(source) == attendu

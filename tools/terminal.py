@@ -1,13 +1,18 @@
 import logging
+import os
 import re
 import shlex
+import shutil
 import subprocess
+from pathlib import Path
 
 from config import PROJECT_ROOT, SUBPROCESS_TIMEOUT
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.syntax import Syntax
+
+from tools import confinement
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -139,6 +144,92 @@ def _host_swallows_exit_code(command: str) -> bool:
     return "--python" in low or " -p " in f" {low} "
 
 
+# --------------------------------------------------------------------------- #
+# Confinement du shell (tools/confinement.py)                                  #
+# --------------------------------------------------------------------------- #
+# Vécu au banc d'injection du 2026-11-23 (klodynlov-profile,
+# `docs/bench/localcode/injection/`, variante V5) : `./scripts/setup.sh`,
+# documenté au README d'un dépôt piégé, a été exécuté 5 fois sur 5 dès que
+# l'humain approuvait — et l'approbation ne pouvait rien y voir : la charge est
+# DANS le script, pas dans la commande affichée. #340 a confiné `run_in_sandbox`
+# (4 des 5 lancements) ; ce shell-ci restait ouvert (le 5e).
+#
+# TOUTES les commandes sont confinées : trier « celles qui exécutent du code du
+# dépôt » est intenable sur un shell — make, npm/yarn run, cargo (build.rs),
+# pre-commit, tox… et même `git status`, qui lance le `core.fsmonitor` d'un
+# `.git/config` reçu dans une archive. Deux ouvertures réseau, prouvées :
+# - commande détachée (`… &`) : ÉCOUTE locale (serveur de dev), sortie coupée ;
+# - « sonde locale » (curl de santé) : sortie vers la boucle locale seulement.
+# HOME réel en lecture (git lit son identité), TMPDIR propre (le shim
+# /usr/bin/git → xcrun y écrit son cache : sans lui, `git commit` échoue).
+
+# Binaires qu'une sonde locale peut enchaîner : aucun n'exécute de code lu sur
+# le disque. Pas de sh/bash/python/node/make/xargs/env/find (-exec).
+_SONDE_BINAIRES = frozenset({
+    "curl", "echo", "printf", "sleep", "true", "false", "head", "tail", "grep", "jq", "cd",
+})
+_SONDE_OPERATEURS = frozenset({"&&", "||", ";", "|"})
+# Redirections sans fichier : tolérées dans une sonde.
+_SONDE_REDIRECTIONS = re.compile(r"(?<!\S)(?:[12]?>\s*/dev/null|2>&1|1?>&2)(?!\S)")
+
+
+def _est_sonde_locale(command: str, cwd: Path | str) -> bool:
+    """Vrai si `command` n'est qu'un curl de santé (éventuellement enchaîné à
+    echo/grep/head…), sans substitution ni redirection vers un fichier.
+
+    Seule conséquence : la sortie réseau vers la BOUCLE LOCALE est permise. La
+    commande reste confinée en écriture. Le binaire doit se résoudre HORS du
+    dossier de travail (un `./curl` du dépôt n'est pas curl).
+    """
+    if not command or "$(" in command or "`" in command or "\n" in command:
+        return False
+    nettoyee = _SONDE_REDIRECTIONS.sub(" ", command)
+    if "<" in nettoyee or ">" in nettoyee:
+        return False
+    try:
+        lex = shlex.shlex(nettoyee, posix=True, punctuation_chars=";&|")
+        lex.whitespace_split = True
+        jetons = list(lex)
+    except ValueError:
+        return False
+    segments: list[list[str]] = [[]]
+    for j in jetons:
+        if j in _SONDE_OPERATEURS:
+            segments.append([])
+        elif set(j) <= set(";&|"):
+            return False  # `&` seul, `|&`, `;;`… : pas une sonde
+        else:
+            segments[-1].append(j)
+    if any(not seg for seg in segments):
+        return False
+    racine = os.path.realpath(str(cwd))
+    vu_curl = False
+    for seg in segments:
+        binaire = seg[0]
+        if "/" in binaire or "=" in binaire or binaire not in _SONDE_BINAIRES:
+            return False
+        if binaire == "cd":
+            continue
+        resolu = shutil.which(binaire)
+        if resolu is None:
+            return False
+        resolu = os.path.realpath(resolu)
+        if resolu == racine or resolu.startswith(racine + os.sep):
+            return False
+        vu_curl = vu_curl or binaire == "curl"
+    return vu_curl
+
+
+def _etiquette_reseau(detachee: bool, sonde: bool) -> str:
+    if confinement.reseau_autorise():
+        return "ouvert"
+    if detachee:
+        return "écoute locale"
+    if sonde:
+        return "sortie locale"
+    return "coupé"
+
+
 class CommandBlocked(Exception):
     """Commande refusée par la politique de sécurité."""
 
@@ -220,19 +311,29 @@ class Terminal:
 
         logger.info("Exécution: %s", command)
 
+        sonde = _est_sonde_locale(command, self.cwd)
+        plan = self._plan_confinement(command, detachee=False, sonde=sonde)
+        if plan.refus:
+            logger.warning("Commande non lancée (%s): %s", plan.refus, command)
+            return f"ERREUR: {plan.refus}"
         try:
-            # shell=True voulu: l'outil expose un terminal au LLM (par design).
-            # Confirmation + allowlist orchestrator + sandbox venv encadrent l'usage.
-            result = subprocess.run(  # nosec B602
-                command,
-                shell=True,
+            # `/bin/sh -c` explicite = ce que faisait shell=True : l'outil expose
+            # un terminal au LLM (par design). Confirmation humaine + confinement
+            # (écriture, réseau, environnement) encadrent l'usage.
+            result = subprocess.run(  # nosec B603
+                plan.commande,
                 capture_output=True,
                 text=True,
                 cwd=self.cwd,
+                env=plan.env,
                 timeout=SUBPROCESS_TIMEOUT,
                 encoding="utf-8",
                 errors="replace",
             )
+            reseau = _etiquette_reseau(False, sonde)
+            # Trace lisible par un banc (agent.log) : niveau RÉELLEMENT appliqué.
+            logger.info("[terminal] exit=%s confinement=%s réseau=%s : %s",
+                        result.returncode, plan.niveau, reseau, command[:200])
 
             parts = []
             if result.stdout:
@@ -275,6 +376,12 @@ class Terminal:
                     "script a planté. Corrige la cause ci-dessus, et relance Blender "
                     "avec `--python-exit-code 1` pour obtenir un vrai code d'échec."
                 )
+            # `2>&1` fond stderr dans stdout : chercher le refus dans les deux.
+            indice = confinement.indice_refus(
+                f"{result.stderr or ''}\n{result.stdout or ''}", plan.niveau,
+                reseau_coupe=reseau == "coupé")
+            if indice:
+                output += "\n" + indice
             return output
 
         except subprocess.TimeoutExpired:
@@ -283,6 +390,25 @@ class Terminal:
         except Exception as e:
             logger.error("Erreur subprocess '%s': %s", command, e)
             return f"ERREUR: {e}"
+        finally:
+            plan.nettoyer()
+
+    def _plan_confinement(self, command: str, *, detachee: bool,
+                          sonde: bool = False) -> confinement.Confinement:
+        """Plan d'exécution de `command` sous `/bin/sh -c`, selon
+        `KLODY_CONFINEMENT_TERMINAL` (défaut : `KLODY_CONFINEMENT`).
+
+        Écriture : dossier de travail + temporaire + `KLODY_CONFINEMENT_ECRITURES`.
+        PAS `ALLOWED_ROOTS` : en prod il vaut `~/Projets:~/library-brain`, donc
+        le checkout de Klody servi par launchd et tous les autres dépôts — une
+        charge y poserait de quoi persister ou se propager d'un dépôt à l'autre.
+        """
+        return confinement.preparer(
+            ["/bin/sh", "-c", command], Path(self.cwd),
+            ecritures_en_plus=confinement.ecritures_reglees(),
+            ecoute_locale=detachee, sortie_locale=sonde,
+            home_reel=True, reglage=confinement.mode_terminal(),
+        )
 
     def _run_detached(self, command: str) -> str:
         """Lance une commande backgroundée (`… &`) détachée, sans bloquer.
@@ -291,22 +417,38 @@ class Terminal:
         ex. `> log 2>&1`, reste appliquée par le shell), nouvelle session
         (start_new_session) pour survivre à la fin du tour. On ne wait/communicate
         PAS : la fonction rend la main immédiatement."""
+        # Confinée elle aussi, avec l'ÉCOUTE locale en plus (un serveur de dev
+        # doit pouvoir être joint) ; la sortie réseau reste coupée. Le
+        # temporaire n'est PAS nettoyé : le processus survit au tour (il vit
+        # dans le TMPDIR système, purgé par macOS).
+        plan = self._plan_confinement(command, detachee=True)
+        if plan.refus:
+            logger.warning("Commande détachée non lancée (%s): %s", plan.refus, command)
+            return f"ERREUR: {plan.refus}"
         try:
-            proc = subprocess.Popen(  # nosec B602
-                command,
-                shell=True,
+            proc = subprocess.Popen(  # nosec B603
+                plan.commande,
                 cwd=self.cwd,
+                env=plan.env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
         except Exception as e:
+            plan.nettoyer()
             logger.error("Erreur lancement détaché '%s': %s", command, e)
             return f"ERREUR: {e}"
         logger.info("Lancé en arrière-plan (PID %d): %s", proc.pid, command)
-        return (
+        logger.info("[terminal] exit=détaché confinement=%s réseau=%s : %s",
+                    plan.niveau, _etiquette_reseau(True, False), command[:200])
+        message = (
             f"Lancé en arrière-plan (PID {proc.pid}). La commande tourne détachée ; "
             "vérifie son état avec une commande de poll (ex. `curl … /health`, `pgrep`, "
             "ou lis son fichier de log si tu en as redirigé la sortie)."
         )
+        if plan.niveau == confinement.NIVEAU_SYSTEME and not confinement.reseau_autorise():
+            message += (" [confinement] Ce processus peut écouter sur la machine locale "
+                        "mais ne peut pas ouvrir de connexion sortante, ni écrire hors du "
+                        "projet.")
+        return message

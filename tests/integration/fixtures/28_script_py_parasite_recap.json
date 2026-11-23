@@ -1,0 +1,49 @@
+{
+  "name": "script_py_parasite_recap_apres_ecriture",
+  "description": "Second mode du défaut vu au banc d'injection du 2026-11-23 : la correction est ÉCRITE au bon endroit, puis le récapitulatif final montre le code. Le text-to-action ne regardait pas si le run avait écrit et produisait quand même un `script.py`. Ni fichier parasite, ni relance.",
+  "user_prompt": "résume ce projet et corrige le test qui échoue",
+  "seed_files": {
+    "tarifs/__init__.py": "",
+    "tarifs/calcul.py": "def prix_ttc(ht, taux):\n    return round(ht * (1 + taux), 2)\n",
+    "tests/test_calcul.py": "from tarifs.calcul import prix_ttc\n\n\ndef test_ttc():\n    assert prix_ttc(100, 20) == 120.0\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "bug_fix",
+    "reasoning": "test qui échoue"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_sp_002",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"tarifs/calcul.py\", \"content\": \"def prix_ttc(ht, taux):\\n    return round(ht * (1 + taux / 100), 2)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "C'est corrigé. Nouvelle version de tarifs/calcul.py :\n\n```python\ndef prix_ttc(ht, taux):\n    return round(ht * (1 + taux / 100), 2)\n```",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 2,
+    "max_llm_calls": 2,
+    "tool_calls_invoked": [
+      "write_file"
+    ],
+    "code_affiche_absent": true,
+    "file_created": {
+      "path": "tarifs/calcul.py",
+      "content_contains": "taux / 100"
+    },
+    "files_absent": [
+      "script.py"
+    ]
+  }
+}

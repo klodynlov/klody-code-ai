@@ -12,6 +12,7 @@ from config import (
     CODE_API_KEY,
     CODE_BASE_URL,
     CODE_MODEL,
+    CONTEXT_ROUTING_ENABLED,
     LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
@@ -54,6 +55,16 @@ from tools.automation import (
     organize_directory as auto_organize,
     sync_directories as auto_sync,
 )
+from tools.context_selection import (
+    FIND_TOOLS,
+    READ_SKILL,
+    capability_catalog,
+    capability_guidance,
+    context_query,
+    select_mcp_tools,
+    select_native,
+    select_servers,
+)
 from tools.file_manager import FileManager, SandboxViolation
 from tools.github_reader import (
     browse_repo as gh_browse_repo,
@@ -67,6 +78,12 @@ from tools.home_automation import (
     mqtt_subscribe as home_mqtt_subscribe,
 )
 from tools.library_distiller import distill_theme
+from tools.library_sources import (
+    library_import_source,
+    library_refresh_source,
+    library_source_status,
+    library_web_search,
+)
 from tools.llm_import import import_llm_export, list_imports
 from tools.mac_control import (
     list_shortcuts as mac_list_shortcuts,
@@ -102,8 +119,10 @@ from tools.skills import (
     delete_skill,
     format_skills_compact,
     format_skills_for_prompt,
+    format_skills_index_for_prompt,
     list_skills,
     load_skills,
+    read_skill,
     save_skill,
     select_skills,
 )
@@ -191,6 +210,15 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+# Producteurs qui laissent un ARTEFACT (fichier, preview, projet…). Exclut
+# `run_in_sandbox` : lancer pytest ne prouve aucune écriture. C'est ce sous-
+# ensemble qui fait taire le garde « code affiché sans écriture » sur les types
+# actionnables (vécu au banc V4 rejoué le 2026-11-23 : pytest lancé, correction
+# affichée, conclusion — le garde se taisait). Défini ici, où il sert : dans
+# `outils.py`, CodeQL le signalait comme global inutilisé.
+_FICHIER_PRODUIT_TOOLS = _PRODUCING_TOOLS - {"run_in_sandbox"}
+
+
 class Orchestrator(GardesMixin):
     # État du garde « décisions du projet jamais ouvertes », remis à neuf par
     # run() (cf. _should_force_doc_read). Annoté ici plutôt qu'au premier
@@ -204,6 +232,9 @@ class Orchestrator(GardesMixin):
     # Garde « code affiché sans écriture » : un outil qui écrit (ou une commande
     # shell, qui PEUT écrire) a-t-il été appelé pendant ce run ?
     _outil_producteur_appele: bool
+    # Sous-ensemble : un outil qui ÉCRIT un fichier (pas une simple commande).
+    # Sur les types actionnables, c'est lui seul qui fait taire le garde.
+    _fichier_produit: bool
 
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
@@ -215,6 +246,8 @@ class Orchestrator(GardesMixin):
         self.terminal = Terminal()
         self.search = Search()
         self.tools = get_tools()
+        self._context_routing_enabled = CONTEXT_ROUTING_ENABLED
+        self._active_tools = None
         # Client MCP : découvre les outils des serveurs MCP externes configurés
         # (KLODY_MCP_SERVERS) et les ajoute aux outils exposés au LLM, sous des
         # noms namespacés mcp__<serveur>__<outil>. Résilient : un serveur
@@ -225,7 +258,7 @@ class Orchestrator(GardesMixin):
             if MCP_SERVERS:
                 from tools.mcp_bridge import MCPManager
                 self.mcp = MCPManager(MCP_SERVERS)
-                mcp_tools = self.mcp.discover()
+                mcp_tools = [] if self._context_routing_enabled else self.mcp.discover()
                 if mcp_tools:
                     self.tools = [*self.tools, *mcp_tools]
                     logger.info("[MCP] %d outil(s) externe(s) ajouté(s)", len(mcp_tools))
@@ -651,7 +684,13 @@ class Orchestrator(GardesMixin):
         # Retrieval proactif : pistes de fichiers pertinents pour CE prompt. Injecté
         # dans les DEUX modes — y compris coder-slim, car les tâches de code (donc
         # le besoin de savoir QUELS fichiers toucher) y sont justement routées.
-        retrieval_section = self._relevant_files_section(query)
+        progressive = getattr(self, "_context_routing_enabled", False) is True
+        if progressive:
+            query = self._prepare_context(query)
+        # External-app tasks do not need the source tree of Klody itself.
+        # Code operations remain available through find_tools when needed.
+        needs_code = "run_in_sandbox" in getattr(self, "_context_native", set())
+        retrieval_section = self._relevant_files_section(query) if not progressive or needs_code else ""
 
         if getattr(self, "_code_model_active", False):
             # Modèle coder : prompt SLIM. Sous le gros prompt agentique il
@@ -712,9 +751,29 @@ class Orchestrator(GardesMixin):
             permanents_section = (
                 format_skills_for_prompt(permanents) if permanents else ""
             )
-            skills_section = (
-                format_skills_for_prompt(howto_skills) if howto_skills else ""
-            )
+            if progressive:
+                # Notices seulement : read_skill rend le texte intégral à la
+                # demande. Un questionnaire guidé actif garde ses règles complètes.
+                full_slugs = {
+                    s.get("slug", "") for s in howto_skills if _skill_is_interactive(s)
+                } if getattr(self, "_interactive_skill_active", False) else set()
+                skills_section = (
+                    format_skills_index_for_prompt(howto_skills, full_slugs)
+                    if howto_skills else ""
+                )
+                # Catalogue des capacités : ne dépend que de la configuration,
+                # donc stable sur la session → reste dans le système, en cache.
+                permanents_section += (
+                    "\n\n## Capacités à la demande\n"
+                    "Les outils utiles au sujet sont chargés. Si une capacité manque, "
+                    "appelle find_tools avec l'application, le groupe ou le nom de l'outil ; "
+                    "ne conclus pas qu'elle est indisponible sans cette recherche.\n"
+                    + capability_catalog(set(self.mcp.servers) if self.mcp else set())
+                )
+            else:
+                skills_section = (
+                    format_skills_for_prompt(howto_skills) if howto_skills else ""
+                )
             # Figée pour la session : l'extraction automatique écrit après CHAQUE
             # message, et un octet changé ici refait le prefill des schémas
             # d'outils (cf. section_de_session). Sanitize interne (ASI06).
@@ -757,9 +816,20 @@ class Orchestrator(GardesMixin):
         # Contexte de la requête → tour utilisateur courant, pas le système (le
         # template Qwen n'accepte un message système qu'en tête). Calculé UNE
         # fois par run() : identique à chaque itération ReAct du message.
-        sections = retrieval_section + skills_section
+        # Le guide d'application dépend du sujet : il suit le tour lui aussi.
+        guidance = capability_guidance(getattr(self, "_context_servers", set())) if progressive else ""
+        sections = retrieval_section + skills_section + guidance
         self._contexte_tour = f"{_ENTETE_CONTEXTE_TOUR}{sections}" if sections else ""
         self.memory.ancrer_contexte_tour(self._contexte_tour)
+
+        if progressive:
+            run_tools = self._tools_for_run()
+            self._context_stats = {
+                "tools": len(run_tools), "system_chars": len(content),
+                "tool_schema_chars": len(json.dumps(run_tools, ensure_ascii=False)),
+                "servers": sorted(getattr(self, "_context_servers", set())),
+            }
+            logger.info("[context] %s", self._context_stats)
 
         # Notifie l'UI des skills « how-to » réellement injectés (hook optionnel).
         if self._on_skills_selected:
@@ -839,6 +909,17 @@ class Orchestrator(GardesMixin):
         injecte le résultat à la suite — l'agent voit immédiatement si
         son code parse / passe les tests.
         """
+        # Empreinte AVANT l'outil : l'auto-check ne part que si l'écriture a
+        # réellement changé le fichier. Une écriture refusée par l'humain
+        # (« Action refusée… », qui ne commence pas par ERREUR), en échec, ou
+        # identique au contenu existant n'exécute rien. Sans cette garde, un
+        # `write_file` refusé lançait quand même pytest (donc un conftest.py
+        # piégé) sans aucune approbation — mesuré au banc d'injection du 23/11.
+        avant = (
+            self._empreinte_fichier(tool_args.get("path", ""))
+            if tool_name == "write_file" and isinstance(tool_args, dict)
+            else None
+        )
         result = self._execute_tool(tool_name, tool_args)
         self._afficher_sans_casser(tool_name, tool_args, result)
 
@@ -847,6 +928,7 @@ class Orchestrator(GardesMixin):
             tool_name == "write_file"
             and not result.startswith("ERREUR")
             and getattr(self, "_sandbox_auto_exec", True)
+            and self._empreinte_fichier(tool_args.get("path", "")) != avant
         ):
             extra = self._auto_sandbox_check(tool_args.get("path", ""))
             if extra:
@@ -857,6 +939,23 @@ class Orchestrator(GardesMixin):
                 result = f"{result}\n\n{preview_extra}"
 
         return result
+
+    def _empreinte_fichier(self, path: str) -> bytes | None:
+        """Contenu brut du fichier visé par `path` (relatif à la racine projet),
+        ou None s'il n'existe pas / n'est pas lisible.
+
+        Sert à décider si un `write_file` a réellement modifié le disque. Le
+        fichier est borné par MAX_FILE_SIZE côté FileManager : le lire entier
+        reste bon marché.
+        """
+        if not path:
+            return None
+        try:
+            p = Path(path).expanduser()
+            full = p if p.is_absolute() else self.file_manager.root / p
+            return full.read_bytes() if full.is_file() else None
+        except (OSError, ValueError, AttributeError):
+            return None
 
     def _auto_preview_check(self, rel_path: str) -> str:
         """Si rel_path est un .html écrit dans le projet, lance preview_file
@@ -1028,7 +1127,7 @@ class Orchestrator(GardesMixin):
         ))
         winner, all_cands, reasoning = self.best_of_n.best(
             messages,
-            tools=self.tools,
+            tools=self._tools_for_run(),
             user_prompt=self._current_user_prompt,
             max_tokens=getattr(self, "_max_tokens", MAX_TOKENS_DEFAULT),
         )
@@ -1166,6 +1265,13 @@ class Orchestrator(GardesMixin):
                 a["theme"], a.get("slug", ""),
                 code_compatible=_as_bool(a.get("code_compatible", False)),
                 llm=self.llm),
+            # LibraryBrain — sources web (découverte d'URL, import/actualisation versionnés)
+            "library_web_search": lambda a: library_web_search(
+                a["query"], a.get("limit", 5), _as_bool(a.get("official_only", False))),
+            "library_import_source": lambda a: library_import_source(
+                a["url"], _as_bool(a.get("official_only", False))),
+            "library_refresh_source": lambda a: library_refresh_source(a["book_id"]),
+            "library_source_status": lambda a: library_source_status(a.get("book_id")),
             # Mémoire long-terme
             "remember_fact": self._tool_remember_fact,
             "forget_fact": self._tool_forget_fact,
@@ -1554,6 +1660,52 @@ class Orchestrator(GardesMixin):
             return "L'utilisateur n'a pas répondu (aucun choix). Reformule ou propose de passer."
         return f"Réponse de l'utilisateur : {answer}"
 
+    def _prepare_context(self, query: str) -> str:
+        available = set(self.mcp.servers) if self.mcp else set()
+        effective = context_query(query, self.memory.messages, available)
+        self._context_servers = select_servers(effective, available)
+        self._context_native = select_native(effective, self.tools)
+        # The model router can identify code intent without a literal keyword
+        # (for example "une horloge"). Preserve that route's execution tools.
+        if getattr(self, "_code_model_active", False):
+            self._context_native.update(select_native("code", self.tools))
+        self._active_tools = None
+        self._activate_tools(self._context_native, self._context_servers, effective)
+        return effective
+
+    def _activate_tools(self, native: set[str], servers: set[str], query: str = "") -> list[dict]:
+        candidates = [tool for tool in self.tools if tool["function"]["name"] in native]
+        discovered = []
+        if self.mcp and servers:
+            discovered = self.mcp.discover_selected(servers)
+            candidates.extend(select_mcp_tools(query, discovered))
+        catalog = {tool["function"]["name"]: tool for tool in self.tools}
+        catalog.update({tool["function"]["name"]: tool for tool in discovered})
+        catalog.update({tool["function"]["name"]: tool for tool in candidates})
+        self.tools = list(catalog.values())
+        active = {tool["function"]["name"]: tool for tool in (self._active_tools or [])}
+        active.update({tool["function"]["name"]: tool for tool in candidates})
+        active.update({tool["function"]["name"]: tool for tool in (FIND_TOOLS, READ_SKILL)})
+        self._active_tools = list(active.values())
+        return candidates
+
+    def _find_tools(self, query: str) -> str:
+        available = set(self.mcp.servers) if self.mcp else set()
+        if not query.strip():
+            return capability_catalog(available)
+        servers = select_servers(query, available)
+        native = select_native(query, self.tools)
+        candidates = self._activate_tools(native, servers, query)
+        self._context_servers = getattr(self, "_context_servers", set()) | servers
+        self._context_native = getattr(self, "_context_native", set()) | native
+        names = {tool["function"]["name"] for tool in candidates}
+        unavailable = [s for s in sorted(servers) if not any(n.startswith(f"mcp__{s}__") for n in names)]
+        return json.dumps({
+            "loaded": [{"name": t["function"]["name"], "description": t["function"].get("description", "")[:250]} for t in candidates],
+            "unreachable_or_empty_servers": unavailable,
+            "catalog": capability_catalog(available),
+        }, ensure_ascii=False)
+
     def _tools_for_run(self) -> list[dict]:
         """Outils proposés au modèle pour le tour courant.
 
@@ -1561,9 +1713,12 @@ class Orchestrator(GardesMixin):
         l'agent reste autonome et ne doit pas pouvoir interrompre une tâche de
         code par des questions. Le handler existe en permanence dans le dispatch
         (inoffensif), mais l'outil reste invisible au modèle hors de ce mode."""
+        tools = getattr(self, "_active_tools", None)
+        if tools is None:
+            tools = self.tools
         if getattr(self, "_interactive_skill_active", False):
-            return [*self.tools, ASK_USER_TOOL]
-        return self.tools
+            return [*tools, ASK_USER_TOOL]
+        return tools
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """Exécute l'outil et journalise l'appel (gateway /journal/event).
@@ -1586,6 +1741,10 @@ class Orchestrator(GardesMixin):
 
     def _dispatch_tool(self, tool_name: str, tool_args: dict) -> str:
         logger.info("Outil: %s | Args: %s", tool_name, tool_args)
+        if tool_name == "find_tools":
+            return self._find_tools(str(tool_args.get("query") or ""))
+        if tool_name == "read_skill":
+            return read_skill(str(tool_args.get("slug") or ""))
         handler = self._dispatch.get(tool_name)
         try:
             if handler is not None:
@@ -1915,6 +2074,7 @@ class Orchestrator(GardesMixin):
         self._doc_inventaire = None
         self._doc_ecrits = set()
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
     def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
@@ -1965,6 +2125,7 @@ class Orchestrator(GardesMixin):
         self._doc_ecrits = set()           # documents écrits par l'agent ce run
         # Garde « code affiché sans écriture » (cf. _affiche_du_code).
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2294,6 +2455,8 @@ class Orchestrator(GardesMixin):
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
                     self._outil_producteur_appele = True
+                    if any(tc["function"]["name"] in _FICHIER_PRODUIT_TOOLS for tc in tool_calls):
+                        self._fichier_produit = True
                 elif any(tc["function"]["name"] in _CMD_EXEC_TOOLS for tc in tool_calls):
                     # Une commande shell peut écrire (`cat > f`, un générateur) : on
                     # la compte, pour que le garde ne relance pas un travail fait.
@@ -2510,16 +2673,31 @@ class Orchestrator(GardesMixin):
                 # écriture, rien n'a été écrit ce run, et la réponse montre du code.
                 # C'est le trou où tombait `test_gen` (vécu le 2026-09-28,
                 # `add_simple_test` affiche son test et s'arrête — 1 itération, 0 appel
-                # d'outil). Réservé aux types que RIEN d'autre ne couvre : sur
-                # _TYPES_ACTIONNABLES, le text-to-action plus bas rattrape déjà un bloc
-                # de code, et mieux qu'une relance pour une démo HTML (preview
-                # directe, scénario de rejeu 06).
+                # d'outil). Sur _TYPES_ACTIONNABLES, le text-to-action plus bas
+                # rattrape ce qu'il sait traiter, et mieux qu'une relance pour une
+                # démo HTML (preview directe, scénario de rejeu 06) : le garde ne
+                # tire que là où il n'aurait RIEN fait. Depuis le 2026-11-23 c'est
+                # le cas de tout bloc Python — il l'écrivait dans un `script.py`
+                # inventé (8/53 au banc d'injection), c'est désormais le modèle qui
+                # nomme le fichier (scénario de rejeu 27).
                 code_affiche = (
                     self.last_routing is not None
                     and self.last_routing.task_type in TYPES_QUI_ECRIVENT
-                    and self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                    and (
+                        self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                        or _infer_action_from_text(content, self._current_user_prompt) is None
+                    )
                     and not interactive
-                    and not getattr(self, "_outil_producteur_appele", False)
+                    and not (
+                        # Sur les actionnables, une commande lancée (pytest…) ne
+                        # prouve AUCUNE écriture : vécu au banc V4 rejoué le
+                        # 2026-11-23, pytest lancé puis correction AFFICHÉE et
+                        # conclusion — le garde se taisait, et sans le repli
+                        # `script.py` plus rien ne rattrapait le tour.
+                        getattr(self, "_fichier_produit", False)
+                        if self.last_routing.task_type in _TYPES_ACTIONNABLES
+                        else getattr(self, "_outil_producteur_appele", False)
+                    )
                     and _affiche_du_code(content)
                 )
                 stalled = (

@@ -18,7 +18,16 @@ Démarrage :
 
 Outils exposés :
 - fetch_url(url, max_chars)        — récupère une page (HTML → texte) en lecture seule
-- web_search(query, limit)         — recherche DuckDuckGo (sans clé API) → titres/URL/extraits
+- web_search(query, limit)         — recherche web → titres/URL/extraits
+
+Moteur de recherche (``WEB_SEARCH_BACKEND``) :
+- ``auto`` (défaut) : API Brave Search officielle si ``BRAVE_SEARCH_API_KEY`` est
+  posée, DuckDuckGo HTML en secours ; DuckDuckGo seul sinon ;
+- ``brave`` : API Brave uniquement ; ``duckduckgo`` : DuckDuckGo uniquement.
+
+Vécu le 2026-11-20 : DuckDuckGo a bloqué l'IP de la machine (202 « anomaly »
+sur html/lite, GET/POST, curl compris) — réessayer ne servait à rien. On ne
+contourne pas une protection anti-bot : on passe par une API officielle.
 """
 from __future__ import annotations
 
@@ -54,6 +63,9 @@ USER_AGENT = os.getenv(
 
 _ALLOWED_SCHEMES = {"http", "https"}
 _DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+_BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
+_BRAVE_MAX_COUNT = 20  # plafond du paramètre ``count`` de l'API Brave
+_BACKENDS = {"auto", "brave", "duckduckgo"}
 
 mcp = FastMCP("Web")
 
@@ -206,6 +218,105 @@ def _parse_ddg(html_str: str, limit: int) -> list[dict]:
     return results
 
 
+def _brave_key() -> str:
+    """Clé lue à l'appel (pas à l'import) : un ``.env`` modifié vaut au redémarrage."""
+    return os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
+
+
+def _search_backend() -> str:
+    backend = os.getenv("WEB_SEARCH_BACKEND", "auto").strip().lower() or "auto"
+    return backend if backend in _BACKENDS else "auto"
+
+
+def _strip_tags(fragment: str) -> str:
+    """Les extraits Brave portent du ``<strong>`` : on ne garde que le texte."""
+    return BeautifulSoup(fragment or "", "html.parser").get_text(" ", strip=True)
+
+
+def _parse_brave(payload: dict, limit: int) -> list[dict]:
+    """Réponse JSON de l'API Brave → [{title, url, snippet}] (résultats web seuls)."""
+    web = payload.get("web") or {}
+    results: list[dict] = []
+    for item in web.get("results") or []:
+        url = str(item.get("url") or "")
+        if not url:
+            continue
+        results.append(
+            {
+                "title": _strip_tags(str(item.get("title") or "")),
+                "url": url,
+                "snippet": _strip_tags(str(item.get("description") or "")),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _brave_search(query: str, limit: int, key: str) -> dict:
+    """Interroge l'API Brave Search. Ne lève pas ; la clé n'apparaît jamais en sortie."""
+    try:
+        resp = requests.get(
+            _BRAVE_API_URL,
+            params={
+                "q": query,
+                "count": str(min(limit, _BRAVE_MAX_COUNT)),
+                "country": os.getenv("BRAVE_SEARCH_COUNTRY", "FR"),
+            },
+            headers={
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": key,
+            },
+            timeout=FETCH_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        return {"error": f"Brave : échec réseau ({type(exc).__name__})."}
+    if resp.status_code in (401, 403):
+        return {"error": f"Brave : clé refusée (HTTP {resp.status_code}) — vérifier BRAVE_SEARCH_API_KEY."}
+    if resp.status_code == 429:
+        return {"error": "Brave : quota ou débit dépassé (HTTP 429) — crédits du mois épuisés ou requêtes trop rapprochées."}
+    if resp.status_code != 200:
+        return {"error": f"Brave : réponse HTTP {resp.status_code}."}
+    try:
+        payload = resp.json()
+    except ValueError:
+        return {"error": "Brave : réponse non JSON."}
+    results = _parse_brave(payload if isinstance(payload, dict) else {}, limit)
+    return {"count": len(results), "results": results, "provider": "brave"}
+
+
+def _ddg_search(query: str, limit: int) -> dict:
+    """Recherche DuckDuckGo HTML. Ne lève pas."""
+    try:
+        # GET + en-têtes navigateur : un UA contenant "bot" ou un POST brut
+        # déclenche la page anti-bot de DuckDuckGo.
+        resp = requests.get(
+            _DDG_HTML_URL,
+            params={"q": query},
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=FETCH_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        return {"error": f"DuckDuckGo : échec réseau: {exc}"}
+    results = _parse_ddg(resp.text, limit)
+    if not results:
+        text = resp.text.lower()
+        # Le blocage répond 202 avec une page « anomaly » : le 2xx ne dit rien.
+        if "challenge" in text or "anomaly" in text:
+            return {
+                "error": "DuckDuckGo a renvoyé une page anti-bot (IP bloquée) ; "
+                "poser BRAVE_SEARCH_API_KEY pour passer par l'API Brave officielle."
+            }
+        return {"count": 0, "results": [], "provider": "duckduckgo", "note": "Aucun résultat."}
+    return {"count": len(results), "results": results, "provider": "duckduckgo"}
+
+
 # ---------------------------------------------------------------------------- #
 # Outils MCP                                                                    #
 # ---------------------------------------------------------------------------- #
@@ -275,7 +386,7 @@ def fetch_url(url: str, max_chars: int = MAX_CHARS) -> dict:
 
 @mcp.tool()
 def web_search(query: str, limit: int = SEARCH_RESULTS) -> dict:
-    """Recherche sur le web via DuckDuckGo (sans clé API) en LECTURE SEULE.
+    """Recherche sur le web en LECTURE SEULE (API Brave Search, DuckDuckGo en secours).
 
     Renvoie une liste de résultats (titre, URL, extrait). Utiliser fetch_url
     ensuite pour lire une page en détail.
@@ -285,34 +396,24 @@ def web_search(query: str, limit: int = SEARCH_RESULTS) -> dict:
         limit: Nombre max de résultats.
 
     Returns:
-        {"count", "results": [{"title", "url", "snippet"}, ...]} ou {"error": "..."}.
+        {"count", "results": [{"title", "url", "snippet"}, ...], "provider"}
+        (+ "warning" si le moteur principal a échoué) ou {"error": "..."}.
     """
     n = max(1, min(int(limit), 25))
+    backend = _search_backend()
+    key = _brave_key()
     try:
-        # GET + en-têtes navigateur : un UA contenant "bot" ou un POST brut
-        # déclenche la page anti-bot de DuckDuckGo.
-        resp = requests.get(
-            _DDG_HTML_URL,
-            params={"q": query},
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-            timeout=FETCH_TIMEOUT,
-        )
-        resp.raise_for_status()
-        results = _parse_ddg(resp.text, n)
-        if not results:
-            if "challenge" in resp.text.lower():
-                return {
-                    "error": "DuckDuckGo a renvoyé une page anti-bot ; "
-                    "réessayer plus tard ou espacer les requêtes."
-                }
-            return {"count": 0, "results": [], "note": "Aucun résultat."}
-        return {"count": len(results), "results": results}
-    except requests.RequestException as exc:
-        return {"error": f"Échec réseau: {exc}"}
+        if backend == "duckduckgo" or (backend == "auto" and not key):
+            return _ddg_search(query, n)
+        if not key:
+            return {"error": "WEB_SEARCH_BACKEND=brave mais BRAVE_SEARCH_API_KEY est vide."}
+        brave = _brave_search(query, n, key)
+        if "error" not in brave or backend == "brave":
+            return brave
+        ddg = _ddg_search(query, n)
+        if "error" in ddg:
+            return {"error": f"{brave['error']} Secours DuckDuckGo : {ddg['error']}"}
+        return {**ddg, "warning": brave["error"]}
     except Exception as exc:
         logger.error("web_search: %s", exc, exc_info=True)
         return {"error": str(exc)}

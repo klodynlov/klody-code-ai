@@ -306,6 +306,9 @@ RETRIEVAL_BUILD_DEADLINE_S: float = float(os.getenv("RETRIEVAL_BUILD_DEADLINE_S"
 # select_skills si un endpoint est indisponible). N'active rien au démarrage
 # tant que le flag vaut 0.
 SKILLS_ROUTER_ENABLED: bool = os.getenv("SKILLS_ROUTER_ENABLED", "false").lower() in ("1", "true", "yes", "on")
+# Progressive tool/skill loading. Set false only to compare with the full
+# historical context; this does not change tool permissions or stored memory.
+CONTEXT_ROUTING_ENABLED: bool = os.getenv("CONTEXT_ROUTING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 # Sous-flag : utiliser le juge LLM en plus des embeddings (sinon rang cosinus seul).
 SKILLS_ROUTER_JUDGE: bool = os.getenv("SKILLS_ROUTER_JUDGE", "true").lower() in ("1", "true", "yes", "on")
 
@@ -332,6 +335,22 @@ LIBRARYBRAIN_DIR: str = os.getenv("LIBRARYBRAIN_DIR", "")  # chemin vers le dép
 # JAMAIS dans l'URL (cf. tools/project_creator.py qui glisse GITHUB_TOKEN dans une
 # URL git) : /health échoie les URLs des serveurs → un token en URL fuiterait.
 LIBRARYBRAIN_TOKEN: str = os.getenv("LIBRARYBRAIN_TOKEN", "")
+
+
+def format_book_source(source: dict) -> str:
+    """Référence lisible d'une source LibraryBrain : « Titre — Auteur, p.N ».
+
+    Les sources web importées (Légifrance, Service Public…) n'ont pas d'auteur :
+    LibraryBrain renvoie `"author": null`, et `s.get("author", "?")` affichait
+    alors « None » (la clé existe). On omet l'auteur absent et la page absente
+    au lieu d'imprimer un marqueur vide.
+    """
+    title = str(source.get("title") or "").strip() or "?"
+    author = source.get("author")
+    author = "" if author is None else str(author).strip()
+    ref = title if not author or author.lower() in ("none", "null") else f"{title} — {author}"
+    page = source.get("page")
+    return ref if page in (None, "") else f"{ref}, p.{page}"
 
 
 def librarybrain_headers() -> dict[str, str]:

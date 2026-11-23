@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import httpx
-from config import LIBRARYBRAIN_URL, SKILLS_DIR, librarybrain_headers
+from config import LIBRARYBRAIN_URL, SKILLS_DIR, format_book_source, librarybrain_headers
 from fastmcp import FastMCP
 from loguru import logger
 
@@ -64,7 +64,7 @@ async def search_books(query: str, limit: int = 3) -> list[dict]:
             Chunk(
                 content=answer,
                 source=" | ".join(
-                    f"{s.get('title','?')} — {s.get('author','?')}, p.{s.get('page','?')}"
+                    format_book_source(s)
                     for s in sources[:limit]
                 ),
                 score=float(sources[0].get("score", 0.0)) if sources else 0.0,

@@ -4,7 +4,7 @@
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts"]
+src = ["agent", "tools", "api", "klody_mcp", "bench", "scripts", "canaux"]
 # demos/ = copies illustratives de scripts sandbox (pipeline visage 3D) — pas du
 # code de lib maintenu ; hors périmètre lint (mypy les ignore déjà via son allowlist).
 # force-exclude → exclusion respectée même quand pre-commit passe les chemins en args.
@@ -20,7 +20,7 @@ force-exclude = true
 # pendant tout le mois de septembre 2026. Dire au linter la vraie cible.
 # `tests/test_scripts_python_systeme.py` vérifie que cette liste couvre bien
 # chaque script qu'un plist lance sous `/usr/bin/python3`.
-per-file-target-version = { "scripts/veille_*.py" = "py39", "scripts/bench_dispatch.py" = "py39" }
+per-file-target-version = { "scripts/veille_*.py" = "py39", "scripts/bench_dispatch.py" = "py39", "scripts/klody-notifier.py" = "py39" }
 
 [tool.ruff.lint]
 # E/F = pyflakes+pycodestyle, I = isort, UP = pyupgrade, B = bugbear,
@@ -52,6 +52,10 @@ python_version = "3.11"
 # typage — à intégrer ici au fur et à mesure.
 files = [
     "config.py",
+    "canaux/imessage.py",
+    "canaux/proactif.py",
+    "canaux/briefing.py",
+    "canaux/rendez_vous.py",
     "services.py",
     "agent/dbc.py",
     "agent/llm.py",

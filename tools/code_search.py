@@ -3,14 +3,28 @@
 Indexe chaque fichier source du projet et permet de trouver les fichiers
 les plus pertinents pour une question en langage naturel.
 
-Backend embeddings : Ollama bge-m3 (déjà disponible localement).
-Index : en mémoire (numpy + dict). Pas de persistance pour l'instant.
-Rebuild incrémental : on ne re-embed que les fichiers modifiés (cache mtime).
+Backend embeddings : bge-m3 in-process (memory bus, cf. tools/embeddings.py).
+Index : en mémoire (dict), PERSISTÉ sur disque depuis le 2026-11-19 — un fichier
+par (racine du projet, modèle d'embedding) sous `config.MEMORY_DIR/index_code/`.
+Rebuild incrémental : on ne re-embed que les fichiers dont le mtime a changé.
+
+Pourquoi persister (vécu le 2026-11-19, enquête latence Siri/iMessage) : la
+première `search()` de CHAQUE processus ré-encodait ~550 fichiers — 160 à 171 s
+mesurés (35 lots `embed_batch`, presque tout dans `tensor.cpu()`), contre 0,3 s
+pour la deuxième recherche du même processus. Pire : le thread de retrieval
+proactif continue après son échéance de 2 s et dispute le GPU au tour suivant.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
+import hashlib
+import json
 import logging
 import os
+import sys
+import tempfile
+from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,9 +32,11 @@ logger = logging.getLogger(__name__)
 
 # Embeddings : in-process via le memory bus (cf. tools/embeddings.py). Avant le
 # 2026-07-18 c'était un POST vers Ollama /api/embed ; même modèle bge-m3, mais
-# plus de daemon à faire tourner. L'index est en mémoire (jamais persisté), donc
-# la bascule de provider n'a demandé aucun re-embed. Le modèle vient désormais
-# des settings du memory bus, ce n'est plus une constante d'ici.
+# plus de daemon à faire tourner. Le modèle vient des settings du memory bus, ce
+# n'est plus une constante d'ici — et depuis que l'index est persisté
+# (2026-11-19), son identifiant (`embeddings.model_id()`) fait partie de la clé
+# du cache : changer de modèle relit un autre fichier, jamais des vecteurs
+# d'un autre espace.
 
 # Extensions à indexer
 _INDEXABLE_EXT = frozenset({
@@ -42,6 +58,11 @@ _MAX_CHUNK_CHARS = 4000
 # être un dossier large (ex. ~/Projets) ; sans plafond, un premier build
 # embarquerait des milliers de fichiers. Au-delà, on s'arrête (avec un warning).
 _MAX_INDEX_FILES = 1500
+
+# Version du FORMAT du fichier persisté. À incrémenter dès que sa structure ou
+# le texte embeddé (`_embed_input`) change : un ancien fichier est alors
+# reconstruit, jamais relu de travers.
+_CACHE_FORMAT = 1
 
 
 @dataclass
@@ -108,13 +129,21 @@ MISS_QUERY_EMBED = "l'embedding de la requête a échoué"
 class EmbeddingIndex:
     """Index par embedding des fichiers du projet."""
 
-    def __init__(self, project_root: Path):
+    def __init__(self, project_root: Path, cache_dir: Path | str | None = None):
         self.root: Path = Path(project_root).resolve()
         self._index: dict[str, FileEmbedding] = {}
         self._available: bool | None = None  # None = pas encore testé
         # Cause de la DERNIÈRE recherche à vide (None si la dernière a rendu des
         # hits). Lu par l'appelant pour nommer la panne au lieu de conclure.
         self.last_miss: str | None = None
+        # Persistance. `cache_dir` None ⇒ `config.MEMORY_DIR/index_code`, résolu
+        # PARESSEUSEMENT : la suite redirige `KLODY_DATA_DIR` (tests/garde_etat)
+        # et un chemin figé à l'import contournerait cette redirection.
+        self._cache_dir: Path | None = Path(cache_dir) if cache_dir else None
+        # Modèle dont viennent les vecteurs de `_index` ("" = inconnu). Le
+        # fichier n'est chargé qu'une fois par instance, au premier refresh().
+        self._modele: str = ""
+        self._charge: bool = False
 
     def is_available(self) -> bool:
         """Le moteur d'embeddings est-il utilisable ? (lazy, cache).
@@ -141,10 +170,157 @@ class EmbeddingIndex:
                 if Path(fn).suffix in _INDEXABLE_EXT:
                     yield Path(dirpath) / fn
 
+    # ── Persistance ────────────────────────────────────────────────────────── #
+
+    def _dossier_cache(self) -> Path:
+        if self._cache_dir is not None:
+            return self._cache_dir
+        import config  # tardif : cf. __init__
+
+        return Path(config.MEMORY_DIR) / "index_code"
+
+    def cache_path(self, modele: str) -> Path:
+        """Fichier du cache pour (cette racine, ce modèle).
+
+        Le nom HACHE les deux : une racine est un chemin arbitraire, un modèle
+        un `provider:org/nom`. Le contenu les répète, et le chargement les
+        vérifie — une collision de préfixe de hash ne peut pas servir les
+        vecteurs d'un autre projet.
+        """
+        cle = hashlib.sha256(f"{self.root}\0{modele}".encode()).hexdigest()[:24]
+        return self._dossier_cache() / f"{cle}.json"
+
+    def _charger(self, modele: str) -> int:
+        """Charge le cache persisté pour `modele`. Rend le nombre d'entrées.
+
+        Tout écart — fichier illisible ou tronqué, autre format, autre racine,
+        autre modèle, dimension incohérente, autre ordre d'octets — rend 0 et
+        laisse l'index VIDE : la reconstruction complète qui suit est le
+        comportement d'avant la persistance, donc jamais pire. Ne lève jamais.
+        """
+        chemin = self.cache_path(modele)
+        try:
+            brut = chemin.read_bytes()
+        except FileNotFoundError:
+            return 0
+        except OSError as exc:
+            logger.warning("[EmbeddingIndex] cache illisible %s (%s) — reconstruction", chemin, exc)
+            return 0
+        try:
+            doc = json.loads(brut)
+            if doc.get("format") != _CACHE_FORMAT:
+                raise ValueError(f"format {doc.get('format')!r} ≠ {_CACHE_FORMAT}")
+            if doc.get("root") != str(self.root):
+                raise ValueError(f"racine {doc.get('root')!r} ≠ {self.root}")
+            if doc.get("model") != modele:
+                raise ValueError(f"modèle {doc.get('model')!r} ≠ {modele!r}")
+            if doc.get("byteorder") != sys.byteorder:
+                raise ValueError(f"ordre d'octets {doc.get('byteorder')!r}")
+            dim = int(doc["dim"])
+            if dim <= 0:
+                raise ValueError(f"dimension {dim}")
+            index: dict[str, FileEmbedding] = {}
+            for rel, e in doc["files"].items():
+                vec = array("f")
+                vec.frombytes(base64.b64decode(e["vec"], validate=True))
+                if len(vec) != dim:
+                    raise ValueError(f"{rel} : dimension {len(vec)} ≠ {dim}")
+                index[rel] = FileEmbedding(
+                    rel_path=rel,
+                    mtime=float(e["mtime"]),
+                    vec=vec.tolist(),
+                    preview=str(e.get("preview", "")),
+                )
+        except Exception as exc:  # corrompu, tronqué, schéma inattendu…
+            logger.warning(
+                "[EmbeddingIndex] cache rejeté %s (%s: %s) — reconstruction complète",
+                chemin, type(exc).__name__, exc,
+            )
+            return 0
+        self._index = index
+        return len(index)
+
+    def _sauver(self, modele: str) -> None:
+        """Écrit l'index de façon ATOMIQUE (temporaire + `os.replace`).
+
+        Un processus tué en pleine écriture laisse au pire un `.tmp` orphelin,
+        jamais un cache à moitié écrit sous le vrai nom. Plusieurs processus
+        (API, serveur MCP klody) partagent le fichier : le dernier qui écrit
+        gagne, et chacun écrit un index complet et cohérent. Ne lève jamais —
+        un cache non écrit coûte une reconstruction, pas une recherche.
+        """
+        dims = {len(fe.vec) for fe in self._index.values()}
+        if len(dims) != 1:  # vide, ou dimensions mêlées : rien de sûr à écrire
+            return
+        doc = {
+            "format": _CACHE_FORMAT,
+            "root": str(self.root),
+            "model": modele,
+            "dim": dims.pop(),
+            "byteorder": sys.byteorder,
+            "files": {
+                rel: {
+                    "mtime": fe.mtime,
+                    "preview": fe.preview,
+                    "vec": base64.b64encode(array("f", fe.vec).tobytes()).decode("ascii"),
+                }
+                for rel, fe in self._index.items()
+            },
+        }
+        chemin = self.cache_path(modele)
+        tmp: str | None = None
+        try:
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=chemin.parent, prefix=chemin.stem, suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, chemin)
+            tmp = None
+        except Exception as exc:  # disque plein, droits, valeur non sérialisable…
+            logger.warning("[EmbeddingIndex] cache non écrit %s (%s: %s)", chemin, type(exc).__name__, exc)
+        finally:
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(tmp)
+
+    def _synchroniser_modele(self) -> str:
+        """Aligne l'index en mémoire sur le modèle courant ; rend son id.
+
+        Premier appel : charge le cache persisté. Modèle changé en cours de
+        processus : l'index est jeté (ses vecteurs sont d'un autre espace) et
+        le cache du nouveau modèle est chargé s'il existe.
+        """
+        from tools import embeddings
+
+        modele = embeddings.model_id()
+        if self._charge and modele == self._modele:
+            return modele
+        if self._charge:
+            logger.warning(
+                "[EmbeddingIndex] modèle d'embedding changé (%r → %r) — index jeté",
+                self._modele, modele,
+            )
+        self._index = {}
+        self._modele = modele
+        self._charge = True
+        if modele:
+            n = self._charger(modele)
+            if n:
+                logger.info("[EmbeddingIndex] %d fichier(s) rechargé(s) depuis le cache", n)
+        return modele
+
+    def _dimension(self) -> int | None:
+        for fe in self._index.values():
+            return len(fe.vec)
+        return None
+
+    # ── Indexation ─────────────────────────────────────────────────────────── #
+
     def refresh(self, batch_size: int = 16) -> int:
         """Re-indexe les fichiers ajoutés/modifiés. Retourne nb d'updates."""
         if not self.is_available():
             return 0
+        modele = self._synchroniser_modele()
 
         # Identifier les fichiers à (re)indexer
         to_update: list[tuple[str, float, str]] = []  # (rel, mtime, content)
@@ -164,7 +340,10 @@ class EmbeddingIndex:
             except OSError:
                 continue
             cached = self._index.get(rel)
-            if cached and cached.mtime >= mtime:
+            # `!=` et non `>=` : le cache survit au processus, donc à un
+            # `git checkout` ou une restauration qui RECULE un mtime. Seule
+            # l'égalité prouve que le fichier n'a pas bougé.
+            if cached and cached.mtime == mtime:
                 continue
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
@@ -200,6 +379,8 @@ class EmbeddingIndex:
                 del self._index[rel]
                 updated += 1
 
+        if updated and modele:
+            self._sauver(modele)
         return updated
 
     def search(self, query: str, k: int = 5) -> list[SearchHit]:
@@ -222,6 +403,21 @@ class EmbeddingIndex:
             self.last_miss = MISS_QUERY_EMBED
             return []
         q = q_vecs[0]
+        dim = self._dimension()
+        if dim is not None and len(q) != dim:
+            # Même identifiant, autre espace (modèle remplacé sous le même nom,
+            # cache d'une autre version) : `_cosine` rendrait 0.0 partout, soit
+            # k fichiers au hasard présentés comme « pertinents ». On jette
+            # l'index et on le reconstruit — une seule fois par recherche.
+            logger.warning(
+                "[EmbeddingIndex] dimension de la requête %d ≠ index %d — reconstruction complète",
+                len(q), dim,
+            )
+            self._index = {}
+            self.refresh()
+            if not self._index:
+                self.last_miss = MISS_EMPTY_INDEX
+                return []
         # Cosine vs tous les fichiers
         scored = [
             SearchHit(

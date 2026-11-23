@@ -1563,6 +1563,124 @@ dégradé ». `message_stats` nomme le modèle qui a réellement répondu.
   l'estimation de `brain` (52 Go) pour ~33-37 Go résidents mesurés. Le repli
   compense un refus que cette estimation rend plus fréquent que nécessaire.
 
+## État au 2026-11-19 — deux trous d'approbation, trouvés par le spike iMessage
+
+En branchant KlodyAI sur iMessage (spike `~/Archives/spikes/imessage-20261119/`),
+deux trous dans la garde humaine (`agent/approval.py`) :
+
+1. **`/api/siri` exécutait tout outil SANS validation** : la garde n'existait que
+   dans le WebSocket (`execute_with_events`). Tout client local de `:8000` pouvait
+   faire écrire, envoyer un mail ou piloter le Mac. Désormais
+   `_executeur_sans_validation` enveloppe `orch._execute_tool` (pas seulement
+   `_execute_and_display`, pour couvrir l'auto-preview) et REFUSE tout outil
+   gardé, `ask_user` compris : Siri n'a aucune surface de validation.
+2. **54 outils natifs sur 69 passaient libres**, dont `run_applescript`,
+   `run_shortcut` (HomeKit), `mqtt_publish` (domotique), `backup_directory`,
+   `scaffold_tool`, et les modes écriture de `git_control` (add/commit),
+   `docker_control` (run), `run_sql` (write), `sync_directories` /
+   `organize_directory` / `batch_rename` (`dry_run=False`). Ces six derniers sont
+   gardés **selon leurs arguments** (`_ARG_GATED_TOOLS`) ; appelés sans
+   arguments, ils sont gardés par prudence.
+
+- `requires_approval(nom, args=None)` : le WebSocket passe désormais les arguments.
+- ⚠️ **Le défaut « libre si inconnu » des outils NATIFS est ce qui a laissé passer
+  AppleScript.** `test_chaque_outil_natif_libre_est_un_choix_ecrit` rougit dès
+  qu'un outil ajouté au registre est libre sans avoir été classé.
+- Mutations rejouées : 4/5 rouges ; la 5ᵉ (retirer le test `isinstance`) est
+  équivalente — `rule(None)` lève et le `except` garde déjà.
+- ⚠️ Un canal joignable à distance (iMessage) ne doit PAS s'appuyer sur
+  `requires_approval` seul : liste BLANCHE de lecture, `web` exclu (mail piégé
+  lu → fetch d'URL = exfiltration). C'est ce que fait le spike.
+
+## État au 2026-11-21 — le canal iMessage devient un module (`canaux/imessage.py`)
+
+Spike du 2026-11-19 passé de bout en bout le 2026-11-21 : « Klody, 12 fois 12 »
+depuis l'iPhone → « 🤖 144 » reçu en **7,7 s** ; essai à blanc 3/3 (calcul 22 s,
+livres 18 s, raccourci refusé 4 s) ; la copie reçue d'un message à soi-même est
+ignorée, la réponse 🤖 n'est jamais retraitée. Porté en module :
+
+- **Même régime que `/api/siri`** (`preparer_orchestrateur`) : modèle épinglé,
+  routage progressif coupé, schémas = liste blanche, pas de retrieval. Mesuré au
+  spike : 4-22 s par réponse contre 19-273 s avec le prompt complet. La liste
+  blanche est REVÉRIFIÉE à l'exécution (garde), pas seulement cachée au modèle.
+- **Liste blanche de lecture, jamais « tout sauf approval »** (section du
+  2026-11-19). `test_contrat_orchestrator_attributs_utilises` rougit si un
+  attribut privé patché par le canal est renommé.
+- ⚠️ **TCC suit le processus RESPONSABLE, pas le binaire.** L'Accès complet au
+  disque accordé à Terminal.app ne couvrait PAS une commande venue de Claude.app
+  (boîte `!`, panneau Terminal de Claude, `osascript … do script` injecté) : même
+  `ls ~/Library/Messages` refusé. Seul un `.command` ouvert depuis le Finder
+  passait. En prod : coque signée `KlodyMessages.app` (`canaux/imessage_app/`,
+  patron KlodyShield) qui porte SEULE l'Accès disque et l'Automatisation →
+  Messages, droit `com.apple.security.automation.apple-events` (runtime renforcé).
+- **Opt-in** : agent `com.klody.imessage` écrit par
+  `scripts/install-klody-messages.sh install`, HORS `launchagents/` (que
+  `install-launchagents.sh` installe sans demander). Refuse un worktree (la coque
+  fige le chemin du dépôt) et un `.env` sans `KLODY_IMSG_ALLOWED`. Sortie 0 =
+  « non configuré », `KeepAlive.SuccessfulExit=false` : pas de boucle launchd ;
+  chat.db refusé ⇒ attente de 60 s entre essais, pas de mort-relance.
+- Bug trouvé par les tests : `st.get("last_rowid") or max_rowid()` prenait un
+  état à 0 pour un premier lancement. `in`, pas `or`.
+
+## État au 2026-11-22 — Klody écrit le premier (`canaux/proactif.py`)
+
+Moteur proactif DANS le processus du canal iMessage (donc sous `KlodyMessages.app`,
+qui détient l'Automatisation → Messages). Toute la journée, **10 messages
+spontanés/jour** (`KLODY_PROACTIF_MAX_JOUR`) ; au-delà, DIFFÉRÉS (briefing).
+
+- **Fins de tâches** : `scripts/klody-notifier.py "titre" --statut ok|echec|info`
+  dépose un JSON dans `~/.klody/data/notifications/` (stdlib, Python 3.9 OK) —
+  un dossier plutôt qu'un port, aucun service réseau de plus.
+- **Mails importants** : `is:unread is:important newer_than:2d` via le MCP Gmail,
+  résumé d'une phrase par `brain` SANS outils (consigne anti-injection ; le corps
+  d'un mail est une donnée). Premier passage = amorçage : l'existant est « vu »,
+  rien n'est déversé. Requêtes marquées `X-Klody-Source: system` (miner).
+- **Rappels / notes dictés** : outils LOCAUX au canal `programmer_rappel` /
+  `noter`, exécutés par la garde, n'écrivant que dans `proactif.db`. Hors quota.
+- ⚠️ **Le contexte de date doit porter l'ANNÉE.** Vécu au premier essai réel :
+  « dimanche 22/11 » seul → année inventée, « déjà passée », aucun rappel.
+  `contexte_date` donne `… 2026 (2026-11-22T01:23)` ; le refus cite « maintenant ».
+- Une clé par alerte (`gmail:<uid>`, `tache:<fichier>`, `rappel:<id>`) : jamais
+  deux fois. Envoi en échec = non marqué, retenté. Source en panne = isolée.
+
+## État au 2026-11-22 — briefing du matin (`canaux/briefing.py`)
+
+Source du moteur proactif, une fois par jour à `KLODY_BRIEFING_HEURE` (07:30),
+rattrapé au réveil jusqu'à midi, **hors quota**, 3-4 messages ≤ 1 500 car. :
+météo Open-Meteo (Baulon, Le Rheu), agenda + app Rappels, Notes modifiées la
+veille, mails importants de la nuit, alertes DIFFÉRÉES (puis marquées
+« briefées »), notes dictées, une proposition du miner d'habitudes (jamais deux
+fois), revue de presse synthétisée par `brain` (titres = données, sans outils),
+veille MLX locale si neuve. `scripts/klody-notifier.py --briefing` le déclenche
+maintenant (sans consommer celui du jour).
+
+- **Agenda/Rappels par la coque** : `KlodyMessages --agenda 1` (`Agenda.swift`,
+  EventKit) relancé par le canal → TCC attribue l'accès Calendriers/Rappels à
+  l'app. Droit `com.apple.security.personal-information.calendars` (runtime
+  renforcé) + `NS*FullAccessUsageDescription`. Notes via `osascript` (Automation
+  → Notes, même responsable).
+- **Martinique** : ni Martinique la 1ère ni RCI n'ont de flux RSS public (pages
+  HTML, vérifié le 2026-11-22) → Google Actualités `q=Martinique`, filtré sur
+  ces deux sources.
+- ⚠️ Vécus à l'essai réel : la veille collée à la revue dépassait 1 500 car.
+  (coupée) → message à part ; le modèle rend du Markdown malgré la consigne →
+  `normaliser_puces` ; coque absente → « aucun rendez-vous » (un vide qui ment)
+  → toute erreur est NOMMÉE (« indisponible (coque KlodyMessages absente…) »).
+
+## État au 2026-11-22 — rappels juste avant (`canaux/rendez_vous.py`)
+
+Troisième brique de la proactivité. Toutes les 2 min, `KlodyMessages --agenda 2`
+(aujourd'hui + demain, délai court de 20 s pour ne pas bloquer les rappels
+dictés du même fil) :
+- **rendez-vous HORAIRE** dont le début tombe dans les `KLODY_RDV_AVANCE_MIN`
+  (30) minutes → « 📅 Dans 25 min : … » ; les « journée » restent au briefing ;
+- **app Rappels AVEC heure** échue depuis moins de 30 min → « ✅ Rappel : … ».
+Hors quota. Clé `rdv:<id>:<début>` : un événement déplacé est rappelé à sa
+nouvelle heure, jamais deux fois à la même. Mac réveillé trop tard : rien
+(un « dans 30 min » reçu après coup serait faux) — le briefing reprend.
+Aucune lecture d'agenda hors coque pendant le développement : depuis la session
+Claude, TCC aurait attribué la demande à Claude.app.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

@@ -66,12 +66,11 @@ class TestInferAction:
         assert action["name"] == "preview_code"
         assert any("chart" in s.lower() for s in action["args"]["scripts"])
 
-    def test_python_seul(self):
+    def test_python_seul_ne_devine_plus_rien(self):
+        # Jusqu'au 2026-11-23 : write_file("script.py", bloc) — un fichier parasite
+        # à la racine (8/53 au banc d'injection). Cf. tests/test_script_py_parasite.py.
         c = "Voici le script :\n```python\ndef hello(): print('hi')\nhello()\n```"
-        action = _infer_action_from_text(c, "écris un script")
-        assert action["name"] == "write_file"
-        assert action["args"]["path"] == "script.py"
-        assert "hello" in action["args"]["content"]
+        assert _infer_action_from_text(c, "écris un script") is None
 
     def test_bash(self):
         c = "```bash\nls -la\n```"

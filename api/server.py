@@ -13,7 +13,9 @@ import re
 import signal
 import sys
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
@@ -40,7 +42,7 @@ import config
 import services
 from agent import journal_client, peremption, preview_errors
 from agent.approval import requires_approval
-from agent.erreurs_llm import expliquer_erreur_llm
+from agent.erreurs_llm import attente_reessai_503, expliquer_erreur_llm, message_reessai_503
 from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import etat_extraction, extract_and_save
@@ -137,6 +139,15 @@ async def lifespan(app: FastAPI):
             logger.warning("[LibraryBrain] init ignorée: %s", exc)
 
     threading.Thread(target=_init_librarybrain, name="lb-init", daemon=True).start()
+    # Modèle d'embedding chargé dès le boot, dans un fil de fond (8,75 s mesurées
+    # le 2026-11-19) : sinon c'est la première recherche, souvent une requête Siri
+    # ou iMessage, qui le paie. Appelé par le module pour que les tests puissent
+    # le remplacer ; coupé par KLODY_PRECHAUFFE_EMBEDDINGS=0.
+    from tools import embeddings as _embeddings
+
+    threading.Thread(
+        target=lambda: _embeddings.prechauffer(), name="embed-prechauffe", daemon=True,
+    ).start()
     yield
     with suppress(Exception):  # arrêt propre (SIGTERM uvicorn ; pas sur kickstart -k)
         from tools.preview import _stop_server
@@ -1248,7 +1259,7 @@ def _build_streaming_orchestrator(
     def execute_with_events(tool_name: str, tool_args: dict) -> str:
         # Garde-fou humain : les actions à effet de bord requièrent validation.
         # (and court-circuité : _request_approval n'est appelé que si gardé.)
-        if requires_approval(tool_name) and not _request_approval(tool_name, tool_args):
+        if requires_approval(tool_name, tool_args) and not _request_approval(tool_name, tool_args):
             refusal = "Action refusée par l'utilisateur (non validée)."
             _put({"type": "tool_result", "name": tool_name, "content": refusal})
             return refusal
@@ -1311,6 +1322,7 @@ def _build_streaming_orchestrator(
             "stderr": sb_result.stderr,
             "duration_s": sb_result.duration_s,
             "timed_out": sb_result.timed_out,
+            "confinement": sb_result.confinement,
         }})
         return f"[sandbox auto-check]\n{sb_result.format_for_llm()}"
 
@@ -1321,7 +1333,7 @@ def _build_streaming_orchestrator(
     if original_run_bon:
         def run_bon_with_event(messages: list[dict]):
             winner, all_cands, reasoning = orch.best_of_n.best(
-                messages, tools=orch.tools, user_prompt=orch._current_user_prompt,
+                messages, tools=orch._tools_for_run(), user_prompt=orch._current_user_prompt,
             )
             _put({"type": "best_of_n", "result": {
                 "winner_idx": winner.idx,
@@ -1372,6 +1384,72 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _executeur_sans_validation(
+    execute: Callable[[str, dict], str], canal: str
+) -> Callable[[str, dict], str]:
+    """Enveloppe d'exécution pour un canal SANS interface de validation.
+
+    Tout outil que `requires_approval` garde est refusé, avec un message que le
+    modèle peut relayer ; le reste passe tel quel. `ask_user` est refusé aussi :
+    personne ne peut répondre à la carte.
+    """
+    refus = (
+        f"Action refusée : le canal {canal} ne peut pas faire valider une action "
+        "à effet de bord. Propose à l'utilisateur de la lancer depuis klody-ui."
+    )
+
+    def _executer(tool_name: str, tool_args: dict) -> str:
+        if tool_name == "ask_user" or requires_approval(tool_name, tool_args):
+            logger.warning("[%s] outil gardé refusé : %s", canal, tool_name)
+            return refus
+        return execute(tool_name, tool_args)
+
+    return _executer
+
+
+def _outils_siri(outils: list[dict]) -> list[dict]:
+    """Outils exposés au modèle sur le chemin Siri : natifs non gardés seulement.
+
+    Mesuré le 2026-11-19 : les 405 schémas (336 MCP + 69 natifs) font 89 k tokens
+    de prompt, soit 165 s de prefill à froid sur coder — plus le reste du tour, le
+    chemin non streamé dépassait la lecture de 300 s. Les outils gardés seraient
+    de toute façon refusés (`_executeur_sans_validation`) : les montrer coûte sans
+    servir. Les MCP sont retirés en bloc (≈ 72 k tokens, outils de création et de
+    pilotage hors sujet pour une question vocale, et le spike iMessage excluait déjà
+    le web, vecteur d'injection). Natifs seuls ≈ 14 k tokens → 21 s à froid.
+    Les outils gardés PAR ARGUMENTS restent (valides en lecture, refusés sinon).
+    """
+    return [
+        t for t in outils
+        if not t["function"]["name"].startswith("mcp__")
+        and not requires_approval(t["function"]["name"], {})
+    ]
+
+
+def _creer_avec_reessai_503(
+    creer: Callable[..., Any], params: dict, dormir: Callable[[float], None] = time.sleep
+) -> Any:
+    """Appel non streamé au backend, rejoué sur 503 comme les chemins CLI et WS.
+
+    Le chemin Siri remplace `stream_chat` par un appel synchrone et perdait donc
+    le réessai 503 de `LLMClient.stream_chat` — vécu le 2026-11-19 : deux refus
+    « RAM insuffisante pour coder » du gateway rendus tels quels à l'utilisateur
+    alors que la CLI et klody-ui auraient attendu et rejoué. La décision (combien
+    d'essais, quelle attente) reste celle d'`agent/erreurs_llm.py`.
+    """
+    essai = 0
+    while True:
+        try:
+            return creer(**params)
+        except Exception as e:
+            attente = attente_reessai_503(e, essai)
+            if attente is None:
+                raise
+            logger.warning("[Siri] %s", message_reessai_503(e, essai, attente))
+            dormir(attente)
+            essai += 1
+
+
 def _run_siri_query(query: str) -> str:
     """Exécute la requête de façon synchrone dans un thread dédié.
 
@@ -1393,6 +1471,22 @@ def _run_siri_query(query: str) -> str:
         # (= config.LLM_MODEL), exactement le modèle du chat WS qui fonctionne.
         if config.BACKEND == "ollama":
             orch.llm.model = config.MODEL_FALLBACK
+        # Latence (mesurée le 2026-11-19, cf. `_outils_siri`) :
+        # - modèle ÉPINGLÉ : le routeur classe toujours (budget, prompt), mais ne
+        #   bascule plus brain→coder — la bascule évinçait brain, chargeait coder à
+        #   froid et perdait le cache de préfixe à chaque requête Siri ;
+        # - schémas d'outils réduits aux natifs non gardés ;
+        # - pas de pistes de fichiers du projet : hors sujet pour une question
+        #   vocale, et la 1re recherche d'un processus ré-encode tout le dépôt
+        #   (~160 s de GPU, en concurrence avec le prefill).
+        orch._pinned_model = orch.llm.model
+        # Routage progressif coupé : il chargerait ses propres outils (MCP et
+        # gardés compris) dans `_active_tools`, qui prime sur `orch.tools` —
+        # la liste blanche `_outils_siri` serait contournée.
+        orch._context_routing_enabled = False
+        orch._active_tools = None
+        orch.tools = _outils_siri(orch.tools)
+        orch._relevant_files_section = lambda _query: ""
 
         # Remplace stream_chat par une version synchrone sans affichage Rich
         def _sync_chat(messages: list[dict], tools=None, **_kwargs) -> tuple[str, Any]:
@@ -1410,7 +1504,7 @@ def _run_siri_query(query: str) -> str:
                 params["tools"] = tools
                 params["tool_choice"] = "auto"
 
-            completion = orch.llm.client.chat.completions.create(**params)
+            completion = _creer_avec_reessai_503(orch.llm.client.chat.completions.create, params)
             choice = completion.choices[0]
             content: str = choice.message.content or ""
 
@@ -1436,6 +1530,13 @@ def _run_siri_query(query: str) -> str:
             return content, tool_calls
 
         orch.llm.stream_chat = _sync_chat
+        # Garde-fou humain : Siri n'a aucune surface pour valider une action, donc
+        # tout outil gardé par approval.py est REFUSÉ. Avant le 2026-11-19 ce chemin
+        # exécutait tout sans validation (la garde n'existait que dans le WebSocket) :
+        # tout client local de :8000 pouvait faire écrire, envoyer un mail ou piloter
+        # le Mac. On enveloppe `_execute_tool` — pas seulement `_execute_and_display` —
+        # pour couvrir aussi les appels internes de l'orchestrateur (auto-preview).
+        orch._execute_tool = _executeur_sans_validation(orch._execute_tool, "Siri")
         # Supprime l'affichage Rich des outils (on garde l'exécution)
         orch._execute_and_display = lambda name, args: orch._execute_tool(name, args)
 

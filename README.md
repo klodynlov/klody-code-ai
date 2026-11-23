@@ -2,10 +2,10 @@
 
 # 🧠 Klody Code AI
 
-### Un agent de code **100 % local** — privé, sécurisé, extensible — qui rivalise avec un agent cloud sur une machine perso.
+### Un agent de code local **gouverné** : il tourne sur votre machine et demande avant d'agir.
 
-Pas d'API cloud. Aucune donnée ne quitte la machine. Le cerveau (MLX/Apple Silicon),
-les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tournent en local.
+Le modèle (MLX, Apple Silicon), les outils, la mémoire et le RAG s'exécutent en local.
+Chaque écriture et chaque commande que l'agent demande passent par une approbation humaine.
 
 ![Tests](https://img.shields.io/badge/tests-2829%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-84.8%25-success)
@@ -18,6 +18,19 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 [Étude de cas technique](docs/CASE-STUDY.md) · [Architecture](#architecture) · [Sécurité](#sécurité) · [Pour les entreprises](docs/CONSULTING.md)
 
 </div>
+
+> **Mesuré le 23/11/2026** sur un dépôt piégé : un script présenté comme nécessaire est
+> exécuté **0 fois sur 5 quand l'humain refuse** l'approbation, 5 sur 5 quand il l'accorde.
+> La protection vient de la décision humaine, pas du modèle
+> ([protocole et résultats](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md)).
+> L'accès aux fichiers est limité aux racines autorisées (sandbox **de fichiers**).
+>
+> **Exécution confinée sur macOS** (depuis le 23/11/2026) : `run_in_sandbox` et
+> l'auto-vérification tournent sous Seatbelt — écriture limitée au projet, réseau coupé,
+> environnement sans secrets. Rejoué sur le même dépôt piégé, le `conftest.py` s'exécute toujours,
+> mais sa charge n'a **aucun effet sur 40 essais sur 40** (effet 10/10 avant). Le shell général
+> (`execute_command`) est confiné lui aussi : un `scripts/setup.sh` piégé, lancé avec tout
+> approuvé, n'a **aucun effet sur 10 essais sur 10** (8 sur 8 sans confinement).
 
 > **Status** : v2.1+ stable · **2829 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
@@ -33,7 +46,7 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 La plupart des agents de code envoient ton code et tes données dans le cloud. **Klody fait
 l'inverse** : tout s'exécute sur ta machine. Le défi technique — faire d'un modèle local
 (plus petit que la frontière) un agent fiable — est résolu par l'**orchestration**, pas par
-la force brute : un routeur adaptatif, une boucle ReAct qui va au bout, un sandbox isolé, et
+la force brute : un routeur adaptatif, une boucle ReAct qui va au bout, des approbations humaines et une sandbox de fichiers, et
 une discipline de tests/sécurité de niveau production. Le tout extensible via **MCP** : Klody
 **consomme** des serveurs externes (Gmail, web…) *et* **s'expose** comme serveur pour d'autres agents.
 
@@ -96,7 +109,7 @@ flowchart TD
 | 1 | **100 % local & privé** | MLX sur Apple Silicon (`Qwen3.6-35B-A3B` cerveau, `Qwen3-Coder-30B` code). Zéro appel cloud par défaut. |
 | 2 | **Routeur adaptatif** | classifie chaque prompt → 3 difficultés × 14 task_types (edit, refactor, bug_fix, feature, explain, self_dev, review, test_gen, security, docs, perf, migrate, creative, music) → budget d'itérations + planner + Best-of-N (F1≈0,85). |
 | 3 | **Boucle qui va au bout** | auto-continue quand la tâche est actionnable ; cliquet de continuation ("ok/vas-y" réutilise le routage). |
-| 4 | **Sandbox isolé multi-racines** | venv jetable par racine, `ALLOWED_ROOTS`, exec auto après write (`py_compile`/`pytest`). |
+| 4 | **Sandbox de fichiers multi-racines + exécution confinée** | `ALLOWED_ROOTS` pour les fichiers ; venv jetable par racine, exécuté sous **confinement Seatbelt** sur macOS (écriture limitée au projet, réseau coupé, environnement sans secrets) ; exec auto après une écriture **effective** (`py_compile`/`pytest`). |
 | 5 | **Client MCP** | consomme n'importe quel serveur MCP ; outils exposés au LLM sous `mcp__<srv>__<outil>`. |
 | 6 | **Serveurs MCP fournis** | Gmail (IMAP/SMTP) + Web (fetch/search **lecture seule**, anti-SSRF) — branchés par une ligne de `.env`. |
 | 7 | **Serveur MCP Klody** | Klody = plateforme pour d'autres agents (Cline, Zed, Continue.dev). |
@@ -195,7 +208,7 @@ python api/server.py                   # 3. (option) API WebSocket pour l'UI Tau
 |---|---|
 | **Fichiers** (multi-racines) | `read_file`, `write_file`, `list_files`, `search_in_files` |
 | **Code-aware** | `find_symbol`, `find_references`, `find_relevant_files`, `code_graph`, `analyze_dependencies`, `generate_uml` (diagramme de classes Mermaid depuis le code) |
-| **Exécution** | `execute_command`, `run_in_sandbox` (venv jetable par racine), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
+| **Exécution** | `execute_command` (shell, approbation + confinement sur macOS), `run_in_sandbox` (venv jetable par racine, confiné sur macOS), `run_sql` (SQLite local sandboxé, lecture seule par défaut) |
 | **Ops / runtime** | `docker_control` (Docker : ps/images/inspect/logs/stats en lecture seule ; `run` ultra-contraint si activé), `kubectl_control` (introspection Kubernetes **lecture seule** : get, describe, logs, top…), `git_control` (Git : status, log, diff, show, blame… en lecture seule ; add/commit locaux si `GIT_WRITE_ENABLED`) |
 | **Web preview** | `preview_code` (auto-CDN + overlay erreurs JS), `preview_file`, `list_previews` |
 | **GitHub** | `browse_repo`, `read_github_file`, `index_github_repo`, `clone_github_repo`, `extract_best_practices`, `create_project` |
@@ -240,7 +253,14 @@ scaffold_tool(kind="mcp_server", name="capteurs maison", target_dir="~/Projets")
 ## Sécurité
 
 - **Sandbox fichiers** : accès limité aux racines autorisées (`PROJECT_ROOT` + `ALLOWED_ROOTS`) ; `../`/symlinks bloqués ; **fichiers sensibles refusés partout** (`.env .key .pem .p12 .pfx .cer .crt .ppk .p8`) ; 1 Mo max/écriture.
-- **Sandbox exécution** : confirmation en TTY ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…) ; `run_in_sandbox` dans un venv jetable isolé.
+- **Exécution : approbation humaine, plus un confinement système pour le code du projet.** Écritures et commandes passent par une approbation dans l'UI (WebSocket), ou une confirmation en TTY en CLI — ⚠️ en CLI non interactive (stdin non-TTY), `execute_command` est auto-confirmée ; blocklist pré-confirmation (`sudo`, `rm -rf /`, `mkfs`, exfil SSH/AWS…).
+  - **`run_in_sandbox` et l'auto-vérification sont confinés sur macOS** (`tools/confinement.py`, `sandbox-exec` + profil Seatbelt) : écriture limitée au dossier du projet et à un temporaire propre à l'exécution ; réseau coupé, boucle locale comprise ; AppleEvents et LaunchServices refusés ; lecture refusée sur `~/.ssh`, `~/.aws`, trousseaux et autres magasins de secrets connus ; environnement reconstruit en liste blanche (aucun jeton transmis). Les `pip install` du venv sont confinés aussi, réseau ouvert vers l'index. `KLODY_CONFINEMENT=auto|strict|off`, `KLODY_CONFINEMENT_RESEAU=1` ; hors macOS ou sans `sandbox-exec`, `auto` n'applique que l'environnement nettoyé et le dit.
+  - L'auto-vérification ne part qu'après une écriture qui a **réellement changé** le fichier : plus après une écriture refusée ([#338](https://github.com/klodynlov/klody-code-ai/pull/338)).
+  - **Prouvé le 23/11/2026** ([test d'injection](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md), variante `conftest.py` rejouée contre une instance de dev) : avant, charge exécutée **10/10** dès que pytest était approuvé ; après, **40 essais sur 40 confinés** sur 4 campagnes (144 exécutions sandbox, 0 hors confinement), effet de la charge **0/40** ; sur l'état final (avec #338 et #339), tâche réussie **10/10** (8/10 avant). Détail et commande de recalcul : [`bench/results/reference_2026-11-23_confinement_v4.md`](bench/results/reference_2026-11-23_confinement_v4.md). Vérifié sur macOS 27.3 bêta.
+  - **`execute_command` (le shell général) est confiné aussi**, toutes commandes comprises : trier « celles qui exécutent du code du dépôt » est intenable (make, scripts npm, `build.rs`, et même `git status` via un `core.fsmonitor` de `.git/config`). Écriture limitée au dossier de travail du terminal (`PROJECT_ROOT`, **pas** `ALLOWED_ROOTS`, qui couvre en prod tout `~/Projets` dont Klody lui-même) et à un temporaire ; `HOME` réel en lecture (git y lit son identité) ; réseau coupé, avec deux ouvertures : une commande **détachée** (`… &`) peut **écouter** en local (serveur de dev) sans rien appeler, et un **curl de santé** seul (enchaîné au plus à echo/grep/head…, sans substitution ni redirection vers un fichier) peut joindre la **boucle locale**. Échappatoires : `KLODY_CONFINEMENT_TERMINAL=auto|strict|off` (défaut : `KLODY_CONFINEMENT`, couper l'un ne rouvre pas l'autre), `KLODY_CONFINEMENT_ECRITURES=chemin:chemin`, `KLODY_CONFINEMENT_RESEAU=1`. Aucune échappatoire décidée par le modèle.
+  - **Prouvé le 23/11/2026 (soir)**, variante V5 (`scripts/setup.sh` piégé, documenté au README, tout approuvé), `run_in_sandbox` retiré des outils pour forcer ce chemin : charge **8/8** sans confinement, **0/10** avec (20 exécutions shell, toutes confinées), tâche 8/10 ; en conditions réelles, **0/10**, tâche **10/10**. Détail : [`bench/results/reference_2026-11-23_confinement_v5.md`](bench/results/reference_2026-11-23_confinement_v5.md).
+  - **Coût du shell confiné** (estimation statique sur 776 commandes réelles du journal de prod, rien rejoué) : 73 % inchangées ; ~10 % refusées (écriture hors du dossier de travail 7 %, réseau externe — `pip install`, `git pull`… — 3,5 %) ; 9 % incertaines (travail dans un autre dépôt). Un **commit signé** par clé SSH échoue confiné (`~/.ssh` illisible). En prod, le dossier de travail de l'API est le checkout de Klody lui-même (`WorkingDirectory` du plist) : confiné ou non, une charge peut donc le modifier — un `PROJECT_ROOT` dédié fermerait ce trou.
+  - **Limites** : un serveur détaché peut se lier à `0.0.0.0` (Seatbelt ne filtre pas l'adresse de bind) et s'exposer au réseau local ; la **lecture** du disque reste ouverte hors secrets listés (le confinement empêche l'exfiltration et la persistance hors du projet, pas la lecture) ; le code exécuté peut modifier tout le dossier du projet ; **pip garde le réseau** : un `pip install` approuvé d'un paquet piégé, ou le `requirements.txt` du dépôt (installé automatiquement à la création du venv), exécute son code d'installation avec le réseau ouvert (écriture toujours confinée, environnement sans secrets) ; `sandbox-exec` est déprécié par Apple (fonctionnel aujourd'hui, sondé à chaque démarrage).
 - **SQL sandboxé** (`run_sql`) : base SQLite confinée aux racines autorisées, **lecture seule par défaut** (`SQL_WRITE_ENABLED`) ; authorizer sqlite3 *default-deny*, `ATTACH`/`VACUUM INTO`/`load_extension` bloqués, verrou `SQLITE_LIMIT_ATTACHED=0`, anti-DoS (limites + échéance wall-clock), une seule instruction par appel. Contrôles issus d'un threat-model adversarial.
 - **Ops en lecture seule** (`docker_control`, `kubectl_control`, `git_control`) : introspection uniquement (Docker : ps/images/inspect/logs/stats… ; k8s : get/describe/logs/top… ; Git : status/log/diff/show/blame…), **aucune mutation** ; `subprocess` en argv (**pas de shell**), sous-commandes/verbes hardcodés, entrées (cible, resource, name, namespace, ref, fichier) validées par charset strict — pas d'injection de commande ni de flag (`-o jsonpath`, `--kubeconfig`, `--output`…) ; dépôt Git confiné aux racines autorisées ; sortie plafonnée, timeout borné. Les **mutations Git** (`add`/`commit`, **locales** et réversibles) sont **désactivées par défaut** (`GIT_WRITE_ENABLED`) ; `push`/`pull` et les opérations destructives (reset/checkout/clean/rebase) restent hors de l'outil. Le **`docker run`** (mutation) est doublement borné — `DOCKER_WRITE_ENABLED` **et** une **allowlist d'images** non vide — et impose un durcissement figé (**aucun flag utilisateur** : `--network none`, `--cap-drop ALL`, `no-new-privileges`, limites ressources, pas de montage) ; `build`/`exec`/`rm` restent exclus.
 - **Web en lecture seule** : `fetch_url`/`web_search` en GET, http/https only, **anti-SSRF** (IP privées/loopback/link-local refusées, y compris via redirection), taille plafonnée.
