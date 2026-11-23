@@ -210,6 +210,15 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 
+# Producteurs qui laissent un ARTEFACT (fichier, preview, projet…). Exclut
+# `run_in_sandbox` : lancer pytest ne prouve aucune écriture. C'est ce sous-
+# ensemble qui fait taire le garde « code affiché sans écriture » sur les types
+# actionnables (vécu au banc V4 rejoué le 2026-11-23 : pytest lancé, correction
+# affichée, conclusion — le garde se taisait). Défini ici, où il sert : dans
+# `outils.py`, CodeQL le signalait comme global inutilisé.
+_FICHIER_PRODUIT_TOOLS = _PRODUCING_TOOLS - {"run_in_sandbox"}
+
+
 class Orchestrator(GardesMixin):
     # État du garde « décisions du projet jamais ouvertes », remis à neuf par
     # run() (cf. _should_force_doc_read). Annoté ici plutôt qu'au premier
@@ -223,6 +232,9 @@ class Orchestrator(GardesMixin):
     # Garde « code affiché sans écriture » : un outil qui écrit (ou une commande
     # shell, qui PEUT écrire) a-t-il été appelé pendant ce run ?
     _outil_producteur_appele: bool
+    # Sous-ensemble : un outil qui ÉCRIT un fichier (pas une simple commande).
+    # Sur les types actionnables, c'est lui seul qui fait taire le garde.
+    _fichier_produit: bool
 
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
@@ -2062,6 +2074,7 @@ class Orchestrator(GardesMixin):
         self._doc_inventaire = None
         self._doc_ecrits = set()
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
     def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
@@ -2112,6 +2125,7 @@ class Orchestrator(GardesMixin):
         self._doc_ecrits = set()           # documents écrits par l'agent ce run
         # Garde « code affiché sans écriture » (cf. _affiche_du_code).
         self._outil_producteur_appele = False
+        self._fichier_produit = False
 
         task_type_for_prompt: str | None = None
         if self._router_enabled:
@@ -2441,6 +2455,8 @@ class Orchestrator(GardesMixin):
                 if any(tc["function"]["name"] in _PRODUCING_TOOLS for tc in tool_calls):
                     produced_in_pass = True
                     self._outil_producteur_appele = True
+                    if any(tc["function"]["name"] in _FICHIER_PRODUIT_TOOLS for tc in tool_calls):
+                        self._fichier_produit = True
                 elif any(tc["function"]["name"] in _CMD_EXEC_TOOLS for tc in tool_calls):
                     # Une commande shell peut écrire (`cat > f`, un générateur) : on
                     # la compte, pour que le garde ne relance pas un travail fait.
@@ -2657,16 +2673,31 @@ class Orchestrator(GardesMixin):
                 # écriture, rien n'a été écrit ce run, et la réponse montre du code.
                 # C'est le trou où tombait `test_gen` (vécu le 2026-09-28,
                 # `add_simple_test` affiche son test et s'arrête — 1 itération, 0 appel
-                # d'outil). Réservé aux types que RIEN d'autre ne couvre : sur
-                # _TYPES_ACTIONNABLES, le text-to-action plus bas rattrape déjà un bloc
-                # de code, et mieux qu'une relance pour une démo HTML (preview
-                # directe, scénario de rejeu 06).
+                # d'outil). Sur _TYPES_ACTIONNABLES, le text-to-action plus bas
+                # rattrape ce qu'il sait traiter, et mieux qu'une relance pour une
+                # démo HTML (preview directe, scénario de rejeu 06) : le garde ne
+                # tire que là où il n'aurait RIEN fait. Depuis le 2026-11-23 c'est
+                # le cas de tout bloc Python — il l'écrivait dans un `script.py`
+                # inventé (8/53 au banc d'injection), c'est désormais le modèle qui
+                # nomme le fichier (scénario de rejeu 27).
                 code_affiche = (
                     self.last_routing is not None
                     and self.last_routing.task_type in TYPES_QUI_ECRIVENT
-                    and self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                    and (
+                        self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                        or _infer_action_from_text(content, self._current_user_prompt) is None
+                    )
                     and not interactive
-                    and not getattr(self, "_outil_producteur_appele", False)
+                    and not (
+                        # Sur les actionnables, une commande lancée (pytest…) ne
+                        # prouve AUCUNE écriture : vécu au banc V4 rejoué le
+                        # 2026-11-23, pytest lancé puis correction AFFICHÉE et
+                        # conclusion — le garde se taisait, et sans le repli
+                        # `script.py` plus rien ne rattrapait le tour.
+                        getattr(self, "_fichier_produit", False)
+                        if self.last_routing.task_type in _TYPES_ACTIONNABLES
+                        else getattr(self, "_outil_producteur_appele", False)
+                    )
                     and _affiche_du_code(content)
                 )
                 stalled = (

@@ -1,0 +1,54 @@
+{
+  "name": "script_py_parasite_bug_fix",
+  "description": "Vécu au banc d'injection du 2026-11-23 (8 essais sur 53) : tâche bug_fix, le modèle AFFICHE la correction dans un bloc ```python au lieu d'appeler write_file. Le text-to-action l'écrivait dans un `script.py` inventé à la racine du workspace — le module visé restait faux. Désormais aucune action n'est devinée : le garde « code affiché sans écriture » relance, et le modèle écrit lui-même le bon fichier. Le bloc ```bash qui suit (« relance pytest ») ne doit pas être exécuté à sa place.",
+  "user_prompt": "résume ce projet et corrige le test qui échoue",
+  "seed_files": {
+    "tarifs/__init__.py": "",
+    "tarifs/calcul.py": "def prix_ttc(ht, taux):\n    return round(ht * (1 + taux), 2)\n",
+    "tests/test_calcul.py": "from tarifs.calcul import prix_ttc\n\n\ndef test_ttc():\n    assert prix_ttc(100, 20) == 120.0\n"
+  },
+  "router_decision": {
+    "difficulty": "easy",
+    "task_type": "bug_fix",
+    "reasoning": "test qui échoue"
+  },
+  "llm_responses": [
+    {
+      "content": "La cause : le taux est en pourcentage, il manque la division par 100.\n\n```python\ndef prix_ttc(ht, taux):\n    return round(ht * (1 + taux / 100), 2)\n```\n\nPuis relance :\n\n```bash\npytest\n```",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_sp_001",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"tarifs/calcul.py\", \"content\": \"def prix_ttc(ht, taux):\\n    return round(ht * (1 + taux / 100), 2)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Corrigé dans tarifs/calcul.py : le taux est divisé par 100.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 3,
+    "max_llm_calls": 3,
+    "tool_calls_invoked": [
+      "write_file"
+    ],
+    "code_affiche_fired": true,
+    "tool_choice_required_on_call": 2,
+    "file_created": {
+      "path": "tarifs/calcul.py",
+      "content_contains": "taux / 100"
+    },
+    "files_absent": [
+      "script.py"
+    ]
+  }
+}

@@ -98,13 +98,22 @@ def _infer_action_from_text(content: str, user_input: str) -> dict | None:
             },
         }
 
-    # 2) Python → write_file en script.py
+    # 2) Python → AUCUNE action devinée. Jusqu'au 2026-11-23, tout bloc Python
+    # devenait `write_file("script.py", bloc)` : un nom inventé, à la racine du
+    # workspace, quel que soit le fichier visé. Vécu au banc d'injection du
+    # 2026-11-23 (klodynlov-profile, docs/bench/localcode/injection/) : 8 essais
+    # sur 53 ont écrit la correction dans un `script.py` parasite au lieu du
+    # module à corriger — dont des RÉCAPITULATIFS finaux montrant un code déjà
+    # écrit, puisque ce repli ne regardait pas si le run avait écrit. Un tel
+    # fichier traînait aussi dans le checkout principal. Deviner le bon chemin
+    # depuis la prose ne vaut pas mieux : un bloc est souvent un EXTRAIT, et
+    # l'écrire sur le vrai module l'écraserait. C'est donc le garde « code
+    # affiché sans écriture » de l'orchestrateur qui relance : le modèle nomme
+    # lui-même le fichier, via un `write_file` soumis à l'approbation.
+    # On rend None AVANT la branche shell : un bloc ```bash accompagnant le code
+    # (« lance pytest ») ne doit pas être exécuté à sa place.
     if "python" in blocks:
-        code = blocks["python"][0]
-        return {
-            "name": "write_file",
-            "args": {"path": "script.py", "content": code},
-        }
+        return None
 
     # 3) Bash/shell → execute_command
     if "bash" in blocks or "shell" in blocks or "sh" in blocks:

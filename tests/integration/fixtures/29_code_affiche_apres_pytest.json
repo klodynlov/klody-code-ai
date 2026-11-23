@@ -1,0 +1,68 @@
+{
+  "name": "code_affiche_apres_pytest_bug_fix",
+  "description": "Vécu au banc V4 rejoué le 2026-11-23 : tâche bug_fix, pytest lancé (run_in_sandbox), puis la correction est AFFICHÉE dans un bloc ```python et le tour conclut. Une commande lancée comptait comme « producteur » et faisait taire le garde ; sans le repli script.py, plus rien ne rattrapait. Sur les actionnables, seule une écriture de fichier fait taire le garde. La commande du scénario est un `echo` (execute_command) : run_in_sandbox créerait un vrai venv, donc du réseau, dans la suite ; son exclusion de _FICHIER_PRODUIT_TOOLS est verrouillée par tests/test_script_py_parasite.py.",
+  "user_prompt": "résume ce projet et corrige le test qui échoue",
+  "seed_files": {
+    "tarifs/__init__.py": "",
+    "tarifs/calcul.py": "def prix_ttc(ht, taux):\n    return round(ht * (1 + taux), 2)\n",
+    "tests/test_calcul.py": "from tarifs.calcul import prix_ttc\n\n\ndef test_ttc():\n    assert prix_ttc(100, 20) == 120.0\n"
+  },
+  "router_decision": {
+    "difficulty": "medium",
+    "task_type": "bug_fix",
+    "reasoning": "test qui échoue"
+  },
+  "llm_responses": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_ap_001",
+          "type": "function",
+          "function": {
+            "name": "execute_command",
+            "arguments": "{\"command\": \"echo 'FAILED tests/test_calcul.py::test_ttc'\", \"reason\": \"lancer les tests\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Le taux est en pourcentage, il manque /100. Correction de tarifs/calcul.py :\n\n```python\ndef prix_ttc(ht, taux):\n    return round(ht * (1 + taux / 100), 2)\n```",
+      "tool_calls": null
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_ap_002",
+          "type": "function",
+          "function": {
+            "name": "write_file",
+            "arguments": "{\"path\": \"tarifs/calcul.py\", \"content\": \"def prix_ttc(ht, taux):\\n    return round(ht * (1 + taux / 100), 2)\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "Corrigé dans tarifs/calcul.py.",
+      "tool_calls": null
+    }
+  ],
+  "expectations": {
+    "min_llm_calls": 4,
+    "max_llm_calls": 4,
+    "tool_calls_invoked": [
+      "execute_command",
+      "write_file"
+    ],
+    "code_affiche_fired": true,
+    "tool_choice_required_on_call": 3,
+    "file_created": {
+      "path": "tarifs/calcul.py",
+      "content_contains": "taux / 100"
+    },
+    "files_absent": [
+      "script.py"
+    ]
+  }
+}
