@@ -1322,6 +1322,7 @@ def _build_streaming_orchestrator(
             "stderr": sb_result.stderr,
             "duration_s": sb_result.duration_s,
             "timed_out": sb_result.timed_out,
+            "confinement": sb_result.confinement,
         }})
         return f"[sandbox auto-check]\n{sb_result.format_for_llm()}"
 
