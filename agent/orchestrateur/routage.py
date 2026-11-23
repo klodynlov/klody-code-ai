@@ -28,10 +28,12 @@ _CODE_TASK_TYPES = frozenset({
 # l'orchestrateur jusqu'au 2026-09-28 — d'où l'oubli des types de #96, aucune
 # copie n'ayant été mise à jour. Délibérément PLUS ÉTROITE que
 # `agent.router.TYPES_QUI_ECRIVENT` : `edit` n'est pas prolongé (une boucle de
-# lecture sans fin y est un stall), et le text-to-action écrit tout bloc Python
-# dans `script.py` — l'étendre à `test_gen` y aurait écrit le test au mauvais
-# endroit. Le garde « code affiché sans écriture » couvre le RESTE de
-# TYPES_QUI_ECRIVENT (cf. tests/test_types_qui_ecrivent.py).
+# lecture sans fin y est un stall). Le text-to-action n'y rattrape plus que le
+# web (preview) et le shell : depuis le 2026-11-23 il n'écrit plus aucun bloc
+# Python dans un `script.py` inventé. Le garde « code affiché sans écriture »
+# couvre le RESTE de TYPES_QUI_ECRIVENT, et sur ces quatre types tout bloc que
+# le text-to-action ne sait pas traiter (Python compris) — cf.
+# tests/test_types_qui_ecrivent.py et tests/test_script_py_parasite.py.
 _TYPES_ACTIONNABLES = frozenset({"feature", "refactor", "self_dev", "bug_fix"})
 
 _INTERACTIVE_SKILL_MARKERS = (

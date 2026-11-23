@@ -38,8 +38,9 @@ class TestClassementDesTypes:
         assert _TYPES_ACTIONNABLES <= TYPES_QUI_ECRIVENT
 
     def test_test_gen_est_couvert_par_le_garde_code_affiche(self):
-        # Le cas vécu : ni actionnable (pas de text-to-action, qui écrirait
-        # `script.py`), donc c'est le garde « code affiché » qui le rattrape.
+        # Le cas vécu : pas actionnable, donc c'est le garde « code affiché » qui
+        # le rattrape (sur les actionnables, il ne tire que là où le text-to-action
+        # ne ferait rien — cf. tests/test_script_py_parasite.py).
         couverts = TYPES_QUI_ECRIVENT - _TYPES_ACTIONNABLES
         assert "test_gen" in couverts
         assert couverts == {"test_gen", "docs", "migrate", "edit"}

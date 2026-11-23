@@ -40,6 +40,8 @@ SCENARIOS = [
     "24_code_affiche_test_gen",
     "25_code_affiche_review_sans_relance",
     "26_code_affiche_apres_ecriture",
+    "27_script_py_parasite_bug_fix",
+    "28_script_py_parasite_recap",
 ]
 
 
@@ -114,6 +116,11 @@ def _assert_expectations(
             assert file_check["content_excludes"] not in body, (
                 f"'{file_check['content_excludes']}' devrait être absent de {path}"
             )
+
+    # 4 bis. Fichiers qui ne doivent PAS exister (fixtures #27-28) : le
+    # text-to-action écrivait tout bloc Python dans un `script.py` inventé.
+    for rel in exp.get("files_absent", []):
+        assert not (project_root / rel).exists(), f"Fichier parasite créé : {rel}"
 
     # 5. Anti-stall (fixture #4) — détecté via le message nudge injecté en memory
     # (les flags _anti_stall_fired sont reset en fin de run, donc on cherche la trace)

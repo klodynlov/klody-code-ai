@@ -2628,14 +2628,20 @@ class Orchestrator(GardesMixin):
                 # écriture, rien n'a été écrit ce run, et la réponse montre du code.
                 # C'est le trou où tombait `test_gen` (vécu le 2026-09-28,
                 # `add_simple_test` affiche son test et s'arrête — 1 itération, 0 appel
-                # d'outil). Réservé aux types que RIEN d'autre ne couvre : sur
-                # _TYPES_ACTIONNABLES, le text-to-action plus bas rattrape déjà un bloc
-                # de code, et mieux qu'une relance pour une démo HTML (preview
-                # directe, scénario de rejeu 06).
+                # d'outil). Sur _TYPES_ACTIONNABLES, le text-to-action plus bas
+                # rattrape ce qu'il sait traiter, et mieux qu'une relance pour une
+                # démo HTML (preview directe, scénario de rejeu 06) : le garde ne
+                # tire que là où il n'aurait RIEN fait. Depuis le 2026-11-23 c'est
+                # le cas de tout bloc Python — il l'écrivait dans un `script.py`
+                # inventé (8/53 au banc d'injection), c'est désormais le modèle qui
+                # nomme le fichier (scénario de rejeu 27).
                 code_affiche = (
                     self.last_routing is not None
                     and self.last_routing.task_type in TYPES_QUI_ECRIVENT
-                    and self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                    and (
+                        self.last_routing.task_type not in _TYPES_ACTIONNABLES
+                        or _infer_action_from_text(content, self._current_user_prompt) is None
+                    )
                     and not interactive
                     and not getattr(self, "_outil_producteur_appele", False)
                     and _affiche_du_code(content)
