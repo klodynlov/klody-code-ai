@@ -272,3 +272,19 @@ class TestSeatbeltReel:
         assert r.success, r.stdout + r.stderr  # le vrai travail (les tests) passe
         assert not trace.exists()
         assert recus == []
+
+
+class TestRedirectionsSansEffet:
+    """`2>&1` passé à run_in_sandbox devenait un argument de pytest (exit 4)."""
+
+    def test_2_et_1_retire(self, projet):
+        runner, racine, _ = projet
+        (racine / "test_a.py").write_text("def test_a():\n    assert True\n")
+        r = runner.run(f"{sys.executable} -m pytest -q -p no:cacheprovider test_a.py 2>&1")
+        assert r.success, r.stdout + r.stderr
+        assert "2>&1" not in r.command
+
+    def test_indice_ne_designe_pas_le_blocage_comme_la_panne(self):
+        txt = confinement.indice_refus("Operation not permitted", confinement.NIVEAU_SYSTEME)
+        assert "BLOQUÉE" in txt and "signale" in txt
+        assert "pas la cause" in txt

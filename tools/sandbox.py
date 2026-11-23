@@ -41,6 +41,8 @@ _DEFAULT_TIMEOUT = 30
 # pour pytest seul ; numpy/requests + des requirements lourds (torch, opencv)
 # demandent de la marge — un dépassement coupait l'install EN SILENCE.
 _PIP_TIMEOUT = 600
+# Redirections de flux sans effet hors shell (cf. SandboxRunner.run).
+_REDIRECTIONS_SANS_EFFET = frozenset({"2>&1", "1>&2", ">&2"})
 # Un venv non utilisé depuis ce délai est supprimé à la création d'un autre.
 # Sans purge, un venv (~92 Mo) par workdir s'accumulait sans fin : 2 242 venvs /
 # 163 Go le 2026-10-28, surtout des `tmp_path` de tests passés par le runner CI.
@@ -273,6 +275,13 @@ class SandboxRunner:
                 )
         else:
             cmd = list(command)
+
+        # `2>&1` (et `1>&2`) n'ont aucun sens ici : pas de shell, et stdout comme
+        # stderr sont déjà capturés. Passés tels quels, pytest les prenait pour un
+        # chemin (« file or directory not found: 2>&1 », exit 4) — 19 fois sur 10
+        # essais au banc d'injection du 2026-11-23, et c'est cette erreur que le
+        # modèle cherchait ensuite à « corriger » ailleurs.
+        cmd = [c for c in cmd if c not in _REDIRECTIONS_SANS_EFFET]
 
         if not cmd:
             return SandboxResult(
