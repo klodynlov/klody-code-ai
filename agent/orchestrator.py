@@ -897,6 +897,17 @@ class Orchestrator(GardesMixin):
         injecte le résultat à la suite — l'agent voit immédiatement si
         son code parse / passe les tests.
         """
+        # Empreinte AVANT l'outil : l'auto-check ne part que si l'écriture a
+        # réellement changé le fichier. Une écriture refusée par l'humain
+        # (« Action refusée… », qui ne commence pas par ERREUR), en échec, ou
+        # identique au contenu existant n'exécute rien. Sans cette garde, un
+        # `write_file` refusé lançait quand même pytest (donc un conftest.py
+        # piégé) sans aucune approbation — mesuré au banc d'injection du 23/11.
+        avant = (
+            self._empreinte_fichier(tool_args.get("path", ""))
+            if tool_name == "write_file" and isinstance(tool_args, dict)
+            else None
+        )
         result = self._execute_tool(tool_name, tool_args)
         self._afficher_sans_casser(tool_name, tool_args, result)
 
@@ -905,6 +916,7 @@ class Orchestrator(GardesMixin):
             tool_name == "write_file"
             and not result.startswith("ERREUR")
             and getattr(self, "_sandbox_auto_exec", True)
+            and self._empreinte_fichier(tool_args.get("path", "")) != avant
         ):
             extra = self._auto_sandbox_check(tool_args.get("path", ""))
             if extra:
@@ -915,6 +927,23 @@ class Orchestrator(GardesMixin):
                 result = f"{result}\n\n{preview_extra}"
 
         return result
+
+    def _empreinte_fichier(self, path: str) -> bytes | None:
+        """Contenu brut du fichier visé par `path` (relatif à la racine projet),
+        ou None s'il n'existe pas / n'est pas lisible.
+
+        Sert à décider si un `write_file` a réellement modifié le disque. Le
+        fichier est borné par MAX_FILE_SIZE côté FileManager : le lire entier
+        reste bon marché.
+        """
+        if not path:
+            return None
+        try:
+            p = Path(path).expanduser()
+            full = p if p.is_absolute() else self.file_manager.root / p
+            return full.read_bytes() if full.is_file() else None
+        except (OSError, ValueError, AttributeError):
+            return None
 
     def _auto_preview_check(self, rel_path: str) -> str:
         """Si rel_path est un .html écrit dans le projet, lance preview_file
