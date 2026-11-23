@@ -37,7 +37,8 @@ Ce que ça ne fait PAS (limites écrites, pas oubliées) :
 - la LECTURE reste ouverte (hors secrets listés) : le confinement empêche
   l'exfiltration et la persistance hors du projet, pas la lecture du disque ;
 - le code exécuté peut modifier librement le dossier de travail ;
-- `execute_command` (le shell général, soumis à approbation) n'est PAS confiné ;
+- `execute_command` (le shell général) a son propre régime, plus large : voir
+  `preparer_terminal` plus bas ;
 - pip garde le réseau : le code d'installation d'un paquet piégé (ou du
   `requirements.txt` du dépôt, installé automatiquement) peut sortir.
 """
@@ -120,6 +121,40 @@ def mode() -> str:
     return m
 
 
+def mode_terminal() -> str:
+    """Réglage du shell `execute_command` : `KLODY_CONFINEMENT_TERMINAL`, sinon
+    `KLODY_CONFINEMENT`. Échappatoire propre au terminal : le couper ne rouvre
+    pas le sandbox (pytest, auto-check, pip)."""
+    m = os.environ.get("KLODY_CONFINEMENT_TERMINAL", "").strip().lower()
+    if not m:
+        return mode()
+    if m not in _MODES:
+        logger.warning("KLODY_CONFINEMENT_TERMINAL=%r inconnu — « %s » appliqué", m, MODE_AUTO)
+        return MODE_AUTO
+    return m
+
+
+def ecritures_reglees() -> list[Path]:
+    """Dossiers inscriptibles en plus, `KLODY_CONFINEMENT_ECRITURES` (séparés par `:`).
+
+    Seuls les chemins ABSOLUS et EXISTANTS sont retenus : un chemin relatif se
+    résoudrait contre le dossier de travail du moment, et Seatbelt compare des
+    chemins réels.
+    """
+    brut = os.environ.get("KLODY_CONFINEMENT_ECRITURES", "")
+    retenus = []
+    for morceau in brut.split(os.pathsep):
+        morceau = morceau.strip()
+        if not morceau:
+            continue
+        chemin = Path(os.path.expanduser(morceau))
+        if chemin.is_absolute() and chemin.exists():
+            retenus.append(chemin)
+        else:
+            logger.warning("KLODY_CONFINEMENT_ECRITURES : %r ignoré (absolu et existant requis)", morceau)
+    return retenus
+
+
 def reseau_autorise() -> bool:
     return os.environ.get("KLODY_CONFINEMENT_RESEAU", "0").strip().lower() in ("1", "true", "yes", "on")
 
@@ -153,8 +188,19 @@ def _reel(p: Path | str) -> str:
     return os.path.realpath(str(p))
 
 
-def profil(n_ecritures: int, n_secrets: int, reseau: bool) -> str:
-    """Texte SBPL ; les chemins sont des paramètres ECRIT_i / SECRET_i."""
+def profil(n_ecritures: int, n_secrets: int, reseau: bool, *,
+           ecoute_locale: bool = False, sortie_locale: bool = False) -> str:
+    """Texte SBPL ; les chemins sont des paramètres ECRIT_i / SECRET_i.
+
+    Réseau coupé (`reseau=False`), deux ouvertures possibles, VÉRIFIÉES sur
+    macOS 27.3 le 2026-11-23 :
+    - `ecoute_locale` : bind + connexions entrantes (serveur de dev détaché).
+      ⚠️ Le filtre `localhost` n'empêche PAS un bind sur 0.0.0.0 : un serveur
+      ainsi lié est joignable depuis le réseau local. Seatbelt ne sait pas
+      filtrer l'adresse de bind plus finement ;
+    - `sortie_locale` : connexions sortantes vers la boucle locale seulement
+      (127.0.0.1 et localhost passent ; 1.1.1.1 et l'IP LAN de la machine non).
+    """
     lignes = [_PROFIL_TETE]
     lignes += [f'  (subpath (param "ECRIT_{i}"))' for i in range(n_ecritures)]
     lignes.append(")")
@@ -164,15 +210,30 @@ def profil(n_ecritures: int, n_secrets: int, reseau: bool) -> str:
         lignes.append(")")
     if not reseau:
         lignes.append("(deny network*)")
+        if ecoute_locale:
+            lignes.append('(allow network-bind (local ip "localhost:*"))')
+            lignes.append('(allow network-inbound (local ip "localhost:*"))')
+        if sortie_locale:
+            lignes.append('(allow network-outbound (remote ip "localhost:*"))')
     return "\n".join(lignes) + "\n"
 
 
-def environnement(tmp: Path, extra: dict[str, str] | None = None) -> dict[str, str]:
-    """Environnement reconstruit : liste blanche + HOME/TMPDIR dans `tmp`."""
+def environnement(tmp: Path, extra: dict[str, str] | None = None, *,
+                  home_reel: bool = False) -> dict[str, str]:
+    """Environnement reconstruit : liste blanche + TMPDIR dans `tmp`.
+
+    HOME : fictif dans `tmp` par défaut (sandbox) ; `home_reel=True` garde le
+    vrai (terminal), en LECTURE seulement puisque le profil refuse l'écriture
+    hors des racines — c'est ce qui rend `git commit` possible (identité lue
+    dans `~/.gitconfig`).
+    """
     env = {k: os.environ[k] for k in _ENV_HERITE if k in os.environ}
     env.setdefault("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-    home = tmp / "home"
-    home.mkdir(parents=True, exist_ok=True)
+    if home_reel:
+        home = Path(os.path.expanduser("~"))
+    else:
+        home = tmp / "home"
+        home.mkdir(parents=True, exist_ok=True)
     env.update({
         "HOME": str(home),
         "TMPDIR": str(tmp),
@@ -192,14 +253,20 @@ def preparer(
     extra_env: dict[str, str] | None = None,
     ecritures_en_plus: list[Path] | None = None,
     reseau: bool | None = None,
+    ecoute_locale: bool = False,
+    sortie_locale: bool = False,
+    home_reel: bool = False,
+    reglage: str | None = None,
 ) -> Confinement:
     """Construit l'exécution confinée de `cmd` (sans la lancer).
 
     `ecritures_en_plus` : dossiers inscriptibles au-delà du dossier de travail
     et du temporaire (le venv et le cache pip pour `pip install`).
     `reseau` : None = réglage `KLODY_CONFINEMENT_RESEAU`.
+    `ecoute_locale` / `sortie_locale` : ouvertures partielles (cf. `profil`).
+    `reglage` : mode à appliquer ; None = `KLODY_CONFINEMENT`.
     """
-    m = mode()
+    m = reglage if reglage is not None else mode()
     if m == MODE_OFF:
         env = dict(os.environ)
         if extra_env:
@@ -207,23 +274,26 @@ def preparer(
         return Confinement(commande=list(cmd), env=env, niveau=NIVEAU_AUCUN)
 
     tmp = Path(tempfile.mkdtemp(prefix="klody-sbx-"))
-    env = environnement(tmp, extra_env)
+    env = environnement(tmp, extra_env, home_reel=home_reel)
     if not seatbelt_disponible():
         if m == MODE_STRICT:
             shutil.rmtree(tmp, ignore_errors=True)
             return Confinement(
                 commande=[], env={}, niveau=NIVEAU_AUCUN,
-                refus=("exécution refusée : KLODY_CONFINEMENT=strict et confinement "
+                refus=("exécution refusée : confinement en mode strict "
+                       "(KLODY_CONFINEMENT ou KLODY_CONFINEMENT_TERMINAL) et confinement "
                        "système indisponible (sandbox-exec absent ou refusé)."),
             )
         return Confinement(commande=list(cmd), env=env, niveau=NIVEAU_ENV, tmp=tmp)
 
     ecritures = [Path(workdir), tmp, *(ecritures_en_plus or [])]
-    home_reel = Path(os.path.expanduser("~"))
-    secrets = [home_reel / s for s in _SECRETS_HOME]
+    maison = Path(os.path.expanduser("~"))
+    secrets = [maison / s for s in _SECRETS_HOME]
     if reseau is None:
         reseau = reseau_autorise()
-    args = [SANDBOX_EXEC, "-p", profil(len(ecritures), len(secrets), reseau)]
+    args = [SANDBOX_EXEC, "-p", profil(len(ecritures), len(secrets), reseau,
+                                       ecoute_locale=ecoute_locale,
+                                       sortie_locale=sortie_locale)]
     for i, p in enumerate(ecritures):
         args += ["-D", f"ECRIT_{i}={_reel(p)}"]
     for i, p in enumerate(secrets):
@@ -236,15 +306,23 @@ def preparer(
 
 # Indices d'un refus venu du confinement, pas du code de l'agent.
 _SIGNES_REFUS = ("Operation not permitted", "PermissionError", "[Errno 1]")
+# Réseau coupé : les outils ne disent pas « permission », ils disent « pas pu
+# joindre » (curl rc=6/7, pip, git). N'ont de sens que si le réseau était coupé.
+_SIGNES_RESEAU = ("Could not resolve host", "Failed to connect", "Couldn't connect",
+                  "nodename nor servname", "Network is unreachable",
+                  "Temporary failure in name resolution")
 
 
-def indice_refus(stderr: str, niveau: str) -> str:
+def indice_refus(stderr: str, niveau: str, reseau_coupe: bool = False) -> str:
     """Phrase à ajouter au retour du modèle quand le confinement a refusé.
 
     Sans elle, l'agent prend « Operation not permitted » pour un bug de son
     code et boucle à le « corriger ».
+    `reseau_coupe` : reconnaître aussi les échecs de connexion (terminal).
     """
-    if niveau != NIVEAU_SYSTEME or not any(s in (stderr or "") for s in _SIGNES_REFUS):
+    texte = stderr or ""
+    signes = _SIGNES_REFUS + (_SIGNES_RESEAU if reseau_coupe else ())
+    if niveau != NIVEAU_SYSTEME or not any(s in texte for s in signes):
         return ""
     # Formulation mesurée au banc d'injection du 2026-11-23 : la première version
     # (« ce refus vient du confinement, pas de ton code ») a poussé le modèle à
