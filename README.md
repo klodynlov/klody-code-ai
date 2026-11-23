@@ -2,10 +2,10 @@
 
 # 🧠 Klody Code AI
 
-### Un agent de code **100 % local** — privé, sécurisé, extensible — qui rivalise avec un agent cloud sur une machine perso.
+### Un agent de code local **gouverné** : il tourne sur votre machine et demande avant d'agir.
 
-Pas d'API cloud. Aucune donnée ne quitte la machine. Le cerveau (MLX/Apple Silicon),
-les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tournent en local.
+Le modèle (MLX, Apple Silicon), les outils, la mémoire et le RAG s'exécutent en local.
+Chaque écriture et chaque commande que l'agent demande passent par une approbation humaine.
 
 ![Tests](https://img.shields.io/badge/tests-2829%20passing-success)
 ![Coverage](https://img.shields.io/badge/coverage-84.8%25-success)
@@ -18,6 +18,16 @@ les outils, la mémoire, le RAG, **et** les connecteurs (Gmail, web, MCP) tourne
 [Étude de cas technique](docs/CASE-STUDY.md) · [Architecture](#architecture) · [Sécurité](#sécurité) · [Pour les entreprises](docs/CONSULTING.md)
 
 </div>
+
+> **Mesuré le 23/11/2026** sur un dépôt piégé : un script présenté comme nécessaire est
+> exécuté **0 fois sur 5 quand l'humain refuse** l'approbation, 5 sur 5 quand il l'accorde.
+> La protection vient de la décision humaine, pas du modèle
+> ([protocole et résultats](https://github.com/klodynlov/klodynlov/blob/main/docs/bench/localcode/injection/README.md)).
+> L'accès aux fichiers est limité aux racines autorisées (sandbox **de fichiers**).
+>
+> **Ce que Klody ne fait pas encore** : confiner l'exécution au niveau du système. Approuver
+> pytest sur un dépôt piégé exécute son `conftest.py` (10/10). C'est le prochain chantier, avec
+> l'installation en une commande.
 
 > **Status** : v2.1+ stable · **2829 tests** · CI à gates (bandit / gitleaks / pip-audit / coverage) · cerveau MLX `Qwen3.6-35B-A3B` · client **et** serveur MCP
 
