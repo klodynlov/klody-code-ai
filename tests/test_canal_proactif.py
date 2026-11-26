@@ -4,8 +4,10 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from canaux import imessage as im, proactif as pr
@@ -286,6 +288,59 @@ def test_gmail_mcp_erreur_remontee(monkeypatch):
     assert g.chercher("q", 3) == [{"uid": "1"}]
 
 
+class _ClientMuet:
+    """Faux ``fastmcp.Client`` : connecté, mais l'outil ne répond jamais —
+    l'incident du 2026-11-25 (connexion :8084 ouverte toute la nuit)."""
+    fermes: ClassVar[list] = []
+
+    def __init__(self, url):
+        self.url = url
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        _ClientMuet.fermes.append(self.url)
+
+    async def call_tool(self, outil, args):
+        import asyncio
+        await asyncio.sleep(30)
+
+
+def test_gmail_mcp_sans_reponse_coupe_et_ferme(monkeypatch):
+    monkeypatch.setattr("fastmcp.Client", _ClientMuet)
+    _ClientMuet.fermes = []
+    g = pr.GmailMCP("http://muet/mcp", delai_s=0.2)
+    t = time.monotonic()
+    with pytest.raises(RuntimeError, match="pas de réponse en 0 s"):
+        g.chercher("is:unread", 5)
+    assert time.monotonic() - t < 2
+    assert _ClientMuet.fermes == ["http://muet/mcp"]       # session refermée
+
+
+def test_delai_gmail_par_defaut():
+    assert pr.DELAI_GMAIL_S == 60.0
+    assert pr.GmailMCP("http://x/mcp").delai_s == 60.0
+
+
+def test_gmail_muet_ne_fige_plus_le_moteur(monkeypatch, tmp_path):
+    """Le moteur continue les autres sources quand Gmail ne répond pas."""
+    monkeypatch.setattr("fastmcp.Client", _ClientMuet)
+    reg = pr.Registre(tmp_path / "p.db")
+    reg.poser_meta("amorce_mails", "0")
+    g = pr.GmailMCP("http://muet/mcp", delai_s=0.2)
+    mails = pr.source_mails(reg, g.chercher, g.lire, lambda e, s, c: "")
+    envois = []
+    m = pr.Moteur(reg, envois.append, [
+        pr.Source("mails", 0, mails),
+        pr.Source("taches", 0, lambda now: [pr.Alerte("tache:x", "✅ fini", "taches")]),
+    ], max_par_jour=10)
+    t = time.monotonic()
+    assert m.tick(time.time()) == 1
+    assert time.monotonic() - t < 5                        # pas figé par Gmail
+    assert envois == ["✅ fini"]
+
+
 # ── Intégration au canal ─────────────────────────────────────────────────────
 
 class _FauxLLM:
@@ -336,6 +391,11 @@ def test_premier_destinataire(monkeypatch):
 
 def test_demarrer_proactif_a_blanc_sans_gmail(tmp_path, reg, capsys, monkeypatch):
     monkeypatch.setattr(pr, "PAS_BOUCLE_S", 0.01)
+    # Le fil ne s'arrête jamais : sans ça, le briefing du moment (matin, midi ou
+    # soir selon l'heure de la CI) appelle le vrai LLM pendant un AUTRE test,
+    # que la garde anti-connexion fait alors échouer (CI #342, 2026-11-26).
+    monkeypatch.setenv("KLODY_BRIEFING", "0")
+    monkeypatch.setenv("KLODY_RDV", "0")
     (tmp_path / "notifications").mkdir()
     (tmp_path / "notifications" / "n.json").write_text(json.dumps({"titre": "Banc fini"}))
     fil = im.demarrer_proactif(reg, "+596111", None, tmp_path, {})
@@ -350,6 +410,11 @@ def test_demarrer_proactif_a_blanc_sans_gmail(tmp_path, reg, capsys, monkeypatch
 
 def test_demarrer_proactif_envoie_au_destinataire_avec_marque(tmp_path, reg, monkeypatch):
     monkeypatch.setattr(pr, "PAS_BOUCLE_S", 0.01)
+    # Le fil ne s'arrête jamais : sans ça, le briefing du moment (matin, midi ou
+    # soir selon l'heure de la CI) appelle le vrai LLM pendant un AUTRE test,
+    # que la garde anti-connexion fait alors échouer (CI #342, 2026-11-26).
+    monkeypatch.setenv("KLODY_BRIEFING", "0")
+    monkeypatch.setenv("KLODY_RDV", "0")
     (tmp_path / "notifications").mkdir()
     (tmp_path / "notifications" / "n.json").write_text(json.dumps({"titre": "OK"}))
     envois = []
