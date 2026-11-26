@@ -391,6 +391,11 @@ def test_premier_destinataire(monkeypatch):
 
 def test_demarrer_proactif_a_blanc_sans_gmail(tmp_path, reg, capsys, monkeypatch):
     monkeypatch.setattr(pr, "PAS_BOUCLE_S", 0.01)
+    # Le fil ne s'arrête jamais : sans ça, le briefing du moment (matin, midi ou
+    # soir selon l'heure de la CI) appelle le vrai LLM pendant un AUTRE test,
+    # que la garde anti-connexion fait alors échouer (CI #342, 2026-11-26).
+    monkeypatch.setenv("KLODY_BRIEFING", "0")
+    monkeypatch.setenv("KLODY_RDV", "0")
     (tmp_path / "notifications").mkdir()
     (tmp_path / "notifications" / "n.json").write_text(json.dumps({"titre": "Banc fini"}))
     fil = im.demarrer_proactif(reg, "+596111", None, tmp_path, {})
@@ -405,6 +410,11 @@ def test_demarrer_proactif_a_blanc_sans_gmail(tmp_path, reg, capsys, monkeypatch
 
 def test_demarrer_proactif_envoie_au_destinataire_avec_marque(tmp_path, reg, monkeypatch):
     monkeypatch.setattr(pr, "PAS_BOUCLE_S", 0.01)
+    # Le fil ne s'arrête jamais : sans ça, le briefing du moment (matin, midi ou
+    # soir selon l'heure de la CI) appelle le vrai LLM pendant un AUTRE test,
+    # que la garde anti-connexion fait alors échouer (CI #342, 2026-11-26).
+    monkeypatch.setenv("KLODY_BRIEFING", "0")
+    monkeypatch.setenv("KLODY_RDV", "0")
     (tmp_path / "notifications").mkdir()
     (tmp_path / "notifications" / "n.json").write_text(json.dumps({"titre": "OK"}))
     envois = []
