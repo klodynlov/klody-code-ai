@@ -320,13 +320,15 @@ def test_planification_quotidienne(reg, tmp_path):
 
 def test_demande_manuelle_a_toute_heure(reg, tmp_path):
     src = br.source_briefing(reg, _dep(tmp_path), tmp_path)
-    (tmp_path / "briefing.maintenant").write_text("1")
+    (tmp_path / "briefing.maintenant").write_text("matin")
     soir = datetime(2026, 11, 23, 21, 0).timestamp()
     alertes = src(soir)
-    assert len(alertes) == 4 and alertes[0].cle.startswith("briefing:manuel-")
+    assert len(alertes) == 4 and alertes[0].cle.startswith("briefing:manuel-matin-")
     assert not (tmp_path / "briefing.maintenant").exists()
     assert reg.meta("briefing_jour") is None                           # le quotidien reste dû
-    assert src(soir + 60) == []
+    # 21 h est dans la fenêtre du soir : le manuel ne le consomme pas non plus.
+    assert src(soir + 60)[0].cle == "briefing:2026-11-23-soir:1"
+    assert src(soir + 120) == []
 
 
 def test_moteur_envoie_le_briefing_entier(reg, tmp_path):
@@ -372,3 +374,189 @@ def test_normaliser_puces_markdown():
             "🌴 Martinique :\n1. Fait trois\n## Tech")
     assert br.normaliser_puces(brut) == ("🌍 France & monde\n• Fait un.\n• Fait deux\n\n"
                                          "🌴 Martinique\n• Fait trois\nTech")
+
+
+# ── Midi et soir (demandés le 2026-11-26) ────────────────────────────────────
+
+def _meteo_2j():
+    return json.dumps({"daily": {"weather_code": [61, 0], "temperature_2m_min": [4.2, -1.4],
+                                 "temperature_2m_max": [11.6, 7.2],
+                                 "precipitation_probability_max": [80, 0],
+                                 "precipitation_sum": [3.4, 0.0],
+                                 "wind_speed_10m_max": [52, 12]}}).encode()
+
+
+def _meteo_horaire():
+    heures = [f"2026-11-23T{h:02d}:00" for h in range(24)]
+    return json.dumps({"hourly": {
+        "time": heures,
+        "temperature_2m": [h * 0.5 for h in range(24)],           # 13 h → 6,5 ; 19 h → 9,5
+        "weather_code": [80 if h == 17 else 3 for h in range(24)],
+        "precipitation_probability": [70 if h == 17 else 10 for h in range(24)]}}).encode()
+
+
+AGENDA_2J = {"evenements": [
+    {"id": "E1", "titre": "Dentiste", "debut": "2026-11-23T09:00:00+01:00",
+     "fin": "2026-11-23T09:30:00+01:00", "journee": False, "lieu": ""},
+    {"id": "E2", "titre": "Réunion", "debut": "2026-11-23T15:00:00+01:00",
+     "fin": "2026-11-23T16:00:00+01:00", "journee": False, "lieu": ""},
+    {"id": "E3", "titre": "Kiné", "debut": "2026-11-24T10:00:00+01:00",
+     "fin": "2026-11-24T10:30:00+01:00", "journee": False, "lieu": "Le Rheu"}],
+    "rappels": [
+    {"titre": "Payer la facture", "echeance": "2026-11-20T00:00:00+01:00", "avec_heure": False},
+    {"titre": "Appeler Marc", "echeance": "2026-11-23T14:00:00+01:00", "avec_heure": True},
+    {"titre": "Sortir les poubelles", "echeance": "2026-11-24T08:00:00+01:00", "avec_heure": True}],
+    "erreurs": []}
+
+
+def _dep_jour(tmp_path, vus, requetes, consignes):
+    def get(url):
+        vus.append(url)
+        if "open-meteo" in url:
+            return _meteo_horaire() if "hourly" in url else _meteo_2j()
+        return _get_flux()(url)
+
+    def run(argv, timeout):
+        return json.dumps(AGENDA_2J) if "--agenda" in argv else ""
+
+    def chercher(q, n):
+        requetes.append(q)
+        return [{"uid": "1", "from": '"Banque" <b@x>', "subject": "Relevé"}]
+
+    def resumer(consigne, donnees):
+        consignes.append(consigne)
+        return "🌍 France & monde\n• a\n🌴 Martinique\n• b"
+
+    return _dep(tmp_path, get=get, run=run, chercher_mails=chercher, resumer=resumer)
+
+
+def test_meteo_de_demain():
+    vus = []
+
+    def get(url):
+        vus.append(url)
+        return _meteo_2j()
+    assert br.meteo(get, [("Baulon", 1, 2)], jour=1) == "Baulon : ciel clair, -1→7 °C"
+    assert "forecast_days=2" in vus[0]
+
+
+def test_meteo_apres_midi_horaire():
+    txt = br.meteo_apres_midi(lambda url: _meteo_horaire(), [("Le Rheu", 1, 2)])
+    assert txt == "Le Rheu : averses, 6→10 °C, pluie jusqu'à 70 %"
+    assert br.meteo_apres_midi(lambda url: b"{}", [("X", 1, 2)]) == "X : indisponible"
+
+
+def test_composer_midi(reg, tmp_path):
+    vus, requetes, consignes = [], [], []
+    reg.poser_meta("briefing_dernier", str(datetime(2026, 11, 23, 7, 31).timestamp()))
+    reg.ajouter_note("rappeler le garage", datetime(2026, 11, 23, 10, 0).timestamp())
+    midi = datetime(2026, 11, 23, 12, 31).timestamp()
+    msgs = br.composer(reg, _dep_jour(tmp_path, vus, requetes, consignes), midi, "midi")
+    assert len(msgs) == 3                                           # ni veille ni habitude
+    m1, m2, m3 = msgs
+    assert m1.startswith("🍽 Point de midi — lundi 23/11")
+    for x in ("🌤 Cet après-midi", "Baulon : averses, 6→10 °C, pluie jusqu'à 70 %",
+              "• 15:00–16:00 Réunion", "✅ Rappels restants", "Appeler Marc à 14:00",
+              "Payer la facture (en retard)"):
+        assert x in m1, x
+    assert "Dentiste" not in m1                                     # déjà passé
+    assert m2.startswith("📬 Depuis ce matin") and "• Banque — Relevé" in m2
+    assert "rappeler le garage" in m2 and "💡" not in m2
+    assert requetes == [f"is:unread is:important after:{int(datetime(2026, 11, 23, 7, 31).timestamp())}"]
+    assert m3.startswith("📰 Actus de midi") and consignes == [br.CONSIGNE_MIDI]
+    assert not any(u in vus for u in br.FLUX_TECH.values())         # pas de tech à midi
+
+
+def test_composer_soir(reg, tmp_path):
+    vus, requetes, consignes = [], [], []
+    soir = datetime(2026, 11, 23, 19, 1).timestamp()
+    reg.marquer(pr.Alerte("gmail:7", "📧 Y — plafond", "mails"), pr.DIFFEREE, soir - 3600)
+    msgs = br.composer(reg, _dep_jour(tmp_path, vus, requetes, consignes), soir, "soir")
+    assert len(msgs) == 3
+    m1, m2, m3 = msgs
+    assert m1.startswith("🌙 Bonsoir ! Demain, mardi 24/11")
+    for x in ("🌤 Météo de demain", "Baulon : ciel clair, -1→7 °C", "📅 Agenda de demain",
+              "• 10:00–10:30 Kiné (Le Rheu)", "✅ Rappels de demain", "Sortir les poubelles à 08:00"):
+        assert x in m1, x
+    assert "Réunion" not in m1 and "Dentiste" not in m1
+    assert m2.startswith("📋 Bilan du jour\n⏳ Restés en suspens")
+    for x in ("Payer la facture (en retard)", "Appeler Marc à 14:00", "• Banque — Relevé",
+              "⏸ Mis de côté (1)", "📧 Y — plafond"):
+        assert x in m2, x
+    assert "Sortir les poubelles" not in m2
+    assert reg.differees() == []                                    # reprises
+    assert requetes == ["is:unread is:important newer_than:1d"]
+    assert m3.startswith("📰 Revue du soir") and consignes == [br.CONSIGNE_SOIR]
+    assert "revue de presse du soir" in br.CONSIGNE_SOIR
+    assert any(u in vus for u in br.FLUX_TECH.values())
+
+
+def test_soir_sans_rappel_demain_dit_rien_de_prevu(reg, tmp_path):
+    vide = {"evenements": [], "rappels": [], "erreurs": []}
+    dep = _dep(tmp_path, run=lambda a, t: json.dumps(vide), get=lambda u: _meteo_2j())
+    m1 = br.composer(reg, dep, datetime(2026, 11, 23, 19, 1).timestamp(), "soir")[0]
+    assert "✅ Rappels de demain\nrien de prévu" in m1 and "aucun rendez-vous" in m1
+
+
+def _ts(h, mn=0, jour=23):
+    return datetime(2026, 11, jour, h, mn).timestamp()
+
+
+def test_planification_trois_moments(reg, tmp_path):
+    src = br.source_briefing(reg, _dep(tmp_path), tmp_path, "07:30")
+    assert src(_ts(7, 31))[0].cle == "briefing:2026-11-23:1"
+    assert src(_ts(12, 29)) == []
+    midi = src(_ts(12, 31))
+    assert [a.cle for a in midi] == [f"briefing:2026-11-23-midi:{i}" for i in (1, 2, 3)]
+    assert all(a.hors_quota for a in midi)
+    assert src(_ts(13, 0)) == [] and src(_ts(18, 59)) == []
+    soir = src(_ts(19, 1))
+    assert [a.cle for a in soir] == [f"briefing:2026-11-23-soir:{i}" for i in (1, 2, 3)]
+    assert src(_ts(22, 0)) == []
+
+
+def test_rattrapage_et_fenetres(reg, tmp_path):
+    dep = _dep(tmp_path)
+    src = br.source_briefing(reg, dep, tmp_path)
+    assert len(src(_ts(17, 0))) == 3                                # midi rattrapé
+    assert reg.meta("briefing_jour") == "2026-11-23"               # matin raté : clos
+    assert src(_ts(17, 10)) == []
+    src2 = br.source_briefing(br.Registre(tmp_path / "b.db"), dep, tmp_path)
+    assert src2(_ts(17, 31)) == []                                  # midi sauté
+    assert src2(_ts(23, 5)) == []                                   # soir sauté
+
+
+def test_moments_coupes(reg, tmp_path):
+    src = br.source_briefing(reg, _dep(tmp_path), tmp_path, "07:30",
+                             {"midi": "0", "soir": None})
+    assert src(_ts(12, 31)) == [] and src(_ts(19, 1)) == []
+    assert len(src(_ts(7, 31))) == 4
+
+
+def test_heure_personnalisee_hors_fenetre_par_defaut(reg, tmp_path):
+    fen = br.fenetres({"matin": "07:30", "midi": "18:00", "soir": "19:00"})
+    assert ("midi", 18 * 60, 22 * 60) in fen                       # fin 17:30 < début → +4 h
+
+
+@pytest.mark.parametrize("h, attendu", [(6, "☀️"), (15, "🍽"), (21, "🌙")])
+def test_manuel_sans_moment_suit_l_heure(reg, tmp_path, h, attendu):
+    src = br.source_briefing(reg, _dep(tmp_path), tmp_path)
+    (tmp_path / "briefing.maintenant").write_text("1700000000.0")   # ancien format : un instant
+    alertes = src(_ts(h))
+    assert alertes[0].texte.startswith(attendu)
+    assert reg.meta("briefing_jour") is None and reg.meta("briefing_jour:soir") is None
+
+
+def test_notifier_briefing_moment(tmp_path):
+    r = subprocess.run([sys.executable, str(RACINE / "scripts" / "klody-notifier.py"),
+                        "--briefing", "--moment", "midi"],
+                       capture_output=True, text=True, timeout=30,
+                       env={"KLODY_DATA_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"})
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "briefing.maintenant").read_text() == "midi"
+
+
+def test_normaliser_retire_la_consigne_recopiee_dans_un_titre():
+    brut = ("🌍 France & monde — 3 puces, ce qui est nouveau ou important ce midi\n"
+            "• Un fait — avec un tiret\n🌴 Martinique — 2 puces\n• b")
+    assert br.normaliser_puces(brut) == "🌍 France & monde\n• Un fait — avec un tiret\n🌴 Martinique\n• b"
