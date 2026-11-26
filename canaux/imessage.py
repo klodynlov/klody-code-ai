@@ -279,26 +279,33 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
 
 def make_agent_runner(memory_dir: Path,
                       locaux: dict[str, Callable[[dict], str]] | None = None,
-                      horloge: Callable[[], float] = time.time) -> Callable[[str], str]:
+                      horloge: Callable[[], float] = time.time,
+                      session: str = "imessage",
+                      bloques: list[str] | None = None) -> Callable[[str], str]:
     """Charge l'orchestrateur KlodyAI ; renvoie ``requête → réponse texte``.
 
     La date du jour précède la requête : sans elle, « demain 9 h » n'a pas de
     référence (le prompt système ne la porte pas) et ``programmer_rappel`` ne
     peut pas calculer une heure absolue.
+
+    ``session`` : conversation persistée (``memory_<session>.json``). La route
+    montre (``api/montre.py``) a la sienne : deux processus (canal, API) qui
+    réécrivent le même fichier se marcheraient dessus. ``bloques`` : où consigner
+    les outils refusés (journal d'audit de l'appelant).
     """
     from agent.approval import requires_approval
     from agent.memory import ConversationMemory
     from agent.orchestrator import Orchestrator
     from api.server import _strip_markdown
 
-    mem_file = memory_dir / "memory_imessage.json"
-    bloques: list[str] = []
+    mem_file = memory_dir / f"memory_{session}.json"
+    refuses: list[str] = [] if bloques is None else bloques
 
     def run(query: str) -> str:
         memory = (ConversationMemory.load_from_file(mem_file) if mem_file.exists()
-                  else ConversationMemory(session_id="imessage"))
+                  else ConversationMemory(session_id=session))
         orch = Orchestrator(memory)
-        preparer_orchestrateur(orch, requires_approval, bloques, locaux)
+        preparer_orchestrateur(orch, requires_approval, refuses, locaux)
         try:
             orch.run(f"{contexte_date(horloge())}\n{query}")
         finally:

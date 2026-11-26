@@ -1,4 +1,66 @@
 {
+  "/api/montre/etat": {
+    "GET": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/agenda": {
+    "GET": {
+      "params": [
+        "a_partir_de",
+        "jours"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/meteo": {
+    "GET": {
+      "params": [
+        "jours",
+        "lieu"
+      ],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/briefing": {
+    "GET": {
+      "params": [
+        "moment"
+      ],
+      "has_body": false,
+      "body_required": false
+    },
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/demande": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/note": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
+  "/api/montre/rappel": {
+    "POST": {
+      "params": [],
+      "has_body": false,
+      "body_required": false
+    }
+  },
   "/api/status": {
     "GET": {
       "params": [],

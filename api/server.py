@@ -61,6 +61,7 @@ from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_i
 
 from api import metrics as _metrics
 from api.garde_origine import ORIGINES_UI, GardeOrigine
+from api.montre import installer as _installer_montre
 from api.streaming import StopGeneration, make_stream_api
 
 logger = logging.getLogger(__name__)
@@ -174,6 +175,11 @@ app.add_middleware(
 # Ajouté APRÈS CORS, donc EXTÉRIEUR : il juge avant tout le reste, WebSocket
 # compris (que CORS ne couvre pas). Détail et incident dans api/garde_origine.py.
 app.add_middleware(GardeOrigine)
+
+# Route de l'app Apple Watch (via l'iPhone, tailnet seulement) : jeton exigé,
+# lecture seule. Seule partie de l'API que `tailscale serve` expose
+# (`--set-path /klody` → `/api/montre`). Détail dans api/montre.py.
+_installer_montre(app)
 
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
