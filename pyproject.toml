@@ -56,6 +56,7 @@ files = [
     "canaux/proactif.py",
     "canaux/briefing.py",
     "canaux/rendez_vous.py",
+    "canaux/confirmation.py",
     "services.py",
     "agent/dbc.py",
     "agent/llm.py",

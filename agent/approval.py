@@ -37,6 +37,9 @@ _SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     "backup_directory", "scaffold_tool",
     # LibraryBrain : télécharge une URL du web et publie une version indexée
     "library_import_source", "library_refresh_source",
+    # App Rappels / Calendrier : écriture dans les données de l'utilisateur
+    # (synchronisées sur l'iPhone). Sur iMessage, attente d'un « oui ».
+    "creer_rappel", "creer_evenement",
 })
 
 # Outils dont l'effet dépend de leurs ARGUMENTS : lecture par défaut, écriture

@@ -31,6 +31,12 @@ if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--agenda" {
     if let i = a.firstIndex(of: "--sortie"), i + 1 < a.count { sortie = a[i + 1] }
     lancerAgenda(jours: jours, sortie: sortie)
 }
+// Écriture (Creation.swift) : lancée seulement après validation humaine (« oui »
+// iMessage, ou boîte de validation de l'app) — jamais d'initiative du modèle seul.
+if CommandLine.arguments.count > 1
+    && ["--creer-rappel", "--creer-evenement"].contains(CommandLine.arguments[1]) {
+    lancerCreation(CommandLine.arguments)
+}
 
 let info = Bundle.main.infoDictionary ?? [:]
 let env = ProcessInfo.processInfo.environment

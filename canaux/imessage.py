@@ -22,6 +22,11 @@ coque signée ``KlodyMessages.app`` (``canaux/imessage_app/``), qui porte seule
 l'Accès complet au disque et l'Automatisation → Messages. Ne jamais donner ces
 droits au Python du venv ni à Claude.app.
 
+Actions confirmées (2026-11-26, ``canaux/confirmation.py``) : créer un rappel
+ou un événement, envoyer / préparer un mail, lancer un raccourci. Le modèle ne
+fait que PROPOSER ; le canal envoie le récapitulatif exact et n'exécute qu'au
+« oui » de l'utilisateur. ``KLODY_IMSG_ACTIONS=0`` revient à la lecture seule.
+
 Usage (depuis la racine du dépôt) ::
 
     python -m canaux.imessage --probe      # lit chat.db, n'affiche aucun texte
@@ -55,6 +60,7 @@ from typing import Any
 from agent.texte_vocal import sans_markdown
 
 from canaux.briefing import HEURE_DEFAUT, HEURES_DEFAUT, Dependances, source_briefing, synthese_llm
+from canaux.confirmation import Confirmations, confirmations_par_defaut, mot_confirmation
 from canaux.proactif import (
     MAX_PAR_JOUR,
     OUTILS_CANAL,
@@ -197,6 +203,10 @@ class Dedoublonneur:
         self._vus[q] = maintenant
         return True
 
+    def oublier(self, cles: Callable[[str], bool]) -> None:
+        """Après une nouvelle proposition, un 2ᵉ « oui » dans la minute est légitime."""
+        self._vus = {k: v for k, v in self._vus.items() if not cles(k)}
+
 
 # ── Outils : liste blanche en lecture ────────────────────────────────────────
 
@@ -223,7 +233,8 @@ def tool_allowed(name: str, requires_approval: Callable[..., bool]) -> bool:
 
 def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
                            bloques: list[str],
-                           locaux: dict[str, Callable[[dict], str]] | None = None) -> None:
+                           locaux: dict[str, Callable[[dict], str]] | None = None,
+                           confirmations: Confirmations | None = None) -> None:
     """Met un Orchestrator au régime iMessage (même régime que ``/api/siri``).
 
     - modèle ÉPINGLÉ : pas de bascule brain→coder, le cache de préfixe survit
@@ -241,6 +252,11 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
     ``locaux`` : outils propres au canal (``programmer_rappel``, ``noter`` —
     ``canaux/proactif.py``), exécutés ici sans passer par l'orchestrateur. Ils
     n'écrivent que dans le registre du canal : aucun effet hors de lui.
+
+    ``confirmations`` : outils À EFFET (rappel, événement, mail, raccourci)
+    exposés au modèle mais JAMAIS exécutés par lui — la garde les met en attente
+    du « oui » de l'utilisateur (``canaux/confirmation.py``). Absent (route
+    montre, tests) : lecture seule, comme avant.
     """
     orch._pinned_model = orch.llm.model
     orch._context_routing_enabled = False
@@ -252,11 +268,12 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
         except Exception as exc:
             logger.warning("[imessage] découverte MCP %s échouée : %s",
                            sorted(ALLOWED_MCP_SERVERS), exc)
+    a_confirmer = confirmations.noms if confirmations is not None else frozenset()
     vus: set[str] = set()
     garder = []
     for t in orch.tools:
         nom = t["function"]["name"]
-        if nom not in vus and tool_allowed(nom, requires_approval):
+        if nom not in vus and (tool_allowed(nom, requires_approval) or nom in a_confirmer):
             vus.add(nom)
             garder.append(t)
     locaux = locaux or {}
@@ -270,6 +287,8 @@ def preparer_orchestrateur(orch: Any, requires_approval: Callable[..., bool],
             resultat = locaux[name](args if isinstance(args, dict) else {})
             logger.info("[imessage] outil local %s → %s", name, resultat[:120])
             return resultat
+        if confirmations is not None and name in a_confirmer:
+            return confirmations.proposer(name, args if isinstance(args, dict) else {})
         if not tool_allowed(name, requires_approval):
             bloques.append(name)
             logger.warning("[imessage] outil refusé : %s", name)
@@ -283,7 +302,8 @@ def make_agent_runner(memory_dir: Path,
                       locaux: dict[str, Callable[[dict], str]] | None = None,
                       horloge: Callable[[], float] = time.time,
                       session: str = "imessage",
-                      bloques: list[str] | None = None) -> Callable[[str], str]:
+                      bloques: list[str] | None = None,
+                      confirmations: Confirmations | None = None) -> Callable[[str], str]:
     """Charge l'orchestrateur KlodyAI ; renvoie ``requête → réponse texte``.
 
     La date du jour précède la requête : sans elle, « demain 9 h » n'a pas de
@@ -306,7 +326,9 @@ def make_agent_runner(memory_dir: Path,
         memory = (ConversationMemory.load_from_file(mem_file) if mem_file.exists()
                   else ConversationMemory(session_id=session))
         orch = Orchestrator(memory)
-        preparer_orchestrateur(orch, requires_approval, refuses, locaux)
+        preparer_orchestrateur(orch, requires_approval, refuses, locaux, confirmations)
+        if confirmations is not None:
+            confirmations.debut_tour()
         try:
             orch.run(f"{contexte_date(horloge())}\n{query}")
         finally:
@@ -375,14 +397,67 @@ def probe(db: Path | None = None) -> int:
     return 0
 
 
+def consigner_memoire(memory_dir: Path, session: str = "imessage") -> Callable[[str, str], None]:
+    """Écrit « oui » et son résultat dans la conversation du canal : sans ça, le
+    modèle croirait l'action encore en attente au message suivant."""
+    def consigner(question: str, reponse: str) -> None:
+        from agent.memory import ConversationMemory
+
+        f = memory_dir / f"memory_{session}.json"
+        mem = (ConversationMemory.load_from_file(f) if f.exists()
+               else ConversationMemory(session_id=session))
+        mem.add_message("user", question)
+        mem.add_message("assistant", reponse)
+        mem.save()
+
+    return consigner
+
+
+def _envoyer(envoyer: Callable[[str, str], None] | None, handle: str, texte: str,
+             rowid: int) -> None:
+    if envoyer is None:
+        print(f"[à blanc] → {texte!r}", flush=True)
+        return
+    try:
+        envoyer(handle, texte)
+    except (subprocess.SubprocessError, OSError) as e:
+        # Typiquement : Automatisation → Messages refusée. On continue.
+        logger.error("[imessage] envoi #%d impossible : %s", rowid, e)
+
+
 def traiter(msgs: list[Msg], allowed: set[str], prefix: re.Pattern[str],
             dedup: Dedoublonneur, run: Callable[[str], str],
             envoyer: Callable[[str, str], None] | None,
-            maintenant: Callable[[], float] = time.time) -> int:
-    """Traite un lot ; renvoie le dernier ROWID vu. ``envoyer=None`` = à blanc."""
+            maintenant: Callable[[], float] = time.time,
+            confirmations: Confirmations | None = None,
+            consigner: Callable[[str, str], None] | None = None) -> int:
+    """Traite un lot ; renvoie le dernier ROWID vu. ``envoyer=None`` = à blanc.
+
+    Avec ``confirmations`` : un message qui n'est QUE « oui » / « non » (préfixe
+    toléré), d'un expéditeur autorisé, pendant qu'une action attend, est une
+    RÉPONSE — l'action s'exécute ou s'annule sans repasser par le modèle. Après
+    une réponse du modèle qui a proposé une action, le récapitulatif part en
+    message séparé : il n'est jamais tronqué avec la réponse.
+    """
     last = 0
     for m in msgs:
         last = m.rowid
+        if (confirmations is not None and m.text and not m.text.startswith(BOT_MARK.strip())
+                and norm_handle(m.handle) in allowed):
+            mot = mot_confirmation(m.text, prefix)
+            if mot is not None and confirmations.etat() is not None:
+                cle = (prefix.sub("", m.text, count=1) if prefix.match(m.text) else m.text).strip()
+                if not dedup.nouveau(cle, maintenant()):
+                    continue  # copie reçue du même « oui »
+                texte, audit = confirmations.repondre(mot)
+                logger.info("← #%d confirmation « %s » → %s", m.rowid, mot, audit)
+                if consigner is not None:
+                    try:
+                        consigner(mot, texte)
+                    except Exception:
+                        logger.exception("[imessage] consignation de la confirmation")
+                _envoyer(envoyer, m.handle, formater_reponse(texte), m.rowid)
+                continue
         q = extract_command(m, allowed, prefix)
         if q is None or not dedup.nouveau(q, maintenant()):
             continue
@@ -396,13 +471,13 @@ def traiter(msgs: list[Msg], allowed: set[str], prefix: re.Pattern[str],
         texte = formater_reponse(reply)
         logger.info("→ #%d en %.1f s (%d car.)", m.rowid, maintenant() - t0, len(texte))
         if envoyer is None:
-            print(f"[à blanc] ← {q!r}\n[à blanc] → {texte!r}", flush=True)
-            continue
-        try:
-            envoyer(m.handle, texte)
-        except (subprocess.SubprocessError, OSError) as e:
-            # Typiquement : Automatisation → Messages refusée. On continue.
-            logger.error("[imessage] envoi #%d impossible : %s", m.rowid, e)
+            print(f"[à blanc] ← {q!r}", flush=True)
+        _envoyer(envoyer, m.handle, texte, m.rowid)
+        recap = confirmations.recapitulatif_nouveau() if confirmations is not None else None
+        if recap is not None:
+            # Un « oui » envoyé il y a moins d'une minute ne doit pas avaler celui-ci.
+            dedup.oublier(lambda k: mot_confirmation(k) is not None)
+            _envoyer(envoyer, m.handle, BOT_MARK + recap, m.rowid)
     return last
 
 
@@ -503,9 +578,15 @@ def main(argv: list[str] | None = None) -> int:
     # Test `in`, pas `or` : un état à 0 est un état, pas une absence d'état.
     last = int(st["last_rowid"]) if "last_rowid" in st else max_rowid(con)
     registre = Registre(config.MEMORY_DIR / "proactif.db")
-    run = make_agent_runner(config.MEMORY_DIR, outils_locaux(registre))
-    logger.info("[imessage] écoute depuis ROWID %d, %d expéditeur(s)%s",
-                last, len(allowed), " — À BLANC" if a.dry_run else "")
+    confirmations = None
+    if os.environ.get("KLODY_IMSG_ACTIONS", "1") != "0":
+        confirmations = confirmations_par_defaut(config.MCP_SERVERS.get("gmail"))
+    run = make_agent_runner(config.MEMORY_DIR, outils_locaux(registre),
+                            confirmations=confirmations)
+    consigner = consigner_memoire(config.MEMORY_DIR)
+    logger.info("[imessage] écoute depuis ROWID %d, %d expéditeur(s)%s, actions confirmables : %s",
+                last, len(allowed), " — À BLANC" if a.dry_run else "",
+                ", ".join(sorted(confirmations.noms)) if confirmations else "aucune")
     dedup = Dedoublonneur()
     envoyer = None if a.dry_run else send_imessage
     if not a.once and os.environ.get("KLODY_PROACTIF", "1") != "0":
@@ -520,7 +601,8 @@ def main(argv: list[str] | None = None) -> int:
             con = ouvrir_avec_attente(CHAT_DB)
             continue
         if msgs:
-            last = max(last, traiter(msgs, allowed, prefix, dedup, run, envoyer))
+            last = max(last, traiter(msgs, allowed, prefix, dedup, run, envoyer,
+                                     confirmations=confirmations, consigner=consigner))
             save_state(state_path, {"last_rowid": last})
         if a.once:
             return 0

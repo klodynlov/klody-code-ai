@@ -1810,6 +1810,56 @@ de l'API exposée au tailnet** — jamais tout `:8000`, jamais funnel.
   la coque reconstruite (PR agenda), `/etat` et `/agenda` répondent avec
   `erreurs` « la coque n'a rien écrit » — nommé, jamais vide.
 
+## État au 2026-11-26 — actions confirmées par « oui » (`canaux/confirmation.py`)
+
+Demandé le 2026-11-26 (« Actions avec ton oui » : créer un rappel ou un
+événement, répondre à un mail, lancer un raccourci — Klody propose, l'utilisateur
+confirme par iMessage). Le canal restait en LECTURE ; ces actions y entrent sans
+que le modèle puisse jamais les exécuter seul.
+
+| outil | ce qui est proposé | validé AVANT le « oui » |
+|---|---|---|
+| `creer_rappel` (nouveau) | app Rappels, alerte si heure | date ≤ 1 j passée, ≤ 3 ans ; titre non vide |
+| `creer_evenement` (nouveau) | app Calendrier, 60 min par défaut, journée | fin ≥ début, durée 5 min-24 h |
+| `mcp__gmail__send_email` / `create_draft` | envoi / brouillon | adresses valides, ≤ 5, corps ≤ 1 000 car. |
+| `run_shortcut` | raccourci + entrée | nom présent dans `shortcuts list`, entrée ≤ 500 car. |
+
+1. Le modèle appelle l'outil → la garde du canal (`preparer_orchestrateur`) le
+   remplace par `Confirmations.proposer` : arguments validés, action EN ATTENTE,
+   rien d'exécuté. Le modèle reçoit « EN ATTENTE… ne dis jamais que c'est fait ».
+2. Après sa réponse, le canal envoie un **second message** : le récapitulatif
+   construit par le CODE (destinataires, objet et corps ENTIER d'un mail ; titre,
+   date, liste…). Jamais tronqué avec la réponse du modèle.
+3. Un message qui n'est QUE « oui » / « non » (préfixe toléré), d'un expéditeur
+   autorisé, dans les 10 min → exécution des arguments VALIDÉS, sans repasser par
+   le modèle ; résultat nommé (« ✅ … » / « ❌ … ») et consigné dans
+   `memory_imessage.json`. Expiré : « ⌛ … rien n'a été fait » pendant 1 h.
+
+- **Pourquoi le récapitulatif EST le garde-fou** : un mail piégé lu peut pousser
+  le modèle à proposer « réponds à x@y avec … ». Le « oui » ne vaut que si tout ce
+  qui part est sous les yeux — d'où le plafond du corps : ce que l'iPhone
+  n'affiche pas en entier n'est pas proposable.
+- Une action en attente au plus, une proposition par tour : « oui » porte
+  toujours sur le DERNIER récapitulatif reçu. La copie reçue d'un « oui » est
+  dédoublonnée ; une nouvelle proposition oublie les « oui » de la minute
+  (sinon le 2ᵉ « oui » légitime serait pris pour une copie — mutation vérifiée).
+- **Partout** : `creer_rappel` / `creer_evenement` entrent dans
+  `_SIDE_EFFECT_TOOLS` → boîte de validation de l'app ; Siri les refuse ; la
+  route montre n'a PAS de confirmations (lecture seule, comme avant). ⚠️ La CLI
+  n'a aucune garde d'approbation (vrai aussi pour `write_file`) : l'outil y agit
+  directement.
+- **Coque** : `--creer-rappel` / `--creer-evenement` (`Creation.swift`). Lecture
+  des arguments SÉQUENTIELLE clé → valeur : une note « --sortie /x » reste une
+  valeur (un `firstIndex(of:)` l'aurait prise pour le drapeau — test compilé).
+  `--sortie` et titre vérifiés AVANT toute demande d'accès EventKit ; calendrier
+  nommé introuvable ou en lecture seule = erreur nommée, jamais un repli muet.
+- `KLODY_IMSG_ACTIONS=0` ramène le canal en lecture seule. Gmail n'est
+  proposable que si `KLODY_MCP_SERVERS` le déclare.
+- ⚠️ **Déploiement = coque reconstruite** (`install-klody-messages.sh install`) :
+  sans elle, la création répond « la coque n'a rien écrit » (nommé). Aucune
+  création réelle pendant le développement (TCC attribuerait la demande à
+  Claude.app) : la première vraie écriture EventKit sera celle de l'utilisateur.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

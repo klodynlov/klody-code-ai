@@ -56,7 +56,7 @@ NATIVE_GROUPS = {
     "images": {"analyser_image"},
     "desktop": set(["run_applescript", "spotlight_search", "list_shortcuts", "run_shortcut", "reveal_in_finder"]),
     "home": {"mqtt_publish", "mqtt_subscribe"},
-    "agenda": {"agenda", "meteo", "briefing_maintenant"},
+    "agenda": {"agenda", "meteo", "briefing_maintenant", "creer_rappel", "creer_evenement"},
     "files": set(["write_file", "batch_rename", "organize_directory", "backup_directory", "sync_directories"]),
     "infrastructure": set(["run_sql", "docker_control", "kubectl_control", "scaffold_tool", "list_tool_kinds"]),
 }
@@ -73,7 +73,8 @@ GROUP_ALIASES = {
     "home": ("mqtt", "domotique", "maison connectee"),
     "agenda": ("agenda", "calendrier", "rendez-vous", "rendez vous", "rdv", "rappel", "rappels",
                "reunion", "meteo", "temps qu'il fait", "pluie", "briefing", "emploi du temps",
-               "planning", "suis-je libre", "suis je libre"),
+               "planning", "suis-je libre", "suis je libre", "evenement", "rappelle-moi",
+               "rappelle moi"),
     "files": ("fichier", "fichiers", "dossier", "dossiers", "renomme", "renommer", "sauvegarde", "backup", "synchronise"),
     "infrastructure": ("sql", "sqlite", "postgres", "database", "base de donnees", "docker", "kubernetes", "kubectl", "scaffold"),
 }
