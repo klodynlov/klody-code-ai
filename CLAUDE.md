@@ -1686,6 +1686,40 @@ nouvelle heure, jamais deux fois à la même. Mac réveillé trop tard : rien
 Aucune lecture d'agenda hors coque pendant le développement : depuis la session
 Claude, TCC aurait attribué la demande à Claude.app.
 
+## État au 2026-11-26 — Klody lit l'agenda et la météo partout (`tools/agenda.py`)
+
+Demandé le 2026-11-26 (« élargir le champ de compétences », choix « Agenda,
+Rappels, météo », partout : app, CLI, iMessage). Trois outils natifs, groupe de
+routage `agenda` (`tools/context_selection.py`) :
+- `agenda(jours, a_partir_de)` : rendez-vous par jour + rappels NON FAITS
+  (en retard, datés, sans date), lecture seule ;
+- `meteo(lieu, jours)` : Open-Meteo, Baulon + Le Rheu par défaut, sinon une
+  ville géocodée ;
+- `briefing_maintenant(moment)` : dépose `briefing.maintenant` (même contrat que
+  `klody-notifier.py --briefing`), le canal l'envoie sur l'iPhone.
+
+- ⚠️ **TCC, encore** : l'accès Calendriers/Rappels n'appartient qu'à
+  `KlodyMessages.app`. Sous la coque (canal, `KLODY_IMSG_LAUNCHER` posé), le
+  binaire est relancé en enfant. Ailleurs (`com.klody.api`, CLI), un enfant de
+  Python ferait demander l'accès AU NOM DE PYTHON (donc de tout le venv) : l'app
+  est lancée par `open -g -n -W -a`, LaunchServices en fait son propre
+  responsable. `open` ne relaie pas stdout ⇒ mode `--agenda N --sortie <fichier>`
+  de la coque, verrouillé sur `~/.klody/data/agenda/` (exit 64 sinon, vérifié
+  AVANT tout accès EventKit) : une app signée qui écrit où on lui dit serait une
+  primitive d'écriture offerte à tout processus local. Fichier lu puis effacé.
+- **Seule donnée qui sort du Mac** : le nom de ville passé à `meteo`, filtré
+  (`_LIEU_OK` : lettres, espaces, tirets, apostrophes, ≤ 60 car.). Un mail piégé
+  lu par Klody sur iMessage ne peut pas y glisser une URL ou une phrase.
+- Ouverts au canal iMessage (`ALLOWED_NATIVE`) : lecture, ou envoi vers
+  l'utilisateur lui-même (briefing). Classés libres dans `test_approval.py`.
+- ⚠️ **Déploiement = coque reconstruite** (`scripts/install-klody-messages.sh
+  install` depuis le checkout principal : l'installeur refuse un worktree), puis
+  `kickstart` de `com.klody.imessage` ET `com.klody.api`. Coque non reconstruite
+  ⇒ `--sortie` inconnu ⇒ « la coque n'a rien écrit » hors canal (erreur NOMMÉE,
+  jamais un agenda vide). Aucune lecture d'agenda réelle pendant le
+  développement (TCC attribuerait la demande à Claude.app) ; météo vérifiée en
+  réel (Baulon, Le Rheu, Rennes, Fort-de-France).
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

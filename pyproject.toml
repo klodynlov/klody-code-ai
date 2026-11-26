@@ -86,6 +86,7 @@ files = [
     "tools/mcp_client.py",
     "tools/project_creator.py",
     "tools/registry.py",
+    "tools/agenda.py",
     "tools/embeddings.py",
     "tools/excel.py",
     "tools/git_tools.py",
