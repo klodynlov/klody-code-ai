@@ -1,17 +1,29 @@
-"""Briefing du matin — Klody t'écrit chaque jour à heure fixe (défaut 07:30).
+"""Briefings — Klody t'écrit trois fois par jour : matin, midi, soir.
 
-Demandé le 2026-11-22 (choix de l'utilisateur) : météo de **Baulon et du Rheu**,
-agenda (app Calendrier) et app Rappels du jour, Notes Apple récentes, notes
-dictées, mails importants de la nuit, alertes différées (plafond quotidien
-atteint), proposition d'habitude, revue de presse (France Info, Le Monde,
-Martinique la 1ère / RCI) et veille tech (IA, logiciel, matériel, open source :
-Hacker News, Hugging Face, Ars Technica, veille MLX locale).
+Demandé le 2026-11-22 (matin) puis le 2026-11-26 (midi et soir, « adapté au
+moment »), choix de l'utilisateur :
+
+- **matin** (``KLODY_BRIEFING_HEURE``, 07:30) : météo de **Baulon et du Rheu**,
+  agenda (app Calendrier) et app Rappels du jour, Notes Apple récentes, notes
+  dictées, mails importants de la nuit, alertes différées (plafond quotidien
+  atteint), proposition d'habitude, revue de presse (France Info, Le Monde,
+  Martinique la 1ère / RCI) et veille tech (Hacker News, Hugging Face, Ars
+  Technica, veille MLX locale) ;
+- **midi** (``KLODY_BRIEFING_MIDI``, 12:30) : météo et agenda de l'APRÈS-MIDI,
+  rappels du jour restants, mails importants arrivés depuis le matin, notes et
+  alertes différées, actus fraîches (France & monde, Martinique) ;
+- **soir** (``KLODY_BRIEFING_SOIR``, 19:00) : météo, agenda et rappels de
+  DEMAIN, bilan du jour (rappels restés en suspens, mails importants non lus,
+  notes, alertes différées), revue du soir (les trois rubriques).
+
+``0`` pour ``KLODY_BRIEFING_MIDI`` / ``KLODY_BRIEFING_SOIR`` coupe ce moment.
 
 Une source du moteur proactif (``canaux/proactif.py``) : tourne dans le
-processus du canal, sous ``KlodyMessages.app``. Trois messages iMessage,
-**hors quota** (demandé explicitement), une seule fois par jour. Mac endormi à
-l'heure dite : envoyé au réveil, sauf après midi (le briefing du jour est
-alors sauté — un « bonjour » à 15 h ne sert à rien).
+processus du canal, sous ``KlodyMessages.app``. Messages iMessage **hors
+quota** (demandé explicitement), chaque moment une seule fois par jour. Mac
+endormi à l'heure dite : envoyé au réveil tant que la fenêtre du moment est
+ouverte (matin jusqu'à midi, midi jusqu'à 17:30, soir jusqu'à 23:00), sauté
+ensuite — un « bonjour » à 15 h ne sert à rien.
 
 Ce qui sort du Mac : coordonnées des deux villes (Open-Meteo, sans clé) et
 requêtes GET de flux RSS publics. Agenda, Rappels, Notes, mails restent locaux.
@@ -21,8 +33,9 @@ avec consigne d'ignorer toute instruction qu'ils contiendraient.
 Chaque rubrique est indépendante : une panne (réseau, accès refusé) devient une
 ligne « indisponible » NOMMÉE, jamais un briefing absent.
 
-Déclencher à la main : ``scripts/klody-notifier.py --briefing`` (dépose
-``briefing.maintenant`` ; le moteur le relève sous une minute).
+Déclencher à la main : ``scripts/klody-notifier.py --briefing [--moment midi]``
+(dépose ``briefing.maintenant`` ; le moteur le relève sous une minute). Sans
+moment, celui de l'heure qu'il est (le dernier commencé, matin avant 12:30).
 """
 
 from __future__ import annotations
@@ -57,8 +70,14 @@ from canaux.proactif import (
 logger = logging.getLogger("klody.briefing")
 
 HEURE_DEFAUT = "07:30"
-HEURE_LIMITE = 12          # passé midi, le briefing du jour est sauté
-TEXTE_MAX_BRIEFING = 1500  # par message (3 messages)
+HEURE_LIMITE = 12          # passé midi, le briefing du matin est sauté
+TEXTE_MAX_BRIEFING = 1500  # par message (3 ou 4 messages)
+# Moments, dans l'ordre du jour : heure par défaut, fin de la fenêtre de
+# rattrapage (Mac endormi à l'heure dite). Fenêtres disjointes : un seul moment
+# est dû à un instant donné.
+MOMENTS = ("matin", "midi", "soir")
+HEURES_DEFAUT = {"matin": HEURE_DEFAUT, "midi": "12:30", "soir": "19:00"}
+FINS = {"matin": f"{HEURE_LIMITE:02d}:00", "midi": "17:30", "soir": "23:00"}
 BRIEFEE = 3                # état registre : alerte différée reprise au briefing
 UA = "KlodyBriefing/1.0 (usage personnel local)"
 
