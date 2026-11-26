@@ -429,8 +429,8 @@ def test_boucle_proposition_recap_puis_oui_execute_une_seule_fois():
     traiter([M("Klody, ajoute un rappel pain", rowid=1),
              M("Klody, ajoute un rappel pain", me=False, rowid=2)])
     assert envois == ["🤖 Je crée le rappel dès que tu confirmes.",
-                      "🤖 ⏳ À confirmer :\n✅ Créer « Pain »\n\n"
-                      "Réponds « oui » pour le faire, « non » pour annuler (10 min)."]
+                      ("🤖 ⏳ À confirmer :\n✅ Créer « Pain »\n\n"
+                       "Réponds « oui » pour le faire, « non » pour annuler (10 min).")]
     assert journal == []
 
     h.t += 30
