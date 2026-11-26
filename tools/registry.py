@@ -1277,6 +1277,79 @@ MAC_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "agenda",
+            "description": (
+                "Lecture seule. Rendez-vous de l'app Calendrier et rappels NON FAITS "
+                "de l'app Rappels de l'utilisateur, par jour. À utiliser pour « qu'est-"
+                "ce que j'ai demain ? », « suis-je libre jeudi ? », « mes rappels »."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "jours": {
+                        "type": "integer",
+                        "description": "Nombre de jours couverts (1 à 14, défaut 1).",
+                        "default": 1,
+                    },
+                    "a_partir_de": {
+                        "type": "string",
+                        "enum": ["aujourd'hui", "demain"],
+                        "description": "Premier jour couvert (défaut aujourd'hui).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "meteo",
+            "description": (
+                "Prévisions météo (Open-Meteo) jour par jour. Sans lieu : Baulon et "
+                "Le Rheu, chez l'utilisateur. Avec un lieu : un simple nom de ville."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lieu": {
+                        "type": "string",
+                        "description": "Nom de ville (optionnel ; vide = Baulon et Le Rheu).",
+                    },
+                    "jours": {
+                        "type": "integer",
+                        "description": "Jours de prévision, à partir d'aujourd'hui (1 à 7, défaut 2).",
+                        "default": 2,
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "briefing_maintenant",
+            "description": (
+                "Demande le briefing iMessage de Klody tout de suite (météo, agenda, "
+                "mails, actus) ; il arrive sur l'iPhone sous une minute."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "moment": {
+                        "type": "string",
+                        "enum": ["matin", "midi", "soir"],
+                        "description": "Quel briefing (optionnel ; défaut : selon l'heure).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_shortcuts",
             "description": (
                 "macOS uniquement. Liste les Raccourcis Apple disponibles "
