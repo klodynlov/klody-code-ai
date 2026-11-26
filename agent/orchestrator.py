@@ -19,6 +19,7 @@ from config import (
     MAX_ITERATIONS,
     MAX_TOKENS_DEFAULT,
     MAX_TOKENS_PAR_TYPE,
+    MEMORY_DIR,
     PREVIEW_FEEDBACK_TIMEOUT_S,
     PROJECT_ROOT,
     RETRIEVAL_BUILD_DEADLINE_S,
@@ -49,6 +50,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+from tools.agenda import agenda as ag_agenda, briefing_maintenant as ag_briefing, meteo as ag_meteo
 from tools.automation import (
     backup_directory as auto_backup,
     batch_rename as auto_rename,
@@ -1314,6 +1316,12 @@ class Orchestrator(GardesMixin):
             "spotlight_search": lambda a: mac_spotlight(
                 a["query"], a.get("only_in", ""), int(a.get("limit", 20) or 20)),
             "list_shortcuts": lambda a: mac_list_shortcuts(),
+            # Agenda, app Rappels, météo (tools/agenda.py, 2026-11-26)
+            "agenda": lambda a: ag_agenda(
+                int(a.get("jours", 1) or 1), a.get("a_partir_de", "aujourd'hui") or "aujourd'hui"),
+            "meteo": lambda a: ag_meteo(a.get("lieu", "") or "", int(a.get("jours", 2) or 2)),
+            "briefing_maintenant": lambda a: ag_briefing(
+                Path(MEMORY_DIR), a.get("moment", "") or ""),
             "run_shortcut": lambda a: mac_run_shortcut(a["name"], a.get("input_text", "")),
             "reveal_in_finder": lambda a: mac_reveal(a["path"]),
             # Maison connectée / IoT (MQTT)

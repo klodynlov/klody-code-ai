@@ -19,7 +19,21 @@ private func iso(_ d: Date?) -> String {
     return f.string(from: d)
 }
 
-func lancerAgenda(jours: Int) -> Never {
+/// Dossier où `--sortie` a le droit d'écrire : `~/.klody/data/agenda/`. Une app
+/// signée qui écrit où on lui dit serait un primitive d'écriture offerte à tout
+/// processus capable de la lancer.
+func sortieAutorisee(_ chemin: String) -> Bool {
+    let racine = (NSHomeDirectory() as NSString).appendingPathComponent(".klody/data/agenda")
+    let p = URL(fileURLWithPath: chemin).standardizedFileURL.resolvingSymlinksInPath().path
+    let r = URL(fileURLWithPath: racine).standardizedFileURL.resolvingSymlinksInPath().path
+    return p.hasPrefix(r + "/") && !p.contains("/../")
+}
+
+func lancerAgenda(jours: Int, sortie cheminSortie: String? = nil) -> Never {
+    if let c = cheminSortie, !sortieAutorisee(c) {
+        FileHandle.standardError.write("KlodyMessages.app: --sortie hors de ~/.klody/data/agenda refusée\n".data(using: .utf8)!)
+        exit(64) // EX_USAGE
+    }
     let store = EKEventStore()
     let cal = Calendar.current
     let debut = cal.startOfDay(for: Date())
@@ -85,6 +99,16 @@ func lancerAgenda(jours: Int) -> Never {
 
     let sortie: [String: Any] = ["evenements": evenements, "rappels": rappels, "erreurs": erreurs]
     let data = try! JSONSerialization.data(withJSONObject: sortie, options: [.sortedKeys])
-    FileHandle.standardOutput.write(data)
+    if let c = cheminSortie {
+        // Écriture atomique : le lecteur ne voit jamais un JSON à moitié écrit.
+        do {
+            try data.write(to: URL(fileURLWithPath: c), options: [.atomic])
+        } catch {
+            FileHandle.standardError.write("KlodyMessages.app: écriture \(c) : \(error)\n".data(using: .utf8)!)
+            exit(73) // EX_CANTCREAT
+        }
+    } else {
+        FileHandle.standardOutput.write(data)
+    }
     exit(0)
 }

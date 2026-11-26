@@ -20,9 +20,16 @@ func fail(_ msg: String) -> Never {
 }
 
 // Mode agenda (Agenda.swift) : relancé par le canal, JAMAIS le pont Python.
+// `--sortie <fichier>` : écrit le JSON dans un fichier au lieu de stdout — c'est
+// le chemin des processus qui ne sont PAS sous cette coque (API Klody, CLI) : ils
+// lancent l'app par `open -n -W`, LaunchServices en fait son propre responsable
+// TCC, et `open` ne relaie pas stdout (2026-11-26).
 if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--agenda" {
-    let jours = CommandLine.arguments.count > 2 ? Int(CommandLine.arguments[2]) ?? 1 : 1
-    lancerAgenda(jours: jours)
+    let a = CommandLine.arguments
+    let jours = a.count > 2 ? Int(a[2]) ?? 1 : 1
+    var sortie: String? = nil
+    if let i = a.firstIndex(of: "--sortie"), i + 1 < a.count { sortie = a[i + 1] }
+    lancerAgenda(jours: jours, sortie: sortie)
 }
 
 let info = Bundle.main.infoDictionary ?? [:]

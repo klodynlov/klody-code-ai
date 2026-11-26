@@ -214,12 +214,15 @@ def test_chaque_outil_natif_libre_est_un_choix_ecrit():
         "list_tool_kinds", "mqtt_subscribe", "preview_file", "rappeler_memoire",
         "read_file", "read_github_file", "search_books", "search_in_files",
         "spotlight_search", "library_web_search", "library_source_status",
+        "agenda", "meteo",
         # artefacts confinés ou code rendu sans écriture (choix documentés)
         "bundle_zip", "generate_excel", "generate_text_file", "generate_uml",
         "preview_code", "scaffold_api", "scaffold_nosql", "scaffold_sdk", "speak",
         # UI locale bénigne, mémoire demandée explicitement
         "open_in_pycharm", "reveal_in_finder", "stop_preview_server",
         "remember_fact", "forget_fact", "ask_user",
+        # dépose briefing.maintenant : le briefing part vers l'utilisateur lui-même
+        "briefing_maintenant",
         # gardés selon leurs arguments (cf. _ARG_GATED_TOOLS) : libres sans option d'écriture
         "batch_rename", "docker_control", "git_control", "organize_directory",
         "run_sql", "sync_directories",

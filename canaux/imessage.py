@@ -205,6 +205,9 @@ ALLOWED_NATIVE = frozenset({
     "search_books", "library_catalog", "rappeler_memoire", "get_skills", "list_skills",
     "spotlight_search", "list_shortcuts", "list_files", "read_file", "search_in_files",
     "find_relevant_files",
+    # 2026-11-26 : agenda/Rappels (lecture, via la coque), météo (seul un nom de
+    # ville sort — filtré), briefing à la demande (vers l'utilisateur lui-même).
+    "agenda", "meteo", "briefing_maintenant",
 })
 ALLOWED_MCP_SERVERS = frozenset({"gmail"})  # + filtre approval.py (send/draft gardés)
 
