@@ -1762,6 +1762,54 @@ routage `agenda` (`tools/context_selection.py`) :
   développement (TCC attribuerait la demande à Claude.app) ; météo vérifiée en
   réel (Baulon, Le Rheu, Rennes, Fort-de-France).
 
+## État au 2026-11-26 — route /montre (`api/montre.py`)
+
+Demandé le 2026-11-26 : une app Apple Watch native pour Klody. La montre passe
+par l'iPhone (KlodyPocket, WatchConnectivity), qui garde le jeton et appelle
+`https://<mac>.<tailnet>.ts.net/klody/<route>` ; `tailscale serve --set-path
+/klody` proxifie vers `http://127.0.0.1:8000/api/montre/<route>`. **Seule partie
+de l'API exposée au tailnet** — jamais tout `:8000`, jamais funnel.
+
+| route | rôle |
+|---|---|
+| `GET /etat` | complication : prochain rendez-vous HORAIRE à venir, aujourd'hui/demain |
+| `GET /agenda?jours=&a_partir_de=` | texte + événements + rappels non faits (`tools/agenda.py`) |
+| `GET /meteo?lieu=&jours=` | Open-Meteo, filtre `_LIEU_OK` |
+| `GET /briefing?moment=` | briefing EXPRESS sans modèle : météo, agenda + rappels, nb de mails importants |
+| `POST /briefing` | dépose `briefing.maintenant` — le vrai part par iMessage |
+| `POST /demande` | régime iMessage (`preparer_orchestrateur`), session `montre`, 120 s, ≤ 1 000 car. |
+| `POST /note`, `POST /rappel` | `proactif.db` du canal (repris au briefing / envoyé à l'heure) |
+
+- **Jeton** `KLODY_MONTRE_TOKEN` (`.env`, posé par l'utilisateur, ≥ 32 car.) :
+  `hmac.compare_digest` sur octets ; absent ou court ⇒ TOUT en 503 « non
+  configurée ». Vérifié AVANT le corps et les paramètres (lus à la main) : un
+  inconnu n'obtient qu'un 401, jamais un 400/422 qui décrirait la route.
+- **Erreurs NOMMÉES** `{"erreur": …}` partout, 500 compris (décorateur
+  `_protege`) : jamais le `{"detail": …}` de FastAPI, que l'app Swift ne décode pas.
+- ⚠️ **Le proxy de Tailscale GARDE le `Host` d'origine** (`*.ts.net`) : la règle
+  anti-DNS-rebinding de `api/garde_origine.py` aurait répondu 403 à chaque appel.
+  Exception bornée à `PREFIXE_MONTRE` ET aux noms `*.ts.net` (DNS tenu par
+  Tailscale) ; le reste de l'API reste fermé (testé : `/api/status`, `/api/siri`
+  en 403 sous le même `Host`).
+- `/demande` : verrou + exécuteur DÉDIÉ à un fil. Au-delà de 120 s ⇒ 504, le fil
+  continue (on ne tue pas un fil) et les demandes suivantes reçoivent 429 jusqu'à
+  sa fin — pas de file d'attente. ⚠️ Avec l'exécuteur par défaut, le TestClient
+  (une boucle par requête) attendait le fil à la fermeture : 504 puis 504 au lieu
+  de 429, attrapé par le test.
+- Agenda : instantané partagé 60 s, une seule coque `open -n -W` à la fois — la
+  complication et l'app sondent souvent.
+- `canaux/imessage.py::make_agent_runner` prend `session` (défaut `imessage`) :
+  deux processus (canal, API) qui réécrivent le même `memory_*.json` se
+  marcheraient dessus.
+- Mutations rejouées : 7/7 rouges (jeton, date passée, rendez-vous passé, verrou,
+  filtre de lieu, exception `*.ts.net`, longueur du jeton).
+- **Déploiement (accord de l'utilisateur requis)** : ff du checkout principal,
+  `launchctl kickstart -k gui/$(id -u)/com.klody.api`, puis `tailscale serve --bg
+  --set-path /klody http://127.0.0.1:8000/api/montre` ; vérifier `tailscale
+  serve status` (`/v1`, `/lb` intacts) et que les ACL autorisent déjà 443. Sans
+  la coque reconstruite (PR agenda), `/etat` et `/agenda` répondent avec
+  `erreurs` « la coque n'a rien écrit » — nommé, jamais vide.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

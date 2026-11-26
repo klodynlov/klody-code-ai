@@ -56,11 +56,13 @@ from agent.long_term_memory import get_long_term_memory
 from agent.memory import ConversationMemory
 from agent.memory_extractor import etat_extraction, extract_and_save
 from agent.orchestrator import Orchestrator
+from agent.texte_vocal import sans_markdown
 from tools.skills import delete_skill, load_skills
 from tools.vision import _IMAGE_EXTS  # whitelist exts partagée avec analyser_image (source unique)
 
 from api import metrics as _metrics
 from api.garde_origine import ORIGINES_UI, GardeOrigine
+from api.montre import installer as _installer_montre
 from api.streaming import StopGeneration, make_stream_api
 
 logger = logging.getLogger(__name__)
@@ -174,6 +176,11 @@ app.add_middleware(
 # Ajouté APRÈS CORS, donc EXTÉRIEUR : il juge avant tout le reste, WebSocket
 # compris (que CORS ne couvre pas). Détail et incident dans api/garde_origine.py.
 app.add_middleware(GardeOrigine)
+
+# Route de l'app Apple Watch (via l'iPhone, tailnet seulement) : jeton exigé,
+# lecture seule. Seule partie de l'API que `tailscale serve` expose
+# (`--set-path /klody` → `/api/montre`). Détail dans api/montre.py.
+_installer_montre(app)
 
 # Sessions actives par WebSocket
 _sessions: dict[str, ConversationMemory] = {}
@@ -1372,25 +1379,8 @@ def _build_streaming_orchestrator(
 _SIRI_SESSION_ID = "siri"
 _SIRI_LOCK = threading.Lock()
 
-_MD_BOLD = re.compile(r'\*{1,3}(.+?)\*{1,3}', re.DOTALL)
-_MD_CODE_BLOCK = re.compile(r'```[\s\S]*?```')
-_MD_INLINE_CODE = re.compile(r'`[^`]+`')
-_MD_HEADING = re.compile(r'^#{1,6}\s+', re.MULTILINE)
-_MD_BULLET = re.compile(r'^[-*]\s+', re.MULTILINE)
-_MD_LINK = re.compile(r'\[([^\]]+)\]\([^)]+\)')
-_MD_MULTI_NL = re.compile(r'\n{3,}')
-
-
-def _strip_markdown(text: str) -> str:
-    """Simplifie le markdown pour une lecture TTS naturelle par Siri."""
-    text = _MD_CODE_BLOCK.sub('', text)
-    text = _MD_INLINE_CODE.sub(lambda m: m.group(0)[1:-1], text)
-    text = _MD_BOLD.sub(r'\1', text)
-    text = _MD_HEADING.sub('', text)
-    text = _MD_BULLET.sub('- ', text)
-    text = _MD_LINK.sub(r'\1', text)
-    text = _MD_MULTI_NL.sub('\n\n', text)
-    return text.strip()
+# Source unique (Siri, canal iMessage, montre) : agent/texte_vocal.py.
+_strip_markdown = sans_markdown
 
 
 def _executeur_sans_validation(

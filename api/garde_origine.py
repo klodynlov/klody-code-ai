@@ -20,7 +20,9 @@ l'atteindre depuis n'importe quel site ouvert. Constaté à l'audit du 2026-09-2
 Règles, dans l'ordre :
 
 1. `Host` doit nommer la boucle locale (127.0.0.1, localhost, ::1). Absent ⇒
-   client non-navigateur, accepté (un navigateur l'envoie toujours).
+   client non-navigateur, accepté (un navigateur l'envoie toujours). Seule
+   exception : `/api/montre/*` accepte aussi un `*.ts.net` (proxy Tailscale,
+   jeton exigé par la route — cf. `PREFIXE_MONTRE`).
 2. Un `Origin` présent doit appartenir à l'UI (`ORIGINES_UI`) — ou, pour la
    seule route `/api/preview_error`, au serveur d'aperçu (`:PREVIEW_PORT`), dont
    les pages exécutent du code généré et n'ont droit à rien d'autre.
@@ -74,6 +76,16 @@ ROUTE_APERCU = "/api/preview_error"
 
 HOTES_LOCAUX = frozenset({"127.0.0.1", "localhost", "::1"})
 
+# Route de l'app Apple Watch (api/montre.py), proxifiée par `tailscale serve`
+# (`--set-path /klody`, tailnet seulement). Le proxy de Tailscale GARDE le `Host`
+# d'origine (`<mac>.<tailnet>.ts.net`) : sans cette exception, la règle 1
+# répondrait 403 « DNS rebinding ? » à chaque appel de l'iPhone. Bornée au
+# préfixe de la route — qui exige un jeton — et aux noms `*.ts.net`, dont
+# Tailscale tient le DNS : une page piégée ne peut pas en faire pointer un sur
+# 127.0.0.1. Le reste de l'API reste fermé à tout hôte non local.
+PREFIXE_MONTRE = "/api/montre/"
+SUFFIXE_TAILNET = ".ts.net"
+
 METHODES_SURES = frozenset({"GET", "HEAD", "OPTIONS"})
 # GET qui déclenchent un effet de bord : traités comme une méthode non sûre.
 GET_A_EFFET = frozenset({"/api/siri"})
@@ -97,7 +109,9 @@ def motif_de_refus(
     sec_fetch_site: str | None,
 ) -> str | None:
     """Pourquoi refuser cette requête, ou None si elle passe. Fonction pure."""
-    if hote is not None and _hote_sans_port(hote) not in HOTES_LOCAUX:
+    if hote is not None and _hote_sans_port(hote) not in HOTES_LOCAUX and not (
+        chemin.startswith(PREFIXE_MONTRE) and _hote_sans_port(hote).endswith(SUFFIXE_TAILNET)
+    ):
         return f"hôte « {hote} » non local (DNS rebinding ?)"
 
     if origine is not None:
