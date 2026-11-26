@@ -36,6 +36,7 @@ import re
 import urllib.parse
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -63,29 +64,43 @@ def _app() -> Path:
     return Path(lanceur) if lanceur else APP_DEFAUT
 
 
+def _binaire(app: Path) -> Path:
+    return app / "Contents" / "MacOS" / "KlodyMessages"
+
+
+def _coque(args: list[str], run: Run, dossier: Path, sous_coque: bool | None,
+           app: Path, delai: float) -> dict:
+    """Lance la coque avec ``args`` et rend son JSON.
+
+    Sous la coque : relance directe (le responsable TCC reste l'app). Ailleurs :
+    ``open -g -n -W`` + ``--sortie`` dans ``dossier``, lu puis effacé. Lève
+    ``FileNotFoundError`` si la coque n'a rien écrit (accès refusé, coque trop
+    ancienne pour ce mode)."""
+    if sous_coque is None:
+        sous_coque = bool(os.environ.get("KLODY_IMSG_LAUNCHER"))
+    if sous_coque:
+        return dict(json.loads(run([str(_binaire(app)), *args], delai)))
+    dossier.mkdir(parents=True, exist_ok=True)
+    f = dossier / f"{uuid.uuid4().hex}.json"
+    try:
+        run(["/usr/bin/open", "-g", "-n", "-W", "-a", str(app), "--args",
+             *args, "--sortie", str(f)], delai)
+        return dict(json.loads(f.read_text()))
+    finally:
+        f.unlink(missing_ok=True)
+
+
 def lire_agenda(jours: int, run: Run = lancer, dossier: Path = DOSSIER_SORTIE,
                 sous_coque: bool | None = None, app: Path | None = None) -> dict:
     """JSON de la coque ``{evenements, rappels, erreurs}`` ; toute panne est NOMMÉE
     dans ``erreurs`` (jamais un agenda vide qui ment — leçon du 2026-11-22)."""
     jours = max(1, min(JOURS_MAX, int(jours)))
     app = app or _app()
-    if sous_coque is None:
-        sous_coque = bool(os.environ.get("KLODY_IMSG_LAUNCHER"))
-    binaire = app / "Contents" / "MacOS" / "KlodyMessages"
-    if not binaire.exists():
+    if not _binaire(app).exists():
         return {"evenements": [], "rappels": [],
                 "erreurs": [f"coque KlodyMessages absente ({app})"]}
     try:
-        if sous_coque:
-            return dict(json.loads(run([str(binaire), "--agenda", str(jours)], DELAI_AGENDA_S)))
-        dossier.mkdir(parents=True, exist_ok=True)
-        f = dossier / f"{uuid.uuid4().hex}.json"
-        try:
-            run(["/usr/bin/open", "-g", "-n", "-W", "-a", str(app), "--args",
-                 "--agenda", str(jours), "--sortie", str(f)], DELAI_AGENDA_S)
-            return dict(json.loads(f.read_text()))
-        finally:
-            f.unlink(missing_ok=True)
+        return _coque(["--agenda", str(jours)], run, dossier, sous_coque, app, DELAI_AGENDA_S)
     except FileNotFoundError:
         return {"evenements": [], "rappels": [],
                 "erreurs": ["la coque n'a rien écrit (accès Calendriers/Rappels refusé ?)"]}
@@ -157,6 +172,187 @@ def agenda(jours: int = 1, a_partir_de: str = "aujourd'hui", run: Run = lancer,
     fin = debut + timedelta(days=jours - 1)
     d = lire_agenda(decalage + jours, run, dossier, sous_coque, app)
     return formater(d, debut, fin, now.date())
+
+
+# ── Création (rappel, événement) : APRÈS validation humaine seulement ────────
+#
+# Demandé le 2026-11-26 (chantier « Actions avec ton oui »). Ces deux outils
+# ÉCRIVENT dans l'app Rappels / Calendrier : `agent/approval.py` les garde (boîte
+# de validation de l'app), le canal iMessage les met en attente d'un « oui »
+# (`canaux/confirmation.py`). D'où la séparation préparer / exécuter : la
+# préparation valide et rend le récapitulatif EXACT de ce qui sera écrit, sans
+# rien toucher ; l'exécution n'écrit que ce récapitulatif-là.
+
+DELAI_CREATION_S = 60.0
+TITRE_MAX = 200
+NOTES_MAX = 1000
+# Une date à plus d'un jour dans le passé est presque toujours une année fausse
+# (vécu le 2026-11-22 avec programmer_rappel) ; au-delà de 3 ans, une coquille.
+PASSE_MAX = timedelta(days=1)
+FUTUR_MAX = timedelta(days=3 * 366)
+_CONTROLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+@dataclass(frozen=True)
+class Preparation:
+    """Ce qui sera écrit, validé : arguments de la coque + récapitulatif lisible."""
+
+    type: str  # "rappel" | "evenement"
+    args_coque: tuple[str, ...]
+    resume: str
+
+
+def _texte(v: object, n: int, lignes: bool = False) -> str:
+    s = _CONTROLE.sub(" ", str(v or ""))
+    if not lignes:
+        s = " ".join(s.split())
+    return s.strip()[:n]
+
+
+def _quand(v: object, now: datetime) -> tuple[datetime, bool] | str:
+    """``AAAA-MM-JJ`` ou ``AAAA-MM-JJTHH:MM`` (heure locale si sans fuseau) →
+    (date-heure locale naïve, avec_heure), sinon le motif du refus."""
+    s = str(v or "").strip()
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            dt, avec_heure = datetime.fromisoformat(s), False
+        else:
+            dt, avec_heure = datetime.fromisoformat(s), True
+    except ValueError:
+        return f"date illisible « {s[:40]} » : AAAA-MM-JJ ou AAAA-MM-JJTHH:MM"
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    if dt < now - PASSE_MAX:
+        return f"date déjà passée ({dt:%d/%m/%Y}) — maintenant : {now:%d/%m/%Y %H:%M}"
+    if dt > now + FUTUR_MAX:
+        return f"date trop lointaine ({dt:%d/%m/%Y})"
+    return dt, avec_heure
+
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone().isoformat(timespec="seconds")
+
+
+def preparer_rappel(titre: str, echeance: str = "", liste: str = "", notes: str = "",
+                    maintenant: datetime | None = None) -> Preparation | str:
+    """Valide un rappel de l'app Rappels ; rend la préparation ou le motif du refus."""
+    now = maintenant or datetime.now()
+    t = _texte(titre, TITRE_MAX)
+    if not t:
+        return "titre du rappel vide"
+    args = ["--creer-rappel", "--titre", t]
+    quand = ""
+    if str(echeance or "").strip():
+        q = _quand(echeance, now)
+        if isinstance(q, str):
+            return q
+        dt, avec_heure = q
+        args += ["--echeance", _iso(dt) if avec_heure else f"{dt:%Y-%m-%d}"]
+        quand = f" — {_jour(dt.date())}" + (f" {dt:%H:%M}" if avec_heure else "")
+    li = _texte(liste, 60)
+    if li:
+        args += ["--liste", li]
+    n = _texte(notes, NOTES_MAX, lignes=True)
+    if n:
+        args += ["--notes", n]
+    resume = (f"✅ Créer le rappel « {t} »{quand}"
+              + (f" (liste {li})" if li else " (liste par défaut)")
+              + (f"\nNotes : {n}" if n else ""))
+    return Preparation("rappel", tuple(args), resume)
+
+
+def preparer_evenement(titre: str, debut: str, fin: str = "", duree_min: int = 60,
+                       lieu: str = "", calendrier: str = "", journee: bool = False,
+                       notes: str = "", maintenant: datetime | None = None) -> Preparation | str:
+    """Valide un événement du Calendrier ; rend la préparation ou le motif du refus."""
+    now = maintenant or datetime.now()
+    t = _texte(titre, TITRE_MAX)
+    if not t:
+        return "titre de l'événement vide"
+    q = _quand(debut, now)
+    if isinstance(q, str):
+        return "début : " + q
+    d, avec_heure = q
+    journee = bool(journee) or not avec_heure
+    if str(fin or "").strip():
+        qf = _quand(fin, now)
+        if isinstance(qf, str):
+            return "fin : " + qf
+        f = qf[0]
+    elif journee:
+        f = d
+    else:
+        try:
+            minutes = int(duree_min or 60)
+        except (TypeError, ValueError):
+            return "durée illisible"
+        if not 5 <= minutes <= 24 * 60:
+            return "durée hors bornes (5 min à 24 h)"
+        f = d + timedelta(minutes=minutes)
+    if journee:
+        d = datetime.combine(d.date(), datetime.min.time())
+        f = datetime.combine(f.date(), datetime.min.time()).replace(hour=23, minute=59)
+    if f < d:
+        return "la fin précède le début"
+    args = ["--creer-evenement", "--titre", t, "--debut", _iso(d), "--fin", _iso(f)]
+    if journee:
+        args.append("--journee")
+    li, cal = _texte(lieu, 120), _texte(calendrier, 60)
+    if li:
+        args += ["--lieu", li]
+    if cal:
+        args += ["--calendrier", cal]
+    n = _texte(notes, NOTES_MAX, lignes=True)
+    if n:
+        args += ["--notes", n]
+    if journee:
+        quand = _jour(d.date()) + ("" if f.date() == d.date() else f" → {_jour(f.date())}") + ", journée"
+    elif f.date() == d.date():
+        quand = f"{_jour(d.date())} {d:%H:%M}–{f:%H:%M}"
+    else:
+        quand = f"{_jour(d.date())} {d:%H:%M} → {_jour(f.date())} {f:%H:%M}"
+    resume = (f"📅 Créer l'événement « {t} » — {quand}"
+              + (f" ({li})" if li else "")
+              + (f", calendrier {cal}" if cal else ", calendrier par défaut")
+              + (f"\nNotes : {n}" if n else ""))
+    return Preparation("evenement", tuple(args), resume)
+
+
+def executer(prep: Preparation, run: Run = lancer, dossier: Path = DOSSIER_SORTIE,
+             sous_coque: bool | None = None, app: Path | None = None) -> str:
+    """Écrit la préparation par la coque ; le résultat est NOMMÉ, jamais muet."""
+    app = app or _app()
+    quoi = "Rappel" if prep.type == "rappel" else "Événement"
+    if not _binaire(app).exists():
+        return f"❌ {quoi} non créé : coque KlodyMessages absente ({app})"
+    try:
+        r = _coque(list(prep.args_coque), run, dossier, sous_coque, app, DELAI_CREATION_S)
+    except FileNotFoundError:
+        return (f"❌ {quoi} non créé : la coque n'a rien écrit "
+                "(accès Calendriers/Rappels refusé, ou coque à reconstruire ?)")
+    except Exception as e:
+        logger.warning("[agenda] création : %s", e)
+        return f"❌ {quoi} non créé : {type(e).__name__}"
+    if not r.get("ok"):
+        return f"❌ {quoi} non créé : {r.get('erreur') or 'erreur inconnue'}"
+    return f"✅ {quoi} créé : « {r.get('titre', '')} » ({r.get('liste') or 'par défaut'})."
+
+
+def creer_rappel(titre: str, echeance: str = "", liste: str = "", notes: str = "",
+                 run: Run = lancer, maintenant: datetime | None = None) -> str:
+    """Outil ``creer_rappel`` (validé en amont par l'humain)."""
+    p = preparer_rappel(titre, echeance, liste, notes, maintenant)
+    return f"Rappel refusé : {p}." if isinstance(p, str) else executer(p, run)
+
+
+def creer_evenement(titre: str, debut: str, fin: str = "", duree_min: int = 60,
+                    lieu: str = "", calendrier: str = "", journee: bool = False,
+                    notes: str = "", run: Run = lancer,
+                    maintenant: datetime | None = None) -> str:
+    """Outil ``creer_evenement`` (validé en amont par l'humain)."""
+    p = preparer_evenement(titre, debut, fin, duree_min, lieu, calendrier, journee, notes,
+                           maintenant)
+    return f"Événement refusé : {p}." if isinstance(p, str) else executer(p, run)
 
 
 # ── Météo ────────────────────────────────────────────────────────────────────

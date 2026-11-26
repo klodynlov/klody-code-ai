@@ -200,6 +200,16 @@ def list_shortcuts() -> str:
     return f"{len(names)} raccourci(s) :\n" + "\n".join(f"  • {n}" for n in names)
 
 
+def raccourcis_disponibles() -> list[str]:
+    """Noms exacts des Raccourcis installés (`shortcuts list`) ; lève
+    ``MacControlError`` si la liste est illisible. Sert au canal iMessage à
+    refuser, AVANT de demander un « oui », un nom de raccourci inexistant."""
+    if not is_macos():
+        raise MacControlError("Raccourcis : macOS seulement")
+    raw = _run(["shortcuts", "list"])
+    return [] if raw == "(aucune sortie)" else [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+
 def run_shortcut(name: str, input_text: str = "") -> str:
     """Exécute un Raccourci Apple par son nom (`shortcuts run`).
 

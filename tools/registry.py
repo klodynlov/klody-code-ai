@@ -1350,6 +1350,58 @@ MAC_TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "creer_rappel",
+            "description": (
+                "Crée un rappel dans l'app Rappels d'Apple (synchronisé iPhone). ÉCRIT : "
+                "l'utilisateur valide avant exécution. Différent de programmer_rappel, qui "
+                "n'envoie qu'un iMessage de Klody. Dates en heure locale, calculées depuis "
+                "la date du jour."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titre": {"type": "string", "description": "Ce qu'il faut faire."},
+                    "echeance": {
+                        "type": "string",
+                        "description": "AAAA-MM-JJTHH:MM (avec alerte) ou AAAA-MM-JJ (date seule) ; vide = sans date.",
+                    },
+                    "liste": {"type": "string", "description": "Nom exact de la liste (vide = liste par défaut)."},
+                    "notes": {"type": "string", "description": "Détails (optionnel)."},
+                },
+                "required": ["titre"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "creer_evenement",
+            "description": (
+                "Crée un événement dans l'app Calendrier d'Apple. ÉCRIT : l'utilisateur "
+                "valide avant exécution. Dates en heure locale, calculées depuis la date du jour."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "titre": {"type": "string", "description": "Intitulé."},
+                    "debut": {
+                        "type": "string",
+                        "description": "AAAA-MM-JJTHH:MM, ou AAAA-MM-JJ pour un événement sur la journée.",
+                    },
+                    "fin": {"type": "string", "description": "Même format (optionnel ; sinon debut + duree_min)."},
+                    "duree_min": {"type": "integer", "description": "Durée en minutes si pas de fin (défaut 60)."},
+                    "lieu": {"type": "string", "description": "Lieu (optionnel)."},
+                    "calendrier": {"type": "string", "description": "Nom exact du calendrier (vide = par défaut)."},
+                    "journee": {"type": "boolean", "description": "Toute la journée."},
+                    "notes": {"type": "string", "description": "Détails (optionnel)."},
+                },
+                "required": ["titre", "debut"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_shortcuts",
             "description": (
                 "macOS uniquement. Liste les Raccourcis Apple disponibles "

@@ -49,7 +49,13 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
-from tools.agenda import agenda as ag_agenda, briefing_maintenant as ag_briefing, meteo as ag_meteo
+from tools.agenda import (
+    agenda as ag_agenda,
+    briefing_maintenant as ag_briefing,
+    creer_evenement as ag_creer_evenement,
+    creer_rappel as ag_creer_rappel,
+    meteo as ag_meteo,
+)
 from tools.automation import (
     backup_directory as auto_backup,
     batch_rename as auto_rename,
@@ -1321,6 +1327,15 @@ class Orchestrator(GardesMixin):
             "meteo": lambda a: ag_meteo(a.get("lieu", "") or "", int(a.get("jours", 2) or 2)),
             "briefing_maintenant": lambda a: ag_briefing(
                 None, a.get("moment", "") or ""),
+            # Écritures : gardées par agent/approval.py (app) ou par le « oui » iMessage.
+            "creer_rappel": lambda a: ag_creer_rappel(
+                a.get("titre", "") or "", a.get("echeance", "") or "",
+                a.get("liste", "") or "", a.get("notes", "") or ""),
+            "creer_evenement": lambda a: ag_creer_evenement(
+                a.get("titre", "") or "", a.get("debut", "") or "", a.get("fin", "") or "",
+                a.get("duree_min", 60) or 60, a.get("lieu", "") or "",
+                a.get("calendrier", "") or "", bool(a.get("journee", False)),
+                a.get("notes", "") or ""),
             "run_shortcut": lambda a: mac_run_shortcut(a["name"], a.get("input_text", "")),
             "reveal_in_finder": lambda a: mac_reveal(a["path"]),
             # Maison connectée / IoT (MQTT)

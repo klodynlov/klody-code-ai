@@ -360,6 +360,10 @@ class GmailMCP:
             raise RuntimeError(f"gmail {outil} : {d['error']}")
         return d
 
+    def appeler(self, outil: str, args: dict) -> dict:
+        """Appel générique (actions confirmées par « oui », `canaux/confirmation.py`)."""
+        return self._appel(outil, args)
+
     def chercher(self, requete: str, limite: int) -> list[dict]:
         return list(self._appel("search_emails", {"query": requete, "limit": limite})["emails"])
 
