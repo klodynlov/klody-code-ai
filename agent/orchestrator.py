@@ -5,7 +5,6 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-import config as _config
 from config import (
     BEST_OF_N_COUNT,
     BEST_OF_N_ENABLED,
@@ -1321,7 +1320,7 @@ class Orchestrator(GardesMixin):
                 int(a.get("jours", 1) or 1), a.get("a_partir_de", "aujourd'hui") or "aujourd'hui"),
             "meteo": lambda a: ag_meteo(a.get("lieu", "") or "", int(a.get("jours", 2) or 2)),
             "briefing_maintenant": lambda a: ag_briefing(
-                Path(_config.MEMORY_DIR), a.get("moment", "") or ""),
+                None, a.get("moment", "") or ""),
             "run_shortcut": lambda a: mac_run_shortcut(a["name"], a.get("input_text", "")),
             "reveal_in_finder": lambda a: mac_reveal(a["path"]),
             # Maison connectée / IoT (MQTT)

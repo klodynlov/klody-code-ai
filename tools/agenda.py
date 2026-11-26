@@ -224,9 +224,15 @@ def meteo(lieu: str = "", jours: int = 2, get: Callable[[str], bytes] = http_get
 MOMENTS = ("matin", "midi", "soir")
 
 
-def briefing_maintenant(dossier: Path, moment: str = "") -> str:
+def briefing_maintenant(dossier: Path | None = None, moment: str = "") -> str:
     """Dépose ``briefing.maintenant`` (même contrat que ``klody-notifier.py
     --briefing``) ; le canal iMessage le relève sous une minute."""
+    if dossier is None:
+        # Lu À L'APPEL, pas à l'import : les tests redirigent l'état, et CodeQL
+        # (alertes 334/335, 2026-11-26) refusait la valeur figée à l'import.
+        import config
+
+        dossier = Path(config.MEMORY_DIR)
     moment = (moment or "").strip().lower()
     if moment and moment not in MOMENTS:
         return f"Moment inconnu « {moment} » : matin, midi ou soir."

@@ -297,7 +297,14 @@ def test_dispatch_orchestrateur(monkeypatch, tmp_path):
     o._execute_tool("meteo", {})
     o._execute_tool("briefing_maintenant", {"moment": "midi"})
     assert vu["agenda"] == (3, "demain") and vu["meteo"] == ("", 2)
-    assert vu["briefing"][1] == "midi" and isinstance(vu["briefing"][0], Path)
+    assert vu["briefing"] == (None, "midi")             # dossier lu à l'appel
+
+
+def test_briefing_dossier_par_defaut_lu_a_l_appel(tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "MEMORY_DIR", str(tmp_path / "etat"))
+    ag.briefing_maintenant(moment="matin")
+    assert (tmp_path / "etat" / "briefing.maintenant").read_text() == "matin"
 
 
 def test_coque_sortie_verrouillee_dans_le_source():
