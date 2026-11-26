@@ -1686,6 +1686,48 @@ nouvelle heure, jamais deux fois à la même. Mac réveillé trop tard : rien
 Aucune lecture d'agenda hors coque pendant le développement : depuis la session
 Claude, TCC aurait attribué la demande à Claude.app.
 
+## État au 2026-11-26 — trois briefs par jour, et Gmail ne fige plus le moteur
+
+> ### ⚠️ INCIDENT — le moteur proactif figé ~20 h par UN appel Gmail
+>
+> Le 2026-11-25 vers 20 h, un `search_emails` vers le MCP Gmail (:8084) n'a
+> jamais répondu : requête `POST /mcp` acceptée, session jamais refermée
+> (`lsof` : connexion ESTABLISHED le lendemain 15:57). `GmailMCP._appel` n'avait
+> AUCUN délai, et toutes les sources tournent dans UN fil : plus de briefing du
+> matin, de rappels de rendez-vous ni de Rappels jusqu'au relancement
+> (`kickstart -k com.klody.imessage`, 2026-11-26 15:58). Le processus restait
+> vivant, le journal muet — rien ne le signalait.
+>
+> Remède : `asyncio.wait_for(…, DELAI_GMAIL_S)` (60 s) ; l'annulation referme la
+> session (`async with`), l'erreur est nommée (« pas de réponse en 60 s »), la
+> source mails est isolée comme toute source en panne et retentée 5 min plus
+> tard. Tous les autres accès du moteur avaient déjà leur délai (agenda 20/60 s,
+> Notes 30 s, HTTP 15 s, LLM, osascript 30 s). Mutation (délai retiré) : les
+> deux tests rougissent (`test_gmail_mcp_sans_reponse_coupe_et_ferme`,
+> `test_gmail_muet_ne_fige_plus_le_moteur`).
+
+**Midi et soir** (demandés le 2026-11-26, « adapté au moment ») :
+`KLODY_BRIEFING_MIDI` (12:30) et `KLODY_BRIEFING_SOIR` (19:00), « 0 » coupe.
+
+| moment | fenêtre de rattrapage | contenu |
+|---|---|---|
+| matin | 07:30 → 12:00 | inchangé |
+| midi | 12:30 → 17:30 | météo HORAIRE 13-19 h, rendez-vous pas encore finis, rappels restants, mails importants arrivés depuis le briefing précédent (`after:<instant>`), actus France + Martinique (sans tech) |
+| soir | 19:00 → 23:00 | météo, agenda et rappels de DEMAIN, bilan (rappels en suspens, mails non lus du jour), revue du soir (3 rubriques) |
+
+- Veille MLX et proposition d'habitude : le matin seulement.
+- Un moment envoyé clôt aussi les précédents du jour : un matin raté
+  n'arrive jamais après le point de midi.
+- Clés : matin `briefing:<jour>:<i>` (inchangée), autres
+  `briefing:<jour>-<moment>:<i>`, manuel `briefing:manuel-<moment>-<ts>:<i>`.
+- Manuel : `klody-notifier.py --briefing [--moment midi]` ; sans moment, le
+  dernier moment commencé (avant 12:30 : matin).
+- ⚠️ Vu à l'essai réel : le modèle recopiait la consigne dans le titre de
+  rubrique (« 🌍 France & monde — 3 puces, ce qui est nouveau… »). Consigne
+  reformulée ET `normaliser_puces` retire « — N puces… » d'un titre.
+- `after:<secondes Unix>` vérifié sur le vrai MCP Gmail (8 mails sur 5 h, 30
+  sur 30 h) — pas déduit de la doc.
+
 ## État au 2026-11-26 — Klody lit l'agenda et la météo partout (`tools/agenda.py`)
 
 Demandé le 2026-11-26 (« élargir le champ de compétences », choix « Agenda,

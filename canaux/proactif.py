@@ -53,6 +53,12 @@ PAS_BOUCLE_S = 10.0
 MAILS_PAR_PASSAGE = 5
 REQUETE_MAILS = "is:unread is:important newer_than:2d"
 CORPS_MAIL_MAX = 3000
+# Délai maximal d'un appel au MCP Gmail. Vécu le 2026-11-25 vers 20 h : un
+# `search_emails` est resté sans réponse (connexion :8084 jamais close) et,
+# toutes les sources tournant dans UN fil, le moteur entier s'est figé jusqu'au
+# relancement du lendemain 15:58 — ni briefing, ni rendez-vous, ni rappels. Les
+# autres accès du moteur avaient déjà leur délai ; celui-ci était le seul sans.
+DELAI_GMAIL_S = 60.0
 TEXTE_MAX = 600
 
 # États d'une clé dans le registre
@@ -329,8 +335,9 @@ def source_mails(registre: Registre, chercher: Chercher, lire: Lire, resumer: Re
 class GmailMCP:
     """Accès lecture au serveur MCP Gmail de Klody (``com.klody.gmail-mcp``)."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, delai_s: float = DELAI_GMAIL_S) -> None:
         self.url = url
+        self.delai_s = delai_s
 
     def _appel(self, outil: str, args: dict) -> dict:
         import asyncio
@@ -344,7 +351,11 @@ class GmailMCP:
                     return dict(r.structured_content)
                 return dict(json.loads(r.content[0].text))
 
-        d = asyncio.run(go())
+        try:
+            d = asyncio.run(asyncio.wait_for(go(), self.delai_s))
+        except TimeoutError:  # asyncio.TimeoutError en est un alias depuis 3.11
+            # wait_for annule la coroutine : le `async with` referme la session.
+            raise RuntimeError(f"gmail {outil} : pas de réponse en {self.delai_s:.0f} s") from None
         if "error" in d:
             raise RuntimeError(f"gmail {outil} : {d['error']}")
         return d

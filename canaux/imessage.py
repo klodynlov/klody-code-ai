@@ -52,7 +52,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from canaux.briefing import HEURE_DEFAUT, Dependances, source_briefing, synthese_llm
+from canaux.briefing import HEURE_DEFAUT, HEURES_DEFAUT, Dependances, source_briefing, synthese_llm
 from canaux.proactif import (
     MAX_PAR_JOUR,
     OUTILS_CANAL,
@@ -449,8 +449,12 @@ def demarrer_proactif(registre: Registre, dest: str,
     if os.environ.get("KLODY_BRIEFING", "1") != "0":
         dep = Dependances(lanceur=lanceur, resumer=synthese_llm(client, modele),
                           chercher_mails=gmail.chercher if gmail is not None else None)
+        # Midi et soir demandés le 2026-11-26 ; « 0 » coupe un moment.
         briefing = source_briefing(registre, dep, data_dir,
-                                   os.environ.get("KLODY_BRIEFING_HEURE", HEURE_DEFAUT))
+                                   os.environ.get("KLODY_BRIEFING_HEURE", HEURE_DEFAUT), {
+                                       "midi": os.environ.get("KLODY_BRIEFING_MIDI", HEURES_DEFAUT["midi"]),
+                                       "soir": os.environ.get("KLODY_BRIEFING_SOIR", HEURES_DEFAUT["soir"]),
+                                   })
     rdv = None
     if lanceur is not None and os.environ.get("KLODY_RDV", "1") != "0":
         rdv = source_rendez_vous(lanceur, avance_min=int(
