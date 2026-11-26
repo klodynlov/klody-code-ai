@@ -52,6 +52,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent.texte_vocal import sans_markdown
+
 from canaux.briefing import HEURE_DEFAUT, HEURES_DEFAUT, Dependances, source_briefing, synthese_llm
 from canaux.proactif import (
     MAX_PAR_JOUR,
@@ -296,7 +298,6 @@ def make_agent_runner(memory_dir: Path,
     from agent.approval import requires_approval
     from agent.memory import ConversationMemory
     from agent.orchestrator import Orchestrator
-    from api.server import _strip_markdown
 
     mem_file = memory_dir / f"memory_{session}.json"
     refuses: list[str] = [] if bloques is None else bloques
@@ -313,7 +314,7 @@ def make_agent_runner(memory_dir: Path,
         last = next((m["content"] for m in reversed(memory.messages)
                      if m["role"] == "assistant" and m.get("content")),
                     "Je n'ai pas pu répondre.")
-        return str(_strip_markdown(last))
+        return sans_markdown(last)
 
     return run
 

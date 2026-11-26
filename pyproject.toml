@@ -101,6 +101,7 @@ files = [
     "api/metrics.py",
     "api/garde_origine.py",  # garde de sécurité : typé d'office
     "api/montre.py",  # route exposée au tailnet : typée d'office
+    "agent/texte_vocal.py",
 ]
 # Adoption incrémentale : on ne reporte que les erreurs des modules listés
 # dans `files`. Les modules suivis par import mais pas encore typés (skills,
