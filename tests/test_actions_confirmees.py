@@ -8,6 +8,7 @@ refus qui sortent AVANT toute demande d'accès Calendriers/Rappels.
 import json
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -540,7 +541,9 @@ def test_coque_dispatch_et_refus_avant_eventkit():
     assert "EKAlarm(absoluteDate:" in src  # un rappel à heure sonne
 
 
-@pytest.mark.skipif(shutil.which("swiftc") is None, reason="macOS + swiftc requis")
+# Vécu en CI le 2026-11-26 : le runner Linux a swiftc mais pas EventKit.
+@pytest.mark.skipif(sys.platform != "darwin" or shutil.which("swiftc") is None,
+                    reason="macOS + swiftc requis (EventKit)")
 def test_coque_compilee_refuse_avant_tout_acces(tmp_path):
     binaire = tmp_path / "km"
     r = subprocess.run(["swiftc", "-swift-version", "5", "-o", str(binaire),
