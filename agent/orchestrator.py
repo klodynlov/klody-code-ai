@@ -49,6 +49,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
+from tools import plan_tache
 from tools.agenda import (
     agenda as ag_agenda,
     briefing_maintenant as ag_briefing,
@@ -135,6 +136,7 @@ from tools.skills import (
 )
 from tools.terminal import CommandBlocked, Terminal
 from tools.toolsmith import list_kinds as ts_list_kinds, scaffold_tool as ts_scaffold
+from tools.validateur import valider_fichier as vf_valider_fichier
 from tools.vision import analyser_image as vn_analyser_image
 from tools.voice import speak as vc_speak
 
@@ -168,6 +170,7 @@ from agent.orchestrateur.gardes import (
     _LOOP_REPEAT_BREAK,
     _LOOP_REPEAT_WARN,
     _NO_SOURCE_CLAIM_RE,  # noqa: F401 — ré-export pour tests
+    _PLAN_GUARD_MARGE,
     _SCAN_REPEAT_BREAK,
     _SCAN_REPEAT_WARN,
     GardesMixin,
@@ -825,7 +828,10 @@ class Orchestrator(GardesMixin):
         # fois par run() : identique à chaque itération ReAct du message.
         # Le guide d'application dépend du sujet : il suit le tour lui aussi.
         guidance = capability_guidance(getattr(self, "_context_servers", set())) if progressive else ""
-        sections = retrieval_section + skills_section + guidance
+        # Plan ouvert de la session : rappelé dans le tour, jamais dans le système
+        # (il change à chaque coche, le système doit rester un préfixe stable).
+        plan_section = plan_tache.section_tour(getattr(self.memory, "plan", []))
+        sections = retrieval_section + skills_section + guidance + plan_section
         self._contexte_tour = f"{_ENTETE_CONTEXTE_TOUR}{sections}" if sections else ""
         self.memory.ancrer_contexte_tour(self._contexte_tour)
 
@@ -1281,6 +1287,12 @@ class Orchestrator(GardesMixin):
             "library_source_status": lambda a: library_source_status(a.get("book_id")),
             # Mémoire long-terme
             "remember_fact": self._tool_remember_fact,
+            # Méthode et vérification (tools/plan_tache.py, tools/validateur.py)
+            "plan_tache": self._tool_plan_tache,
+            "valider_fichier": lambda a: vf_valider_fichier(
+                self.file_manager.read_file, a.get("chemin", "") or "",
+                a.get("schema", "") or "", a.get("schema_chemin", "") or "",
+                a.get("format", "") or "", a.get("delimiteur", "") or ""),
             "forget_fact": self._tool_forget_fact,
             # Mémoire sémantique (archive klody_memory — lecture seule)
             "rappeler_memoire": lambda a: semantic_memory.recall_for_llm(
@@ -1417,6 +1429,16 @@ class Orchestrator(GardesMixin):
             a["key"], a["content"], a.get("category", "context"))
         invalider_section_de_session(self.memory)
         return resultat
+
+    def _tool_plan_tache(self, a: dict) -> str:
+        """Plan porté par la mémoire de SESSION (l'orchestrateur est reconstruit à
+        chaque message). Toute action autre que « voir » arme la garde de fin de
+        tour : un plan qu'on vient de toucher ne se laisse pas ouvert en silence."""
+        plan, texte = plan_tache.executer(getattr(self.memory, "plan", []), a)
+        self.memory.plan = plan
+        if str(a.get("action") or "voir").strip().lower() != "voir":
+            self._plan_touche = True
+        return texte
 
     def _tool_forget_fact(self, a: dict) -> str:
         """Un fait oublié à la demande ne doit pas rester affirmé par le système
@@ -2076,6 +2098,7 @@ class Orchestrator(GardesMixin):
             self.trace_dernier_tour = {
                 "doc_guard_fired": bool(getattr(self, "_doc_guard_fired", False)),
                 "doc_consulte": bool(getattr(self, "_doc_consulte", False)),
+                "plan_guard_fired": bool(getattr(self, "_plan_guard_fired", False)),
             }
             self._reinitialiser_drapeaux()
 
@@ -2097,6 +2120,8 @@ class Orchestrator(GardesMixin):
         self._doc_ecrits = set()
         self._outil_producteur_appele = False
         self._fichier_produit = False
+        self._plan_touche = False
+        self._plan_guard_fired = False
 
     def _run_tour(self, user_input: str) -> None:
         # Profilage + suggestions proactives
@@ -2143,6 +2168,9 @@ class Orchestrator(GardesMixin):
         self._code_ecrit = False           # ≥1 écriture dans le dépôt
         self._doc_consulte = False         # ≥1 document du projet lu
         self._doc_guard_fired = False      # 1 relance max par run()
+        # Garde « plan laissé ouvert » (cf. tools/plan_tache.relance_garde).
+        self._plan_touche = False          # plan_tache appelé (hors « voir ») ce run
+        self._plan_guard_fired = False     # 1 relance max par run()
         self._doc_inventaire = None        # balayage paresseux, au plus 1 par run()
         self._doc_ecrits = set()           # documents écrits par l'agent ce run
         # Garde « code affiché sans écriture » (cf. _affiche_du_code).
@@ -2838,6 +2866,33 @@ class Orchestrator(GardesMixin):
                     self.memory.messages.append({
                         "role": "user",
                         "content": self._doc_guard_nudge(_docs),
+                        "timestamp": None,
+                    })
+                    continue
+
+                # Garde-fou « plan laissé ouvert » : l'agent a tenu un plan pendant
+                # ce tour et conclut avec des étapes ni faites ni abandonnées. Ce
+                # n'est pas lui demander de tout finir : une étape impossible se
+                # coche « bloque » ou « abandonne » AVEC sa raison — mais la réponse
+                # ne doit pas laisser croire que le plan est bouclé.
+                _plan_ouvert = plan_tache.etapes_ouvertes(
+                    plan_tache.normaliser(getattr(self.memory, "plan", [])))
+                if (getattr(self, "_plan_touche", False) and _plan_ouvert
+                        and not getattr(self, "_plan_guard_fired", False)):
+                    self._plan_guard_fired = True
+                    logger.info("[plan-guard] conclusion avec %d étape(s) ouverte(s) "
+                                "→ relance (iter=%d)", len(_plan_ouvert), iteration)
+                    _budget = _budget_pour_relance(iteration, max_iter, _PLAN_GUARD_MARGE)
+                    if _budget > max_iter:
+                        max_iter = _budget
+                    console.print(
+                        "[dim yellow]  ⤵  Le plan a encore des étapes ouvertes — "
+                        "je les termine ou je dis pourquoi[/dim yellow]"
+                    )
+                    self.memory.messages.append({
+                        "role": "user",
+                        "content": plan_tache.relance_garde(
+                            plan_tache.normaliser(self.memory.plan)),
                         "timestamp": None,
                     })
                     continue

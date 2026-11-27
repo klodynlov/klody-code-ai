@@ -52,7 +52,8 @@ def test_la_trace_survit_a_la_remise_a_zero():
     o = _orch_dont_le_tour(tour)
     o.run("écris la fonction")
     assert o._doc_guard_fired is False
-    assert o.trace_dernier_tour == {"doc_guard_fired": True, "doc_consulte": True}
+    assert o.trace_dernier_tour == {"doc_guard_fired": True, "doc_consulte": True,
+                                   "plan_guard_fired": False}
 
 
 class _TacheBidon(Task):

@@ -591,6 +591,76 @@ MEMORY_TOOLS = [
     },
 ]
 
+# Méthode et vérification (2026-11-27) : découper une tâche longue et la suivre,
+# contrôler un livrable structuré AVANT de dire qu'il est bon.
+METHODE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "plan_tache",
+            "description": (
+                "Plan de travail pour une demande de 3 étapes ou plus : découpe, suit "
+                "et coche les étapes. N'en fais PAS pour une action simple. "
+                "action=definir (etapes : liste de 2 à 12 phrases courtes et "
+                "vérifiables, la 1re passe en cours) ; action=cocher (numero, statut "
+                "fait|en_cours|bloque|abandonne, note obligatoire si bloque ou "
+                "abandonne) ; action=ajouter (etape, apres) ; voir ; effacer. "
+                "Coche chaque étape dès qu'elle est faite ; ne conclus pas avec des "
+                "étapes ouvertes sans dire pourquoi."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["definir", "cocher", "ajouter", "voir", "effacer"],
+                    },
+                    "etapes": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "definir : les étapes, dans l'ordre.",
+                    },
+                    "numero": {"type": "integer", "description": "cocher : numéro de l'étape (1 = première)."},
+                    "statut": {
+                        "type": "string",
+                        "enum": ["fait", "en_cours", "bloque", "abandonne", "a_faire"],
+                        "description": "cocher : nouveau statut (défaut fait).",
+                    },
+                    "note": {"type": "string", "description": "cocher : résultat ou raison (courte)."},
+                    "etape": {"type": "string", "description": "ajouter : titre de l'étape."},
+                    "apres": {"type": "integer", "description": "ajouter : insérer après ce numéro (0 = en tête ; vide = à la fin)."},
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "valider_fichier",
+            "description": (
+                "Valide un fichier JSON, JSONL ou CSV/TSV : syntaxe, et conformité à un "
+                "JSON Schema si fourni (en CSV, chaque ligne = un objet {colonne: valeur}, "
+                "cellules converties au type attendu ; required = colonnes obligatoires). "
+                "Lecture seule. À lancer sur tout livrable structuré AVANT de conclure."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chemin": {"type": "string", "description": "Fichier à valider."},
+                    "schema": {"type": "string", "description": "JSON Schema en texte JSON (optionnel)."},
+                    "schema_chemin": {"type": "string", "description": "Ou chemin d'un fichier .json contenant le schéma."},
+                    "format": {
+                        "type": "string", "enum": ["json", "jsonl", "csv", "tsv"],
+                        "description": "Si l'extension ne le dit pas.",
+                    },
+                    "delimiteur": {"type": "string", "description": "CSV : séparateur (défaut : détecté parmi , ; tabulation |)."},
+                },
+                "required": ["chemin"],
+            },
+        },
+    },
+]
+
 GITHUB_TOOLS = [
     {
         "type": "function",
@@ -2020,7 +2090,7 @@ NOSQL_TOOLS: list[dict] = [
 
 from tools.library_sources import LIBRARY_SOURCE_TOOLS  # noqa: E402
 
-TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS, *NOSQL_TOOLS, *LIBRARY_SOURCE_TOOLS]
+TOOLS = [*TOOLS, LIST_SKILLS_TOOL, DELETE_SKILL_TOOL, SKILL_TOOL, *IMPORT_TOOLS, *MCP_TOOLS, *MEMORY_TOOLS, *METHODE_TOOLS, *GITHUB_TOOLS, *PROJECT_TOOLS, *PREVIEW_TOOLS, *AUDIO_TOOLS, *DOCUMENT_TOOLS, *VOICE_TOOLS, *IMAGE_TOOLS, *CODE_GRAPH_TOOLS, *MAC_TOOLS, *HOME_TOOLS, *AUTOMATION_TOOLS, *TOOLSMITH_TOOLS, *DEPS_TOOLS, *SQL_TOOLS, *DOCKER_TOOLS, *K8S_TOOLS, *GIT_TOOLS, *DIAGRAM_TOOLS, *SCAFFOLD_TOOLS, *SDK_TOOLS, *NOSQL_TOOLS, *LIBRARY_SOURCE_TOOLS]
 TOOLS.sort(key=lambda t: t["function"]["name"])
 
 

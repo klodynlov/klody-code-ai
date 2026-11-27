@@ -30,6 +30,9 @@ class ConversationMemory:
     def __init__(self, session_id: str | None = None):
         self.session_id: str = session_id or str(uuid.uuid4())[:8]
         self.memory_file: Path = config.MEMORY_DIR / f"memory_{self.session_id}.json"
+        # Plan de tâche de la session (outil `plan_tache`, tools/plan_tache.py) :
+        # porté ici parce que l'orchestrateur est reconstruit à chaque message.
+        self.plan: list[dict[str, str]] = []
         self.messages: list[dict] = []
         self._created_at: str = datetime.now().isoformat()
         self.title: str = ""
@@ -200,6 +203,7 @@ class ConversationMemory:
             "archived": self.archived,
             "created_at": self._created_at,
             "updated_at": datetime.now().isoformat(),
+            "plan": self.plan,
             # On retire les clés privées éphémères (cache de tokens `_tok*`) : elles
             # n'ont pas à être persistées et seront recalculées au besoin.
             "messages": [
@@ -236,6 +240,8 @@ class ConversationMemory:
         instance._created_at = data["created_at"]
         instance.title = data.get("title", "")
         instance.archived = bool(data.get("archived", False))
+        plan = data.get("plan")
+        instance.plan = plan if isinstance(plan, list) else []
         instance._meta_disque = (instance.title, instance.archived)
         # Assainit les sessions héritées : un tool result orphelin viole
         # l'invariant ET casse l'API OpenAI/Ollama au prochain appel.
@@ -260,6 +266,8 @@ class ConversationMemory:
         # les faits extraits viennent de l'historique, déjà sous les yeux du
         # modèle. Historique effacé ⇒ cette raison tombe : relire au prochain tour.
         invalider_section_de_session(self)
+        # Le plan découpait une demande de l'historique effacé : il part avec lui.
+        self.plan = []
         self.save()
 
     def stats(self) -> dict:
