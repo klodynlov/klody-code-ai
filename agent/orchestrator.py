@@ -146,6 +146,7 @@ from agent.llm import LLMClient
 from agent.long_term_memory import (
     get_long_term_memory,
     invalider_section_de_session,
+    sanitize,
     section_de_session,
 )
 from agent.memory import ConversationMemory
@@ -1437,6 +1438,16 @@ class Orchestrator(GardesMixin):
         resultat = self.lt_memory.remember(
             a["key"], a["content"], a.get("category", "context"))
         invalider_section_de_session(self.memory)
+        # Mesure 27/11 : une décision de projet part ici, jamais dans
+        # journal_projet. Le miroir la date dans le journal du projet nommé.
+        # Contenu assaini comme à l'écriture du fait (ASI06).
+        if (str(a.get("category") or "").strip().lower() == "project"
+                and not resultat.startswith("ERREUR")):
+            contenu, _ = sanitize(str(a["content"]), strict=True)
+            miroir = journal_projet.miroir_fait(
+                str(a["key"]), contenu, session=getattr(self.memory, "session_id", None))
+            if miroir:
+                resultat += "\n" + miroir
         return resultat
 
     def _tool_plan_tache(self, a: dict) -> str:

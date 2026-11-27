@@ -183,3 +183,80 @@ class TestSectionTour:
     def test_base_illisible_ne_leve_pas(self):
         jp.chemin_base().write_bytes(b"pas une base sqlite" * 10)
         assert jp.section_tour("karibtruck") == ""
+
+
+class TestMiroirFait:
+    """Pont remember_fact (catégorie project) → journal : mesure du 27/11, Qwen
+    note une décision avec remember_fact 3/3 et journal_projet 0/3."""
+
+    FAIT = "Projet Atelier : on garde SQLite, pas Postgres, car tout tourne sur un seul Mac."
+
+    def test_projet_nomme_devient_decision_datee(self):
+        r = jp.miroir_fait("atelier_base_donnees", self.FAIT, session="s1", maintenant=JOUR)
+        assert r == "Aussi daté dans le journal de Atelier : décision #1."
+        assert "#1 27/11/2026 " + self.FAIT in jp.lire("Atelier")
+
+    def test_sans_marque_de_decision_c_est_une_note(self):
+        r = jp.miroir_fait("atelier_stack", "Le projet Atelier tourne sur macOS 27.",
+                           maintenant=JOUR)
+        assert r.endswith("note #1.")
+
+    @pytest.mark.parametrize("texte,attendu", [
+        ("Projet Atelier : base SQLite (pas Postgres), un seul Mac.", "décision"),
+        ("Projet Atelier : SQLite, pas Postgres.", "décision"),
+        ("Projet Atelier : SQLite et non Postgres.", "décision"),
+        ("Projet Atelier : l'export MIDI ne marche pas encore.", "note"),
+    ])
+    def test_tournures_de_decision(self, texte, attendu):
+        assert jp.miroir_fait("k", texte).endswith(f"{attendu} #1.")
+
+    def test_nom_en_deux_mots_et_accent(self):
+        assert "Klody Code" in jp.miroir_fait("k", "Le projet Klody Code utilise Qwen.")
+        assert "Éveil" in jp.miroir_fait("e", "Projet Éveil : voix Supertonic retenue.")
+
+    def test_variante_un_mot_deja_connue_gagne(self):
+        _noter(projet="Atelier", texte="Démucs par défaut")
+        r = jp.miroir_fait("x", "Projet Atelier SQLite retenu.")
+        assert "de Atelier :" in r
+        assert "Atelier SQLite" not in jp.projets()
+
+    def test_projet_connu_retrouve_par_la_cle(self):
+        _noter(projet="Atelier", texte="Démucs par défaut")
+        r = jp.miroir_fait("atelier_base_donnees", "On garde SQLite, pas Postgres.")
+        assert r == "Aussi daté dans le journal de Atelier : décision #2."
+
+    def test_deux_projets_connus_ambigu_rien(self):
+        _noter(projet="Atelier", texte="a")
+        _noter(projet="KaribTruck", texte="b")
+        assert jp.miroir_fait("atelier_karibtruck", "On garde SQLite partout.") == ""
+        assert jp.lire("Atelier").count("\n- ") == 1
+
+    def test_aucun_projet_nomme_rien_et_pas_de_base(self):
+        assert jp.miroir_fait("projet_principal", "Le projet principal avance bien.") == ""
+        assert not jp.chemin_base().exists()
+
+    def test_meme_texte_deja_au_journal_rien(self):
+        assert jp.miroir_fait("k", self.FAIT)
+        assert jp.miroir_fait("k", self.FAIT) == ""
+        assert "(1 entrée(s))" in jp.lire("Atelier")
+
+    def test_decision_qui_change_laisse_deux_entrees(self):
+        jp.miroir_fait("k", self.FAIT, maintenant=JOUR)
+        jp.miroir_fait("k", "Projet Atelier : on passe à Postgres, plutôt que SQLite.",
+                       maintenant=datetime(2026, 12, 3, 9, 0))
+        texte = jp.lire("Atelier")
+        assert "#1 27/11/2026" in texte and "#2 03/12/2026" in texte
+
+    def test_texte_trop_long_tronque(self):
+        r = jp.miroir_fait("k", "Projet Atelier : " + "x" * (jp.TEXTE_MAX + 50))
+        assert r.endswith("note #1.")
+        assert "…" in jp.lire("Atelier")
+
+    def test_contenu_vide_rien(self):
+        assert jp.miroir_fait("k", "   ") == ""
+
+    def test_base_illisible_rien(self, monkeypatch):
+        def panne(creer):
+            raise jp.sqlite3.OperationalError("disk I/O error")
+        monkeypatch.setattr(jp, "_connexion", panne)
+        assert jp.miroir_fait("k", self.FAIT) == ""

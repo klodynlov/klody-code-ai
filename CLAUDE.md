@@ -1937,6 +1937,35 @@ session, une demande) ne le faisaient.
   sans création, filtre des tâches ouvertes, session, plafond de 2 projets). Une
   8ᵉ a survécu : la réécriture du nom d'affichage était du code mort (l'affichage
   lit déjà l'entrée la plus récente) — retirée plutôt que testée.
+
+## État au 2026-11-27 — miroir mémoire → journal
+
+Mesure du jour (18 vraies demandes sur Qwen, aucune ne nomme d'outil) : pour
+noter une décision, le modèle prend `remember_fact` catégorie `project` (3/3),
+jamais `journal_projet` (0/3). Plutôt que lui demander autre chose, on suit ce
+qu'il fait déjà.
+
+- `_tool_remember_fact` : catégorie `project` et écriture réussie →
+  `journal_projet.miroir_fait(clé, contenu assaini, session)`. Le résultat de
+  l'outil dit « Aussi daté dans le journal de X : décision #N. ».
+- **Projet** : nom explicite après « projet » (au plus deux mots à majuscule ;
+  si sa variante d'un mot est déjà au journal, elle gagne) ; sinon un projet
+  DÉJÀ au journal cité en mot entier dans la clé ou le contenu. Deux candidats
+  ou aucun = rien — un fait rangé dans le mauvais projet est pire qu'absent.
+- **Type** : `decision` si le texte en a les marques (« on garde », « plutôt
+  que », « choisi »…), `note` sinon. Même texte déjà au journal du projet =
+  rien. Une décision qui change laisse deux entrées datées : c'est l'historique
+  que la mémoire long terme (réécrite sous sa clé) ne garde pas.
+- Aucun projet trouvé → la base n'est pas créée. Toute panne SQLite → "" :
+  `remember_fact` ne casse jamais à cause du journal.
+- Description de `content` dans `remember_fact` : « Catégorie project : nomme
+  le projet ».
+- Mutations : 8/8 rouges (filtre de catégorie, doublon, ambiguïté, type,
+  variante d'un mot, troncature, panne, « (pas X) »).
+- Vérif réelle (Qwen, 3 passes, état jetable) : `remember_fact` 3/3, entrée
+  datée au journal d'Atelier 3/3. Qwen écrit « SQLite (pas Postgres) » : d'où
+  la marque « (pas X) / , pas X » — sans elle c'était une note, que le rappel
+  compact du tour n'affiche pas.
 - ⚠️ **Non fait** : aucune consigne dans `prompts/base.md` (levier « mieux le
   lui dire » épuisé) ; l'usage SPONTANÉ (noter une décision sans qu'on le
   demande) n'est pas mesuré. Pas de garde qui l'exige.
