@@ -9,6 +9,10 @@ Le journal est daté et cumulatif, rangé par projet : « 27/11 décision : on g
 Qwen, parce que… », « état : PR #346 ouverte », « tâche : mesurer la marge de la
 garde ». Reprendre un projet trois semaines plus tard = lire son journal.
 
+Miroir : un `remember_fact` de catégorie « project » qui nomme un projet écrit
+aussi une entrée datée ici (`miroir_fait`) — c'est l'outil que le modèle
+prend de lui-même pour noter une décision (mesure du 27/11).
+
 Stockage : SQLite `journal_projet.db` dans `config.MEMORY_DIR`, lu à l'APPEL (pas
 à l'import) pour que les tests et un second profil (`KLODY_DATA_DIR`) le
 redirigent. Une lecture ne crée jamais la base : la section du tour est calculée
@@ -262,6 +266,100 @@ def executer(args: dict[str, Any], session: str | None = None) -> str:
     if action == "projets":
         return projets()
     return f"Action « {action} » inconnue (noter, lire, clore, projets)."
+
+
+# ── Miroir de la mémoire long terme ─────────────────────────────────────────
+
+# « Projet Atelier : … », « le projet Klody Code utilise… » : un nom propre (au plus
+# deux mots à majuscule) juste après « projet ». « le projet principal » ne nomme
+# rien — on ne devine pas.
+_PROJET_NOMME = re.compile(
+    r"(?i:\bprojet|\bproject)\s+[«\"'“]?\s*"
+    r"([A-ZÀ-ÖØ-Þ0-9][\w.+-]*(?:[ ][A-ZÀ-ÖØ-Þ][\w.+-]*)?)")
+_MARQUES_DECISION = re.compile(
+    r"\b(on garde|on reste sur|on passe a|on abandonne|on a (?:tranche|decide|choisi|opte)"
+    r"|decide|decision|tranche|choisi|opte|retenu|plutot que|au lieu de|pas de|et non)\b"
+    # « SQLite (pas Postgres) », « SQLite, pas Postgres » : la tournure que Qwen
+    # emploie le plus (vérif réelle 27/11, 3/3) — pas « ne marche pas ».
+    r"|[(,;]\s*pas\b")
+
+
+def _projet_du_fait(cle: str, contenu: str) -> str | None:
+    """Projet d'un fait mémorisé, ou None si rien ne le nomme sans ambiguïté.
+
+    1. Nom explicite après « projet » dans le contenu ; s'il en existe une
+       variante d'un mot déjà au journal (« Atelier SQLite » → « Atelier »), elle
+       gagne.
+    2. Sinon, un projet DÉJÀ au journal cité en mot entier dans la clé ou le
+       contenu (`atelier_base_donnees` → Atelier). Deux candidats = ambiguïté →
+       rien, plutôt qu'un fait rangé dans le mauvais projet.
+    """
+    connus: list[str] = []
+    try:
+        cx = _connexion(creer=False)
+        if cx is not None:
+            with closing(cx):
+                connus = [r["projet"] for r in cx.execute(
+                    "SELECT projet, MAX(id) AS d FROM entrees GROUP BY projet ORDER BY d DESC")]
+    except sqlite3.Error:
+        connus = []
+    m = _PROJET_NOMME.search(contenu or "")
+    if m:
+        nom = m.group(1).rstrip(".+-")
+        premier = nom.split(" ")[0]
+        if " " in nom and cle_projet(nom) not in connus and cle_projet(premier) in connus:
+            return premier
+        return nom
+    texte = " " + re.sub(r"[^a-z0-9]+", " ", _plat(f"{cle} {contenu}")) + " "
+    trouves = [c for c in connus if f" {c.replace('-', ' ')} " in texte]
+    return _nom_connu(trouves[0]) if len(trouves) == 1 else None
+
+
+def _nom_connu(cle: str) -> str | None:
+    cx = _connexion(creer=False)
+    if cx is None:  # pragma: no cover — la base vient d'être lue
+        return None
+    with closing(cx):
+        return _nom(cx, cle)
+
+
+def miroir_fait(cle: str, contenu: str, session: str | None = None,
+                maintenant: datetime | None = None) -> str:
+    """Un fait `remember_fact` de catégorie « project » devient AUSSI une entrée
+    datée du journal de son projet.
+
+    Mesure du 27/11 : pour noter une décision, Qwen prend `remember_fact`
+    (3/3), jamais `journal_projet` (0/3). La mémoire long terme réécrit le fait
+    sous sa clé — sans date ni historique. Le miroir garde la trace : une
+    décision qui change plus tard laisse deux entrées datées.
+
+    Type : décision si le texte en a les marques (« on garde », « plutôt que »…),
+    note sinon. Même texte déjà au journal du projet = rien (re-mémoriser n'est
+    pas un nouvel événement). Rien ne casse `remember_fact` : toute panne → "".
+    """
+    texte = _ligne(contenu, TEXTE_MAX + 1)
+    if not texte:
+        return ""
+    if len(texte) > TEXTE_MAX:
+        texte = texte[:TEXTE_MAX - 1] + "…"
+    try:
+        nom = _projet_du_fait(cle, texte)
+        if not nom:
+            return ""
+        cx = _connexion(creer=False)
+        if cx is not None:
+            with closing(cx):
+                deja = cx.execute("SELECT 1 FROM entrees WHERE projet = ? AND texte = ? LIMIT 1",
+                                  (cle_projet(nom), texte)).fetchone()
+            if deja:
+                return ""
+        type_ = "decision" if _MARQUES_DECISION.search(_plat(texte)) else "note"
+        resultat = noter(nom, type_, texte, session=session, maintenant=maintenant)
+    except sqlite3.Error:
+        return ""
+    if not resultat.startswith("Noté"):
+        return ""
+    return "Aussi daté dans le journal de " + resultat[len("Noté dans le journal de "):]
 
 
 # ── Rappel dans le tour ─────────────────────────────────────────────────────

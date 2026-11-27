@@ -78,3 +78,33 @@ def test_projet_non_nomme_rien_dans_le_tour(fake_orchestrator):
     orch, _ = fake_orchestrator(fixture)
     orch.run("Quel temps fait-il ?")
     assert "Journal de projet" not in (orch._contexte_tour or "")
+
+
+def test_remember_fact_projet_date_aussi_dans_le_journal(fake_orchestrator):
+    """Mesure 27/11 : Qwen note une décision avec remember_fact (3/3). Le miroir
+    la date dans le journal — et la session suivante la retrouve dans le tour."""
+    fixture = {"name": "journal_miroir", "router_decision": DECISION, "llm_responses": [
+        _appel("remember_fact", key="atelier_base_donnees", category="project",
+               content="Projet Atelier : on garde SQLite, pas Postgres."),
+        {"content": "C'est noté.", "tool_calls": None},
+    ]}
+    orch, llm = fake_orchestrator(fixture)
+    orch.run("Pour Atelier on garde SQLite, garde ça en tête.")
+    assert llm.consumed == 2
+    with sqlite3.connect(jp.chemin_base()) as cx:
+        ligne = cx.execute("SELECT nom, type, texte, session FROM entrees").fetchone()
+    assert ligne == ("Atelier", "decision", "Projet Atelier : on garde SQLite, pas Postgres.",
+                     orch.memory.session_id)
+    resultat = next(m for m in orch.memory.messages if m.get("role") == "tool")["content"]
+    assert "Aussi daté dans le journal de Atelier : décision #1." in resultat
+
+
+def test_remember_fact_hors_projet_ne_touche_pas_le_journal(fake_orchestrator):
+    fixture = {"name": "journal_miroir_non", "router_decision": DECISION, "llm_responses": [
+        _appel("remember_fact", key="style", category="preference",
+               content="Projet Atelier : réponses courtes."),
+        {"content": "Ok.", "tool_calls": None},
+    ]}
+    orch, _ = fake_orchestrator(fixture)
+    orch.run("Réponds court.")
+    assert not jp.chemin_base().exists()

@@ -523,7 +523,11 @@ MEMORY_TOOLS = [
                     },
                     "content": {
                         "type": "string",
-                        "description": "Contenu à mémoriser — une phrase claire et concise",
+                        "description": (
+                            "Contenu à mémoriser — une phrase claire et concise. "
+                            "Catégorie project : nomme le projet (« Projet Atelier : … »), "
+                            "le fait est aussi daté dans son journal"
+                        ),
                     },
                     "category": {
                         "type": "string",
