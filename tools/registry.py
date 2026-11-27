@@ -597,6 +597,38 @@ METHODE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "journal_projet",
+            "description": (
+                "Journal daté d'un projet, gardé d'une session à l'autre : décisions "
+                "(et pourquoi), état d'avancement, tâches à faire, incidents, notes. "
+                "action=noter (projet, type decision|etat|tache|incident|note, texte : "
+                "un fait court) ; action=lire (projet ; type et nombre optionnels — "
+                "sans type : état actuel, tâches ouvertes, décisions, incidents) ; "
+                "action=clore (numero d'une tâche, resultat) ; action=projets. "
+                "Note une décision quand l'utilisateur en prend une ; lis le journal "
+                "avant de reprendre un projet."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["noter", "lire", "clore", "projets"]},
+                    "projet": {"type": "string", "description": "Nom du projet (ex. KaribTruck)."},
+                    "type": {
+                        "type": "string",
+                        "enum": ["decision", "etat", "tache", "incident", "note"],
+                    },
+                    "texte": {"type": "string", "description": "noter : le fait, ≤ 1000 car."},
+                    "numero": {"type": "integer", "description": "clore : numéro de la tâche (#12 → 12)."},
+                    "resultat": {"type": "string", "description": "clore : ce qui a été fait."},
+                    "nombre": {"type": "integer", "description": "lire avec type : combien d'entrées (défaut 10)."},
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "plan_tache",
             "description": (
                 "Plan de travail pour une demande de 3 étapes ou plus : découpe, suit "

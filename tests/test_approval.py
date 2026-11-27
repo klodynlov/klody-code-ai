@@ -225,6 +225,8 @@ def test_chaque_outil_natif_libre_est_un_choix_ecrit():
         "briefing_maintenant",
         # état de la session seulement / lecture via le FileManager gardé
         "plan_tache", "valider_fichier",
+        # n'écrit que dans sa propre base locale, comme remember_fact
+        "journal_projet",
         # gardés selon leurs arguments (cf. _ARG_GATED_TOOLS) : libres sans option d'écriture
         "batch_rename", "docker_control", "git_control", "organize_directory",
         "run_sql", "sync_directories",
