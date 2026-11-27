@@ -49,7 +49,7 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.tree import Tree
-from tools import plan_tache
+from tools import journal_projet, plan_tache
 from tools.agenda import (
     agenda as ag_agenda,
     briefing_maintenant as ag_briefing,
@@ -831,7 +831,13 @@ class Orchestrator(GardesMixin):
         # Plan ouvert de la session : rappelé dans le tour, jamais dans le système
         # (il change à chaque coche, le système doit rester un préfixe stable).
         plan_section = plan_tache.section_tour(getattr(self.memory, "plan", []))
-        sections = retrieval_section + skills_section + guidance + plan_section
+        # Journal des projets NOMMÉS dans la demande : « on reprend KaribTruck »
+        # doit le trouver sans que le modèle sache qu'il existe. Même place (le
+        # tour), même bouclier que la mémoire long terme : ce texte a été écrit
+        # par un outil, donc potentiellement dicté par un contenu lu (ASI06).
+        journal_section = _shield(journal_projet.section_tour(query), "journal")
+        sections = (retrieval_section + skills_section + guidance + plan_section
+                    + journal_section)
         self._contexte_tour = f"{_ENTETE_CONTEXTE_TOUR}{sections}" if sections else ""
         self.memory.ancrer_contexte_tour(self._contexte_tour)
 
@@ -1289,6 +1295,9 @@ class Orchestrator(GardesMixin):
             "remember_fact": self._tool_remember_fact,
             # Méthode et vérification (tools/plan_tache.py, tools/validateur.py)
             "plan_tache": self._tool_plan_tache,
+            # Journal de projet, d'une session à l'autre (tools/journal_projet.py)
+            "journal_projet": lambda a: journal_projet.executer(
+                a, session=getattr(self.memory, "session_id", None)),
             "valider_fichier": lambda a: vf_valider_fichier(
                 self.file_manager.read_file, a.get("chemin", "") or "",
                 a.get("schema", "") or "", a.get("schema_chemin", "") or "",

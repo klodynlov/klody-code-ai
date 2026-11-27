@@ -81,10 +81,13 @@ GROUP_ALIASES = {
     "files": ("fichier", "fichiers", "dossier", "dossiers", "renomme", "renommer", "sauvegarde", "backup", "synchronise"),
     "infrastructure": ("sql", "sqlite", "postgres", "database", "base de donnees", "docker", "kubernetes", "kubectl", "scaffold"),
 }
+# journal_projet aussi : noter une décision n'a pas de mot-clé, et « on reprend
+# X » ne nomme qu'un projet, dont aucun alias statique ne connaît le nom.
 # plan_tache est TOUJOURS là : c'est au début d'une demande longue, quel qu'en
 # soit le sujet, qu'il sert — aucun mot-clé ne dit « cette demande a 5 étapes ».
 CORE_TOOLS = {"read_file", "list_files", "search_in_files", "list_skills",
-              "remember_fact", "forget_fact", "rappeler_memoire", "plan_tache"}
+              "remember_fact", "forget_fact", "rappeler_memoire", "plan_tache",
+              "journal_projet"}
 
 # Unity 10.2 exposes 47 broad tools. Keep routine scene work small; every
 # optional tool remains reachable by exact name or by asking for the full set.

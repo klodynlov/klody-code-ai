@@ -1906,6 +1906,41 @@ seuls puis dans la vraie boucle ReAct :
   description de l'outil porte la règle ; la garde fait respecter la fin de
   tour. Taux d'usage SPONTANÉ de `plan_tache` par Qwen : non mesuré.
 
+## État au 2026-11-27 — journal de projet (`tools/journal_projet.py`)
+
+Chantier 4, dernier de l'inventaire du 2026-11-26 : garder décisions, état,
+tâches et incidents d'un projet **d'une session à l'autre**. Ni la mémoire long
+terme (faits réécrits sous une clé, sans date ni raison) ni le plan (une
+session, une demande) ne le faisaient.
+
+- Outil `journal_projet` : `noter` (projet, type `decision|etat|tache|incident|
+  note`, texte ≤ 1 000 car.), `lire` (sans type : dernier état, tâches
+  ouvertes, décisions, incidents, notes ; avec type : les N dernières),
+  `clore` (une tâche, avec son résultat), `projets`. Numéros `#N` stables.
+- Base SQLite `journal_projet.db` dans `config.MEMORY_DIR`, lue à l'APPEL (tests
+  et `KLODY_DATA_DIR` la redirigent). Session d'origine consignée. **Une lecture
+  ne crée jamais la base.**
+- **Clé de projet** : casse, accents, séparateurs normalisés (« Suite Éveil » =
+  « suite-eveil ») ; l'orthographe non (« KaribTruck » ≠ « Karib Truck ») —
+  fusionner en devinant serait mentir. Nom affiché = celui de l'entrée la plus
+  récente.
+- **Rappel dans le tour** : un projet NOMMÉ dans la demande (mot entier ;
+  « klodynlov » n'appelle pas « Klody ») ramène son journal compact (≤ 1 200
+  car., 2 projets au plus, les plus récents) dans le contexte du tour — jamais
+  dans le système. Passé par `_shield` comme la mémoire long terme : ce texte a
+  été écrit par un outil, donc peut-être dicté par un contenu lu (ASI06). Suivi
+  de « vérifie avant de t'appuyer sur un état ancien ».
+- `journal_projet` est dans `CORE_TOOLS` : « on reprend X » ne nomme qu'un
+  projet, qu'aucun alias statique ne connaît. Libre dans `approval.py` (sa
+  propre base locale, comme `remember_fact`), hors canal iMessage.
+- Mutations : 7/7 rouges (rappel dans le tour, bouclier, mot entier, lecture
+  sans création, filtre des tâches ouvertes, session, plafond de 2 projets). Une
+  8ᵉ a survécu : la réécriture du nom d'affichage était du code mort (l'affichage
+  lit déjà l'entrée la plus récente) — retirée plutôt que testée.
+- ⚠️ **Non fait** : aucune consigne dans `prompts/base.md` (levier « mieux le
+  lui dire » épuisé) ; l'usage SPONTANÉ (noter une décision sans qu'on le
+  demande) n'est pas mesuré. Pas de garde qui l'exige.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout
