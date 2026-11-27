@@ -46,13 +46,14 @@ SERVER_ALIASES = {
 }
 
 NATIVE_GROUPS = {
-    "code": set(["write_file", "execute_command", "run_in_sandbox", "find_symbol", "find_references", "find_relevant_files", "analyze_dependencies", "code_graph", "create_project", "open_in_pycharm", "preview_code", "preview_file", "list_previews", "stop_preview_server", "git_control", "generate_uml", "scaffold_api", "scaffold_sdk", "scaffold_nosql"]),
+    "code": set(["write_file", "execute_command", "run_in_sandbox", "find_symbol", "find_references", "find_relevant_files", "analyze_dependencies", "code_graph", "create_project", "open_in_pycharm", "preview_code", "preview_file", "list_previews", "stop_preview_server", "git_control", "generate_uml", "scaffold_api", "scaffold_sdk", "scaffold_nosql", "valider_fichier"]),
     "github": set(["browse_repo", "read_github_file", "list_indexed_repos", "index_github_repo", "extract_best_practices", "clone_github_repo"]),
     "library": set(["await_distillation", "import_llm_export", "list_imports", "search_books", "library_catalog", "get_skills", "learn_from_books", "distill_theme",
                      "library_web_search", "library_import_source", "library_refresh_source", "library_source_status"]),
     "skills": set(["list_skills", "save_skill", "delete_skill"]),
     "audio": set(["analyze_audio", "edit_wav", "mix_stems", "generate_silence", "convert_format", "get_waveform_data", "speak"]),
-    "documents": set(["generate_excel", "generate_text_file", "bundle_zip"]),
+    "documents": set(["generate_excel", "generate_text_file", "bundle_zip", "valider_fichier"]),
+    "validation": {"valider_fichier"},
     "images": {"analyser_image"},
     "desktop": set(["run_applescript", "spotlight_search", "list_shortcuts", "run_shortcut", "reveal_in_finder"]),
     "home": {"mqtt_publish", "mqtt_subscribe"},
@@ -68,6 +69,8 @@ GROUP_ALIASES = {
     "skills": ("skill", "skills", "competence", "competences"),
     "audio": ("audio", "wav", "mp3", "mix", "mixage", "stems", "musique", "chanson", "midi", "ableton", "reaper"),
     "documents": ("excel", "xlsx", "csv", "document", "rapport", "zip", "texte"),
+    "validation": ("valide", "valider", "validation", "verifie le fichier", "conforme",
+                   "schema", "json schema", "jsonl", "json"),
     "images": ("image", "photo", "capture", "screenshot"),
     "desktop": ("applescript", "raccourci", "raccourcis", "finder", "spotlight", "application", "applications"),
     "home": ("mqtt", "domotique", "maison connectee"),
@@ -78,8 +81,10 @@ GROUP_ALIASES = {
     "files": ("fichier", "fichiers", "dossier", "dossiers", "renomme", "renommer", "sauvegarde", "backup", "synchronise"),
     "infrastructure": ("sql", "sqlite", "postgres", "database", "base de donnees", "docker", "kubernetes", "kubectl", "scaffold"),
 }
+# plan_tache est TOUJOURS là : c'est au début d'une demande longue, quel qu'en
+# soit le sujet, qu'il sert — aucun mot-clé ne dit « cette demande a 5 étapes ».
 CORE_TOOLS = {"read_file", "list_files", "search_in_files", "list_skills",
-              "remember_fact", "forget_fact", "rappeler_memoire"}
+              "remember_fact", "forget_fact", "rappeler_memoire", "plan_tache"}
 
 # Unity 10.2 exposes 47 broad tools. Keep routine scene work small; every
 # optional tool remains reachable by exact name or by asking for the full set.

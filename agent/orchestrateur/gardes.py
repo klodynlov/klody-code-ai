@@ -29,6 +29,7 @@ __all__ = [
     "_LOOP_REPEAT_BREAK",
     "_LOOP_REPEAT_WARN",
     "_NO_SOURCE_CLAIM_RE",
+    "_PLAN_GUARD_MARGE",
     "_SCAN_REPEAT_BREAK",
     "_SCAN_REPEAT_WARN",
     "GardesMixin",
@@ -232,6 +233,11 @@ _DOC_NUDGE_MAX = 6
 # (6 → 14) qui leur a donné ce budget : la marge d'UNE itération qu'exigeait le
 # garde n'aurait jamais suffi, elle ne faisait que le faire taire au pire moment.
 _DOC_GUARD_MARGE = 5
+# Garde « plan laissé ouvert » (tools/plan_tache.py) : le travail exigé est
+# d'avancer l'étape ouverte OU de la cocher bloque/abandonne avec sa raison, puis
+# de conclure — au moins 2 appels plus la réponse. Non mesuré in vivo (garde
+# neuve, 2026-11-27) : même marge que le garde LibraryBrain, à revoir sur traces.
+_PLAN_GUARD_MARGE = 4
 # Même chose pour le garde LibraryBrain. Aucun déclenchement réel à mesurer
 # (0 dans le log de production) : on mesure le travail qu'il exige. Sur 123 tours
 # réels de ~/.klody/data qui appellent `search_books`, du premier appel à la

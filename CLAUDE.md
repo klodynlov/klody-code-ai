@@ -1860,6 +1860,52 @@ que le modèle puisse jamais les exécuter seul.
   création réelle pendant le développement (TCC attribuerait la demande à
   Claude.app) : la première vraie écriture EventKit sera celle de l'utilisateur.
 
+## État au 2026-11-27 — plan de tâche et validateur de schéma
+
+Chantier 3 de « élargir les compétences » (inventaire du 2026-11-26 : ce qui
+manquait à la méthode et à la vérification). Deux outils natifs, purs, testés
+seuls puis dans la vraie boucle ReAct :
+
+| outil | rôle | où vit l'état |
+|---|---|---|
+| `plan_tache` (`tools/plan_tache.py`) | `definir` 2-12 étapes, `cocher` (fait / en_cours / bloque / abandonne, note obligatoire pour les deux derniers), `ajouter`, `voir`, `effacer` ; une seule étape ▶ à la fois | `ConversationMemory.plan`, sauvé avec la session (l'orchestrateur est reconstruit à chaque message) |
+| `valider_fichier` (`tools/validateur.py`) | JSON, JSONL, CSV/TSV : syntaxe, puis JSON Schema si fourni ; erreurs LOCALISÉES (`[1].prix`, `ligne 3, colonne stock`) | aucun : lecture via le `FileManager` gardé |
+
+- **Garde « plan laissé ouvert »** (`agent/orchestrator.py`, après la garde doc) :
+  si `plan_tache` a été appelé pendant le tour (hors `voir`) et que l'agent
+  conclut avec des étapes ni faites ni abandonnées, la conclusion est refusée
+  UNE fois et la relance nomme les étapes. Bloquée compte comme ouverte. Elle
+  n'exige pas de tout finir : une étape impossible se coche bloque/abandonne
+  AVEC sa raison. Un plan ancien, non touché pendant le tour (question hors
+  sujet), ne relance jamais. Budget garanti `_PLAN_GUARD_MARGE = 4` — **non
+  mesuré in vivo**, à revoir sur traces. `trace_dernier_tour["plan_guard_fired"]`.
+- **Le plan ouvert est rappelé dans le CONTEXTE DU TOUR**, jamais dans le
+  système : il change à chaque coche, et le système doit rester un préfixe
+  exact (#270). Vide dès que tout est fait/abandonné.
+- `plan_tache` est dans `CORE_TOOLS` : aucun mot-clé ne dit « cette demande a
+  5 étapes ». `valider_fichier` entre par les groupes `code`, `documents` et
+  `validation` (« valide », « conforme », « schéma », « json »…).
+- **CSV = un objet par ligne** validé contre le schéma : cellules converties au
+  type attendu (`4,50` → 4.5 ; `oui`/`non` → booléen ; vide → `null` si permis),
+  une cellule non convertible reste du texte et le schéma la dénonce avec sa
+  valeur. Colonnes `required` absentes et colonnes en trop (si
+  `additionalProperties: false`) dites UNE fois sur l'en-tête, pas à chaque
+  ligne. Séparateur détecté parmi `, ; tabulation |`, BOM Excel toléré.
+- ⚠️ **Aucun accès réseau** : jsonschema ≥ 4.18 ne télécharge pas les `$ref`
+  distants ; un `$ref` irrésoluble rend « Validation impossible … ne peut pas
+  être appliqué », testé avec `socket.create_connection` interdit.
+- **« Je n'ai pas pu juger » ≠ « conforme »** : lecture refusée, format inconnu,
+  schéma invalide ⇒ « ❌ Validation impossible … », jamais un ✅.
+- Libres dans `agent/approval.py` (état de session / lecture gardée) ; **pas**
+  ouverts au canal iMessage (liste blanche inchangée).
+- Mutations rejouées : 9/9 rouges (garde, armement par `voir`, rappel dans le
+  tour, note obligatoire, étape suivante, en-tête CSV, conversion des cellules,
+  sauvegarde du plan, `/clear`).
+- ⚠️ **Non fait, délibérément** : aucune consigne ajoutée à `prompts/base.md`
+  (levier « mieux le lui dire » mesuré épuisé, encadré ❌ plus haut). La
+  description de l'outil porte la règle ; la garde fait respecter la fin de
+  tour. Taux d'usage SPONTANÉ de `plan_tache` par Qwen : non mesuré.
+
 ## Pièges qui coûtent du temps
 
 - ⚠️ **Un `load_dotenv()` placé APRÈS un import arrive trop tard pour tout

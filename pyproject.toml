@@ -78,6 +78,8 @@ files = [
     "agent/journal_client.py",
     "agent/semantic_memory.py",
     "tools/file_manager.py",
+    "tools/plan_tache.py",
+    "tools/validateur.py",
     "tools/terminal.py",
     "tools/sandbox.py",
     "tools/search.py",
